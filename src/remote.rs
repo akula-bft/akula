@@ -124,8 +124,6 @@ impl<'tx> RemoteCursor<'tx> {
 
 #[async_trait]
 impl<'tx> traits::Cursor for RemoteCursor<'tx> {
-    type WalkStream<'cur> = BoxStream<'cur, anyhow::Result<(Bytes, Bytes)>>;
-
     async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes, Bytes)> {
         self.op(Cursor {
             op: Op::SeekExact as i32,
@@ -166,7 +164,7 @@ impl<'tx> traits::Cursor for RemoteCursor<'tx> {
         &'cur mut self,
         start_key: &'cur [u8],
         fixed_bits: u64,
-    ) -> Self::WalkStream<'cur> {
+    ) -> BoxStream<'cur, anyhow::Result<(Bytes, Bytes)>> {
         Box::pin(try_stream! {
             let (fixed_bytes, mask) = bytes_mask(fixed_bits);
 

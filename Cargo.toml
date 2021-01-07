@@ -6,7 +6,6 @@ edition = "2018"
 description = "Rust implementation of turbo-geth database format"
 license = "Apache-2.0"
 
-
 [dependencies]
 anyhow = "1"
 arrayref = "0.3"
@@ -14,26 +13,22 @@ async-stream = "0.3"
 async-trait = "0.1"
 bytes = "1"
 ethereum = { git = "https://github.com/rust-blockchain/ethereum", branch = "vorot93/dev" }
-ethereum-types = { git = "https://github.com/paritytech/parity-common" }
+ethereum-types = "0.10"
 futures = "0.3"
 hex = "0.4"
 hex-literal = "0.3"
 maplit = "1"
-once_cell = "1"
-parking_lot = "0.11"
 prost = "0.6"
-rlp = { git = "https://github.com/paritytech/parity-common" }
-rlp-derive = { git = "https://github.com/paritytech/parity-common" }
+rlp = "0.5"
+rlp-derive = "0.1"
 roaring = "0.6"
 serde = "1"
 serde_json = "1"
 sha3 = "0.9"
 tokio = { version = "1", features = ["rt"] }
-tokio-serde = { version = "0.8", features = ["bincode"] }
 tokio-stream = "0.1"
 tonic = { version = "0.3", default-features = false, features = ["codegen", "prost", "transport"] }
 tracing = "0.1"
-tracing-subscriber = "0.2"
 
 [build-dependencies]
 tonic-build = "0.3"
