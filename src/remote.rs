@@ -1,10 +1,9 @@
 use self::kv_client::*;
-use crate::{dbutils::*, traits};
+use crate::traits::{self, Cursor as _};
 use anyhow::Context;
-use async_stream::{stream, try_stream};
+use async_stream::stream;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{future::BoxFuture, stream::BoxStream};
 use std::sync::Arc;
 use tokio::sync::{
     mpsc::{channel, Sender},
@@ -32,152 +31,191 @@ pub struct RemoteCursor<'tx> {
     drop_handle: OneshotSender<()>,
 }
 
+#[async_trait]
 impl crate::Transaction for RemoteTransaction {
     type Cursor<'tx> = RemoteCursor<'tx>;
+    type CursorDupSort<'tx> = RemoteCursor<'tx>;
+    type CursorDupFixed<'tx> = RemoteCursor<'tx>;
 
-    fn cursor<'tx>(
+    async fn cursor<'tx>(&'tx self, bucket_name: &'tx str) -> anyhow::Result<Self::Cursor<'tx>> {
+        // - send op open
+        // - get cursor id
+        let mut s = self.io.lock().await;
+
+        let bucket_name = bucket_name.to_string();
+
+        trace!("Sending request to open cursor");
+
+        s.0.send(Cursor {
+            op: Op::Open as i32,
+            bucket_name: bucket_name.clone(),
+            cursor: Default::default(),
+            k: Default::default(),
+            v: Default::default(),
+        })
+        .await?;
+
+        let id = s.1.message().await?.context("no response")?.cursor_id;
+
+        trace!("Opened cursor {}", id);
+
+        drop(s);
+
+        let (drop_handle, drop_rx) = oneshot();
+
+        tokio::spawn({
+            let io = self.io.clone();
+            async move {
+                let _ = drop_rx.await;
+                let mut io = io.lock().await;
+
+                trace!("Closing cursor {}", id);
+                let _ =
+                    io.0.send(Cursor {
+                        op: Op::Close as i32,
+                        cursor: id,
+                        bucket_name: Default::default(),
+                        k: Default::default(),
+                        v: Default::default(),
+                    })
+                    .await;
+                let _ = io.1.next().await;
+            }
+        });
+
+        Ok(RemoteCursor {
+            transaction: self,
+            drop_handle,
+            id,
+        })
+    }
+
+    async fn cursor_dup_sort<'tx>(
         &'tx self,
         bucket_name: &'tx str,
-    ) -> BoxFuture<'tx, anyhow::Result<Self::Cursor<'tx>>> {
-        Box::pin(async move {
-            // - send op open
-            // - get cursor id
-            let mut s = self.io.lock().await;
+    ) -> anyhow::Result<Self::CursorDupSort<'tx>> {
+        self.cursor(bucket_name).await
+    }
 
-            let bucket_name = bucket_name.to_string();
+    async fn cursor_dup_fixed<'tx>(
+        &'tx self,
+        bucket_name: &'tx str,
+    ) -> anyhow::Result<Self::CursorDupFixed<'tx>> {
+        self.cursor(bucket_name).await
+    }
 
-            trace!("Sending request to open cursor");
+    async fn get_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<Bytes>
+    where
+        Self: Sync,
+    {
+        let mut cursor = self.cursor(bucket).await?;
 
-            s.0.send(Cursor {
-                op: Op::Open as i32,
-                bucket_name: bucket_name.clone(),
-                cursor: Default::default(),
-                k: Default::default(),
-                v: Default::default(),
-            })
-            .await?;
+        Ok(cursor.seek_exact(key).await?.1)
+    }
 
-            let id = s.1.message().await?.context("no response")?.cursor_id;
+    async fn has_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<bool> {
+        let mut cursor = self.cursor(bucket).await?;
 
-            trace!("Opened cursor {}", id);
-
-            drop(s);
-
-            let (drop_handle, drop_rx) = oneshot();
-
-            tokio::spawn({
-                let io = self.io.clone();
-                async move {
-                    let _ = drop_rx.await;
-                    let mut io = io.lock().await;
-
-                    trace!("Closing cursor {}", id);
-                    let _ =
-                        io.0.send(Cursor {
-                            op: Op::Close as i32,
-                            cursor: id,
-                            bucket_name: Default::default(),
-                            k: Default::default(),
-                            v: Default::default(),
-                        })
-                        .await;
-                    let _ = io.1.next().await;
-                }
-            });
-
-            Ok(RemoteCursor {
-                transaction: self,
-                drop_handle,
-                id,
-            })
-        })
+        Ok(key == cursor.seek(key).await?.0)
     }
 }
 
 impl<'tx> RemoteCursor<'tx> {
-    async fn op(&mut self, cursor: Cursor) -> anyhow::Result<(Bytes, Bytes)> {
+    async fn op(
+        &mut self,
+        op: Op,
+        key: Option<&[u8]>,
+        value: Option<&[u8]>,
+    ) -> anyhow::Result<(Bytes, Bytes)> {
         let mut io = self.transaction.io.lock().await;
 
-        io.0.send(cursor).await?;
+        io.0.send(Cursor {
+            op: op as i32,
+            cursor: self.id,
+            k: key.map(|v| v.to_vec()).unwrap_or_default(),
+            v: value.map(|v| v.to_vec()).unwrap_or_default(),
+
+            bucket_name: Default::default(),
+        })
+        .await?;
 
         let rsp = io.1.message().await?.context("no response")?;
 
         Ok((rsp.k.into(), rsp.v.into()))
     }
-
-    fn walk_continue<K: AsRef<[u8]>>(
-        k: &[u8],
-        fixed_bytes: u64,
-        fixed_bits: u64,
-        start_key: &K,
-        mask: u8,
-    ) -> bool {
-        !k.is_empty()
-            && k.len() as u64 >= fixed_bytes
-            && (fixed_bits == 0
-                || (k[..fixed_bytes as usize - 1]
-                    == start_key.as_ref()[..fixed_bytes as usize - 1])
-                    && (k[fixed_bytes as usize - 1] & mask)
-                        == (start_key.as_ref()[fixed_bytes as usize - 1] & mask))
-    }
 }
 
 #[async_trait]
 impl<'tx> traits::Cursor for RemoteCursor<'tx> {
-    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes, Bytes)> {
-        self.op(Cursor {
-            op: Op::SeekExact as i32,
-            cursor: self.id,
-            k: key.as_ref().to_vec(),
-
-            bucket_name: Default::default(),
-            v: Default::default(),
-        })
-        .await
+    async fn first(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::First, None, None).await
     }
 
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes, Bytes)> {
-        self.op(Cursor {
-            op: Op::Seek as i32,
-            cursor: self.id,
-            k: key.as_ref().to_vec(),
+        self.op(Op::Seek, Some(key), None).await
+    }
 
-            bucket_name: Default::default(),
-            v: Default::default(),
-        })
-        .await
+    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::SeekExact, Some(key), None).await
     }
 
     async fn next(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
-        self.op(Cursor {
-            op: Op::Next as i32,
-            cursor: self.id,
-
-            k: Default::default(),
-            bucket_name: Default::default(),
-            v: Default::default(),
-        })
-        .await
+        self.op(Op::Next, None, None).await
     }
 
-    fn walk<'cur>(
-        &'cur mut self,
-        start_key: &'cur [u8],
-        fixed_bits: u64,
-    ) -> BoxStream<'cur, anyhow::Result<(Bytes, Bytes)>> {
-        Box::pin(try_stream! {
-            let (fixed_bytes, mask) = bytes_mask(fixed_bits);
+    async fn prev(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::Prev, None, None).await
+    }
 
-            let (mut k, mut v) = self.seek(start_key).await?;
+    async fn last(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::Last, None, None).await
+    }
 
-            while Self::walk_continue(&k, fixed_bytes, fixed_bits, &start_key, mask) {
-                yield (k, v);
+    async fn current(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::Current, None, None).await
+    }
+}
 
-                let next = self.next().await?;
-                k = next.0;
-                v = next.1;
-            }
-        })
+#[async_trait]
+impl<'tx> traits::CursorDupSort for RemoteCursor<'tx> {
+    async fn seek_both_exact(
+        &mut self,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::SeekBothExact, Some(key), Some(value)).await
+    }
+
+    async fn seek_both_range(
+        &mut self,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::SeekBoth, Some(key), Some(value)).await
+    }
+
+    async fn first_dup(&mut self) -> anyhow::Result<Bytes> {
+        Ok(self.op(Op::FirstDup, None, None).await?.1)
+    }
+    async fn next_dup(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::NextDup, None, None).await
+    }
+    async fn next_no_dup(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::NextNoDup, None, None).await
+    }
+    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes> {
+        Ok(self.op(Op::LastDup, None, None).await?.1)
+    }
+}
+
+#[async_trait]
+impl<'tx> traits::CursorDupFixed for RemoteCursor<'tx> {
+    async fn get_multi(&mut self) -> anyhow::Result<Bytes> {
+        Ok(self.op(Op::GetMultiple, None, None).await?.1)
+    }
+
+    async fn next_multi(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
+        self.op(Op::NextMultiple, None, None).await
     }
 }
 

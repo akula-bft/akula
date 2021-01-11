@@ -1,10 +1,12 @@
 use crate::{dbutils::*, models::*, Cursor, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
+use async_stream::try_stream;
 use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum::Header;
 use ethereum_types::{Address, H256, U256};
+use futures::stream::BoxStream;
 use mem::size_of;
 use std::{
     collections::{HashMap, HashSet},
@@ -16,15 +18,6 @@ use tracing::*;
 
 #[async_trait]
 pub trait TransactionExt: Transaction {
-    async fn get_one<'a>(&'a self, bucket_name: &'a str, key: &'a [u8]) -> anyhow::Result<Bytes>
-    where
-        Self: Sync,
-    {
-        let mut cursor = self.cursor(bucket_name).await?;
-
-        Ok(cursor.seek_exact(key).await?.1)
-    }
-
     async fn read_canonical_hash(&self, block_num: u64) -> anyhow::Result<Option<H256>> {
         let key = header_hash_key(block_num);
 
@@ -297,7 +290,47 @@ pub trait TransactionExt: Transaction {
     // }
 }
 
-impl<Tx: ?Sized> TransactionExt for Tx where Tx: Transaction {}
+impl<T: ?Sized> TransactionExt for T where T: Transaction {}
+
+fn walk_continue<K: AsRef<[u8]>>(
+    k: &[u8],
+    fixed_bytes: u64,
+    fixed_bits: u64,
+    start_key: &K,
+    mask: u8,
+) -> bool {
+    !k.is_empty()
+        && k.len() as u64 >= fixed_bytes
+        && (fixed_bits == 0
+            || (k[..fixed_bytes as usize - 1] == start_key.as_ref()[..fixed_bytes as usize - 1])
+                && (k[fixed_bytes as usize - 1] & mask)
+                    == (start_key.as_ref()[fixed_bytes as usize - 1] & mask))
+}
+
+#[async_trait]
+pub trait CursorExt: Cursor {
+    fn walk<'cur>(
+        &'cur mut self,
+        start_key: &'cur [u8],
+        fixed_bits: u64,
+    ) -> BoxStream<'cur, anyhow::Result<(Bytes, Bytes)>> {
+        Box::pin(try_stream! {
+            let (fixed_bytes, mask) = bytes_mask(fixed_bits);
+
+            let (mut k, mut v) = self.seek(start_key).await?;
+
+            while walk_continue(&k, fixed_bytes, fixed_bits, &start_key, mask) {
+                yield (k, v);
+
+                let next = self.next().await?;
+                k = next.0;
+                v = next.1;
+            }
+        })
+    }
+}
+
+impl<T: ?Sized> CursorExt for T where T: Cursor {}
 
 pub struct StateReader<'tx, Tx: ?Sized> {
     account_reads: HashSet<Address>,

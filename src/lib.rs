@@ -11,4 +11,7 @@ mod traits;
 pub use dbutils::SyncStage;
 pub use ext::TransactionExt;
 pub use remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction};
-pub use traits::{Cursor, Transaction};
+pub use traits::{
+    ComparatorFunc, Cursor, CursorDupFixed, CursorDupFixed2, CursorDupSort, CursorDupSort2,
+    MutableCursor, Transaction, Transaction2,
+};
