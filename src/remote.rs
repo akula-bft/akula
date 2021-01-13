@@ -204,7 +204,7 @@ impl<'tx> traits::CursorDupSort for RemoteCursor<'tx> {
         self.op(Op::NextNoDup, None, None).await
     }
     async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes> {
-        Ok(self.op(Op::LastDup, None, None).await?.1)
+        Ok(self.op(Op::LastDup, Some(key), None).await?.1)
     }
 }
 

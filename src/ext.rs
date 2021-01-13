@@ -1,4 +1,4 @@
-use crate::{dbutils::*, models::*, Cursor, Transaction};
+use crate::{common, dbutils::*, models::*, Cursor, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use async_stream::try_stream;
@@ -30,11 +30,9 @@ pub trait TransactionExt: Transaction {
 
         let b = self.get_one(HEADER_PREFIX, &key).await?;
 
-        const L: usize = H256::len_bytes();
-
         match b.len() {
             0 => Ok(None),
-            L => Ok(Some(H256::from_slice(&*b))),
+            common::HASH_LENGTH => Ok(Some(H256::from_slice(&*b))),
             other => bail!("invalid length: {}", other),
         }
     }
@@ -60,11 +58,9 @@ pub trait TransactionExt: Transaction {
             .get_one(HEADER_NUMBER_PREFIX, &hash.to_fixed_bytes())
             .await?;
 
-        const L: usize = size_of::<u64>();
-
         match b.len() {
             0 => Ok(None),
-            L => Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8]))),
+            common::BLOCK_NUMBER_LENGTH => Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8]))),
             other => bail!("invalid length: {}", other),
         }
     }
@@ -99,13 +95,11 @@ pub trait TransactionExt: Transaction {
             return Ok(None);
         }
 
-        let block_num_byte_len = mem::size_of::<u64>();
-
         Ok(Some(u64::from_be_bytes(*array_ref![
-            b.get(0..block_num_byte_len)
+            b.get(0..common::BLOCK_NUMBER_LENGTH)
                 .context("failed to read block number from bytes")?,
             0,
-            mem::size_of::<u64>()
+            common::BLOCK_NUMBER_LENGTH
         ])))
     }
 
@@ -224,7 +218,7 @@ pub trait TransactionExt: Transaction {
         // dat = make([]byte, len(v))
         // copy(dat, v)
         // return dat, nil
-        todo!()
+        bail!("TODO")
     }
 
     // pub async fn find_by_history(&self, storage: bool, key: &[u8], timestamp: u64) -> anyhow::Result<Option<Bytes>> {
@@ -345,6 +339,6 @@ impl<'tx, Tx: ?Sized> StateReader<'tx, Tx> {
     pub async fn read_account_data(&mut self, address: Address) -> anyhow::Result<Option<Account>> {
         self.account_reads.insert(address);
 
-        todo!()
+        bail!("TODO")
     }
 }

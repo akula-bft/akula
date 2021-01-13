@@ -4,8 +4,9 @@ use ethereum_types::{H256, U256};
 use hex_literal::hex;
 use rlp_derive::RlpDecodable;
 use serde::Deserialize;
-use sha3::{Digest, Keccak256};
 use std::collections::BTreeSet;
+
+use crate::common;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Deserialize)]
@@ -81,13 +82,13 @@ impl Default for Account {
             nonce: 0,
             balance: U256::zero(),
             root: hex!("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").into(),
-            code_hash: H256::from_slice(&Keccak256::new().finalize()),
+            code_hash: common::hash_data(&[]),
             incarnation: 0,
         }
     }
 }
 
-fn bytesToUint64(buf: &[u8]) -> u64 {
+fn bytes_to_u64(buf: &[u8]) -> u64 {
     let mut x = 0;
     for (i, b) in buf.iter().enumerate() {
         x <<= 8 + *b as u64;
@@ -120,7 +121,7 @@ impl Account {
                 );
             }
 
-            a.nonce = bytesToUint64(&enc[pos + 1..pos + decodeLength + 1]);
+            a.nonce = bytes_to_u64(&enc[pos + 1..pos + decodeLength + 1]);
             pos += decodeLength + 1;
         }
 
@@ -150,7 +151,7 @@ impl Account {
                 )
             }
 
-            a.incarnation = bytesToUint64(&enc[pos + 1..pos + decodeLength + 1]);
+            a.incarnation = bytes_to_u64(&enc[pos + 1..pos + decodeLength + 1]);
             pos += decodeLength + 1;
         }
 
