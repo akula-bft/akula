@@ -1,4 +1,4 @@
-use crate::{common, dbutils::*, Cursor};
+use crate::{common, dbutils::*, Cursor, CursorDupSort};
 use anyhow::bail;
 use arrayref::array_ref;
 use async_trait::async_trait;
@@ -23,49 +23,94 @@ pub trait Walker2: Send {
     async fn find(&mut self, block_number: u64, k: &[u8]) -> anyhow::Result<Option<Bytes>>;
 }
 
-pub static MAPPER: SyncLazy<HashMap<Bucket, BucketMap>> = SyncLazy::new(|| {
-    vec![
-        (
-            Bucket::AccountChangeSet,
-            BucketMap {
-                index_bucket: Bucket::AccountsHistory,
-                walker_adapter: Box::new(|c| todo!()),
-                key_size: common::HASH_LENGTH,
-                template: "acc-ind-",
-                new: ChangeSet::new_account,
-                encode: account::encode_accounts,
-                decode: Box::new(from_db_format(common::HASH_LENGTH)),
-            },
-        ),
-        // (Bucket::StorageChangeSet, todo!()),
-        (
-            Bucket::PlainAccountChangeSet,
-            BucketMap {
-                index_bucket: Bucket::AccountsHistory,
-                walker_adapter: Box::new(|c| todo!()),
-                key_size: common::ADDRESS_LENGTH,
-                template: "acc-ind-",
-                new: ChangeSet::new_account_plain,
-                encode: account::encode_accounts_plain,
-                decode: Box::new(from_db_format(common::ADDRESS_LENGTH)),
-            },
-        ),
-        // (Bucket::PlainStorageChangeSet, todo!()),
-    ]
-    .into_iter()
-    .collect()
-});
+pub trait ChangeSetBucket: Bucket {
+    const KEY_SIZE: usize;
+    const TEMPLATE: &'static str;
 
-pub struct BucketMap {
-    pub index_bucket: Bucket,
-    pub walker_adapter: Box<
-        dyn Fn(&dyn Cursor) -> BoxStream<'static, anyhow::Result<(Bytes, Bytes)>> + Send + Sync,
-    >,
-    pub key_size: usize,
-    pub template: &'static str,
-    pub new: fn() -> ChangeSet,
-    pub encode: fn(u64, s: ChangeSet) -> Box<dyn Iterator<Item = (Bytes, Bytes)> + Send>,
-    pub decode: Box<dyn Fn(Bytes, Bytes) -> (u64, Bytes, Bytes) + Send + Sync>,
+    type IndexBucket: Bucket;
+    type Walker2<'cur, C: 'cur + CursorDupSort>: Walker2;
+    type EncodedStream: EncodedStream;
+
+    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(cursor: &'cur mut C)
+        -> Self::Walker2<'cur, C>;
+    fn make_changeset() -> ChangeSet;
+    fn encode(block_number: u64, s: ChangeSet) -> Self::EncodedStream;
+    fn decode(k: Bytes, v: Bytes) -> (u64, Bytes, Bytes);
+}
+
+impl ChangeSetBucket for buckets::AccountChangeSet {
+    const KEY_SIZE: usize = common::HASH_LENGTH;
+    const TEMPLATE: &'static str = "acc-ind-";
+
+    type IndexBucket = buckets::AccountsHistory;
+    type Walker2<'cur, C: 'cur + CursorDupSort> = impl Walker2;
+    type EncodedStream = impl EncodedStream;
+
+    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker2<'cur, C> {
+        AccountChangeSet { c }
+    }
+
+    fn make_changeset() -> ChangeSet {
+        ChangeSet::new_account()
+    }
+
+    fn encode(block_number: u64, s: ChangeSet) -> Self::EncodedStream {
+        encode_accounts(block_number, s)
+    }
+
+    fn decode(k: Bytes, v: Bytes) -> (u64, Bytes, Bytes) {
+        from_db_format(common::HASH_LENGTH)(k, v)
+    }
+}
+
+impl ChangeSetBucket for buckets::PlainAccountChangeSet {
+    const KEY_SIZE: usize = common::ADDRESS_LENGTH;
+    const TEMPLATE: &'static str = "acc-ind-";
+
+    type IndexBucket = buckets::AccountsHistory;
+    type Walker2<'cur, C: 'cur + CursorDupSort> = impl Walker2;
+    type EncodedStream = impl EncodedStream;
+
+    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker2<'cur, C> {
+        AccountChangeSetPlain { c }
+    }
+
+    fn make_changeset() -> ChangeSet {
+        ChangeSet::new_account_plain()
+    }
+
+    fn encode(block_number: u64, s: ChangeSet) -> Self::EncodedStream {
+        encode_accounts(block_number, s)
+    }
+
+    fn decode(k: Bytes, v: Bytes) -> (u64, Bytes, Bytes) {
+        from_db_format(common::ADDRESS_LENGTH)(k, v)
+    }
+}
+
+impl ChangeSetBucket for buckets::StorageChangeSet {
+    const KEY_SIZE: usize = common::HASH_LENGTH;
+    const TEMPLATE: &'static str = "st-ind-";
+
+    type IndexBucket = buckets::StorageHistory;
+    type Walker2<'cur, C: 'cur + CursorDupSort> = impl Walker2;
+    type EncodedStream = impl EncodedStream;
+
+    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker2<'cur, C> {
+        StorageChangeSetPlain { c }
+    }
+
+    fn make_changeset() -> ChangeSet {
+        ChangeSet::new_storage()
+    }
+
+    fn encode(block_number: u64, s: ChangeSet) -> Self::EncodedStream {
+        encode_storage(block_number, s)
+    }
+
+    fn decode(k: Bytes, v: Bytes) -> (u64, Bytes, Bytes) {
+        from_db_format(common::HASH_LENGTH)(k, v)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

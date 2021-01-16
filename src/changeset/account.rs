@@ -1,11 +1,11 @@
-use self::account_utils::{encode_accounts_2, find_in_account_changeset};
+use self::account_utils::{encode_accounts, find_in_account_changeset};
 pub use super::*;
 use crate::CursorDupSort;
 use async_trait::async_trait;
 
-pub type EncodedStream = Box<dyn Iterator<Item = (Bytes, Bytes)> + Send>;
-pub type Encoder = fn(u64, ChangeSet) -> EncodedStream;
-pub type Decoder = fn(Bytes, Bytes) -> (u64, Bytes, Bytes);
+pub trait EncodedStream = Iterator<Item = (Bytes, Bytes)> + Send;
+pub trait Encoder = Fn(u64, ChangeSet) -> Box<dyn EncodedStream>;
+pub trait Decoder = Fn(Bytes, Bytes) -> (u64, Bytes, Bytes);
 
 /* Hashed changesets (key is a hash of common.Address) */
 
@@ -18,16 +18,12 @@ impl ChangeSet {
     }
 }
 
-pub fn encode_accounts(block_n: u64, s: ChangeSet) -> EncodedStream {
-    Box::new(encode_accounts_2(block_n, s))
-}
-
-pub struct AccountChangeSet<C: CursorDupSort> {
-    pub c: C,
+pub struct AccountChangeSet<'cur, C: CursorDupSort> {
+    pub c: &'cur mut C,
 }
 
 #[async_trait]
-impl<C: CursorDupSort> Walker2 for AccountChangeSet<C> {
+impl<'cur, C: CursorDupSort> Walker2 for AccountChangeSet<'cur, C> {
     fn walk(&mut self, from: u64, to: u64) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
         super::storage_utils::walk(&mut self.c, from, to, common::HASH_LENGTH)
     }
@@ -56,15 +52,12 @@ impl ChangeSet {
     }
 }
 
-#[allow(non_upper_case_globals)]
-pub const encode_accounts_plain: Encoder = encode_accounts;
-
-pub struct AccountChangeSetPlain<C: CursorDupSort> {
-    pub c: C,
+pub struct AccountChangeSetPlain<'cur, C: CursorDupSort> {
+    pub c: &'cur mut C,
 }
 
 #[async_trait]
-impl<C: CursorDupSort> Walker2 for AccountChangeSetPlain<C> {
+impl<'cur, C: CursorDupSort> Walker2 for AccountChangeSetPlain<'cur, C> {
     fn walk(&mut self, from: u64, to: u64) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
         super::storage_utils::walk(&mut self.c, from, to, common::ADDRESS_LENGTH)
     }
@@ -92,26 +85,17 @@ mod tests {
 
     #[test]
     fn encoding_account_hashed() {
-        let m = &MAPPER[&dbutils::Bucket::AccountChangeSet];
-        run_test_account_encoding(true, m.new, m.encode, &m.decode);
+        run_test_account_encoding::<buckets::AccountChangeSet>(true);
     }
 
     #[test]
     fn encoding_account_plain() {
-        let m = &MAPPER[&dbutils::Bucket::PlainAccountChangeSet];
-        run_test_account_encoding(false, m.new, m.encode, &m.decode)
+        run_test_account_encoding::<buckets::PlainAccountChangeSet>(false)
     }
 
     #[tokio::main]
-    async fn run_test_account_encoding<
-        Decoder: Fn(Bytes, Bytes) -> (u64, Bytes, Bytes) + Send + Sync,
-    >(
-        is_hashed: bool,
-        new: fn() -> ChangeSet,
-        enc: Encoder,
-        dec: Decoder,
-    ) {
-        let mut ch = (new)();
+    async fn run_test_account_encoding<Bucket: ChangeSetBucket>(is_hashed: bool) {
+        let mut ch = Bucket::make_changeset();
 
         for (i, val) in vec![
             bytes!["f7f6db1eb17c6d582078e0ffdd0c"],
@@ -134,10 +118,10 @@ mod tests {
             }
         }
 
-        let mut ch2 = (new)();
+        let mut ch2 = Bucket::make_changeset();
 
-        for (k, v) in (enc)(1, ch.clone()) {
-            let (_, k, v) = (dec)(k, v);
+        for (k, v) in Bucket::encode(1, ch.clone()) {
+            let (_, k, v) = Bucket::decode(k, v);
 
             ch2.insert(k, v).unwrap();
         }

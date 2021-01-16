@@ -1,53 +1,38 @@
 use super::*;
-use ethereum_types::H256;
 use maplit::hashmap;
-use std::{collections::HashMap, fmt::Display, mem::size_of};
+use std::{collections::HashMap, fmt::Display};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Bucket {
-    PlainState,
-    PlainContractCode,
-    PlainAccountChangeSet,
-    PlainStorageChangeSet,
-    CurrentState,
-    AccountsHistory,
-    StorageHistory,
-    Code,
-    ContractCode,
-    IncarnationMap,
-    AccountChangeSet,
-    StorageChangeSet,
-    IntermediateTrieHash,
-    DatabaseInfo,
-    SnapshotInfo,
+pub trait Bucket {
+    const DB_NAME: &'static str;
 }
 
-impl AsRef<str> for Bucket {
-    fn as_ref(&self) -> &str {
-        match self {
-            Self::PlainState => "PLAIN-CST2",
-            Self::PlainContractCode => "PLAIN-contractCode",
-            Self::PlainAccountChangeSet => "PLAIN-ACS",
-            Self::PlainStorageChangeSet => "PLAIN-SCS",
-            Self::CurrentState => "CST2",
-            Self::AccountsHistory => "hAT",
-            Self::StorageHistory => "hST",
-            Self::Code => "CODE",
-            Self::ContractCode => "contractCode",
-            Self::IncarnationMap => "incarnationMap",
-            Self::AccountChangeSet => "ACS",
-            Self::StorageChangeSet => "SCS",
-            Self::IntermediateTrieHash => "iTh2",
-            Self::DatabaseInfo => "DBINFO",
-            Self::SnapshotInfo => "SNINFO",
+macro_rules! decl_bucket {
+    ($name:ident, $db_name:expr) => {
+        #[derive(Clone, Copy, Debug)]
+        pub struct $name;
+
+        impl $crate::dbutils::Bucket for $name {
+            const DB_NAME: &'static str = $db_name;
         }
-    }
+    };
 }
 
-impl Display for Bucket {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref())
-    }
+pub mod buckets {
+    decl_bucket!(PlainState, "PLAIN-CST2");
+    decl_bucket!(PlainContractCode, "PLAIN-contractCode");
+    decl_bucket!(PlainAccountChangeSet, "PLAIN-ACS");
+    decl_bucket!(PlainStorageChangeSet, "PLAIN-SCS");
+    decl_bucket!(CurrentState, "CST2");
+    decl_bucket!(AccountsHistory, "hAT");
+    decl_bucket!(StorageHistory, "hST");
+    decl_bucket!(Code, "CODE");
+    decl_bucket!(ContractCode, "contractCode");
+    decl_bucket!(IncarnationMap, "incarnationMap");
+    decl_bucket!(AccountChangeSet, "ACS");
+    decl_bucket!(StorageChangeSet, "SCS");
+    decl_bucket!(IntermediateTrieHash, "iTh2");
+    decl_bucket!(DatabaseInfo, "DBINFO");
+    decl_bucket!(SnapshotInfo, "SNINFO");
 }
 
 pub type BucketFlags = u8;

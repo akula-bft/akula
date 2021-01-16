@@ -27,7 +27,7 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
     Ok(Some(v))
 }
 
-pub fn encode_accounts_2(
+pub fn encode_accounts(
     block_number: u64,
     mut s: ChangeSet,
 ) -> impl Iterator<Item = (Bytes, Bytes)> {

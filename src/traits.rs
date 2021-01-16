@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use auto_impl::auto_impl;
 use bytes::Bytes;
 use ethereum_types::Address;
 use futures::stream::BoxStream;
@@ -65,6 +66,7 @@ pub trait Transaction2: Transaction {
 }
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait Cursor: Send {
     async fn set_prefix(&mut self, _v: &[u8]) {}
     async fn prefetch(&mut self, _v: u64) {}
@@ -78,6 +80,7 @@ pub trait Cursor: Send {
 }
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait MutableCursor: Cursor {
     /// Put based on order
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
@@ -103,6 +106,7 @@ pub trait MutableCursor: Cursor {
 }
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait CursorDupSort: Cursor {
     /// Second parameter can be nil only if searched key has no duplicates, or return error
     async fn seek_both_exact(&mut self, key: &[u8], value: &[u8])
@@ -120,6 +124,7 @@ pub trait CursorDupSort: Cursor {
 }
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait CursorDupSort2: CursorDupSort {
     /// Number of duplicates for the current key
     async fn count_duplicates(&mut self) -> anyhow::Result<usize>;
@@ -130,6 +135,7 @@ pub trait CursorDupSort2: CursorDupSort {
 }
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait CursorDupFixed: CursorDupSort {
     /// Return up to a page of duplicate data items from current cursor position
     /// After return - move cursor to prepare for `MDB_NEXT_MULTIPLE`
@@ -140,6 +146,7 @@ pub trait CursorDupFixed: CursorDupSort {
 }
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait CursorDupFixed2: CursorDupFixed {
     /// PutMulti store multiple contiguous data elements in a single request.
     /// Panics if `page.len()` is not a multiple of `stride`.

@@ -16,11 +16,8 @@ impl ChangeSet {
     }
 }
 
-pub fn encode_storage(
-    block_n: u64,
-    s: ChangeSet,
-) -> Pin<Box<dyn Iterator<Item = (Bytes, Bytes)> + Send>> {
-    Box::pin(encode_storage_2(block_n, s, common::HASH_LENGTH))
+pub fn encode_storage(block_n: u64, s: ChangeSet) -> impl Iterator<Item = (Bytes, Bytes)> {
+    encode_storage_2(block_n, s, common::HASH_LENGTH)
 }
 
 pub struct StorageChangeSet<C: CursorDupSort> {
@@ -29,19 +26,15 @@ pub struct StorageChangeSet<C: CursorDupSort> {
 
 #[async_trait]
 impl<C: CursorDupSort> Walker2 for StorageChangeSet<C> {
-    fn walk<'w>(
-        &'w mut self,
-        from: u64,
-        to: u64,
-    ) -> BoxStream<'w, anyhow::Result<(u64, Bytes, Bytes)>> {
+    fn walk(&mut self, from: u64, to: u64) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
         super::storage_utils::walk(&mut self.c, from, to, common::HASH_LENGTH)
     }
 
-    fn walk_reverse<'w>(
-        &'w mut self,
+    fn walk_reverse(
+        &mut self,
         from: u64,
         to: u64,
-    ) -> BoxStream<'w, anyhow::Result<(u64, Bytes, Bytes)>> {
+    ) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
         super::storage_utils::walk_reverse(&mut self.c, from, to, common::HASH_LENGTH)
     }
 
@@ -163,7 +156,27 @@ impl<C: CursorDupSort> StorageChangeSetPlain<C> {
 
 #[cfg(test)]
 mod tests {
+    use crate::dbutils;
+
     use super::*;
+
+    const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
+
+    const fn default_incarnation() -> common::Incarnation {
+        1
+    }
+
+    fn random_incarnation() -> common::Incarnation {
+        rand::random()
+    }
+
+    fn hash_value_generator(j: usize) -> Bytes {
+        Bytes::copy_from_slice(common::hash_data(format!("val{}", j).as_bytes()).as_bytes())
+    }
+
+    fn empty_value_generator(j: usize) -> Bytes {
+        Bytes::new()
+    }
 
     fn get_test_data_at_index<
         KeyGen: Fn(common::Address, common::Incarnation, common::Hash) -> Bytes,
@@ -180,21 +193,49 @@ mod tests {
         (generator)(address, inc, key)
     }
 
+    fn hash_key_generator(
+        address: common::Address,
+        inc: common::Incarnation,
+        key: common::Hash,
+    ) -> Bytes {
+        Bytes::copy_from_slice(&dbutils::generate_composite_storage_key(
+            common::hash_data(address.as_bytes()),
+            inc,
+            key,
+        ))
+    }
+
+    fn plain_key_generator(
+        address: common::Address,
+        inc: common::Incarnation,
+        key: common::Hash,
+    ) -> Bytes {
+        Bytes::copy_from_slice(&dbutils::plain_generate_composite_storage_key(
+            address, inc, key,
+        ))
+    }
+
+    #[test]
+    fn encoding_storage_new_with_random_incarnation_hashed() {
+        do_test_encoding_storage_new::<buckets::StorageChangeSet, _, _, _>(
+            &hash_key_generator,
+            &random_incarnation,
+            &hash_value_generator,
+        )
+    }
+
     fn do_test_encoding_storage_new<
+        Bucket: ChangeSetBucket,
         KeyGen: Fn(common::Address, common::Incarnation, common::Hash) -> Bytes,
         IncarnationGen: Fn() -> common::Incarnation,
         ValueGen: Fn(usize) -> Bytes,
-        NewFunc: Fn() -> ChangeSet,
     >(
         key_gen: &KeyGen,
         incarnation_generator: &IncarnationGen,
         value_generator: &ValueGen,
-        new_func: &NewFunc,
-        encode_func: &Encoder,
-        decode_func: &Decoder,
     ) {
         let f = move |num_of_elements, num_of_keys| {
-            let mut ch = (new_func)();
+            let mut ch = Bucket::make_changeset();
 
             for i in 0..num_of_elements {
                 let inc = (incarnation_generator)();
@@ -205,14 +246,31 @@ mod tests {
                 }
             }
 
-            let mut ch2 = (new_func)();
+            let mut ch2 = Bucket::make_changeset();
 
-            for (k, v) in (encode_func)(0, ch.clone()) {
-                let (_, k, v) = (decode_func)(k, v);
+            for (k, v) in Bucket::encode(0, ch.clone()) {
+                let (_, k, v) = Bucket::decode(k, v);
                 ch2.insert(k, v).unwrap();
             }
 
             assert_eq!(ch, ch2)
         };
+
+        for &v in NUM_OF_CHANGES {
+            run_test(f, v, 1)
+        }
+
+        for &v in NUM_OF_CHANGES {
+            run_test(f, v, 5);
+        }
+
+        run_test(f, 10, 10);
+        run_test(f, 50, 1000);
+        run_test(f, 100, 1000);
+    }
+
+    fn run_test<F: Fn(usize, usize)>(f: F, elements: usize, keys: usize) {
+        println!("elements: {}, keys: {}", elements, keys);
+        (f)(elements, keys);
     }
 }

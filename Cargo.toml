@@ -11,6 +11,7 @@ anyhow = "1"
 arrayref = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
+auto_impl = "0.4"
 bytes = "1"
 ethereum = { git = "https://github.com/rust-blockchain/ethereum" }
 ethereum-types = "0.10"
@@ -35,4 +36,5 @@ tonic-build = "0.3"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
+rand = "0.8"
 tokio = { version = "1", features = ["full"] }

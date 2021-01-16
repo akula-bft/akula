@@ -1,4 +1,10 @@
-#![feature(destructuring_assignment, generic_associated_types, once_cell)]
+#![feature(
+    destructuring_assignment,
+    generic_associated_types,
+    once_cell,
+    trait_alias,
+    type_alias_impl_trait
+)]
 #![allow(incomplete_features, clippy::unused_io_amount)]
 
 mod changeset;
