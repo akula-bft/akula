@@ -1,7 +1,6 @@
 #![feature(
     destructuring_assignment,
     generic_associated_types,
-    once_cell,
     trait_alias,
     type_alias_impl_trait
 )]
@@ -11,6 +10,7 @@ mod changeset;
 mod common;
 mod dbutils;
 mod ext;
+mod interface;
 mod models;
 mod remote;
 mod traits;

@@ -2,51 +2,27 @@ use super::*;
 use crate::{common, dbutils, CursorDupSort};
 use async_stream::try_stream;
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::stream::BoxStream;
 use std::io::Write;
 
-pub fn walk_reverse<C: CursorDupSort>(
-    c: &mut C,
+pub fn walk<
+    'cur,
+    C: CursorDupSort,
+    Key: Send + Unpin + 'cur,
+    Decoder: Fn(Bytes, Bytes) -> (u64, Key, Bytes) + 'cur,
+>(
+    c: &'cur mut C,
+    decoder: Decoder,
     from: u64,
     to: u64,
-    key_prefix_len: usize,
-) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
-    Box::pin(try_stream! {
-        let from_db_format = from_db_format(key_prefix_len);
-
-        let _ = c.seek(&dbutils::encode_block_number(to + 1)).await?;
-        loop {
-            let (k, v) = c.prev().await?;
-            if k.is_empty() {
-                break;
-            }
-
-            let (block_num, k, v) = (from_db_format)(k, v);
-            if block_num < from {
-                break;
-            }
-
-            yield (block_num, k, v);
-        }
-    })
-}
-
-pub fn walk<C: CursorDupSort>(
-    c: &mut C,
-    from: u64,
-    to: u64,
-    key_prefix_len: usize,
-) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
-    Box::pin(try_stream! {
-        let from_db_format = from_db_format(key_prefix_len);
-
+) -> impl Stream<Item = anyhow::Result<(u64, Key, Bytes)>> + '_ {
+    try_stream! {
         let (mut k, mut v) = c.seek(&dbutils::encode_block_number(from)).await?;
         loop {
             if k.is_empty() {
                 break;
             }
 
-            let (block_num, k1, v1) = from_db_format(k, v);
+            let (block_num, k1, v1) = (decoder)(k, v);
             if block_num > to {
                 break;
             }
@@ -55,7 +31,7 @@ pub fn walk<C: CursorDupSort>(
 
             (k, v) = c.next().await?
         }
-    })
+    }
 }
 
 pub async fn find_in_storage_changeset_2<C: CursorDupSort>(
@@ -102,10 +78,8 @@ pub async fn do_search_2<C: CursorDupSort>(
     key_bytes_to_find: &[u8],
     incarnation: u64,
 ) -> anyhow::Result<Option<Bytes>> {
-    let from_db_format = from_db_format(key_prefix_len);
-
     if incarnation == 0 {
-        let mut seek = vec![0; 8 + key_prefix_len];
+        let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + key_prefix_len];
         seek[..].as_mut().write(&block_number.to_be_bytes());
         seek[8..].as_mut().write(addr_bytes_to_find).unwrap();
         let (mut k, mut v) = c.seek(&*seek).await?;
@@ -114,7 +88,7 @@ pub async fn do_search_2<C: CursorDupSort>(
                 break;
             }
 
-            let (_, k1, v1) = (from_db_format)(k, v);
+            let (_, k1, v1) = from_storage_db_format(key_prefix_len)(k, v);
             if !k1.starts_with(addr_bytes_to_find) {
                 break;
             }
@@ -130,10 +104,15 @@ pub async fn do_search_2<C: CursorDupSort>(
         return Ok(None);
     }
 
-    let mut seek = vec![0; 8 + key_prefix_len + common::INCARNATION_LENGTH];
-    seek[..8].copy_from_slice(&block_number.to_be_bytes());
-    seek[8..].as_mut().write(addr_bytes_to_find).unwrap();
-    seek[8 + key_prefix_len..].copy_from_slice(&incarnation.to_be_bytes());
+    let mut seek =
+        vec![0; common::BLOCK_NUMBER_LENGTH + key_prefix_len + common::INCARNATION_LENGTH];
+    seek[..common::BLOCK_NUMBER_LENGTH].copy_from_slice(&block_number.to_be_bytes());
+    seek[common::BLOCK_NUMBER_LENGTH..]
+        .as_mut()
+        .write(addr_bytes_to_find)
+        .unwrap();
+    seek[common::BLOCK_NUMBER_LENGTH + key_prefix_len..]
+        .copy_from_slice(&incarnation.to_be_bytes());
 
     let (k, v) = c.seek_both_range(&seek, key_bytes_to_find).await?;
     if k.is_empty() {
@@ -144,29 +123,29 @@ pub async fn do_search_2<C: CursorDupSort>(
         return Ok(None);
     }
 
-    let (_, _, v) = (from_db_format)(k, v);
+    let (_, _, v) = from_storage_db_format(key_prefix_len)(k, v);
 
     Ok(Some(v))
 }
 
-pub fn encode_storage_2(
+pub fn encode_storage<Key: Eq + Ord + AsRef<[u8]>>(
     block_n: u64,
-    mut s: ChangeSet,
+    s: &ChangeSet<Key>,
     key_prefix_len: usize,
-) -> impl Iterator<Item = (Bytes, Bytes)> {
-    s.changes.sort_unstable();
+) -> impl Iterator<Item = (Bytes, Bytes)> + '_ {
+    s.iter().map(move |cs| {
+        let cs_key = cs.key.as_ref();
 
-    let key_part = key_prefix_len + common::INCARNATION_LENGTH;
+        let key_part = key_prefix_len + common::INCARNATION_LENGTH;
 
-    s.changes.into_iter().map(move |cs| {
-        let mut new_k = BytesMut::with_capacity(common::BLOCK_NUMBER_LENGTH + key_part);
-        new_k.put_u64(block_n);
-        new_k.put_slice(&cs.key[..key_part]);
+        let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + key_part];
+        new_k[..common::BLOCK_NUMBER_LENGTH].copy_from_slice(&encode_block_number(block_n));
+        new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs_key[..key_part]);
 
         let mut new_v = BytesMut::with_capacity(common::HASH_LENGTH + cs.value.len());
-        new_v.put_slice(&cs.key[key_part..]);
+        new_v.put_slice(&cs_key[key_part..]);
         new_v.put_slice(&cs.value[..]);
 
-        (new_k.freeze(), new_v.freeze())
+        (new_k.into(), new_v.freeze())
     })
 }

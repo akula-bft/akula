@@ -1,76 +1,67 @@
-use self::account_utils::{encode_accounts, find_in_account_changeset};
+use self::account_utils::find_in_account_changeset;
 pub use super::*;
 use crate::CursorDupSort;
 use async_trait::async_trait;
 
 pub trait EncodedStream = Iterator<Item = (Bytes, Bytes)> + Send;
-pub trait Encoder = Fn(u64, ChangeSet) -> Box<dyn EncodedStream>;
-pub trait Decoder = Fn(Bytes, Bytes) -> (u64, Bytes, Bytes);
 
 /* Hashed changesets (key is a hash of common.Address) */
-
-impl ChangeSet {
-    pub fn new_account() -> Self {
-        Self {
-            changes: vec![],
-            key_len: common::HASH_LENGTH,
-        }
-    }
-}
 
 pub struct AccountChangeSet<'cur, C: CursorDupSort> {
     pub c: &'cur mut C,
 }
 
 #[async_trait]
-impl<'cur, C: CursorDupSort> Walker2 for AccountChangeSet<'cur, C> {
-    fn walk(&mut self, from: u64, to: u64) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
-        super::storage_utils::walk(&mut self.c, from, to, common::HASH_LENGTH)
+impl<'cur, C: 'cur + CursorDupSort> Walker for AccountChangeSet<'cur, C> {
+    type Key = [u8; common::HASH_LENGTH];
+    type WalkStream<'w> = impl WalkStream<Self::Key>;
+
+    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
+        super::storage_utils::walk::<C, _, _>(
+            &mut self.c,
+            |db_key, db_value| {
+                let (b, k1, v) = from_account_db_format(common::HASH_LENGTH)(db_key, db_value);
+
+                let mut k = [0; common::HASH_LENGTH];
+                k[..].copy_from_slice(&*k1);
+                (b, k, v)
+            },
+            from,
+            to,
+        )
     }
 
-    fn walk_reverse(
-        &mut self,
-        from: u64,
-        to: u64,
-    ) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
-        super::storage_utils::walk_reverse(&mut self.c, from, to, common::HASH_LENGTH)
-    }
-
-    async fn find(&mut self, block_number: u64, k: &[u8]) -> anyhow::Result<Option<Bytes>> {
+    async fn find(&mut self, block_number: u64, k: &Self::Key) -> anyhow::Result<Option<Bytes>> {
         find_in_account_changeset(&mut self.c, block_number, k, common::HASH_LENGTH).await
     }
 }
 
 /* Plain changesets (key is a common.Address) */
 
-impl ChangeSet {
-    pub fn new_account_plain() -> Self {
-        Self {
-            changes: vec![],
-            key_len: common::ADDRESS_LENGTH,
-        }
-    }
-}
-
 pub struct AccountChangeSetPlain<'cur, C: CursorDupSort> {
     pub c: &'cur mut C,
 }
 
 #[async_trait]
-impl<'cur, C: CursorDupSort> Walker2 for AccountChangeSetPlain<'cur, C> {
-    fn walk(&mut self, from: u64, to: u64) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
-        super::storage_utils::walk(&mut self.c, from, to, common::ADDRESS_LENGTH)
+impl<'cur, C: 'cur + CursorDupSort> Walker for AccountChangeSetPlain<'cur, C> {
+    type Key = [u8; common::ADDRESS_LENGTH];
+    type WalkStream<'w> = impl WalkStream<Self::Key>;
+
+    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
+        super::storage_utils::walk(
+            &mut self.c,
+            |db_key, db_value| {
+                let (b, k1, v) = (from_account_db_format)(common::ADDRESS_LENGTH)(db_key, db_value);
+                let mut k = [0; common::ADDRESS_LENGTH];
+                k[..].copy_from_slice(&k1[..]);
+                (b, k, v)
+            },
+            from,
+            to,
+        )
     }
 
-    fn walk_reverse(
-        &mut self,
-        from: u64,
-        to: u64,
-    ) -> BoxStream<'_, anyhow::Result<(u64, Bytes, Bytes)>> {
-        super::storage_utils::walk_reverse(&mut self.c, from, to, common::ADDRESS_LENGTH)
-    }
-
-    async fn find(&mut self, block_number: u64, k: &[u8]) -> anyhow::Result<Option<Bytes>> {
+    async fn find(&mut self, block_number: u64, k: &Self::Key) -> anyhow::Result<Option<Bytes>> {
         find_in_account_changeset(&mut self.c, block_number, k, common::ADDRESS_LENGTH).await
     }
 }
@@ -78,24 +69,34 @@ impl<'cur, C: CursorDupSort> Walker2 for AccountChangeSetPlain<'cur, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dbutils;
     use bytes_literal::bytes;
-    use ethereum_types::{Address, H256};
-    use sha3::{Digest, Keccak256};
+    use ethereum_types::Address;
+    use sha3::Digest;
+    use std::fmt::Debug;
 
     #[test]
     fn encoding_account_hashed() {
-        run_test_account_encoding::<buckets::AccountChangeSet>(true);
+        run_test_account_encoding::<buckets::AccountChangeSet, _, _>(|address| {
+            common::hash_data(address.as_bytes()).to_fixed_bytes()
+        });
     }
 
     #[test]
     fn encoding_account_plain() {
-        run_test_account_encoding::<buckets::PlainAccountChangeSet>(false)
+        run_test_account_encoding::<buckets::PlainAccountChangeSet, _, _>(|address| {
+            address.to_fixed_bytes()
+        })
     }
 
     #[tokio::main]
-    async fn run_test_account_encoding<Bucket: ChangeSetBucket>(is_hashed: bool) {
-        let mut ch = Bucket::make_changeset();
+    async fn run_test_account_encoding<
+        Bucket: ChangeSetBucket<Key = Key>,
+        Key: Debug + AsRef<[u8]> + Ord + Send,
+        KeyGen: Fn(Address) -> Key,
+    >(
+        key_gen: KeyGen,
+    ) {
+        let mut ch = ChangeSet::default();
 
         for (i, val) in vec![
             bytes!["f7f6db1eb17c6d582078e0ffdd0c"],
@@ -109,21 +110,15 @@ mod tests {
                 .parse::<Address>()
                 .unwrap();
 
-            if is_hashed {
-                let addr_hash = common::hash_data(address.as_bytes());
-                ch.insert(addr_hash.as_bytes().to_vec().into(), val)
-                    .unwrap();
-            } else {
-                ch.insert(address.as_bytes().to_vec().into(), val).unwrap();
-            }
+            ch.insert(Change::new((key_gen)(address), val));
         }
 
-        let mut ch2 = Bucket::make_changeset();
+        let mut ch2 = ChangeSet::default();
 
-        for (k, v) in Bucket::encode(1, ch.clone()) {
+        for (k, v) in Bucket::encode(1, &ch) {
             let (_, k, v) = Bucket::decode(k, v);
 
-            ch2.insert(k, v).unwrap();
+            ch2.insert(Change::new(k, v));
         }
 
         assert_eq!(ch, ch2);

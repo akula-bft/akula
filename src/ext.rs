@@ -7,11 +7,7 @@ use bytes::Bytes;
 use ethereum::Header;
 use ethereum_types::{Address, H256, U256};
 use futures::stream::BoxStream;
-use mem::size_of;
-use std::{
-    collections::{HashMap, HashSet},
-    mem,
-};
+use std::collections::{HashMap, HashSet};
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;

@@ -1,4 +1,4 @@
-use super::{from_db_format, ChangeSet};
+use super::*;
 use crate::{dbutils, CursorDupSort};
 use bytes::{Bytes, BytesMut};
 
@@ -8,8 +8,6 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
     key: &[u8],
     key_len: usize,
 ) -> anyhow::Result<Option<Bytes>> {
-    let from_db_format = from_db_format(key_len);
-
     let (k, v) = c
         .seek_both_range(&dbutils::encode_block_number(block_number), key)
         .await?;
@@ -18,7 +16,7 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
         return Ok(None);
     }
 
-    let (_, k, v) = from_db_format(k, v);
+    let (_, k, v) = from_account_db_format(key_len)(k, v);
 
     if !k.starts_with(key) {
         return Ok(None);
@@ -27,19 +25,17 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
     Ok(Some(v))
 }
 
-pub fn encode_accounts(
+pub fn encode_accounts<Key: Ord + AsRef<[u8]>>(
     block_number: u64,
-    mut s: ChangeSet,
-) -> impl Iterator<Item = (Bytes, Bytes)> {
-    s.changes.sort_unstable();
+    s: &ChangeSet<Key>,
+) -> impl Iterator<Item = ([u8; common::BLOCK_NUMBER_LENGTH], Bytes)> + '_ {
+    let new_k = dbutils::encode_block_number(block_number);
 
-    let new_k = Bytes::copy_from_slice(&dbutils::encode_block_number(block_number));
-
-    s.changes.into_iter().map(move |cs| {
-        let mut new_v = BytesMut::with_capacity(cs.key.len() + cs.value.len());
-        new_v.extend_from_slice(&*cs.key);
+    s.iter().map(move |cs| {
+        let mut new_v = BytesMut::with_capacity(cs.key.as_ref().len() + cs.value.len());
+        new_v.extend_from_slice(cs.key.as_ref());
         new_v.extend_from_slice(&*cs.value);
 
-        (new_k.clone(), new_v.freeze())
+        (new_k, new_v.freeze())
     })
 }

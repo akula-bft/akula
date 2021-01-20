@@ -13,6 +13,7 @@ async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "0.4"
 bytes = "1"
+educe = { version = "0.4", features = ["Debug"] }
 ethereum = { git = "https://github.com/rust-blockchain/ethereum" }
 ethereum-types = "0.10"
 futures = "0.3"

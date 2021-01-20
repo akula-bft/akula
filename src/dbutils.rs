@@ -1,13 +1,9 @@
-use ethereum_types::H256;
-use maplit::hashmap;
-use std::{collections::HashMap, fmt::Display, mem::size_of};
-
 mod bucket;
 mod composite_keys;
 mod helper;
 pub use self::{bucket::*, composite_keys::*, helper::*};
 
-pub fn bytes_mask(fixed_bits: u64) -> (u64, u8) {
+pub const fn bytes_mask(fixed_bits: u64) -> (u64, u8) {
     let fixed_bytes = (fixed_bits + 7) / 8;
     let shift_bits = fixed_bits & 7;
     let mut mask = 0xff;

@@ -1,6 +1,5 @@
-use super::*;
 use maplit::hashmap;
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 pub trait Bucket {
     const DB_NAME: &'static str;
@@ -13,6 +12,12 @@ macro_rules! decl_bucket {
 
         impl $crate::dbutils::Bucket for $name {
             const DB_NAME: &'static str = $db_name;
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", <Self as $crate::dbutils::Bucket>::DB_NAME)
+            }
         }
     };
 }
