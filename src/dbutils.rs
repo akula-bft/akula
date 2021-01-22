@@ -1,7 +1,8 @@
 mod bucket;
 mod composite_keys;
 mod helper;
-pub use self::{bucket::*, composite_keys::*, helper::*};
+mod history_index;
+pub use self::{bucket::*, composite_keys::*, helper::*, history_index::*};
 
 pub const fn bytes_mask(fixed_bits: u64) -> (u64, u8) {
     let fixed_bytes = (fixed_bits + 7) / 8;

@@ -14,6 +14,12 @@ macro_rules! decl_bucket {
             const DB_NAME: &'static str = $db_name;
         }
 
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
+                <Self as $crate::dbutils::Bucket>::DB_NAME
+            }
+        }
+
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", <Self as $crate::dbutils::Bucket>::DB_NAME)

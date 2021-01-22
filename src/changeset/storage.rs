@@ -78,7 +78,7 @@ impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSetPlain<'cur, C> {
     type Key = [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
     type WalkStream<'w> = impl WalkStream<Self::Key>;
 
-    fn walk<'w>(&'w mut self, from: u64, to: u64) -> Self::WalkStream<'w> {
+    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
         super::storage_utils::walk::<C, _, _>(
             &mut self.c,
             |db_key, db_value| {

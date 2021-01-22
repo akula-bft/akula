@@ -1,3 +1,4 @@
+use crate::dbutils;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
@@ -6,6 +7,28 @@ use futures::stream::BoxStream;
 use std::{cmp::Ordering, pin::Pin};
 
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
+
+#[async_trait]
+pub trait KV {
+    type Tx<'kv>: Transaction;
+    type MutableTx<'tx>: MutableTransaction;
+
+    async fn view(&self) -> anyhow::Result<Self::Tx<'_>>;
+    async fn update(&mut self) -> anyhow::Result<Self::MutableTx<'_>>;
+
+    async fn begin<'kv, 'parent_tx: 'kv>(
+        &self,
+        parent: Self::Tx<'parent_tx>,
+        flags: TxFlags,
+    ) -> anyhow::Result<Self::Tx<'parent_tx>>;
+}
+
+pub type TxFlags = u8;
+
+pub const RW: TxFlags = 0x00;
+pub const RO: TxFlags = 0x02;
+pub const Try: TxFlags = 0x04;
+pub const NoSync: TxFlags = 0x08;
 
 #[async_trait]
 pub trait Transaction: Send {
@@ -34,6 +57,9 @@ pub trait Transaction: Send {
     async fn get_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<Bytes>;
     async fn has_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<bool>;
 }
+
+#[async_trait]
+pub trait MutableTransaction: Transaction {}
 
 #[async_trait]
 pub trait Transaction2: Transaction {

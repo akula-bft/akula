@@ -65,7 +65,7 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
 
     type Key = [u8; common::ADDRESS_LENGTH];
     type IndexBucket = buckets::AccountsHistory;
-    type Walker<'cur, C: 'cur + CursorDupSort> = impl Walker;
+    type Walker<'cur, C: 'cur + CursorDupSort> = AccountChangeSetPlain<'cur, C>;
     type EncodedStream<'ch> = impl EncodedStream;
 
     fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker<'cur, C> {
@@ -114,7 +114,7 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
     type IndexBucket = buckets::StorageHistory;
-    type Walker<'cur, C: 'cur + CursorDupSort> = impl Walker;
+    type Walker<'cur, C: 'cur + CursorDupSort> = StorageChangeSetPlain<'cur, C>;
     type EncodedStream<'ch> = impl EncodedStream;
 
     fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker<'cur, C> {

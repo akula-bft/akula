@@ -1,12 +1,14 @@
-use crate::{common, dbutils::*, models::*, Cursor, Transaction};
+use crate::{changeset::*, common, dbutils, dbutils::*, models::*, Cursor, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use bytes::Bytes;
+use common::{Hash, Incarnation, ADDRESS_LENGTH, HASH_LENGTH};
 use ethereum::Header;
 use ethereum_types::{Address, H256, U256};
 use futures::stream::BoxStream;
+use roaring::RoaringTreemap;
 use std::collections::{HashMap, HashSet};
 use tokio::pin;
 use tokio_stream::StreamExt;
@@ -192,92 +194,6 @@ pub trait TransactionExt: Transaction {
             tx: self,
         }
     }
-
-    async fn get_as_of(&self, storage: bool, key: &[u8], timestamp: u64) -> anyhow::Result<Bytes> {
-        // var dat []byte
-        // v, err := FindByHistory(tx, storage, key, timestamp)
-        // if err == nil {
-        // 	dat = make([]byte, len(v))
-        // 	copy(dat, v)
-        // 	return dat, nil
-        // }
-        // if !errors.Is(err, ethdb.ErrKeyNotFound) {
-        // 	return nil, err
-        // }
-        // v, err = tx.GetOne(dbutils.PlainStateBucket, key)
-        // if err != nil {
-        // 	return nil, err
-        // }
-        // if v == nil {
-        // 	return nil, ethdb.ErrKeyNotFound
-        // }
-        // dat = make([]byte, len(v))
-        // copy(dat, v)
-        // return dat, nil
-        bail!("TODO")
-    }
-
-    // pub async fn find_by_history(&self, storage: bool, key: &[u8], timestamp: u64) -> anyhow::Result<Option<Bytes>> {
-    //     let hBucket;
-    //     if storage {
-    //         hBucket = Bucket::StorageHistory;
-    //     } else {
-    //         hBucket = Bucket::AccountsHistory;
-    //     }
-
-    //     let mut ch = self.cursor(hBucket).await?;
-    //     let (k, v) = ch.seek(index_chunk_key(key, timestamp)).await?;
-
-    //     if k.is_empty() {
-    //         return Ok(None);
-    //     }
-
-    //     if (storage && k[..Address::len_bytes()] != key[..Address::len_bytes()] ||
-    //             k[Address::len_bytes()..Address::len_bytes()+H256::len_bytes()] != key[Address::len_bytes()+/* common.IncarnationLength */size_of::<u64>()..]) || !k.starts_with(key) {
-    //             return Ok(None);
-    //     }
-    //     let change_set_block = RoaringTreemap::deserialize_from(v)?.into_iter().find(|n| n >= timestamp);
-
-    //     if let Some(change_set_block) = change_set_block {
-    //         let cs_bucket = change_set_by_index_bucket(storage).0;
-    //         let c = self.cursor_dup_sort(cs_bucket);
-
-    //         if storage {
-    //             data, err = changeset.Mapper[csBucket].WalkerAdapter(c).(changeset.StorageChangeSetPlain).FindWithIncarnation(changeSetBlock, key)
-    //         } else {
-    //             data, err = changeset.Mapper[csBucket].WalkerAdapter(c).Find(changeSetBlock, key)
-    //         }
-    //         if err != nil {
-    //             if !errors.Is(err, changeset.ErrNotFound) {
-    //                 return nil, fmt.Errorf("finding %x in the changeset %d: %w", key, changeSetBlock, err)
-    //             }
-    //             return nil, ethdb.ErrKeyNotFound
-    //         }
-    //     } else {
-    //         return Ok(None);
-    //     }
-
-    //     //restore codehash
-    //     if !storage {
-    //         let acc = Account::decode_for_storage(data)?;
-    //         if acc.Incarnation > 0 && acc.IsEmptyCodeHash() {
-    //             var codeHash []byte
-    //             var err error
-    //             codeHash, err = tx.GetOne(dbutils.PlainContractCodeBucket, dbutils.PlainGenerateStoragePrefix(key, acc.Incarnation))
-    //             if err != nil {
-    //                 return nil, err
-    //             }
-    //             if len(codeHash) > 0 {
-    //                 acc.CodeHash = common.BytesToHash(codeHash)
-    //             }
-    //             data = make([]byte, acc.EncodingLengthForStorage())
-    //             acc.EncodeForStorage(data)
-    //         }
-    //         return data, nil
-    //     }
-
-    //     return data, nil
-    // }
 }
 
 impl<T: ?Sized> TransactionExt for T where T: Transaction {}
