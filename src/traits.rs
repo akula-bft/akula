@@ -48,7 +48,7 @@ pub trait Transaction {
     async fn cursor_dup_fixed<'tx, B: Bucket + DupFixed>(
         &'tx self,
     ) -> anyhow::Result<Self::CursorDupFixed<'tx>>;
-    async fn get_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<Bytes<'static>>;
+    async fn get_one<'tx, B: Bucket>(&'tx self, key: &[u8]) -> anyhow::Result<Bytes<'tx>>;
     async fn has_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<bool>;
 }
 

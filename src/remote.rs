@@ -105,7 +105,7 @@ impl crate::Transaction for RemoteTransaction {
         self.cursor::<B>().await
     }
 
-    async fn get_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<Bytes<'static>>
+    async fn get_one<'tx, B: Bucket>(&'tx self, key: &[u8]) -> anyhow::Result<Bytes<'tx>>
     where
         Self: Sync,
     {

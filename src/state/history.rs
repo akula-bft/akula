@@ -5,11 +5,11 @@ use common::{Hash, Incarnation, ADDRESS_LENGTH};
 use ethereum_types::{Address, H256};
 use roaring::RoaringTreemap;
 
-pub async fn get_account_data_as_of<Tx: Transaction>(
-    tx: &Tx,
+pub async fn get_account_data_as_of<'tx, Tx: Transaction>(
+    tx: &'tx Tx,
     address: Address,
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     let key = address.to_fixed_bytes();
     if let Some(v) = find_data_by_history(tx, &key, timestamp).await? {
         return Ok(Some(v));
@@ -24,13 +24,13 @@ pub async fn get_account_data_as_of<Tx: Transaction>(
     Ok(Some(v))
 }
 
-pub async fn get_storage_as_of<Tx: Transaction>(
-    tx: &Tx,
+pub async fn get_storage_as_of<'tx, Tx: Transaction>(
+    tx: &'tx Tx,
     address: Address,
     incarnation: Incarnation,
     key: Hash,
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     let key = plain_generate_composite_storage_key(address, incarnation, key);
     if let Some(v) = find_storage_by_history(tx, &key, timestamp).await? {
         return Ok(Some(v));
@@ -45,11 +45,11 @@ pub async fn get_storage_as_of<Tx: Transaction>(
     Ok(Some(v))
 }
 
-pub async fn find_data_by_history<Tx: Transaction>(
-    tx: &Tx,
+pub async fn find_data_by_history<'tx, Tx: Transaction>(
+    tx: &'tx Tx,
     key: &[u8; ADDRESS_LENGTH],
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor::<buckets::AccountsHistory>().await?;
     let (k, v) = ch.seek(&index_chunk_key(key, timestamp)).await?;
 
@@ -108,11 +108,11 @@ pub async fn find_data_by_history<Tx: Transaction>(
     Ok(Some(data))
 }
 
-pub async fn find_storage_by_history<Tx: Transaction>(
-    tx: &Tx,
+pub async fn find_storage_by_history<'tx, Tx: Transaction>(
+    tx: &'tx Tx,
     key: &PlainCompositeStorageKey,
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor::<buckets::StorageHistory>().await?;
     let (k, v) = ch.seek(&index_chunk_key(key, timestamp)).await?;
 
