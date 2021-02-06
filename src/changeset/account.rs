@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use self::account_utils::find_in_account_changeset;
 pub use super::*;
 use crate::CursorDupSort;
@@ -5,12 +7,22 @@ use async_trait::async_trait;
 
 pub trait EncodedStream = Iterator<Item = (Bytes<'static>, Bytes<'static>)>;
 
-pub struct AccountChangeSetPlain<'cur, C: CursorDupSort> {
+pub struct AccountChangeSetPlain<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> {
     pub c: &'cur mut C,
+    _marker: PhantomData<&'tx ()>,
+}
+
+impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> AccountChangeSetPlain<'cur, 'tx, C> {
+    pub fn new(c: &'cur mut C) -> Self {
+        Self {
+            c,
+            _marker: PhantomData,
+        }
+    }
 }
 
 #[async_trait(?Send)]
-impl<'cur, C: 'cur + CursorDupSort> Walker for AccountChangeSetPlain<'cur, C> {
+impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> Walker for AccountChangeSetPlain<'cur, 'tx, C> {
     type Key = [u8; common::ADDRESS_LENGTH];
     type WalkStream<'w> = impl WalkStream<Self::Key>;
 

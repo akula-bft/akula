@@ -32,10 +32,12 @@ pub trait ChangeSetBucket: Bucket {
 
     type Key: Eq + Ord + AsRef<[u8]>;
     type IndexBucket: Bucket;
-    type Walker<'cur, C: 'cur + CursorDupSort>: Walker;
+    type Walker<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>>: Walker;
     type EncodedStream<'ch>: EncodedStream;
 
-    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(cursor: &'cur mut C) -> Self::Walker<'cur, C>;
+    fn walker_adapter<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>>(
+        cursor: &'cur mut C,
+    ) -> Self::Walker<'cur, 'tx, C>;
     fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_>;
     fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>);
 }
@@ -45,11 +47,14 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
 
     type Key = [u8; common::ADDRESS_LENGTH];
     type IndexBucket = buckets::AccountsHistory;
-    type Walker<'cur, C: 'cur + CursorDupSort> = AccountChangeSetPlain<'cur, C>;
+    type Walker<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> =
+        AccountChangeSetPlain<'cur, 'tx, C>;
     type EncodedStream<'ch> = impl EncodedStream;
 
-    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker<'cur, C> {
-        AccountChangeSetPlain { c }
+    fn walker_adapter<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>>(
+        c: &'cur mut C,
+    ) -> Self::Walker<'cur, 'tx, C> {
+        AccountChangeSetPlain::new(c)
     }
 
     fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
@@ -77,11 +82,14 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
     type IndexBucket = buckets::StorageHistory;
-    type Walker<'cur, C: 'cur + CursorDupSort> = StorageChangeSetPlain<'cur, C>;
+    type Walker<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> =
+        StorageChangeSetPlain<'cur, 'tx, C>;
     type EncodedStream<'ch> = impl EncodedStream;
 
-    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker<'cur, C> {
-        StorageChangeSetPlain { c }
+    fn walker_adapter<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>>(
+        c: &'cur mut C,
+    ) -> Self::Walker<'cur, 'tx, C> {
+        StorageChangeSetPlain::new(c)
     }
 
     fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {

@@ -212,7 +212,7 @@ fn walk_continue<K: AsRef<[u8]>>(
 }
 
 #[async_trait(?Send)]
-pub trait CursorExt: Cursor {
+pub trait CursorExt<'tx>: Cursor<'tx> {
     fn walk<'cur>(
         &'cur mut self,
         start_key: &'cur [u8],
@@ -234,7 +234,7 @@ pub trait CursorExt: Cursor {
     }
 }
 
-impl<T: ?Sized> CursorExt for T where T: Cursor {}
+impl<'tx, T: ?Sized> CursorExt<'tx> for T where T: Cursor<'tx> {}
 
 pub struct StateReader<'tx, Tx: ?Sized> {
     account_reads: HashSet<Address>,

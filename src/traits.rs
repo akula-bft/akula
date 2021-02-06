@@ -27,9 +27,9 @@ pub type TxFlags = u8;
 
 #[async_trait(?Send)]
 pub trait Transaction {
-    type Cursor<'tx>: Cursor;
-    type CursorDupSort<'tx>: CursorDupSort;
-    type CursorDupFixed<'tx>: CursorDupFixed;
+    type Cursor<'tx>: Cursor<'tx>;
+    type CursorDupSort<'tx>: CursorDupSort<'tx>;
+    type CursorDupFixed<'tx>: CursorDupFixed<'tx>;
 
     /// Cursor - creates cursor object on top of given bucket. Type of cursor - depends on bucket configuration.
     /// If bucket was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
@@ -58,17 +58,17 @@ pub trait MutableTransaction: Transaction {}
 
 #[async_trait(?Send)]
 pub trait Transaction2: Transaction {
-    type CursorDupSort2<'tx>: CursorDupSort2;
-    type CursorDupFixed2<'tx>: CursorDupFixed2;
+    type CursorDupSort2<'tx>: CursorDupSort2<'tx>;
+    type CursorDupFixed2<'tx>: CursorDupFixed2<'tx>;
 
     async fn cursor_dup_sort2<'tx>(
         &'tx self,
-        bucket_name: &'tx str,
+        bucket_name: &str,
     ) -> anyhow::Result<Self::CursorDupSort2<'tx>>;
 
     async fn cursor_dup_fixed2<'tx>(
         &'tx self,
-        bucket_name: &'tx str,
+        bucket_name: &str,
     ) -> anyhow::Result<Self::CursorDupFixed2<'tx>>;
 
     async fn commit(self) -> anyhow::Result<()>;
@@ -88,7 +88,7 @@ pub trait Transaction2: Transaction {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait Cursor {
+pub trait Cursor<'tx> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
@@ -100,7 +100,7 @@ pub trait Cursor {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait MutableCursor: Cursor {
+pub trait MutableCursor<'tx>: Cursor<'tx> {
     /// Put based on order
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
     /// Append the given key/data pair to the end of the database.
@@ -126,7 +126,7 @@ pub trait MutableCursor: Cursor {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait CursorDupSort: Cursor {
+pub trait CursorDupSort<'tx>: Cursor<'tx> {
     /// Second parameter can be nil only if searched key has no duplicates, or return error
     async fn seek_both_exact(
         &mut self,
@@ -150,7 +150,7 @@ pub trait CursorDupSort: Cursor {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait CursorDupSort2: CursorDupSort {
+pub trait CursorDupSort2<'tx>: CursorDupSort<'tx> {
     /// Number of duplicates for the current key
     async fn count_duplicates(&mut self) -> anyhow::Result<usize>;
     /// Deletes all of the data items for the current key
@@ -161,7 +161,7 @@ pub trait CursorDupSort2: CursorDupSort {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait CursorDupFixed: CursorDupSort {
+pub trait CursorDupFixed<'tx>: CursorDupSort<'tx> {
     /// Return up to a page of duplicate data items from current cursor position
     /// After return - move cursor to prepare for `MDB_NEXT_MULTIPLE`
     async fn get_multi(&mut self) -> anyhow::Result<Bytes<'static>>;
@@ -172,7 +172,7 @@ pub trait CursorDupFixed: CursorDupSort {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait CursorDupFixed2: CursorDupFixed {
+pub trait CursorDupFixed2<'tx>: CursorDupFixed<'tx> {
     /// PutMulti store multiple contiguous data elements in a single request.
     /// Panics if `page.len()` is not a multiple of `stride`.
     async fn put_multi(&mut self, key: &[u8], page: &[u8], stride: usize) -> anyhow::Result<()>;

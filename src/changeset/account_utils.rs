@@ -2,7 +2,7 @@ use super::*;
 use crate::{dbutils, CursorDupSort};
 use bytes::Bytes;
 
-pub async fn find_in_account_changeset<C: CursorDupSort>(
+pub async fn find_in_account_changeset<'tx, C: CursorDupSort<'tx>>(
     c: &mut C,
     block_number: u64,
     key: &[u8],

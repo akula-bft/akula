@@ -1,14 +1,26 @@
+use std::marker::PhantomData;
+
 use super::*;
 use crate::{common, CursorDupSort};
 use async_trait::async_trait;
 use bytes::Bytes;
 
-pub struct StorageChangeSetPlain<'cur, C: CursorDupSort> {
+pub struct StorageChangeSetPlain<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> {
     pub c: &'cur mut C,
+    _marker: PhantomData<&'tx ()>,
+}
+
+impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> StorageChangeSetPlain<'cur, 'tx, C> {
+    pub fn new(c: &'cur mut C) -> Self {
+        Self {
+            c,
+            _marker: PhantomData,
+        }
+    }
 }
 
 #[async_trait(?Send)]
-impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSetPlain<'cur, C> {
+impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> Walker for StorageChangeSetPlain<'cur, 'tx, C> {
     type Key = [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
     type WalkStream<'w> = impl WalkStream<Self::Key>;
 
@@ -44,7 +56,7 @@ impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSetPlain<'cur, C> {
     }
 }
 
-impl<'cur, C: 'cur + CursorDupSort> StorageChangeSetPlain<'cur, C> {
+impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> StorageChangeSetPlain<'cur, 'tx, C> {
     pub async fn find_with_incarnation(
         &mut self,
         block_number: u64,
@@ -74,7 +86,6 @@ impl<'cur, C: 'cur + CursorDupSort> StorageChangeSetPlain<'cur, C> {
 mod tests {
     use super::*;
     use crate::dbutils;
-    use std::fmt::Debug;
 
     const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
 

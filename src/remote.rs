@@ -146,7 +146,7 @@ impl<'tx> RemoteCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> traits::Cursor for RemoteCursor<'tx> {
+impl<'tx> traits::Cursor<'tx> for RemoteCursor<'tx> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)> {
         self.op(Op::First, None, None).await
     }
@@ -177,7 +177,7 @@ impl<'tx> traits::Cursor for RemoteCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> traits::CursorDupSort for RemoteCursor<'tx> {
+impl<'tx> traits::CursorDupSort<'tx> for RemoteCursor<'tx> {
     async fn seek_both_exact(
         &mut self,
         key: &[u8],
@@ -209,7 +209,7 @@ impl<'tx> traits::CursorDupSort for RemoteCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> traits::CursorDupFixed for RemoteCursor<'tx> {
+impl<'tx> traits::CursorDupFixed<'tx> for RemoteCursor<'tx> {
     async fn get_multi(&mut self) -> anyhow::Result<Bytes<'static>> {
         Ok(self.op(Op::GetMultiple, None, None).await?.1)
     }
