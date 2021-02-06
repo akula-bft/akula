@@ -18,13 +18,12 @@ pub trait TransactionExt: Transaction {
         let key = header_hash_key(block_num);
 
         trace!(
-            "Reading canonical hash of {} from bucket {} at {}",
+            "Reading canonical hash of {} from at {}",
             block_num,
-            HEADER_PREFIX,
             hex::encode(&key)
         );
 
-        let b = self.get_one(HEADER_PREFIX, &key).await?;
+        let b = self.get_one::<buckets::Header>(&key).await?;
 
         match b.len() {
             0 => Ok(None),
@@ -37,7 +36,7 @@ pub trait TransactionExt: Transaction {
         trace!("Reading header for block {}/{:?}", number, hash);
 
         let b = self
-            .get_one(HEADER_PREFIX, &number_hash_composite_key(number, hash))
+            .get_one::<buckets::Header>(&number_hash_composite_key(number, hash))
             .await?;
 
         if b.is_empty() {
@@ -51,7 +50,7 @@ pub trait TransactionExt: Transaction {
         trace!("Reading block number for hash {:?}", hash);
 
         let b = self
-            .get_one(HEADER_NUMBER_PREFIX, &hash.to_fixed_bytes())
+            .get_one::<buckets::HeaderNumber>(&hash.to_fixed_bytes())
             .await?;
 
         match b.len() {
@@ -65,13 +64,12 @@ pub trait TransactionExt: Transaction {
         let key = block.as_bytes();
 
         trace!(
-            "Reading chain config for block {:?} from bucket {} at key {}",
+            "Reading chain config for block {:?} from at key {}",
             block,
-            CONFIG_PREFIX,
             hex::encode(&key)
         );
 
-        let b = self.get_one(CONFIG_PREFIX, &key).await?;
+        let b = self.get_one::<buckets::Config>(&key).await?;
 
         trace!("Read chain config data: {}", hex::encode(&b));
 
@@ -85,7 +83,9 @@ pub trait TransactionExt: Transaction {
     async fn get_stage_progress(&self, stage: SyncStage) -> anyhow::Result<Option<u64>> {
         trace!("Reading stage {:?} progress", stage);
 
-        let b = self.get_one(SYNC_STAGE_PROGRESS, stage.as_ref()).await?;
+        let b = self
+            .get_one::<buckets::SyncStageProgress>(stage.as_ref())
+            .await?;
 
         if b.is_empty() {
             return Ok(None);
@@ -107,7 +107,7 @@ pub trait TransactionExt: Transaction {
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
         let b = self
-            .get_one(BLOCK_BODY_PREFIX, &number_hash_composite_key(number, hash))
+            .get_one::<buckets::BlockBody>(&number_hash_composite_key(number, hash))
             .await?;
 
         if b.is_empty() {
@@ -131,7 +131,7 @@ pub trait TransactionExt: Transaction {
         Ok(if amount > 0 {
             let mut out = Vec::with_capacity(amount as usize);
 
-            let mut cursor = self.cursor(ETH_TX).await?;
+            let mut cursor = self.cursor::<buckets::EthTx>().await?;
 
             let start_key = base_tx_id.to_be_bytes();
             let walker = cursor.walk(&start_key, 0);
@@ -156,7 +156,7 @@ pub trait TransactionExt: Transaction {
         trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
 
         let b = self
-            .get_one(HEADER_PREFIX, &header_td_key(number, hash))
+            .get_one::<buckets::Header>(&header_td_key(number, hash))
             .await?;
 
         if b.is_empty() {

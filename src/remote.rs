@@ -1,5 +1,8 @@
 use self::kv_client::*;
-use crate::traits::{self, Cursor as _};
+use crate::{
+    dbutils::{Bucket, DupFixed, DupSort},
+    traits::{self, Cursor as _},
+};
 use anyhow::Context;
 use async_stream::stream;
 use async_trait::async_trait;
@@ -37,18 +40,18 @@ impl crate::Transaction for RemoteTransaction {
     type CursorDupSort<'tx> = RemoteCursor<'tx>;
     type CursorDupFixed<'tx> = RemoteCursor<'tx>;
 
-    async fn cursor<'tx>(&'tx self, bucket_name: &'tx str) -> anyhow::Result<Self::Cursor<'tx>> {
+    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx>> {
         // - send op open
         // - get cursor id
         let mut s = self.io.lock().await;
 
-        let bucket_name = bucket_name.to_string();
+        let bucket_name = B::DB_NAME.to_string();
 
         trace!("Sending request to open cursor");
 
         s.0.send(Cursor {
             op: Op::Open as i32,
-            bucket_name: bucket_name.clone(),
+            bucket_name,
             cursor: Default::default(),
             k: Default::default(),
             v: Default::default(),
@@ -90,31 +93,29 @@ impl crate::Transaction for RemoteTransaction {
         })
     }
 
-    async fn cursor_dup_sort<'tx>(
+    async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
         &'tx self,
-        bucket_name: &'tx str,
     ) -> anyhow::Result<Self::CursorDupSort<'tx>> {
-        self.cursor(bucket_name).await
+        self.cursor::<B>().await
     }
 
-    async fn cursor_dup_fixed<'tx>(
+    async fn cursor_dup_fixed<'tx, B: Bucket + DupFixed>(
         &'tx self,
-        bucket_name: &'tx str,
     ) -> anyhow::Result<Self::CursorDupFixed<'tx>> {
-        self.cursor(bucket_name).await
+        self.cursor::<B>().await
     }
 
-    async fn get_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<Bytes<'static>>
+    async fn get_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<Bytes<'static>>
     where
         Self: Sync,
     {
-        let mut cursor = self.cursor(bucket).await?;
+        let mut cursor = self.cursor::<B>().await?;
 
         Ok(cursor.seek_exact(key).await?.1)
     }
 
-    async fn has_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<bool> {
-        let mut cursor = self.cursor(bucket).await?;
+    async fn has_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<bool> {
+        let mut cursor = self.cursor::<B>().await?;
 
         Ok(key == cursor.seek(key).await?.0)
     }

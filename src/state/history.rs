@@ -15,7 +15,7 @@ pub async fn get_account_data_as_of<Tx: Transaction>(
         return Ok(Some(v));
     }
 
-    let v = tx.get_one(buckets::PlainState::DB_NAME, &key).await?;
+    let v = tx.get_one::<buckets::PlainState>(&key).await?;
 
     if v.is_empty() {
         return Ok(None);
@@ -36,7 +36,7 @@ pub async fn get_storage_as_of<Tx: Transaction>(
         return Ok(Some(v));
     }
 
-    let v = tx.get_one(buckets::PlainState::DB_NAME, &key).await?;
+    let v = tx.get_one::<buckets::PlainState>(&key).await?;
 
     if v.is_empty() {
         return Ok(None);
@@ -50,7 +50,7 @@ pub async fn find_data_by_history<Tx: Transaction>(
     key: &[u8; ADDRESS_LENGTH],
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'static>>> {
-    let mut ch = tx.cursor(buckets::AccountsHistory::DB_NAME).await?;
+    let mut ch = tx.cursor::<buckets::AccountsHistory>().await?;
     let (k, v) = ch.seek(&index_chunk_key(key, timestamp)).await?;
 
     if k.is_empty() {
@@ -68,7 +68,7 @@ pub async fn find_data_by_history<Tx: Transaction>(
         if let Some(change_set_block) = change_set_block {
             let data = {
                 type B = buckets::PlainAccountChangeSet;
-                let mut c = tx.cursor_dup_sort(B::DB_NAME).await?;
+                let mut c = tx.cursor_dup_sort::<B>().await?;
                 B::walker_adapter(&mut c)
                     .find(change_set_block, key)
                     .await?
@@ -88,10 +88,10 @@ pub async fn find_data_by_history<Tx: Transaction>(
     if let Some(mut acc) = Account::decode_for_storage(&*data)? {
         if acc.incarnation > 0 && acc.is_empty_code_hash() {
             let code_hash = tx
-                .get_one(
-                    buckets::PlainContractCode.as_ref(),
-                    &dbutils::plain_generate_storage_prefix(key, acc.incarnation),
-                )
+                .get_one::<buckets::PlainContractCode>(&dbutils::plain_generate_storage_prefix(
+                    key,
+                    acc.incarnation,
+                ))
                 .await?;
 
             if !code_hash.is_empty() {
@@ -113,7 +113,7 @@ pub async fn find_storage_by_history<Tx: Transaction>(
     key: &PlainCompositeStorageKey,
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'static>>> {
-    let mut ch = tx.cursor(buckets::StorageHistory::DB_NAME).await?;
+    let mut ch = tx.cursor::<buckets::StorageHistory>().await?;
     let (k, v) = ch.seek(&index_chunk_key(key, timestamp)).await?;
 
     if k.is_empty() {
@@ -134,7 +134,7 @@ pub async fn find_storage_by_history<Tx: Transaction>(
         if let Some(change_set_block) = change_set_block {
             let data = {
                 type B = buckets::PlainStorageChangeSet;
-                let mut c = tx.cursor_dup_sort(B::DB_NAME).await?;
+                let mut c = tx.cursor_dup_sort::<B>().await?;
                 B::walker_adapter(&mut c)
                     .find_with_incarnation(change_set_block, key)
                     .await?

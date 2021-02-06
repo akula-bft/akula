@@ -5,6 +5,15 @@ pub trait Bucket {
     const DB_NAME: &'static str;
 }
 
+pub trait DupSort {
+    const AUTO_KEYS_CONVERSION: bool = false;
+    const CUSTOM_DUP_COMPARATOR: Option<&'static str> = None;
+    const DUP_FROM_LEN: Option<usize> = None;
+    const DUP_TO_LEN: Option<usize> = None;
+}
+
+pub trait DupFixed {}
+
 macro_rules! decl_bucket {
     ($name:ident, $db_name:expr) => {
         #[derive(Clone, Copy, Debug)]
@@ -29,24 +38,67 @@ macro_rules! decl_bucket {
 }
 
 pub mod buckets {
-    decl_bucket!(PlainState, "PLAIN-CST2");
-    decl_bucket!(PlainContractCode, "PLAIN-contractCode");
-    decl_bucket!(PlainAccountChangeSet, "PLAIN-ACS");
-    decl_bucket!(PlainStorageChangeSet, "PLAIN-SCS");
+    use super::DupSort;
+
     decl_bucket!(CurrentState, "CST2");
     decl_bucket!(AccountsHistory, "hAT");
     decl_bucket!(StorageHistory, "hST");
     decl_bucket!(Code, "CODE");
     decl_bucket!(ContractCode, "contractCode");
-    decl_bucket!(IncarnationMap, "incarnationMap");
     decl_bucket!(IntermediateTrieHash, "iTh2");
+    decl_bucket!(DatabaseVersion, "DatabaseVersion");
+    decl_bucket!(Header, "h"); // block_num_u64 + hash -> header
+    decl_bucket!(HeaderNumber, "H"); // hash -> num (uint64 big endian)
+    decl_bucket!(BlockBody, "b"); // block_num_u64 + hash -> block body
+    decl_bucket!(BlockReceipts, "r"); // block_num_u64 + hash -> block receipts
+    decl_bucket!(TxLookup, "l");
+    decl_bucket!(BloomBits, "B");
+    decl_bucket!(Preimage, "secure-key-"); // hash -> preimage
+    decl_bucket!(Config, "ethereum-config-"); // config prefix for the db
+    decl_bucket!(BloomBitsIndex, "iB");
     decl_bucket!(DatabaseInfo, "DBINFO");
+    decl_bucket!(IncarnationMap, "incarnationMap");
+    decl_bucket!(Clique, "clique-");
+    decl_bucket!(SyncStageProgress, "SSP2");
+    decl_bucket!(SyncStageUnwind, "SSU2");
+    decl_bucket!(PlainState, "PLAIN-CST2");
+    decl_bucket!(PlainContractCode, "PLAIN-contractCode");
+    decl_bucket!(PlainAccountChangeSet, "PLAIN-ACS");
+    decl_bucket!(PlainStorageChangeSet, "PLAIN-SCS");
+    decl_bucket!(Senders, "txSenders");
+    decl_bucket!(FastTrieProgress, "TrieSync");
+    decl_bucket!(HeadBlock, "LastBlock");
+    decl_bucket!(HeadFastBlock, "LastFast");
+    decl_bucket!(HeadHeader, "LastHeader");
+    decl_bucket!(Migrations, "migrations");
+    decl_bucket!(LogTopicIndex, "log_topic_index");
+    decl_bucket!(LogAddressIndex, "log_address_index");
     decl_bucket!(SnapshotInfo, "SNINFO");
-}
+    decl_bucket!(HeadersSnapshotInfoBucket, "hSNINFO");
+    decl_bucket!(BodiesSnapshotInfoBucket, "bSNINFO");
+    decl_bucket!(StateSnapshotInfoBucket, "sSNINFO");
+    decl_bucket!(CallFromIndex, "call_from_index");
+    decl_bucket!(CallToIndex, "call_to_index");
+    decl_bucket!(Log, "log"); // block_num_u64 + hash -> block receipts
+    decl_bucket!(Sequence, "sequence");
+    decl_bucket!(EthTx, "eth_tx"); // tbl_sequence_u64 -> rlp(tx)
 
-pub type BucketFlags = u8;
-pub type DBI = u8;
-pub type CustomComparator = &'static str;
+    impl DupSort for CurrentState {
+        const AUTO_KEYS_CONVERSION: bool = true;
+        const DUP_FROM_LEN: Option<usize> = Some(72);
+        const DUP_TO_LEN: Option<usize> = Some(40);
+    }
+    impl DupSort for PlainAccountChangeSet {}
+    impl DupSort for PlainStorageChangeSet {}
+    impl DupSort for PlainState {
+        const AUTO_KEYS_CONVERSION: bool = true;
+        const DUP_FROM_LEN: Option<usize> = Some(60);
+        const DUP_TO_LEN: Option<usize> = Some(28);
+    }
+    impl DupSort for IntermediateTrieHash {
+        const CUSTOM_DUP_COMPARATOR: Option<&'static str> = Some("dup_cmp_suffix32");
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum SyncStage {
@@ -99,77 +151,5 @@ pub enum BucketFlag {
 }
 
 // Data item prefixes (use single byte to avoid mixing data types, avoid `i`, used for indexes).
-pub const HEADER_PREFIX: &str = "h"; // block_num_u64 + hash -> header
 pub const HEADER_TD_SUFFIX: &str = "t"; // block_num_u64 + hash + headerTDSuffix -> td
 pub const HEADER_HASH_SUFFIX: &str = "n"; // block_num_u64 + headerHashSuffix -> hash
-pub const HEADER_NUMBER_PREFIX: &str = "H"; // headerNumberPrefix + hash -> num (uint64 big endian)
-
-pub const BLOCK_BODY_PREFIX: &str = "b"; // block_num_u64 + hash -> block body
-pub const ETH_TX: &str = "eth_tx"; // tbl_sequence_u64 -> rlp(tx)
-pub const BLOCK_RECEIPTS_PREFIX: &str = "r"; // block_num_u64 + hash -> block receipts
-pub const LOG: &str = "log"; // block_num_u64 + hash -> block receipts
-
-pub const CONFIG_PREFIX: &str = "ethereum-config-";
-
-pub const SYNC_STAGE_PROGRESS: &str = "SSP2";
-
-#[derive(Clone, Copy, Default)]
-pub struct BucketConfigItem {
-    pub flags: BucketFlags,
-    // AutoDupSortKeysConversion - enables some keys transformation - to change db layout without changing app code.
-    // Use it wisely - it helps to do experiments with DB format faster, but better reduce amount of Magic in app.
-    // If good DB format found, push app code to accept this format and then disable this property.
-    pub auto_dup_sort_keys_conversion: bool,
-    pub is_deprecated: bool,
-    pub dbi: DBI,
-    // DupFromLen - if user provide key of this length, then next transformation applied:
-    // v = append(k[DupToLen:], v...)
-    // k = k[:DupToLen]
-    // And opposite at retrieval
-    // Works only if AutoDupSortKeysConversion enabled
-    pub dup_from_len: u8,
-    pub dup_to_len: u8,
-    pub dup_fixed_size: u8,
-    pub custom_comparator: CustomComparator,
-    pub custom_dup_comparator: CustomComparator,
-}
-
-pub fn buckets_configs() -> HashMap<&'static str, BucketConfigItem> {
-    hashmap! {
-        "CurrentStateBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            auto_dup_sort_keys_conversion: true,
-            dup_from_len: 72,
-            dup_to_len: 40,
-            ..Default::default()
-        },
-        "PlainAccountChangeSetBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            ..Default::default()
-        },
-        "PlainStorageChangeSetBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            ..Default::default()
-        },
-        "AccountChangeSetBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            ..Default::default()
-        },
-        "StorageChangeSetBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            ..Default::default()
-        },
-        "PlainStateBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            auto_dup_sort_keys_conversion: true,
-            dup_from_len: 60,
-            dup_to_len: 28,
-            ..Default::default()
-        },
-        "IntermediateTrieHashBucket" => BucketConfigItem {
-            flags: BucketFlag::DupSort as u8,
-            custom_dup_comparator: "dup_cmp_suffix32",
-            ..Default::default()
-        },
-    }
-}

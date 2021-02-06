@@ -2,6 +2,7 @@ use crate::dbutils;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
+use dbutils::{Bucket, DupFixed, DupSort};
 use ethereum_types::Address;
 use futures::stream::LocalBoxStream;
 use std::{cmp::Ordering, pin::Pin};
@@ -38,19 +39,17 @@ pub trait Transaction {
     ///
     /// Cursor, also provides a grain of magic - it can use a declarative configuration - and automatically break
     /// long keys into DupSort key/values. See docs for `bucket.go:BucketConfigItem`
-    async fn cursor<'tx>(&'tx self, bucket_name: &'tx str) -> anyhow::Result<Self::Cursor<'tx>>;
+    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx>>;
     /// Can be used if bucket has lmdb.DupSort flag.
-    async fn cursor_dup_sort<'tx>(
+    async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
         &'tx self,
-        bucket_name: &'tx str,
     ) -> anyhow::Result<Self::CursorDupSort<'tx>>;
     /// Can be used if bucket has lmdb.DupFixed flag.
-    async fn cursor_dup_fixed<'tx>(
+    async fn cursor_dup_fixed<'tx, B: Bucket + DupFixed>(
         &'tx self,
-        bucket_name: &'tx str,
     ) -> anyhow::Result<Self::CursorDupFixed<'tx>>;
-    async fn get_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<Bytes<'static>>;
-    async fn has_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<bool>;
+    async fn get_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<Bytes<'static>>;
+    async fn has_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<bool>;
 }
 
 #[async_trait(?Send)]
@@ -61,29 +60,27 @@ pub trait Transaction2: Transaction {
     type CursorDupSort2<'tx>: CursorDupSort2<'tx>;
     type CursorDupFixed2<'tx>: CursorDupFixed2<'tx>;
 
-    async fn cursor_dup_sort2<'tx>(
+    async fn cursor_dup_sort2<'tx, B: Bucket + DupSort>(
         &'tx self,
-        bucket_name: &str,
     ) -> anyhow::Result<Self::CursorDupSort2<'tx>>;
 
-    async fn cursor_dup_fixed2<'tx>(
+    async fn cursor_dup_fixed2<'tx, B: Bucket + DupFixed>(
         &'tx self,
-        bucket_name: &str,
     ) -> anyhow::Result<Self::CursorDupFixed2<'tx>>;
 
     async fn commit(self) -> anyhow::Result<()>;
 
-    async fn bucket_size(&self, name: &str) -> anyhow::Result<u64>;
+    async fn bucket_size<B: Bucket>(&self) -> anyhow::Result<u64>;
 
-    fn comparator(&self, bucket: &str) -> ComparatorFunc;
-    fn cmp(bucket: &str, a: &[u8], b: &[u8]) -> Ordering;
-    fn dcmp(bucket: &str, a: &[u8], b: &[u8]) -> Ordering;
+    fn comparator<B: Bucket>(&self) -> ComparatorFunc;
+    fn cmp<B: Bucket>(a: &[u8], b: &[u8]) -> Ordering;
+    fn dcmp<B: Bucket>(a: &[u8], b: &[u8]) -> Ordering;
 
     /// Allows to create a linear sequence of unique positive integers for each table.
     /// Can be called for a read transaction to retrieve the current sequence value, and the increment must be zero.
     /// Sequence changes become visible outside the current write transaction after it is committed, and discarded on abort.
     /// Starts from 0.
-    async fn sequence(&self, bucket: &str, amount: usize) -> anyhow::Result<usize>;
+    async fn sequence<B: Bucket>(&self, amount: usize) -> anyhow::Result<usize>;
 }
 
 #[async_trait(?Send)]
