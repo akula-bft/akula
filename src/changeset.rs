@@ -49,7 +49,15 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
     }
 
     fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
-        encode_accounts(block_number, s).map(|(k, v)| (Bytes::copy_from_slice(&k), v))
+        let k = encode_block_number(block_number);
+
+        s.iter().map(move |cs| {
+            let mut new_v = vec![0; cs.key.as_ref().len() + cs.value.len()];
+            new_v[..cs.key.as_ref().len()].copy_from_slice(cs.key.as_ref());
+            new_v[cs.key.as_ref().len()..].copy_from_slice(&*cs.value);
+
+            (Bytes::copy_from_slice(&k), new_v.into())
+        })
     }
 
     fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
@@ -73,8 +81,22 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
     }
 
     fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
-        encode_storage(block_number, s, common::ADDRESS_LENGTH)
-            .map(|(k, v)| (Bytes::copy_from_slice(&k), v))
+        s.iter().map(move |cs| {
+            let cs_key = cs.key.as_ref();
+
+            let key_part = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
+
+            let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + key_part];
+            new_k[..common::BLOCK_NUMBER_LENGTH]
+                .copy_from_slice(&encode_block_number(block_number));
+            new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs_key[..key_part]);
+
+            let mut new_v = vec![0; common::HASH_LENGTH + cs.value.len()];
+            new_v[..common::HASH_LENGTH].copy_from_slice(&cs_key[key_part..]);
+            new_v[common::HASH_LENGTH..].copy_from_slice(&cs.value[..]);
+
+            (new_k.into(), new_v.into())
+        })
     }
 
     fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {

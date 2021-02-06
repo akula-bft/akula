@@ -1,7 +1,7 @@
 use super::*;
 use crate::{common, dbutils, CursorDupSort};
 use async_stream::try_stream;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use std::io::Write;
 
 pub fn walk<
@@ -126,26 +126,4 @@ pub async fn do_search_2<C: CursorDupSort>(
     let (_, _, v) = from_storage_db_format(k, v);
 
     Ok(Some(v))
-}
-
-pub fn encode_storage<Key: Eq + Ord + AsRef<[u8]>>(
-    block_n: u64,
-    s: &ChangeSet<Key>,
-    key_prefix_len: usize,
-) -> impl Iterator<Item = (Bytes, Bytes)> + '_ {
-    s.iter().map(move |cs| {
-        let cs_key = cs.key.as_ref();
-
-        let key_part = key_prefix_len + common::INCARNATION_LENGTH;
-
-        let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + key_part];
-        new_k[..common::BLOCK_NUMBER_LENGTH].copy_from_slice(&encode_block_number(block_n));
-        new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs_key[..key_part]);
-
-        let mut new_v = BytesMut::with_capacity(common::HASH_LENGTH + cs.value.len());
-        new_v.put_slice(&cs_key[key_part..]);
-        new_v.put_slice(&cs.value[..]);
-
-        (new_k.into(), new_v.freeze())
-    })
 }

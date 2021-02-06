@@ -1,6 +1,6 @@
 use super::*;
 use crate::{dbutils, CursorDupSort};
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 
 pub async fn find_in_account_changeset<C: CursorDupSort>(
     c: &mut C,
@@ -22,19 +22,4 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
     }
 
     Ok(Some(v))
-}
-
-pub fn encode_accounts<Key: Ord + AsRef<[u8]>>(
-    block_number: u64,
-    s: &ChangeSet<Key>,
-) -> impl Iterator<Item = ([u8; common::BLOCK_NUMBER_LENGTH], Bytes)> + '_ {
-    let new_k = dbutils::encode_block_number(block_number);
-
-    s.iter().map(move |cs| {
-        let mut new_v = BytesMut::with_capacity(cs.key.as_ref().len() + cs.value.len());
-        new_v.extend_from_slice(cs.key.as_ref());
-        new_v.extend_from_slice(&*cs.value);
-
-        (new_k, new_v.freeze())
-    })
 }
