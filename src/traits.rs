@@ -89,8 +89,6 @@ pub trait Transaction2: Transaction {
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
 pub trait Cursor {
-    async fn set_prefix(&mut self, _v: &[u8]) {}
-    async fn prefetch(&mut self, _v: u64) {}
     async fn first(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
