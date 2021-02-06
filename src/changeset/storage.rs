@@ -3,72 +3,6 @@ use crate::{common, CursorDupSort};
 use async_trait::async_trait;
 use bytes::Bytes;
 
-/* Hashed changesets (key is a hash of common.Address) */
-
-pub struct StorageChangeSet<'cur, C: CursorDupSort> {
-    pub c: &'cur mut C,
-}
-
-#[async_trait]
-impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSet<'cur, C> {
-    type Key = [u8; common::HASH_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
-    type WalkStream<'w> = impl WalkStream<Self::Key>;
-
-    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
-        super::storage_utils::walk(
-            &mut self.c,
-            |db_key, db_value| {
-                let (b, k1, v) = from_storage_db_format(common::HASH_LENGTH)(db_key, db_value);
-                let mut k =
-                    [0; common::HASH_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
-                k[..].copy_from_slice(&k1[..]);
-                (b, k, v)
-            },
-            from,
-            to,
-        )
-    }
-
-    async fn find(&mut self, block_number: u64, k: &Self::Key) -> anyhow::Result<Option<Bytes>> {
-        find_without_incarnation_in_storage_changeset_2(
-            &mut self.c,
-            block_number,
-            common::HASH_LENGTH,
-            &k[..common::HASH_LENGTH],
-            &k[common::HASH_LENGTH..],
-        )
-        .await
-    }
-}
-
-impl<'cur, C: 'cur + CursorDupSort> StorageChangeSet<'cur, C> {
-    pub async fn find_with_incarnation(
-        &mut self,
-        block_number: u64,
-        k: &[u8],
-    ) -> anyhow::Result<Option<Bytes>> {
-        find_in_storage_changeset_2(&mut self.c, block_number, common::HASH_LENGTH, k).await
-    }
-
-    pub async fn find_without_incarnation(
-        &mut self,
-        block_number: u64,
-        addr_hash_to_find: &[u8],
-        key_hash_to_find: &[u8],
-    ) -> anyhow::Result<Option<Bytes>> {
-        find_without_incarnation_in_storage_changeset_2(
-            &mut self.c,
-            block_number,
-            common::HASH_LENGTH,
-            addr_hash_to_find,
-            key_hash_to_find,
-        )
-        .await
-    }
-}
-
-/* Plain changesets (key is a common.Address) */
-
 pub struct StorageChangeSetPlain<'cur, C: CursorDupSort> {
     pub c: &'cur mut C,
 }
@@ -82,7 +16,7 @@ impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSetPlain<'cur, C> {
         super::storage_utils::walk::<C, _, _>(
             &mut self.c,
             |db_key, db_value| {
-                let (b, k1, v) = from_storage_db_format(common::ADDRESS_LENGTH)(db_key, db_value);
+                let (b, k1, v) = from_storage_db_format(db_key, db_value);
                 let mut k =
                     [0; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
                 k[..].copy_from_slice(&k1[..]);

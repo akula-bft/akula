@@ -88,7 +88,7 @@ pub async fn do_search_2<C: CursorDupSort>(
                 break;
             }
 
-            let (_, k1, v1) = from_storage_db_format(key_prefix_len)(k, v);
+            let (_, k1, v1) = from_storage_db_format(k, v);
             if !k1.starts_with(addr_bytes_to_find) {
                 break;
             }
@@ -123,7 +123,7 @@ pub async fn do_search_2<C: CursorDupSort>(
         return Ok(None);
     }
 
-    let (_, _, v) = from_storage_db_format(key_prefix_len)(k, v);
+    let (_, _, v) = from_storage_db_format(k, v);
 
     Ok(Some(v))
 }

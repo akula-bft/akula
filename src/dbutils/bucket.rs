@@ -39,8 +39,6 @@ pub mod buckets {
     decl_bucket!(Code, "CODE");
     decl_bucket!(ContractCode, "contractCode");
     decl_bucket!(IncarnationMap, "incarnationMap");
-    decl_bucket!(AccountChangeSet, "ACS");
-    decl_bucket!(StorageChangeSet, "SCS");
     decl_bucket!(IntermediateTrieHash, "iTh2");
     decl_bucket!(DatabaseInfo, "DBINFO");
     decl_bucket!(SnapshotInfo, "SNINFO");

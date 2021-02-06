@@ -25,11 +25,6 @@ pub trait KV {
 
 pub type TxFlags = u8;
 
-pub const RW: TxFlags = 0x00;
-pub const RO: TxFlags = 0x02;
-pub const Try: TxFlags = 0x04;
-pub const NoSync: TxFlags = 0x08;
-
 #[async_trait]
 pub trait Transaction: Send {
     type Cursor<'tx>: Cursor;

@@ -36,30 +36,6 @@ pub trait ChangeSetBucket: Bucket {
     fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes);
 }
 
-impl ChangeSetBucket for buckets::AccountChangeSet {
-    const TEMPLATE: &'static str = "acc-ind-";
-
-    type Key = [u8; common::HASH_LENGTH];
-    type IndexBucket = buckets::AccountsHistory;
-    type Walker<'cur, C: 'cur + CursorDupSort> = impl Walker;
-    type EncodedStream<'ch> = impl EncodedStream;
-
-    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker<'cur, C> {
-        AccountChangeSet { c }
-    }
-
-    fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
-        encode_accounts(block_number, s).map(|(k, v)| (Bytes::copy_from_slice(&k), v))
-    }
-
-    fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
-        let (b, k1, v) = from_account_db_format(common::HASH_LENGTH)(k, v);
-        let mut k = [0; common::HASH_LENGTH];
-        k[..].copy_from_slice(&*k1);
-        (b, k, v)
-    }
-}
-
 impl ChangeSetBucket for buckets::PlainAccountChangeSet {
     const TEMPLATE: &'static str = "acc-ind-";
 
@@ -77,34 +53,9 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
     }
 
     fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
-        let (b, k1, v) = from_account_db_format(common::ADDRESS_LENGTH)(k, v);
+        let (b, k1, v) = from_account_db_format(k, v);
         let mut k = [0; common::ADDRESS_LENGTH];
         k[..].copy_from_slice(&*k1);
-        (b, k, v)
-    }
-}
-
-impl ChangeSetBucket for buckets::StorageChangeSet {
-    const TEMPLATE: &'static str = "st-ind-";
-
-    type Key = [u8; common::HASH_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
-    type IndexBucket = buckets::StorageHistory;
-    type Walker<'cur, C: 'cur + CursorDupSort> = impl Walker;
-    type EncodedStream<'ch> = impl EncodedStream;
-
-    fn walker_adapter<'cur, C: 'cur + CursorDupSort>(c: &'cur mut C) -> Self::Walker<'cur, C> {
-        StorageChangeSetPlain { c }
-    }
-
-    fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
-        encode_storage(block_number, s, common::HASH_LENGTH)
-            .map(|(k, v)| (Bytes::copy_from_slice(&k), v))
-    }
-
-    fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
-        let (b, k1, v) = from_storage_db_format(common::HASH_LENGTH)(k, v);
-        let mut k = [0; common::HASH_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
-        k[..].copy_from_slice(&k1);
         (b, k, v)
     }
 }
@@ -127,7 +78,7 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
     }
 
     fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
-        let (b, k1, v) = from_storage_db_format(common::ADDRESS_LENGTH)(k, v);
+        let (b, k1, v) = from_storage_db_format(k, v);
         let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
         k[..].copy_from_slice(&k1);
         (b, k, v)
@@ -159,31 +110,27 @@ impl<Key: ChangeKey> Change<Key> {
 
 pub type ChangeSet<Key> = BTreeSet<Change<Key>>;
 
-pub fn from_account_db_format(addr_size: usize) -> impl Fn(Bytes, Bytes) -> (u64, Bytes, Bytes) {
-    move |db_key, db_value| {
-        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+pub fn from_account_db_format(db_key: Bytes, db_value: Bytes) -> (u64, Bytes, Bytes) {
+    let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
 
-        let mut k = db_value;
-        let v = k.split_off(addr_size);
+    let mut k = db_value;
+    let v = k.split_off(common::ADDRESS_LENGTH);
 
-        (block_n, k.into(), v)
-    }
+    (block_n, k.into(), v)
 }
 
-pub fn from_storage_db_format(addr_size: usize) -> impl Fn(Bytes, Bytes) -> (u64, Bytes, Bytes) {
-    let st_sz = addr_size + common::INCARNATION_LENGTH + common::HASH_LENGTH;
+pub fn from_storage_db_format(db_key: Bytes, mut db_value: Bytes) -> (u64, Bytes, Bytes) {
+    let st_sz = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH;
 
-    move |db_key, mut db_value| {
-        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+    let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
 
-        let mut k = vec![0; st_sz];
-        let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
+    let mut k = vec![0; st_sz];
+    let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
 
-        k[..db_key.len()].copy_from_slice(&db_key[..]);
-        k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
+    k[..db_key.len()].copy_from_slice(&db_key[..]);
+    k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
 
-        let v = db_value.split_off(common::HASH_LENGTH);
+    let v = db_value.split_off(common::HASH_LENGTH);
 
-        (block_n, k.into(), v)
-    }
+    (block_n, k.into(), v)
 }

@@ -6,7 +6,6 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
     c: &mut C,
     block_number: u64,
     key: &[u8],
-    key_len: usize,
 ) -> anyhow::Result<Option<Bytes>> {
     let (k, v) = c
         .seek_both_range(&dbutils::encode_block_number(block_number), key)
@@ -16,7 +15,7 @@ pub async fn find_in_account_changeset<C: CursorDupSort>(
         return Ok(None);
     }
 
-    let (_, k, v) = from_account_db_format(key_len)(k, v);
+    let (_, k, v) = from_account_db_format(k, v);
 
     if !k.starts_with(key) {
         return Ok(None);
