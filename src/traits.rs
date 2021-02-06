@@ -16,8 +16,8 @@ pub trait KV {
     async fn view(&self) -> anyhow::Result<Self::Tx<'_>>;
     async fn update(&mut self) -> anyhow::Result<Self::MutableTx<'_>>;
 
-    async fn begin<'kv, 'parent_tx: 'kv>(
-        &self,
+    async fn begin<'parent_tx, 'kv: 'parent_tx>(
+        &'kv self,
         parent: Self::Tx<'parent_tx>,
         flags: TxFlags,
     ) -> anyhow::Result<Self::Tx<'parent_tx>>;
