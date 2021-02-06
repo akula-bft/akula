@@ -5,12 +5,18 @@ use crate::{common, CursorDupSort};
 use async_trait::async_trait;
 use bytes::Bytes;
 
-pub struct StorageChangeSetPlain<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> {
+pub struct StorageChangeSetPlain<
+    'cur,
+    'tx: 'cur,
+    C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
+> {
     pub c: &'cur mut C,
     _marker: PhantomData<&'tx ()>,
 }
 
-impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> StorageChangeSetPlain<'cur, 'tx, C> {
+impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>>
+    StorageChangeSetPlain<'cur, 'tx, C>
+{
     pub fn new(c: &'cur mut C) -> Self {
         Self {
             c,
@@ -20,12 +26,14 @@ impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx>> StorageChangeSetPlain<'cur, 'tx, C>
 }
 
 #[async_trait(?Send)]
-impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> Walker for StorageChangeSetPlain<'cur, 'tx, C> {
+impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainStorageChangeSet>> Walker
+    for StorageChangeSetPlain<'cur, 'tx, C>
+{
     type Key = [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
     type WalkStream<'w> = impl WalkStream<Self::Key>;
 
     fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
-        super::storage_utils::walk::<C, _, _>(
+        super::storage_utils::walk::<buckets::PlainStorageChangeSet, C, _, _>(
             &mut self.c,
             |db_key, db_value| {
                 let (b, k1, v) = from_storage_db_format(db_key, db_value);
@@ -56,7 +64,9 @@ impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> Walker for StorageChangeSetP
     }
 }
 
-impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx>> StorageChangeSetPlain<'cur, 'tx, C> {
+impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainStorageChangeSet>>
+    StorageChangeSetPlain<'cur, 'tx, C>
+{
     pub async fn find_with_incarnation(
         &mut self,
         block_number: u64,

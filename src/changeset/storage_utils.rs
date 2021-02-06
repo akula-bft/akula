@@ -7,7 +7,8 @@ use std::io::Write;
 pub fn walk<
     'cur,
     'tx: 'cur,
-    C: CursorDupSort<'tx>,
+    B: ChangeSetBucket,
+    C: CursorDupSort<'tx, B>,
     Key: Send + Unpin + 'cur,
     Decoder: Fn(Bytes<'static>, Bytes<'static>) -> (u64, Key, Bytes<'static>) + 'cur,
 >(
@@ -35,7 +36,10 @@ pub fn walk<
     }
 }
 
-pub async fn find_in_storage_changeset_2<'tx, C: CursorDupSort<'tx>>(
+pub async fn find_in_storage_changeset_2<
+    'tx,
+    C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
+>(
     c: &mut C,
     block_number: u64,
     key_prefix_len: usize,
@@ -53,7 +57,10 @@ pub async fn find_in_storage_changeset_2<'tx, C: CursorDupSort<'tx>>(
     .await
 }
 
-pub async fn find_without_incarnation_in_storage_changeset_2<'tx, C: CursorDupSort<'tx>>(
+pub async fn find_without_incarnation_in_storage_changeset_2<
+    'tx,
+    C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
+>(
     c: &mut C,
     block_number: u64,
     key_prefix_len: usize,
@@ -71,7 +78,7 @@ pub async fn find_without_incarnation_in_storage_changeset_2<'tx, C: CursorDupSo
     .await
 }
 
-pub async fn do_search_2<'tx, C: CursorDupSort<'tx>>(
+pub async fn do_search_2<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>>(
     c: &mut C,
     block_number: u64,
     key_prefix_len: usize,

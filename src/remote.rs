@@ -7,7 +7,7 @@ use anyhow::Context;
 use async_stream::stream;
 use async_trait::async_trait;
 use bytes::Bytes;
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 use tokio::sync::{
     mpsc::{channel, Sender},
     oneshot::{channel as oneshot, Sender as OneshotSender},
@@ -26,21 +26,22 @@ pub struct RemoteTransaction {
 }
 
 /// Cursor opened by `RemoteTransaction`.
-pub struct RemoteCursor<'tx> {
+pub struct RemoteCursor<'tx, B> {
     transaction: &'tx RemoteTransaction,
     id: u32,
 
     #[allow(unused)]
     drop_handle: OneshotSender<()>,
+    _marker: PhantomData<B>,
 }
 
 #[async_trait(?Send)]
 impl crate::Transaction for RemoteTransaction {
-    type Cursor<'tx> = RemoteCursor<'tx>;
-    type CursorDupSort<'tx> = RemoteCursor<'tx>;
-    type CursorDupFixed<'tx> = RemoteCursor<'tx>;
+    type Cursor<'tx, B: Bucket> = RemoteCursor<'tx, B>;
+    type CursorDupSort<'tx, B: Bucket + DupSort> = RemoteCursor<'tx, B>;
+    type CursorDupFixed<'tx, B: Bucket + DupFixed> = RemoteCursor<'tx, B>;
 
-    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx>> {
+    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>> {
         // - send op open
         // - get cursor id
         let mut s = self.io.lock().await;
@@ -90,18 +91,19 @@ impl crate::Transaction for RemoteTransaction {
             transaction: self,
             drop_handle,
             id,
+            _marker: PhantomData,
         })
     }
 
     async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
         &'tx self,
-    ) -> anyhow::Result<Self::CursorDupSort<'tx>> {
+    ) -> anyhow::Result<Self::CursorDupSort<'tx, B>> {
         self.cursor::<B>().await
     }
 
     async fn cursor_dup_fixed<'tx, B: Bucket + DupFixed>(
         &'tx self,
-    ) -> anyhow::Result<Self::CursorDupFixed<'tx>> {
+    ) -> anyhow::Result<Self::CursorDupFixed<'tx, B>> {
         self.cursor::<B>().await
     }
 
@@ -121,7 +123,7 @@ impl crate::Transaction for RemoteTransaction {
     }
 }
 
-impl<'tx> RemoteCursor<'tx> {
+impl<'tx, B: Bucket> RemoteCursor<'tx, B> {
     async fn op(
         &mut self,
         op: Op,
@@ -147,7 +149,7 @@ impl<'tx> RemoteCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> traits::Cursor<'tx> for RemoteCursor<'tx> {
+impl<'tx, B: Bucket> traits::Cursor<'tx, B> for RemoteCursor<'tx, B> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)> {
         self.op(Op::First, None, None).await
     }
@@ -178,7 +180,7 @@ impl<'tx> traits::Cursor<'tx> for RemoteCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> traits::CursorDupSort<'tx> for RemoteCursor<'tx> {
+impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'tx, B> {
     async fn seek_both_exact(
         &mut self,
         key: &[u8],
@@ -210,7 +212,7 @@ impl<'tx> traits::CursorDupSort<'tx> for RemoteCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> traits::CursorDupFixed<'tx> for RemoteCursor<'tx> {
+impl<'tx, B: Bucket + DupFixed> traits::CursorDupFixed<'tx, B> for RemoteCursor<'tx, B> {
     async fn get_multi(&mut self) -> anyhow::Result<Bytes<'static>> {
         Ok(self.op(Op::GetMultiple, None, None).await?.1)
     }
