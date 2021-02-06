@@ -5,7 +5,11 @@
     trait_alias,
     type_alias_impl_trait
 )]
-#![allow(incomplete_features, clippy::unused_io_amount)]
+#![allow(
+    incomplete_features,
+    clippy::mutable_key_type,
+    clippy::unused_io_amount
+)]
 
 mod changeset;
 mod common;
