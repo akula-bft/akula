@@ -12,7 +12,7 @@ mod storage;
 mod storage_utils;
 pub use self::{account::*, account_utils::*, storage::*, storage_utils::*};
 
-pub trait WalkStream<Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes)>>;
+pub trait WalkStream<Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes<'static>)>>;
 
 #[async_trait(?Send)]
 pub trait Walker {
@@ -20,7 +20,11 @@ pub trait Walker {
     type WalkStream<'w>: WalkStream<Self::Key>;
 
     fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_>;
-    async fn find(&mut self, block_number: u64, k: &Self::Key) -> anyhow::Result<Option<Bytes>>;
+    async fn find(
+        &mut self,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'static>>>;
 }
 
 pub trait ChangeSetBucket: Bucket {
@@ -33,7 +37,7 @@ pub trait ChangeSetBucket: Bucket {
 
     fn walker_adapter<'cur, C: 'cur + CursorDupSort>(cursor: &'cur mut C) -> Self::Walker<'cur, C>;
     fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_>;
-    fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes);
+    fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>);
 }
 
 impl ChangeSetBucket for buckets::PlainAccountChangeSet {
@@ -56,11 +60,11 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
             new_v[..cs.key.as_ref().len()].copy_from_slice(cs.key.as_ref());
             new_v[cs.key.as_ref().len()..].copy_from_slice(&*cs.value);
 
-            (Bytes::copy_from_slice(&k), new_v.into())
+            (Bytes::from(k.to_vec()), new_v.into())
         })
     }
 
-    fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
+    fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>) {
         let (b, k1, v) = from_account_db_format(k, v);
         let mut k = [0; common::ADDRESS_LENGTH];
         k[..].copy_from_slice(&*k1);
@@ -99,7 +103,7 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
         })
     }
 
-    fn decode(k: Bytes, v: Bytes) -> (u64, Self::Key, Bytes) {
+    fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>) {
         let (b, k1, v) = from_storage_db_format(k, v);
         let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
         k[..].copy_from_slice(&k1);
@@ -112,7 +116,7 @@ pub trait ChangeKey = Eq + Ord + AsRef<[u8]>;
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Change<Key: ChangeKey> {
     pub key: Key,
-    pub value: Bytes,
+    pub value: Bytes<'static>,
 }
 
 impl<Key: ChangeKey> Debug for Change<Key> {
@@ -125,14 +129,17 @@ impl<Key: ChangeKey> Debug for Change<Key> {
 }
 
 impl<Key: ChangeKey> Change<Key> {
-    pub fn new(key: Key, value: Bytes) -> Self {
+    pub fn new(key: Key, value: Bytes<'static>) -> Self {
         Self { key, value }
     }
 }
 
 pub type ChangeSet<Key> = BTreeSet<Change<Key>>;
 
-pub fn from_account_db_format(db_key: Bytes, db_value: Bytes) -> (u64, Bytes, Bytes) {
+pub fn from_account_db_format(
+    db_key: Bytes<'static>,
+    db_value: Bytes<'static>,
+) -> (u64, Bytes<'static>, Bytes<'static>) {
     let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
 
     let mut k = db_value;
@@ -141,7 +148,10 @@ pub fn from_account_db_format(db_key: Bytes, db_value: Bytes) -> (u64, Bytes, By
     (block_n, k.into(), v)
 }
 
-pub fn from_storage_db_format(db_key: Bytes, mut db_value: Bytes) -> (u64, Bytes, Bytes) {
+pub fn from_storage_db_format(
+    db_key: Bytes<'static>,
+    mut db_value: Bytes<'static>,
+) -> (u64, Bytes<'static>, Bytes<'static>) {
     let st_sz = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH;
 
     let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));

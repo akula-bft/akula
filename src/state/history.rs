@@ -9,7 +9,7 @@ pub async fn get_account_data_as_of<Tx: Transaction>(
     tx: &Tx,
     address: Address,
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     let key = address.to_fixed_bytes();
     if let Some(v) = find_data_by_history(tx, &key, timestamp).await? {
         return Ok(Some(v));
@@ -30,7 +30,7 @@ pub async fn get_storage_as_of<Tx: Transaction>(
     incarnation: Incarnation,
     key: Hash,
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     let key = plain_generate_composite_storage_key(address, incarnation, key);
     if let Some(v) = find_storage_by_history(tx, &key, timestamp).await? {
         return Ok(Some(v));
@@ -49,7 +49,7 @@ pub async fn find_data_by_history<Tx: Transaction>(
     tx: &Tx,
     key: &[u8; ADDRESS_LENGTH],
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     let mut ch = tx.cursor(buckets::AccountsHistory::DB_NAME).await?;
     let (k, v) = ch.seek(&index_chunk_key(key, timestamp)).await?;
 
@@ -112,7 +112,7 @@ pub async fn find_storage_by_history<Tx: Transaction>(
     tx: &Tx,
     key: &PlainCompositeStorageKey,
     timestamp: u64,
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     let mut ch = tx.cursor(buckets::StorageHistory::DB_NAME).await?;
     let (k, v) = ch.seek(&index_chunk_key(key, timestamp)).await?;
 

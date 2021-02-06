@@ -8,13 +8,13 @@ pub fn walk<
     'cur,
     C: CursorDupSort,
     Key: Send + Unpin + 'cur,
-    Decoder: Fn(Bytes, Bytes) -> (u64, Key, Bytes) + 'cur,
+    Decoder: Fn(Bytes<'static>, Bytes<'static>) -> (u64, Key, Bytes<'static>) + 'cur,
 >(
     c: &'cur mut C,
     decoder: Decoder,
     from: u64,
     to: u64,
-) -> impl Stream<Item = anyhow::Result<(u64, Key, Bytes)>> + '_ {
+) -> impl Stream<Item = anyhow::Result<(u64, Key, Bytes<'static>)>> + '_ {
     try_stream! {
         let (mut k, mut v) = c.seek(&dbutils::encode_block_number(from)).await?;
         loop {
@@ -39,7 +39,7 @@ pub async fn find_in_storage_changeset_2<C: CursorDupSort>(
     block_number: u64,
     key_prefix_len: usize,
     k: &[u8],
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     do_search_2(
         c,
         block_number,
@@ -58,7 +58,7 @@ pub async fn find_without_incarnation_in_storage_changeset_2<C: CursorDupSort>(
     key_prefix_len: usize,
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     do_search_2(
         c,
         block_number,
@@ -77,7 +77,7 @@ pub async fn do_search_2<C: CursorDupSort>(
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
     incarnation: u64,
-) -> anyhow::Result<Option<Bytes>> {
+) -> anyhow::Result<Option<Bytes<'static>>> {
     if incarnation == 0 {
         let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + key_prefix_len];
         seek[..].as_mut().write(&block_number.to_be_bytes());

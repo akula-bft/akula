@@ -28,7 +28,11 @@ impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSetPlain<'cur, C> {
         )
     }
 
-    async fn find(&mut self, block_number: u64, k: &Self::Key) -> anyhow::Result<Option<Bytes>> {
+    async fn find(
+        &mut self,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'static>>> {
         find_without_incarnation_in_storage_changeset_2(
             &mut self.c,
             block_number,
@@ -45,7 +49,7 @@ impl<'cur, C: 'cur + CursorDupSort> StorageChangeSetPlain<'cur, C> {
         &mut self,
         block_number: u64,
         k: &[u8],
-    ) -> anyhow::Result<Option<Bytes>> {
+    ) -> anyhow::Result<Option<Bytes<'static>>> {
         find_in_storage_changeset_2(&mut self.c, block_number, common::ADDRESS_LENGTH, k).await
     }
 
@@ -54,7 +58,7 @@ impl<'cur, C: 'cur + CursorDupSort> StorageChangeSetPlain<'cur, C> {
         block_number: u64,
         address_to_find: &[u8],
         key_to_find: &[u8],
-    ) -> anyhow::Result<Option<Bytes>> {
+    ) -> anyhow::Result<Option<Bytes<'static>>> {
         find_without_incarnation_in_storage_changeset_2(
             &mut self.c,
             block_number,
@@ -82,11 +86,14 @@ mod tests {
         rand::random()
     }
 
-    fn hash_value_generator(j: usize) -> Bytes {
-        Bytes::copy_from_slice(common::hash_data(format!("val{}", j).as_bytes()).as_bytes())
+    fn hash_value_generator(j: usize) -> Bytes<'static> {
+        common::hash_data(format!("val{}", j).as_bytes())
+            .as_bytes()
+            .to_vec()
+            .into()
     }
 
-    fn empty_value_generator(j: usize) -> Bytes {
+    fn empty_value_generator(j: usize) -> Bytes<'static> {
         Bytes::new()
     }
 
@@ -154,7 +161,7 @@ mod tests {
         Key: ChangeKey,
         KeyGen: Fn(common::Address, common::Incarnation, common::Hash) -> Key,
         IncarnationGen: Fn() -> common::Incarnation,
-        ValueGen: Fn(usize) -> Bytes,
+        ValueGen: Fn(usize) -> Bytes<'static>,
     >(
         key_gen: &KeyGen,
         incarnation_generator: &IncarnationGen,

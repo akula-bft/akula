@@ -3,7 +3,7 @@ pub use super::*;
 use crate::CursorDupSort;
 use async_trait::async_trait;
 
-pub trait EncodedStream = Iterator<Item = (Bytes, Bytes)>;
+pub trait EncodedStream = Iterator<Item = (Bytes<'static>, Bytes<'static>)>;
 
 pub struct AccountChangeSetPlain<'cur, C: CursorDupSort> {
     pub c: &'cur mut C,
@@ -28,7 +28,11 @@ impl<'cur, C: 'cur + CursorDupSort> Walker for AccountChangeSetPlain<'cur, C> {
         )
     }
 
-    async fn find(&mut self, block_number: u64, k: &Self::Key) -> anyhow::Result<Option<Bytes>> {
+    async fn find(
+        &mut self,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'static>>> {
         find_in_account_changeset(&mut self.c, block_number, k).await
     }
 }
@@ -46,9 +50,9 @@ mod tests {
         let mut ch = ChangeSet::default();
 
         for (i, val) in vec![
-            bytes!["f7f6db1eb17c6d582078e0ffdd0c"],
-            bytes!["b1e9b5c16355eede662031dd621d08faf4ea"],
-            bytes!["862cf52b74f1cea41ddd8ffa4b3e7c7790"],
+            "f7f6db1eb17c6d582078e0ffdd0c".into(),
+            "b1e9b5c16355eede662031dd621d08faf4ea".into(),
+            "862cf52b74f1cea41ddd8ffa4b3e7c7790".into(),
         ]
         .into_iter()
         .enumerate()

@@ -49,7 +49,7 @@ pub trait Transaction {
         &'tx self,
         bucket_name: &'tx str,
     ) -> anyhow::Result<Self::CursorDupFixed<'tx>>;
-    async fn get_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<Bytes>;
+    async fn get_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<Bytes<'static>>;
     async fn has_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<bool>;
 }
 
@@ -91,13 +91,13 @@ pub trait Transaction2: Transaction {
 pub trait Cursor {
     async fn set_prefix(&mut self, _v: &[u8]) {}
     async fn prefetch(&mut self, _v: u64) {}
-    async fn first(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
-    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes, Bytes)>;
-    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes, Bytes)>;
-    async fn next(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
-    async fn prev(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
-    async fn last(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
-    async fn current(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
+    async fn first(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn next(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn prev(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn last(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn current(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
 }
 
 #[async_trait(?Send)]
@@ -118,7 +118,7 @@ pub trait MutableCursor: Cursor {
     /// this operation.
     async fn delete_current(&mut self) -> anyhow::Result<()>;
 
-    async fn reserve(&mut self, key: &[u8], n: usize) -> anyhow::Result<Bytes>;
+    async fn reserve(&mut self, key: &[u8], n: usize) -> anyhow::Result<Bytes<'static>>;
 
     async fn put_current(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
 
@@ -130,18 +130,24 @@ pub trait MutableCursor: Cursor {
 #[auto_impl(&mut, Box)]
 pub trait CursorDupSort: Cursor {
     /// Second parameter can be nil only if searched key has no duplicates, or return error
-    async fn seek_both_exact(&mut self, key: &[u8], value: &[u8])
-        -> anyhow::Result<(Bytes, Bytes)>;
-    async fn seek_both_range(&mut self, key: &[u8], value: &[u8])
-        -> anyhow::Result<(Bytes, Bytes)>;
+    async fn seek_both_exact(
+        &mut self,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
+    async fn seek_both_range(
+        &mut self,
+        key: &[u8],
+        value: &[u8],
+    ) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     /// Position at first data item of current key
-    async fn first_dup(&mut self) -> anyhow::Result<Bytes>;
+    async fn first_dup(&mut self) -> anyhow::Result<Bytes<'static>>;
     /// Position at next data item of current key
-    async fn next_dup(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
+    async fn next_dup(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     /// Position at first data item of next key
-    async fn next_no_dup(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
+    async fn next_no_dup(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
     /// Position at last data item of current key
-    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes>;
+    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes<'static>>;
 }
 
 #[async_trait(?Send)]
@@ -160,10 +166,10 @@ pub trait CursorDupSort2: CursorDupSort {
 pub trait CursorDupFixed: CursorDupSort {
     /// Return up to a page of duplicate data items from current cursor position
     /// After return - move cursor to prepare for `MDB_NEXT_MULTIPLE`
-    async fn get_multi(&mut self) -> anyhow::Result<Bytes>;
+    async fn get_multi(&mut self) -> anyhow::Result<Bytes<'static>>;
     /// Return up to a page of duplicate data items from next cursor position
     /// After return - move cursor to prepare for `MDB_NEXT_MULTIPLE`
-    async fn next_multi(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
+    async fn next_multi(&mut self) -> anyhow::Result<(Bytes<'static>, Bytes<'static>)>;
 }
 
 #[async_trait(?Send)]
@@ -184,7 +190,7 @@ pub struct SubscribeReply;
 
 #[async_trait(?Send)]
 pub trait Backend: Send {
-    async fn add_local(&self, v: Bytes) -> anyhow::Result<Bytes>;
+    async fn add_local(&self, v: Bytes) -> anyhow::Result<Bytes<'static>>;
     async fn etherbase(&self) -> anyhow::Result<Address>;
     async fn net_version(&self) -> anyhow::Result<u64>;
     async fn subscribe(&self) -> anyhow::Result<LocalBoxStream<'static, SubscribeReply>>;
