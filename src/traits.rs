@@ -3,12 +3,12 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
 use ethereum_types::Address;
-use futures::stream::BoxStream;
+use futures::stream::LocalBoxStream;
 use std::{cmp::Ordering, pin::Pin};
 
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait KV {
     type Tx<'kv>: Transaction;
     type MutableTx<'tx>: MutableTransaction;
@@ -25,8 +25,8 @@ pub trait KV {
 
 pub type TxFlags = u8;
 
-#[async_trait]
-pub trait Transaction: Send {
+#[async_trait(?Send)]
+pub trait Transaction {
     type Cursor<'tx>: Cursor;
     type CursorDupSort<'tx>: CursorDupSort;
     type CursorDupFixed<'tx>: CursorDupFixed;
@@ -53,10 +53,10 @@ pub trait Transaction: Send {
     async fn has_one(&self, bucket: &str, key: &[u8]) -> anyhow::Result<bool>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait MutableTransaction: Transaction {}
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Transaction2: Transaction {
     type CursorDupSort2<'tx>: CursorDupSort2;
     type CursorDupFixed2<'tx>: CursorDupFixed2;
@@ -86,9 +86,9 @@ pub trait Transaction2: Transaction {
     async fn sequence(&self, bucket: &str, amount: usize) -> anyhow::Result<usize>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait Cursor: Send {
+pub trait Cursor {
     async fn set_prefix(&mut self, _v: &[u8]) {}
     async fn prefetch(&mut self, _v: u64) {}
     async fn first(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
@@ -100,7 +100,7 @@ pub trait Cursor: Send {
     async fn current(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
 pub trait MutableCursor: Cursor {
     /// Put based on order
@@ -126,7 +126,7 @@ pub trait MutableCursor: Cursor {
     async fn count(&mut self) -> anyhow::Result<usize>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
 pub trait CursorDupSort: Cursor {
     /// Second parameter can be nil only if searched key has no duplicates, or return error
@@ -144,7 +144,7 @@ pub trait CursorDupSort: Cursor {
     async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
 pub trait CursorDupSort2: CursorDupSort {
     /// Number of duplicates for the current key
@@ -155,7 +155,7 @@ pub trait CursorDupSort2: CursorDupSort {
     async fn append_dup(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
 pub trait CursorDupFixed: CursorDupSort {
     /// Return up to a page of duplicate data items from current cursor position
@@ -166,7 +166,7 @@ pub trait CursorDupFixed: CursorDupSort {
     async fn next_multi(&mut self) -> anyhow::Result<(Bytes, Bytes)>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
 pub trait CursorDupFixed2: CursorDupFixed {
     /// PutMulti store multiple contiguous data elements in a single request.
@@ -174,7 +174,7 @@ pub trait CursorDupFixed2: CursorDupFixed {
     async fn put_multi(&mut self, key: &[u8], page: &[u8], stride: usize) -> anyhow::Result<()>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait HasStats: Send {
     /// DB size
     async fn disk_size(&self) -> anyhow::Result<u64>;
@@ -182,10 +182,10 @@ pub trait HasStats: Send {
 
 pub struct SubscribeReply;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Backend: Send {
     async fn add_local(&self, v: Bytes) -> anyhow::Result<Bytes>;
     async fn etherbase(&self) -> anyhow::Result<Address>;
     async fn net_version(&self) -> anyhow::Result<u64>;
-    async fn subscribe(&self) -> anyhow::Result<BoxStream<'static, SubscribeReply>>;
+    async fn subscribe(&self) -> anyhow::Result<LocalBoxStream<'static, SubscribeReply>>;
 }

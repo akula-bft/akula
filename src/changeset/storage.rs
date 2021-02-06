@@ -7,7 +7,7 @@ pub struct StorageChangeSetPlain<'cur, C: CursorDupSort> {
     pub c: &'cur mut C,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<'cur, C: 'cur + CursorDupSort> Walker for StorageChangeSetPlain<'cur, C> {
     type Key = [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
     type WalkStream<'w> = impl WalkStream<Self::Key>;

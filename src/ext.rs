@@ -1,20 +1,18 @@
-use crate::{changeset::*, common, dbutils, dbutils::*, models::*, Cursor, Transaction};
+use crate::{changeset::*, common, dbutils::*, models::*, Cursor, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use bytes::Bytes;
-use common::{Hash, Incarnation, ADDRESS_LENGTH, HASH_LENGTH};
 use ethereum::Header;
 use ethereum_types::{Address, H256, U256};
-use futures::stream::BoxStream;
-use roaring::RoaringTreemap;
+use futures::stream::LocalBoxStream;
 use std::collections::{HashMap, HashSet};
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait TransactionExt: Transaction {
     async fn read_canonical_hash(&self, block_num: u64) -> anyhow::Result<Option<H256>> {
         let key = header_hash_key(block_num);
@@ -213,13 +211,13 @@ fn walk_continue<K: AsRef<[u8]>>(
                     == (start_key.as_ref()[fixed_bytes as usize - 1] & mask))
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait CursorExt: Cursor {
     fn walk<'cur>(
         &'cur mut self,
         start_key: &'cur [u8],
         fixed_bits: u64,
-    ) -> BoxStream<'cur, anyhow::Result<(Bytes, Bytes)>> {
+    ) -> LocalBoxStream<'cur, anyhow::Result<(Bytes, Bytes)>> {
         Box::pin(try_stream! {
             let (fixed_bytes, mask) = bytes_mask(fixed_bits);
 

@@ -3,14 +3,14 @@
 use async_trait::async_trait;
 
 /// Putter wraps the database write operations.
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Putter {
     /// Put inserts or updates a single entry.
     async fn put(&self, bucket: &str, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
 }
 
 /// Getter wraps the database read operations.
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Getter {
     type WalkStream<'a> = impl Stream<Item = (Bytes, Bytes)>;
     type MultiWalkStream<'a> = impl Stream<Item = (usize, Bytes, Bytes)>;
@@ -37,14 +37,14 @@ pub trait Getter {
 pub trait GetterPutter = Getter + Putter;
 
 /// Deleter wraps the database delete operations.
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Deleter {
     /// Delete removes a single entry.
     async fn delete(&self, bucket: &str, k: &[u8], v: &[u8]) -> anyhow::Result<()>;
 }
 
 /// Database wraps all database operations. All methods are safe for concurrent use.
-#[async_trait]
+#[async_trait(?Send)]
 pub trait Database: Getter + Putter + Deleter {
     /// MultiPut inserts or updates multiple entries.
 	/// Entries are passed as an array:
@@ -78,7 +78,7 @@ pub trait Database: Getter + Putter + Deleter {
     async fn sequence(&self, bucket: &str, amount: usize) -> anyhow::Result<u64>;
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait DbWithPendingMutations: Database {
     async fn commit(self) -> anyhow::Result<usize>;
 

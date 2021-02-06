@@ -3,13 +3,13 @@ pub use super::*;
 use crate::CursorDupSort;
 use async_trait::async_trait;
 
-pub trait EncodedStream = Iterator<Item = (Bytes, Bytes)> + Send;
+pub trait EncodedStream = Iterator<Item = (Bytes, Bytes)>;
 
 pub struct AccountChangeSetPlain<'cur, C: CursorDupSort> {
     pub c: &'cur mut C,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<'cur, C: 'cur + CursorDupSort> Walker for AccountChangeSetPlain<'cur, C> {
     type Key = [u8; common::ADDRESS_LENGTH];
     type WalkStream<'w> = impl WalkStream<Self::Key>;

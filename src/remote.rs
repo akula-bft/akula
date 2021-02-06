@@ -31,7 +31,7 @@ pub struct RemoteCursor<'tx> {
     drop_handle: OneshotSender<()>,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl crate::Transaction for RemoteTransaction {
     type Cursor<'tx> = RemoteCursor<'tx>;
     type CursorDupSort<'tx> = RemoteCursor<'tx>;
@@ -145,7 +145,7 @@ impl<'tx> RemoteCursor<'tx> {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<'tx> traits::Cursor for RemoteCursor<'tx> {
     async fn first(&mut self) -> anyhow::Result<(Bytes, Bytes)> {
         self.op(Op::First, None, None).await
@@ -176,7 +176,7 @@ impl<'tx> traits::Cursor for RemoteCursor<'tx> {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<'tx> traits::CursorDupSort for RemoteCursor<'tx> {
     async fn seek_both_exact(
         &mut self,
@@ -208,7 +208,7 @@ impl<'tx> traits::CursorDupSort for RemoteCursor<'tx> {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl<'tx> traits::CursorDupFixed for RemoteCursor<'tx> {
     async fn get_multi(&mut self) -> anyhow::Result<Bytes> {
         Ok(self.op(Op::GetMultiple, None, None).await?.1)

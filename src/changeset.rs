@@ -12,11 +12,11 @@ mod storage;
 mod storage_utils;
 pub use self::{account::*, account_utils::*, storage::*, storage_utils::*};
 
-pub trait WalkStream<Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes)>> + Send;
+pub trait WalkStream<Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes)>>;
 
-#[async_trait]
-pub trait Walker: Send {
-    type Key: Eq + Ord + Send;
+#[async_trait(?Send)]
+pub trait Walker {
+    type Key: Eq + Ord;
     type WalkStream<'w>: WalkStream<Self::Key>;
 
     fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_>;
@@ -26,7 +26,7 @@ pub trait Walker: Send {
 pub trait ChangeSetBucket: Bucket {
     const TEMPLATE: &'static str;
 
-    type Key: Eq + Ord + AsRef<[u8]> + Send;
+    type Key: Eq + Ord + AsRef<[u8]>;
     type IndexBucket: Bucket;
     type Walker<'cur, C: 'cur + CursorDupSort>: Walker;
     type EncodedStream<'ch>: EncodedStream;
