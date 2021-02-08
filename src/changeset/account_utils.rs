@@ -9,7 +9,7 @@ pub async fn find_in_account_changeset<
     c: &mut C,
     block_number: u64,
     key: &[u8],
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     let (k, v) = c
         .seek_both_range(&dbutils::encode_block_number(block_number), key)
         .await?;

@@ -5,21 +5,15 @@ pub use super::*;
 use crate::CursorDupSort;
 use async_trait::async_trait;
 
-pub trait EncodedStream = Iterator<Item = (Bytes<'static>, Bytes<'static>)>;
+pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
-pub struct AccountChangeSetPlain<
-    'cur,
-    'tx: 'cur,
-    C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>,
-> {
-    pub c: &'cur mut C,
+pub struct AccountChangeSetPlain<'tx, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>> {
+    pub c: C,
     _marker: PhantomData<&'tx ()>,
 }
 
-impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>>
-    AccountChangeSetPlain<'cur, 'tx, C>
-{
-    pub fn new(c: &'cur mut C) -> Self {
+impl<'tx, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>> AccountChangeSetPlain<'tx, C> {
+    pub fn new(c: C) -> Self {
         Self {
             c,
             _marker: PhantomData,
@@ -28,31 +22,16 @@ impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>>
 }
 
 #[async_trait(?Send)]
-impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainAccountChangeSet>> Walker
-    for AccountChangeSetPlain<'cur, 'tx, C>
+impl<'tx, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>> Walker<'tx>
+    for AccountChangeSetPlain<'tx, C>
 {
     type Key = [u8; common::ADDRESS_LENGTH];
-    type WalkStream<'w> = impl WalkStream<Self::Key>;
-
-    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
-        super::storage_utils::walk(
-            &mut self.c,
-            |db_key, db_value| {
-                let (b, k1, v) = from_account_db_format(db_key, db_value);
-                let mut k = [0; common::ADDRESS_LENGTH];
-                k[..].copy_from_slice(&k1[..]);
-                (b, k, v)
-            },
-            from,
-            to,
-        )
-    }
 
     async fn find(
         &mut self,
         block_number: u64,
         k: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'static>>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
         find_in_account_changeset(&mut self.c, block_number, k).await
     }
 }
@@ -60,7 +39,6 @@ impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainAccountChangeSe
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes_literal::bytes;
     use ethereum_types::Address;
 
     #[test]

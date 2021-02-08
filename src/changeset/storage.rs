@@ -5,19 +5,13 @@ use crate::{common, CursorDupSort};
 use async_trait::async_trait;
 use bytes::Bytes;
 
-pub struct StorageChangeSetPlain<
-    'cur,
-    'tx: 'cur,
-    C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
-> {
-    pub c: &'cur mut C,
+pub struct StorageChangeSetPlain<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> {
+    pub c: C,
     _marker: PhantomData<&'tx ()>,
 }
 
-impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>>
-    StorageChangeSetPlain<'cur, 'tx, C>
-{
-    pub fn new(c: &'cur mut C) -> Self {
+impl<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> StorageChangeSetPlain<'tx, C> {
+    pub fn new(c: C) -> Self {
         Self {
             c,
             _marker: PhantomData,
@@ -26,33 +20,16 @@ impl<'cur, 'tx: 'cur, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>>
 }
 
 #[async_trait(?Send)]
-impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainStorageChangeSet>> Walker
-    for StorageChangeSetPlain<'cur, 'tx, C>
+impl<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> Walker<'tx>
+    for StorageChangeSetPlain<'tx, C>
 {
     type Key = [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
-    type WalkStream<'w> = impl WalkStream<Self::Key>;
-
-    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_> {
-        super::storage_utils::walk::<buckets::PlainStorageChangeSet, C, _, _>(
-            &mut self.c,
-            |db_key, db_value| {
-                let (b, k1, v) = from_storage_db_format(db_key, db_value);
-                let mut k =
-                    [0; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
-                k[..].copy_from_slice(&k1[..]);
-
-                (b, k, v)
-            },
-            from,
-            to,
-        )
-    }
 
     async fn find(
         &mut self,
         block_number: u64,
         k: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'static>>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
         find_without_incarnation_in_storage_changeset_2(
             &mut self.c,
             block_number,
@@ -64,14 +41,12 @@ impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainStorageChangeSe
     }
 }
 
-impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainStorageChangeSet>>
-    StorageChangeSetPlain<'cur, 'tx, C>
-{
+impl<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> StorageChangeSetPlain<'tx, C> {
     pub async fn find_with_incarnation(
         &mut self,
         block_number: u64,
         k: &[u8],
-    ) -> anyhow::Result<Option<Bytes<'static>>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
         find_in_storage_changeset_2(&mut self.c, block_number, common::ADDRESS_LENGTH, k).await
     }
 
@@ -80,7 +55,7 @@ impl<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, buckets::PlainStorageChangeSe
         block_number: u64,
         address_to_find: &[u8],
         key_to_find: &[u8],
-    ) -> anyhow::Result<Option<Bytes<'static>>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
         find_without_incarnation_in_storage_changeset_2(
             &mut self.c,
             block_number,

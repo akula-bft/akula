@@ -12,19 +12,17 @@ mod storage;
 mod storage_utils;
 pub use self::{account::*, account_utils::*, storage::*, storage_utils::*};
 
-pub trait WalkStream<Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes<'static>)>>;
+pub trait WalkStream<'tx, Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes<'tx>)>>;
 
 #[async_trait(?Send)]
-pub trait Walker {
+pub trait Walker<'tx> {
     type Key: Eq + Ord;
-    type WalkStream<'w>: WalkStream<Self::Key>;
 
-    fn walk(&mut self, from: u64, to: u64) -> Self::WalkStream<'_>;
     async fn find(
         &mut self,
         block_number: u64,
         k: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'static>>>;
+    ) -> anyhow::Result<Option<Bytes<'tx>>>;
 }
 
 pub trait ChangeSetBucket: Bucket + DupSort {
@@ -32,16 +30,17 @@ pub trait ChangeSetBucket: Bucket + DupSort {
 
     type Key: Eq + Ord + AsRef<[u8]>;
     type IndexBucket: Bucket;
-    type Walker<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, Self>>: Walker;
-    type EncodedStream<'ch>: EncodedStream;
+    type Walker<'tx, C: CursorDupSort<'tx, Self>>: Walker<'tx>;
+    type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
-    fn walker_adapter<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, Self>>(
-        cursor: &'cur mut C,
-    ) -> Self::Walker<'cur, 'tx, C>
+    fn walker_adapter<'tx, C: CursorDupSort<'tx, Self>>(cursor: C) -> Self::Walker<'tx, C>
     where
         Self: Sized;
-    fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_>;
-    fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>);
+    fn encode<'cs, 'tx: 'cs>(
+        block_number: u64,
+        s: &'cs ChangeSet<'tx, Self::Key>,
+    ) -> Self::EncodedStream<'tx, 'cs>;
+    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>);
 }
 
 impl ChangeSetBucket for buckets::PlainAccountChangeSet {
@@ -49,17 +48,17 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
 
     type Key = [u8; common::ADDRESS_LENGTH];
     type IndexBucket = buckets::AccountsHistory;
-    type Walker<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, Self>> =
-        AccountChangeSetPlain<'cur, 'tx, C>;
-    type EncodedStream<'ch> = impl EncodedStream;
+    type Walker<'tx, C: CursorDupSort<'tx, Self>> = AccountChangeSetPlain<'tx, C>;
+    type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn walker_adapter<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, Self>>(
-        c: &'cur mut C,
-    ) -> Self::Walker<'cur, 'tx, C> {
+    fn walker_adapter<'tx, C: CursorDupSort<'tx, Self>>(c: C) -> Self::Walker<'tx, C> {
         AccountChangeSetPlain::new(c)
     }
 
-    fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
+    fn encode<'cs, 'tx: 'cs>(
+        block_number: u64,
+        s: &'cs ChangeSet<'tx, Self::Key>,
+    ) -> Self::EncodedStream<'tx, 'cs> {
         let k = encode_block_number(block_number);
 
         s.iter().map(move |cs| {
@@ -71,7 +70,7 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
         })
     }
 
-    fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>) {
+    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
         let (b, k1, v) = from_account_db_format(k, v);
         let mut k = [0; common::ADDRESS_LENGTH];
         k[..].copy_from_slice(&*k1);
@@ -84,17 +83,17 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
     type IndexBucket = buckets::StorageHistory;
-    type Walker<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, Self>> =
-        StorageChangeSetPlain<'cur, 'tx, C>;
-    type EncodedStream<'ch> = impl EncodedStream;
+    type Walker<'tx, C: CursorDupSort<'tx, Self>> = StorageChangeSetPlain<'tx, C>;
+    type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn walker_adapter<'cur, 'tx: 'cur, C: 'cur + CursorDupSort<'tx, Self>>(
-        c: &'cur mut C,
-    ) -> Self::Walker<'cur, 'tx, C> {
+    fn walker_adapter<'tx, C: CursorDupSort<'tx, Self>>(c: C) -> Self::Walker<'tx, C> {
         StorageChangeSetPlain::new(c)
     }
 
-    fn encode(block_number: u64, s: &ChangeSet<Self::Key>) -> Self::EncodedStream<'_> {
+    fn encode<'cs, 'tx: 'cs>(
+        block_number: u64,
+        s: &'cs ChangeSet<'tx, Self::Key>,
+    ) -> Self::EncodedStream<'tx, 'cs> {
         s.iter().map(move |cs| {
             let cs_key = cs.key.as_ref();
 
@@ -113,7 +112,7 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
         })
     }
 
-    fn decode(k: Bytes<'static>, v: Bytes<'static>) -> (u64, Self::Key, Bytes<'static>) {
+    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
         let (b, k1, v) = from_storage_db_format(k, v);
         let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
         k[..].copy_from_slice(&k1);
@@ -124,12 +123,12 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
 pub trait ChangeKey = Eq + Ord + AsRef<[u8]>;
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub struct Change<Key: ChangeKey> {
+pub struct Change<'tx, Key: ChangeKey> {
     pub key: Key,
-    pub value: Bytes<'static>,
+    pub value: Bytes<'tx>,
 }
 
-impl<Key: ChangeKey> Debug for Change<Key> {
+impl<'tx, Key: ChangeKey> Debug for Change<'tx, Key> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Change")
             .field("key", &hex::encode(self.key.as_ref()))
@@ -138,18 +137,18 @@ impl<Key: ChangeKey> Debug for Change<Key> {
     }
 }
 
-impl<Key: ChangeKey> Change<Key> {
-    pub fn new(key: Key, value: Bytes<'static>) -> Self {
+impl<'tx, Key: ChangeKey> Change<'tx, Key> {
+    pub fn new(key: Key, value: Bytes<'tx>) -> Self {
         Self { key, value }
     }
 }
 
-pub type ChangeSet<Key> = BTreeSet<Change<Key>>;
+pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
 
-pub fn from_account_db_format(
-    db_key: Bytes<'static>,
-    db_value: Bytes<'static>,
-) -> (u64, Bytes<'static>, Bytes<'static>) {
+pub fn from_account_db_format<'tx>(
+    db_key: Bytes<'tx>,
+    db_value: Bytes<'tx>,
+) -> (u64, Bytes<'tx>, Bytes<'tx>) {
     let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
 
     let mut k = db_value;
@@ -158,10 +157,10 @@ pub fn from_account_db_format(
     (block_n, k.into(), v)
 }
 
-pub fn from_storage_db_format(
-    db_key: Bytes<'static>,
-    mut db_value: Bytes<'static>,
-) -> (u64, Bytes<'static>, Bytes<'static>) {
+pub fn from_storage_db_format<'tx>(
+    db_key: Bytes<'tx>,
+    mut db_value: Bytes<'tx>,
+) -> (u64, Bytes<'tx>, Bytes<'tx>) {
     let st_sz = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH;
 
     let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));

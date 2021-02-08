@@ -217,7 +217,10 @@ pub trait CursorExt<'tx, B: Bucket>: Cursor<'tx, B> {
         &'cur mut self,
         start_key: &'cur [u8],
         fixed_bits: u64,
-    ) -> LocalBoxStream<'cur, anyhow::Result<(Bytes, Bytes)>> {
+    ) -> LocalBoxStream<'cur, anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>>
+    where
+        'tx: 'cur,
+    {
         Box::pin(try_stream! {
             let (fixed_bytes, mask) = bytes_mask(fixed_bits);
 

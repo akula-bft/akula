@@ -4,38 +4,6 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use std::io::Write;
 
-pub fn walk<
-    'cur,
-    'tx: 'cur,
-    B: ChangeSetBucket,
-    C: CursorDupSort<'tx, B>,
-    Key: Send + Unpin + 'cur,
-    Decoder: Fn(Bytes<'static>, Bytes<'static>) -> (u64, Key, Bytes<'static>) + 'cur,
->(
-    c: &'cur mut C,
-    decoder: Decoder,
-    from: u64,
-    to: u64,
-) -> impl Stream<Item = anyhow::Result<(u64, Key, Bytes<'static>)>> + '_ {
-    try_stream! {
-        let (mut k, mut v) = c.seek(&dbutils::encode_block_number(from)).await?;
-        loop {
-            if k.is_empty() {
-                break;
-            }
-
-            let (block_num, k1, v1) = (decoder)(k, v);
-            if block_num > to {
-                break;
-            }
-
-            yield (block_num, k1, v1);
-
-            (k, v) = c.next().await?
-        }
-    }
-}
-
 pub async fn find_in_storage_changeset_2<
     'tx,
     C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
@@ -44,7 +12,7 @@ pub async fn find_in_storage_changeset_2<
     block_number: u64,
     key_prefix_len: usize,
     k: &[u8],
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     do_search_2(
         c,
         block_number,
@@ -66,7 +34,7 @@ pub async fn find_without_incarnation_in_storage_changeset_2<
     key_prefix_len: usize,
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     do_search_2(
         c,
         block_number,
@@ -85,7 +53,7 @@ pub async fn do_search_2<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeS
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
     incarnation: u64,
-) -> anyhow::Result<Option<Bytes<'static>>> {
+) -> anyhow::Result<Option<Bytes<'tx>>> {
     if incarnation == 0 {
         let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + key_prefix_len];
         seek[..].as_mut().write(&block_number.to_be_bytes());
