@@ -1,63 +1,30 @@
-use std::marker::PhantomData;
-
 use super::*;
 use crate::{common, CursorDupSort};
-use async_trait::async_trait;
 use bytes::Bytes;
 
-pub struct StorageChangeSetPlain<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> {
-    pub c: C,
-    _marker: PhantomData<&'tx ()>,
-}
-
-impl<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> StorageChangeSetPlain<'tx, C> {
-    pub fn new(c: C) -> Self {
-        Self {
-            c,
-            _marker: PhantomData,
-        }
-    }
-}
-
-#[async_trait(?Send)]
-impl<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> Walker<'tx>
-    for StorageChangeSetPlain<'tx, C>
-{
-    type Key = [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::INCARNATION_LENGTH];
-
-    async fn find(
-        &mut self,
-        block_number: u64,
-        k: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        find_without_incarnation_in_storage_changeset_2(
-            &mut self.c,
-            block_number,
-            common::ADDRESS_LENGTH,
-            &k[..common::ADDRESS_LENGTH],
-            &k[common::ADDRESS_LENGTH..],
-        )
-        .await
-    }
-}
-
-impl<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>> StorageChangeSetPlain<'tx, C> {
-    pub async fn find_with_incarnation(
-        &mut self,
+impl buckets::PlainStorageChangeSet {
+    pub async fn find_with_incarnation<
+        'tx,
+        C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
+    >(
+        c: &mut C,
         block_number: u64,
         k: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        find_in_storage_changeset_2(&mut self.c, block_number, common::ADDRESS_LENGTH, k).await
+        find_in_storage_changeset_2(c, block_number, common::ADDRESS_LENGTH, k).await
     }
 
-    pub async fn find_without_incarnation(
-        &mut self,
+    pub async fn find_without_incarnation<
+        'tx,
+        C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
+    >(
+        c: &mut C,
         block_number: u64,
         address_to_find: &[u8],
         key_to_find: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
         find_without_incarnation_in_storage_changeset_2(
-            &mut self.c,
+            c,
             block_number,
             common::ADDRESS_LENGTH,
             address_to_find,

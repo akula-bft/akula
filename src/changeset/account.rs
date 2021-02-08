@@ -1,40 +1,4 @@
-use std::marker::PhantomData;
-
-use self::account_utils::find_in_account_changeset;
 pub use super::*;
-use crate::CursorDupSort;
-use async_trait::async_trait;
-
-pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
-
-pub struct AccountChangeSetPlain<'tx, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>> {
-    pub c: C,
-    _marker: PhantomData<&'tx ()>,
-}
-
-impl<'tx, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>> AccountChangeSetPlain<'tx, C> {
-    pub fn new(c: C) -> Self {
-        Self {
-            c,
-            _marker: PhantomData,
-        }
-    }
-}
-
-#[async_trait(?Send)]
-impl<'tx, C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>> Walker<'tx>
-    for AccountChangeSetPlain<'tx, C>
-{
-    type Key = [u8; common::ADDRESS_LENGTH];
-
-    async fn find(
-        &mut self,
-        block_number: u64,
-        k: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        find_in_account_changeset(&mut self.c, block_number, k).await
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -69,9 +69,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction>(
             let data = {
                 type B = buckets::PlainAccountChangeSet;
                 let mut c = tx.cursor_dup_sort::<B>().await?;
-                B::walker_adapter(&mut c)
-                    .find(change_set_block, key)
-                    .await?
+                B::find(&mut c, change_set_block, key).await?
             };
 
             if let Some(data) = data {
@@ -135,9 +133,7 @@ pub async fn find_storage_by_history<'tx, Tx: Transaction>(
             let data = {
                 type B = buckets::PlainStorageChangeSet;
                 let mut c = tx.cursor_dup_sort::<B>().await?;
-                B::walker_adapter(&mut c)
-                    .find_with_incarnation(change_set_block, key)
-                    .await?
+                B::find_with_incarnation(&mut c, change_set_block, key).await?
             };
 
             if let Some(data) = data {

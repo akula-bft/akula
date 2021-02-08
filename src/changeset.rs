@@ -12,29 +12,23 @@ mod storage;
 mod storage_utils;
 pub use self::{account::*, account_utils::*, storage::*, storage_utils::*};
 
-pub trait WalkStream<'tx, Key> = Stream<Item = anyhow::Result<(u64, Key, Bytes<'tx>)>>;
+pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
 #[async_trait(?Send)]
-pub trait Walker<'tx> {
-    type Key: Eq + Ord;
-
-    async fn find(
-        &mut self,
-        block_number: u64,
-        k: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'tx>>>;
-}
-
 pub trait ChangeSetBucket: Bucket + DupSort {
     const TEMPLATE: &'static str;
 
     type Key: Eq + Ord + AsRef<[u8]>;
     type IndexBucket: Bucket;
-    type Walker<'tx, C: CursorDupSort<'tx, Self>>: Walker<'tx>;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
-    fn walker_adapter<'tx, C: CursorDupSort<'tx, Self>>(cursor: C) -> Self::Walker<'tx, C>
+    async fn find<'tx, C>(
+        cursor: &mut C,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
+        C: CursorDupSort<'tx, Self>,
         Self: Sized;
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
@@ -43,16 +37,24 @@ pub trait ChangeSetBucket: Bucket + DupSort {
     fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>);
 }
 
+#[async_trait(?Send)]
 impl ChangeSetBucket for buckets::PlainAccountChangeSet {
     const TEMPLATE: &'static str = "acc-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH];
     type IndexBucket = buckets::AccountsHistory;
-    type Walker<'tx, C: CursorDupSort<'tx, Self>> = AccountChangeSetPlain<'tx, C>;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn walker_adapter<'tx, C: CursorDupSort<'tx, Self>>(c: C) -> Self::Walker<'tx, C> {
-        AccountChangeSetPlain::new(c)
+    async fn find<'tx, C>(
+        cursor: &mut C,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        C: CursorDupSort<'tx, Self>,
+        Self: Sized,
+    {
+        find_in_account_changeset(cursor, block_number, k).await
     }
 
     fn encode<'cs, 'tx: 'cs>(
@@ -78,16 +80,31 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
     }
 }
 
+#[async_trait(?Send)]
 impl ChangeSetBucket for buckets::PlainStorageChangeSet {
     const TEMPLATE: &'static str = "st-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
     type IndexBucket = buckets::StorageHistory;
-    type Walker<'tx, C: CursorDupSort<'tx, Self>> = StorageChangeSetPlain<'tx, C>;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn walker_adapter<'tx, C: CursorDupSort<'tx, Self>>(c: C) -> Self::Walker<'tx, C> {
-        StorageChangeSetPlain::new(c)
+    async fn find<'tx, C>(
+        cursor: &mut C,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        C: CursorDupSort<'tx, Self>,
+        Self: Sized,
+    {
+        find_without_incarnation_in_storage_changeset_2(
+            cursor,
+            block_number,
+            common::ADDRESS_LENGTH,
+            &k[..common::ADDRESS_LENGTH],
+            &k[common::ADDRESS_LENGTH..],
+        )
+        .await
     }
 
     fn encode<'cs, 'tx: 'cs>(
