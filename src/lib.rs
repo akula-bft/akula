@@ -24,7 +24,7 @@ mod state;
 mod traits;
 
 pub use changeset::ChangeSet;
-pub use dbutils::SyncStage;
+pub use dbutils::{buckets, SyncStage};
 pub use ext::TransactionExt;
 pub use kv_mdbx::*;
 pub use object_db::*;
