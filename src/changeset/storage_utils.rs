@@ -10,17 +10,15 @@ pub async fn find_in_storage_changeset_2<
 >(
     c: &mut C,
     block_number: u64,
-    key_prefix_len: usize,
     k: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     do_search_2(
         c,
         block_number,
-        key_prefix_len,
-        &k[..key_prefix_len],
-        &k[key_prefix_len + common::INCARNATION_LENGTH
-            ..key_prefix_len + common::HASH_LENGTH + common::INCARNATION_LENGTH],
-        u64::from_be_bytes(*array_ref!(&k[key_prefix_len..], 0, 8)),
+        &k[..common::ADDRESS_LENGTH],
+        &k[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH
+            ..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH],
+        u64::from_be_bytes(*array_ref!(&k[common::ADDRESS_LENGTH..], 0, 8)),
     )
     .await
 }
@@ -31,31 +29,21 @@ pub async fn find_without_incarnation_in_storage_changeset_2<
 >(
     c: &mut C,
     block_number: u64,
-    key_prefix_len: usize,
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    do_search_2(
-        c,
-        block_number,
-        key_prefix_len,
-        addr_bytes_to_find,
-        key_bytes_to_find,
-        0,
-    )
-    .await
+    do_search_2(c, block_number, addr_bytes_to_find, key_bytes_to_find, 0).await
 }
 
 pub async fn do_search_2<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>>(
     c: &mut C,
     block_number: u64,
-    key_prefix_len: usize,
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
     incarnation: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     if incarnation == 0 {
-        let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + key_prefix_len];
+        let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH];
         seek[..].as_mut().write(&block_number.to_be_bytes());
         seek[8..].as_mut().write(addr_bytes_to_find).unwrap();
         let (mut k, mut v) = c.seek(&*seek).await?;
@@ -69,7 +57,7 @@ pub async fn do_search_2<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeS
                 break;
             }
 
-            let st_hash = &k1[key_prefix_len + common::INCARNATION_LENGTH..];
+            let st_hash = &k1[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..];
             if st_hash == key_bytes_to_find {
                 return Ok(Some(v1));
             }
@@ -81,13 +69,13 @@ pub async fn do_search_2<'tx, C: CursorDupSort<'tx, buckets::PlainStorageChangeS
     }
 
     let mut seek =
-        vec![0; common::BLOCK_NUMBER_LENGTH + key_prefix_len + common::INCARNATION_LENGTH];
+        vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH + common::INCARNATION_LENGTH];
     seek[..common::BLOCK_NUMBER_LENGTH].copy_from_slice(&block_number.to_be_bytes());
     seek[common::BLOCK_NUMBER_LENGTH..]
         .as_mut()
         .write(addr_bytes_to_find)
         .unwrap();
-    seek[common::BLOCK_NUMBER_LENGTH + key_prefix_len..]
+    seek[common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH..]
         .copy_from_slice(&incarnation.to_be_bytes());
 
     let (k, v) = c.seek_both_range(&seek, key_bytes_to_find).await?;

@@ -100,7 +100,6 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
         find_without_incarnation_in_storage_changeset_2(
             cursor,
             block_number,
-            common::ADDRESS_LENGTH,
             &k[..common::ADDRESS_LENGTH],
             &k[common::ADDRESS_LENGTH..],
         )

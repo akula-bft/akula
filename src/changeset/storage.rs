@@ -11,7 +11,7 @@ impl buckets::PlainStorageChangeSet {
         block_number: u64,
         k: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        find_in_storage_changeset_2(c, block_number, common::ADDRESS_LENGTH, k).await
+        find_in_storage_changeset_2(c, block_number, k).await
     }
 
     pub async fn find_without_incarnation<
@@ -26,7 +26,6 @@ impl buckets::PlainStorageChangeSet {
         find_without_incarnation_in_storage_changeset_2(
             c,
             block_number,
-            common::ADDRESS_LENGTH,
             address_to_find,
             key_to_find,
         )
