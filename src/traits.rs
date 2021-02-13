@@ -2,9 +2,9 @@ use crate::dbutils;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
-use dbutils::{Bucket, DupFixed, DupSort};
+use dbutils::{Bucket, DupSort};
 use ethereum_types::Address;
-use futures::stream::LocalBoxStream;
+use futures::{stream::LocalBoxStream, Future};
 use std::{cmp::Ordering, pin::Pin};
 
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
@@ -12,61 +12,64 @@ pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering
 #[async_trait(?Send)]
 pub trait KV {
     type Tx<'kv>: Transaction;
-    type MutableTx<'tx>: MutableTransaction;
 
-    async fn view(&self) -> anyhow::Result<Self::Tx<'_>>;
-    async fn update(&mut self) -> anyhow::Result<Self::MutableTx<'_>>;
-
-    async fn begin<'parent_tx, 'kv: 'parent_tx>(
-        &'kv self,
-        parent: Self::Tx<'parent_tx>,
-        flags: TxFlags,
-    ) -> anyhow::Result<Self::Tx<'parent_tx>>;
+    async fn begin<'kv>(&'kv self, flags: u8) -> anyhow::Result<Self::Tx<'kv>>;
 }
 
-pub type TxFlags = u8;
+#[async_trait(?Send)]
+pub trait MutableKV {
+    type MutableTx<'tx>: MutableTransaction;
+
+    async fn begin_mutable<'kv>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv>>;
+}
 
 #[async_trait(?Send)]
 pub trait Transaction {
     type Cursor<'tx, B: Bucket>: Cursor<'tx, B>;
     type CursorDupSort<'tx, B: Bucket + DupSort>: CursorDupSort<'tx, B>;
-    type CursorDupFixed<'tx, B: Bucket + DupFixed>: CursorDupFixed<'tx, B>;
 
     /// Cursor - creates cursor object on top of given bucket. Type of cursor - depends on bucket configuration.
     /// If bucket was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
-    /// If bucket was created with lmdb.DupFixed flag, then cursor with interface CursorDupFixed created
     /// Otherwise - object of interface Cursor created
     ///
     /// Cursor, also provides a grain of magic - it can use a declarative configuration - and automatically break
     /// long keys into DupSort key/values. See docs for `bucket.go:BucketConfigItem`
     async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>;
-    /// Can be used if bucket has lmdb.DupSort flag.
     async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
         &'tx self,
     ) -> anyhow::Result<Self::CursorDupSort<'tx, B>>;
-    /// Can be used if bucket has lmdb.DupFixed flag.
-    async fn cursor_dup_fixed<'tx, B: Bucket + DupFixed>(
-        &'tx self,
-    ) -> anyhow::Result<Self::CursorDupFixed<'tx, B>>;
-    async fn get_one<'tx, B: Bucket>(&'tx self, key: &[u8]) -> anyhow::Result<Bytes<'tx>>;
-    async fn has_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<bool>;
+}
+
+/// Temporary as module due to current Rust type system limitations
+pub mod txutil {
+    use super::*;
+
+    pub async fn get_one<'tx, Tx: Transaction, B: Bucket>(
+        tx: &'tx Tx,
+        key: &[u8],
+    ) -> anyhow::Result<Bytes<'tx>> {
+        let mut cursor = tx.cursor::<B>().await?;
+
+        Ok(cursor.seek_exact(key).await?.1)
+    }
+
+    pub async fn has_one<'tx, Tx: Transaction, B: Bucket>(
+        tx: &'tx Tx,
+        key: &[u8],
+    ) -> anyhow::Result<bool> {
+        let mut cursor = tx.cursor::<B>().await?;
+
+        Ok(key == cursor.seek(key).await?.0)
+    }
 }
 
 #[async_trait(?Send)]
-pub trait MutableTransaction: Transaction {}
+pub trait MutableTransaction: Transaction {
+    type MutableCursor<'tx, B: Bucket>: MutableCursor<'tx, B>;
 
-#[async_trait(?Send)]
-pub trait Transaction2: Transaction {
-    type CursorDupSort2<'tx, B: Bucket + DupSort>: CursorDupSort2<'tx, B>;
-    type CursorDupFixed2<'tx, B: Bucket + DupFixed>: CursorDupFixed2<'tx, B>;
-
-    async fn cursor_dup_sort2<'tx, B: Bucket + DupSort>(
+    async fn mutable_cursor<'tx, B: Bucket>(
         &'tx self,
-    ) -> anyhow::Result<Self::CursorDupSort2<'tx, B>>;
-
-    async fn cursor_dup_fixed2<'tx, B: Bucket + DupFixed>(
-        &'tx self,
-    ) -> anyhow::Result<Self::CursorDupFixed2<'tx, B>>;
+    ) -> anyhow::Result<Self::MutableCursor<'tx, B>>;
 
     async fn commit(self) -> anyhow::Result<()>;
 
@@ -97,7 +100,7 @@ pub trait Cursor<'tx, B: Bucket> {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait MutableCursor<'tx, B: Bucket>: Cursor<'tx, B> {
+pub trait MutableCursor<'tx, B: Bucket> {
     /// Put based on order
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
     /// Append the given key/data pair to the end of the database.
@@ -147,32 +150,11 @@ pub trait CursorDupSort<'tx, B: Bucket + DupSort>: Cursor<'tx, B> {
 
 #[async_trait(?Send)]
 #[auto_impl(&mut, Box)]
-pub trait CursorDupSort2<'tx, B: Bucket + DupSort>: CursorDupSort<'tx, B> {
-    /// Number of duplicates for the current key
-    async fn count_duplicates(&mut self) -> anyhow::Result<usize>;
+pub trait MutableCursorDupSort<'tx, B: Bucket + DupSort>: MutableCursor<'tx, B> {
     /// Deletes all of the data items for the current key
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()>;
     /// Same as `Cursor::append`, but for sorted dup data
     async fn append_dup(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
-}
-
-#[async_trait(?Send)]
-#[auto_impl(&mut, Box)]
-pub trait CursorDupFixed<'tx, B: Bucket + DupFixed>: Cursor<'tx, B> {
-    /// Return up to a page of duplicate data items from current cursor position
-    /// After return - move cursor to prepare for `MDB_NEXT_MULTIPLE`
-    async fn get_multi(&mut self) -> anyhow::Result<Bytes<'tx>>;
-    /// Return up to a page of duplicate data items from next cursor position
-    /// After return - move cursor to prepare for `MDB_NEXT_MULTIPLE`
-    async fn next_multi(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-}
-
-#[async_trait(?Send)]
-#[auto_impl(&mut, Box)]
-pub trait CursorDupFixed2<'tx, B: Bucket + DupFixed>: CursorDupFixed<'tx, B> {
-    /// PutMulti store multiple contiguous data elements in a single request.
-    /// Panics if `page.len()` is not a multiple of `stride`.
-    async fn put_multi(&mut self, key: &[u8], page: &[u8], stride: usize) -> anyhow::Result<()>;
 }
 
 #[async_trait(?Send)]

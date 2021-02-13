@@ -16,11 +16,12 @@ bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetim
 educe = { version = "0.4", features = ["Debug"] }
 ethereum = { git = "https://github.com/rust-blockchain/ethereum" }
 ethereum-types = "0.11"
+funty = "=1.1.0"
 futures = "0.3"
 hex = "0.4"
 hex-literal = "0.3"
 maplit = "1"
-heed = { git = "https://github.com/vorot93/heed", branch = "dev", default-features = false, features = ["mdbx", "sync-read-txn"] }
+heed = { git = "https://github.com/vorot93/heed", branch = "dev", default-features = false, features = ["mdbx"] }
 prost = "0.7"
 rand = "0.8"
 rlp = "0.5"

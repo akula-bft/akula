@@ -1,7 +1,7 @@
 use maplit::hashmap;
 use std::collections::HashMap;
 
-pub trait Bucket {
+pub trait Bucket: 'static {
     const DB_NAME: &'static str;
 }
 
@@ -11,8 +11,6 @@ pub trait DupSort {
     const DUP_FROM_LEN: Option<usize> = None;
     const DUP_TO_LEN: Option<usize> = None;
 }
-
-pub trait DupFixed {}
 
 macro_rules! decl_bucket {
     ($name:ident, $db_name:expr) => {

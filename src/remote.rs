@@ -1,6 +1,6 @@
 use self::kv_client::*;
 use crate::{
-    dbutils::{Bucket, DupFixed, DupSort},
+    dbutils::{Bucket, DupSort},
     traits::{self, Cursor as _},
 };
 use anyhow::Context;
@@ -39,7 +39,6 @@ pub struct RemoteCursor<'tx, B> {
 impl crate::Transaction for RemoteTransaction {
     type Cursor<'tx, B: Bucket> = RemoteCursor<'tx, B>;
     type CursorDupSort<'tx, B: Bucket + DupSort> = RemoteCursor<'tx, B>;
-    type CursorDupFixed<'tx, B: Bucket + DupFixed> = RemoteCursor<'tx, B>;
 
     async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>> {
         // - send op open
@@ -97,29 +96,8 @@ impl crate::Transaction for RemoteTransaction {
 
     async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
         &'tx self,
-    ) -> anyhow::Result<Self::CursorDupSort<'tx, B>> {
-        self.cursor::<B>().await
-    }
-
-    async fn cursor_dup_fixed<'tx, B: Bucket + DupFixed>(
-        &'tx self,
-    ) -> anyhow::Result<Self::CursorDupFixed<'tx, B>> {
-        self.cursor::<B>().await
-    }
-
-    async fn get_one<'tx, B: Bucket>(&'tx self, key: &[u8]) -> anyhow::Result<Bytes<'tx>>
-    where
-        Self: Sync,
-    {
-        let mut cursor = self.cursor::<B>().await?;
-
-        Ok(cursor.seek_exact(key).await?.1)
-    }
-
-    async fn has_one<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<bool> {
-        let mut cursor = self.cursor::<B>().await?;
-
-        Ok(key == cursor.seek(key).await?.0)
+    ) -> anyhow::Result<Self::Cursor<'tx, B>> {
+        self.cursor().await
     }
 }
 
@@ -208,17 +186,6 @@ impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'t
     }
     async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes<'tx>> {
         Ok(self.op(Op::LastDup, Some(key), None).await?.1)
-    }
-}
-
-#[async_trait(?Send)]
-impl<'tx, B: Bucket + DupFixed> traits::CursorDupFixed<'tx, B> for RemoteCursor<'tx, B> {
-    async fn get_multi(&mut self) -> anyhow::Result<Bytes<'tx>> {
-        Ok(self.op(Op::GetMultiple, None, None).await?.1)
-    }
-
-    async fn next_multi(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        self.op(Op::NextMultiple, None, None).await
     }
 }
 

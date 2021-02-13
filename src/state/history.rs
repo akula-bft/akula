@@ -1,4 +1,4 @@
-use crate::{changeset::*, common, dbutils, dbutils::*, models::*, Cursor, Transaction};
+use crate::{changeset::*, common, dbutils, dbutils::*, models::*, txutil, Cursor, Transaction};
 use arrayref::array_ref;
 use bytes::Bytes;
 use common::{Hash, Incarnation, ADDRESS_LENGTH};
@@ -15,7 +15,7 @@ pub async fn get_account_data_as_of<'tx, Tx: Transaction>(
         return Ok(Some(v));
     }
 
-    let v = tx.get_one::<buckets::PlainState>(&key).await?;
+    let v = txutil::get_one::<_, buckets::PlainState>(tx, &key).await?;
 
     if v.is_empty() {
         return Ok(None);
@@ -36,7 +36,7 @@ pub async fn get_storage_as_of<'tx, Tx: Transaction>(
         return Ok(Some(v));
     }
 
-    let v = tx.get_one::<buckets::PlainState>(&key).await?;
+    let v = txutil::get_one::<_, buckets::PlainState>(tx, &key).await?;
 
     if v.is_empty() {
         return Ok(None);
@@ -85,12 +85,11 @@ pub async fn find_data_by_history<'tx, Tx: Transaction>(
     //restore codehash
     if let Some(mut acc) = Account::decode_for_storage(&*data)? {
         if acc.incarnation > 0 && acc.is_empty_code_hash() {
-            let code_hash = tx
-                .get_one::<buckets::PlainContractCode>(&dbutils::plain_generate_storage_prefix(
-                    key,
-                    acc.incarnation,
-                ))
-                .await?;
+            let code_hash = txutil::get_one::<_, buckets::PlainContractCode>(
+                tx,
+                &dbutils::plain_generate_storage_prefix(key, acc.incarnation),
+            )
+            .await?;
 
             if !code_hash.is_empty() {
                 acc.code_hash = H256(*array_ref![&*code_hash, 0, 32]);
