@@ -11,7 +11,6 @@ anyhow = "1"
 arrayref = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
-auto_impl = "0.4"
 bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }
 educe = { version = "0.4", features = ["Debug"] }
 ethereum = { git = "https://github.com/rust-blockchain/ethereum" }

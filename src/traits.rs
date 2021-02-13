@@ -1,11 +1,10 @@
 use crate::dbutils;
 use async_trait::async_trait;
-use auto_impl::auto_impl;
 use bytes::Bytes;
 use dbutils::{Bucket, DupSort};
 use ethereum_types::Address;
-use futures::{stream::LocalBoxStream, Future};
-use std::{cmp::Ordering, pin::Pin};
+use futures::{future::LocalBoxFuture, stream::LocalBoxStream};
+use std::{cmp::Ordering, future::Future, pin::Pin};
 
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
 
@@ -87,7 +86,6 @@ pub trait MutableTransaction: Transaction {
 }
 
 #[async_trait(?Send)]
-#[auto_impl(&mut, Box)]
 pub trait Cursor<'tx, B: Bucket> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
@@ -99,7 +97,6 @@ pub trait Cursor<'tx, B: Bucket> {
 }
 
 #[async_trait(?Send)]
-#[auto_impl(&mut, Box)]
 pub trait MutableCursor<'tx, B: Bucket> {
     /// Put based on order
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
@@ -125,7 +122,6 @@ pub trait MutableCursor<'tx, B: Bucket> {
 }
 
 #[async_trait(?Send)]
-#[auto_impl(&mut, Box)]
 pub trait CursorDupSort<'tx, B: Bucket + DupSort>: Cursor<'tx, B> {
     /// Second parameter can be nil only if searched key has no duplicates, or return error
     async fn seek_both_exact(
@@ -149,7 +145,6 @@ pub trait CursorDupSort<'tx, B: Bucket + DupSort>: Cursor<'tx, B> {
 }
 
 #[async_trait(?Send)]
-#[auto_impl(&mut, Box)]
 pub trait MutableCursorDupSort<'tx, B: Bucket + DupSort>: MutableCursor<'tx, B> {
     /// Deletes all of the data items for the current key
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()>;

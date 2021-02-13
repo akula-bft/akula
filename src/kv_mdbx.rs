@@ -2,6 +2,8 @@ use crate::{traits, Bucket, Cursor, CursorDupSort, DupSort, MutableCursor};
 use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures::future::LocalBoxFuture;
+use std::future::Future;
 
 #[async_trait(?Send)]
 impl traits::KV for heed::Env {
@@ -107,6 +109,17 @@ impl<'e> traits::MutableTransaction for EnvWrapper<'e, heed::RwTxn<'e, 'e>> {
     }
 }
 
+// Cursor
+
+fn first<'tx, B: Bucket>(
+    cursor: &mut heed::RoCursor<'tx>,
+) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    Ok(cursor
+        .move_on_first()?
+        .map(|(k, v)| (k.into(), v.into()))
+        .ok_or_else(|| anyhow!("not found"))?)
+}
+
 fn seek_general<'tx, B: Bucket>(
     cursor: &mut heed::RoCursor<'tx>,
     key: &[u8],
@@ -132,16 +145,49 @@ fn seek_dupsort<'tx, B: Bucket + DupSort>(
     todo!()
 }
 
+fn next<'tx, B: Bucket>(
+    cursor: &mut heed::RoCursor<'tx>,
+) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    cursor
+        .move_on_next()?
+        .map(|(k, v)| (k.into(), v.into()))
+        .ok_or_else(|| anyhow!("not found"))
+}
+
+fn prev<'tx, B: Bucket>(
+    cursor: &mut heed::RoCursor<'tx>,
+) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    cursor
+        .move_on_prev()?
+        .map(|(k, v)| (k.into(), v.into()))
+        .ok_or_else(|| anyhow!("not found"))
+}
+
+fn last<'tx, B: Bucket>(
+    cursor: &mut heed::RoCursor<'tx>,
+) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    cursor
+        .move_on_last()?
+        .map(|(k, v)| (k.into(), v.into()))
+        .ok_or_else(|| anyhow!("not found"))
+}
+
+fn current<'tx, B: Bucket>(
+    cursor: &mut heed::RoCursor<'tx>,
+) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    cursor
+        .current()?
+        .map(|(k, v)| (k.into(), v.into()))
+        .ok_or_else(|| anyhow!("not found"))
+}
+
 #[async_trait(?Send)]
 impl<'tx, B: Bucket> Cursor<'tx, B> for heed::RoCursor<'tx> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        Ok(self
-            .move_on_first()?
-            .map(|(k, v)| (k.into(), v.into()))
-            .ok_or_else(|| anyhow!("not found"))?)
+        first::<B>(self)
     }
 
-    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    default async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
         seek_general::<B>(self, key)
     }
 
@@ -150,31 +196,26 @@ impl<'tx, B: Bucket> Cursor<'tx, B> for heed::RoCursor<'tx> {
     }
 
     async fn next(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        Ok(self
-            .move_on_next()?
-            .map(|(k, v)| (k.into(), v.into()))
-            .ok_or_else(|| anyhow!("not found"))?)
+        next::<B>(self)
     }
 
     async fn prev(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        Ok(self
-            .move_on_prev()?
-            .map(|(k, v)| (k.into(), v.into()))
-            .ok_or_else(|| anyhow!("not found"))?)
+        prev::<B>(self)
     }
 
     async fn last(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        Ok(self
-            .move_on_last()?
-            .map(|(k, v)| (k.into(), v.into()))
-            .ok_or_else(|| anyhow!("not found"))?)
+        last::<B>(self)
     }
 
     async fn current(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        Ok(self
-            .current()?
-            .map(|(k, v)| (k.into(), v.into()))
-            .ok_or_else(|| anyhow!("not found"))?)
+        current::<B>(self)
+    }
+}
+
+#[async_trait(?Send)]
+impl<'tx, B: Bucket + DupSort> Cursor<'tx, B> for heed::RoCursor<'tx> {
+    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+        seek_general_dupsort::<B>(self, key)
     }
 }
 

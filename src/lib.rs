@@ -1,8 +1,9 @@
 #![feature(
-    associated_type_defaults,
     destructuring_assignment,
     generic_associated_types,
+    in_band_lifetimes,
     int_bits_const,
+    specialization,
     trait_alias,
     type_alias_impl_trait
 )]
