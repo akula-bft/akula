@@ -4,6 +4,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::future::LocalBoxFuture;
 use std::future::Future;
+use thiserror::Error;
+
+#[derive(Clone, Copy, Debug, Error)]
+pub struct NoDatabaseError;
 
 #[async_trait(?Send)]
 impl traits::KV for heed::Env {
@@ -81,15 +85,22 @@ impl<'e> traits::MutableTransaction for EnvWrapper<'e, heed::RwTxn<'e, 'e>> {
     async fn mutable_cursor<'tx, B: Bucket>(
         &'tx self,
     ) -> anyhow::Result<Self::MutableCursor<'tx, B>> {
-        todo!()
+        Ok(self
+            .env
+            .open_database::<(), ()>(Some(B::DB_NAME))?
+            .ok_or_else(|| anyhow!("no database"))?
+            .cursor_mut(&self.v)?)
     }
 
     async fn commit(self) -> anyhow::Result<()> {
-        todo!()
+        Ok(self.v.commit()?)
     }
 
     async fn bucket_size<B: Bucket>(&self) -> anyhow::Result<u64> {
-        todo!()
+        let st = self
+            .env
+            .open_database(Some(B::DB_NAME))?
+            .ok_or_else(|| anyhow!("no database"))?;
     }
 
     fn comparator<B: Bucket>(&self) -> crate::ComparatorFunc {

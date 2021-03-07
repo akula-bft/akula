@@ -29,6 +29,7 @@ roaring = "0.6"
 serde = "1"
 serde_json = "1"
 sha3 = "0.9"
+thiserror = "1"
 tokio = { version = "1", features = ["rt"] }
 tokio-stream = "0.1"
 tonic = { version = "0.4", default-features = false, features = ["codegen", "prost", "transport"] }
