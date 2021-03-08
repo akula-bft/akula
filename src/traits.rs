@@ -12,14 +12,14 @@ pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering
 pub trait KV {
     type Tx<'tx>: Transaction<'tx>;
 
-    async fn begin<'kv: 'tx, 'tx>(&'kv self, flags: u8) -> anyhow::Result<Self::Tx<'tx>>;
+    async fn begin(&self, flags: u8) -> anyhow::Result<Self::Tx<'_>>;
 }
 
 #[async_trait(?Send)]
 pub trait MutableKV {
     type MutableTx<'tx>: MutableTransaction<'tx>;
 
-    async fn begin_mutable<'kv: 'tx, 'tx>(&'kv self) -> anyhow::Result<Self::MutableTx<'tx>>;
+    async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>>;
 }
 
 #[async_trait(?Send)]

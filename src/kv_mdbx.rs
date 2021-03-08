@@ -11,7 +11,7 @@ use thiserror::Error;
 impl traits::KV for mdbx::Environment {
     type Tx<'tx> = mdbx::RoTransaction<'tx>;
 
-    async fn begin<'kv: 'tx, 'tx>(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx<'tx>> {
+    async fn begin(&self, _flags: u8) -> anyhow::Result<Self::Tx<'_>> {
         Ok(self.begin_ro_txn()?)
     }
 }
@@ -20,7 +20,7 @@ impl traits::KV for mdbx::Environment {
 impl traits::MutableKV for mdbx::Environment {
     type MutableTx<'tx> = mdbx::RwTransaction<'tx>;
 
-    async fn begin_mutable<'kv: 'tx, 'tx>(&'kv self) -> anyhow::Result<Self::MutableTx<'tx>> {
+    async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>> {
         Ok(self.begin_rw_txn()?)
     }
 }
