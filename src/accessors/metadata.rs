@@ -3,8 +3,8 @@ use anyhow::Context;
 use ethereum_types::H256;
 use tracing::*;
 
-pub async fn read_chain_config<Tx: Transaction>(
-    tx: &Tx,
+pub async fn read_chain_config<'tx, Tx: Transaction<'tx>>(
+    tx: &'tx Tx,
     block: H256,
 ) -> anyhow::Result<Option<ChainConfig>> {
     let key = block.as_bytes();

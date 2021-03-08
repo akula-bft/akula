@@ -10,7 +10,10 @@ use tracing::*;
 pub mod canonical_hash {
     use super::*;
 
-    pub async fn read<Tx: Transaction>(tx: &Tx, block_num: u64) -> anyhow::Result<Option<H256>> {
+    pub async fn read<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
+        block_num: u64,
+    ) -> anyhow::Result<Option<H256>> {
         let key = header_hash_key(block_num);
 
         trace!(
@@ -32,7 +35,10 @@ pub mod canonical_hash {
 pub mod header_number {
     use super::*;
 
-    pub async fn read<Tx: Transaction>(tx: &Tx, hash: H256) -> anyhow::Result<Option<u64>> {
+    pub async fn read<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
+        hash: H256,
+    ) -> anyhow::Result<Option<u64>> {
         trace!("Reading block number for hash {:?}", hash);
 
         let b = txutil::get_one::<_, buckets::HeaderNumber>(tx, &hash.to_fixed_bytes()).await?;
@@ -48,8 +54,8 @@ pub mod header_number {
 pub mod header {
     use super::*;
 
-    pub async fn read<Tx: Transaction>(
-        tx: &Tx,
+    pub async fn read<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
         hash: H256,
         number: u64,
     ) -> anyhow::Result<Option<Header>> {
@@ -69,8 +75,8 @@ pub mod header {
 pub mod tx {
     use super::*;
 
-    pub async fn read<Tx: Transaction>(
-        tx: &Tx,
+    pub async fn read<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
         base_tx_id: u64,
         amount: u32,
     ) -> anyhow::Result<Vec<ethereum::Transaction>> {
@@ -108,8 +114,8 @@ pub mod tx {
 pub mod body {
     use super::*;
 
-    pub async fn read<Tx: Transaction>(
-        tx: &Tx,
+    pub async fn read<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
         hash: H256,
         number: u64,
     ) -> anyhow::Result<Option<BodyForStorage>> {
@@ -130,8 +136,8 @@ pub mod body {
 pub mod td {
     use super::*;
 
-    pub async fn read<Tx: Transaction>(
-        tx: &Tx,
+    pub async fn read<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
         hash: H256,
         number: u64,
     ) -> anyhow::Result<Option<U256>> {

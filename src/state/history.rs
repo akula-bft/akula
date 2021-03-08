@@ -5,7 +5,7 @@ use common::{Hash, Incarnation, ADDRESS_LENGTH};
 use ethereum_types::{Address, H256};
 use roaring::RoaringTreemap;
 
-pub async fn get_account_data_as_of<'tx, Tx: Transaction>(
+pub async fn get_account_data_as_of<'tx, Tx: Transaction<'tx>>(
     tx: &'tx Tx,
     address: Address,
     timestamp: u64,
@@ -24,7 +24,7 @@ pub async fn get_account_data_as_of<'tx, Tx: Transaction>(
     Ok(Some(v))
 }
 
-pub async fn get_storage_as_of<'tx, Tx: Transaction>(
+pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
     tx: &'tx Tx,
     address: Address,
     incarnation: Incarnation,
@@ -45,7 +45,7 @@ pub async fn get_storage_as_of<'tx, Tx: Transaction>(
     Ok(Some(v))
 }
 
-pub async fn find_data_by_history<'tx, Tx: Transaction>(
+pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
     tx: &'tx Tx,
     key: &[u8; ADDRESS_LENGTH],
     timestamp: u64,
@@ -105,7 +105,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction>(
     Ok(Some(data))
 }
 
-pub async fn find_storage_by_history<'tx, Tx: Transaction>(
+pub async fn find_storage_by_history<'tx, Tx: Transaction<'tx>>(
     tx: &'tx Tx,
     key: &PlainCompositeStorageKey,
     timestamp: u64,

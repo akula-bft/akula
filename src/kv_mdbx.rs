@@ -3,61 +3,59 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::future::LocalBoxFuture;
+use mdbx::{Cursor as _, Transaction as _};
 use std::future::Future;
 use thiserror::Error;
 
 #[async_trait(?Send)]
-impl traits::KV for mdbx::Environment {
-    type Tx<'kv> = mdbx::RoTransaction<'kv>;
+impl<'kv: 'tx, 'tx> traits::KV<'kv, 'tx> for mdbx::Environment {
+    type Tx = mdbx::RoTransaction<'kv>;
 
-    async fn begin<'kv>(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx<'kv>> {
+    async fn begin(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx> {
         Ok(self.begin_ro_txn()?)
     }
 }
 
 #[async_trait(?Send)]
-impl traits::MutableKV for mdbx::Environment {
-    type MutableTx<'kv> = mdbx::RwTransaction<'kv>;
+impl<'kv: 'tx, 'tx> traits::MutableKV<'kv, 'tx> for mdbx::Environment {
+    type MutableTx = mdbx::RwTransaction<'kv>;
 
-    async fn begin_mutable<'kv>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv>> {
-        Ok(self.begin_rw_transaction()?)
+    async fn begin_mutable(&'kv self) -> anyhow::Result<Self::MutableTx> {
+        Ok(self.begin_rw_txn()?)
     }
 }
 
 #[async_trait(?Send)]
-impl<'tx, Txn: 'tx + mdbx::Transaction> traits::Transaction for Txn {
-    type Cursor<'tx, B: Bucket> = mdbx::RoCursor<'tx, Txn>;
-    type CursorDupSort<'tx, B: Bucket + DupSort> = mdbx::RoCursor<'tx, Txn>;
+impl<'tx, Txn: 'tx + mdbx::Transaction> traits::Transaction<'tx> for Txn {
+    type Cursor<B: Bucket> = mdbx::RoCursor<'tx, Txn>;
+    type CursorDupSort<B: Bucket + DupSort> = mdbx::RoCursor<'tx, Txn>;
 
-    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>> {
+    async fn cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         Ok(self.open_db(Some(B::DB_NAME))?.open_ro_cursor()?)
     }
 
-    async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
-        &'tx self,
-    ) -> anyhow::Result<Self::Cursor<'tx, B>> {
+    async fn cursor_dup_sort<B: Bucket + DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         self.cursor::<B>().await
     }
 }
 
 #[async_trait(?Send)]
-impl<'e> traits::MutableTransaction for mdbx::RwTransaction<'e> {
-    type MutableCursor<'tx, B: Bucket> = mdbx::RwCursor<'tx, mdbx::RwTransaction<'e>>;
+impl<'env: 'tx, 'tx> traits::MutableTransaction<'tx> for mdbx::RwTransaction<'env> {
+    type MutableCursor<B: Bucket> = mdbx::RwCursor<'tx, mdbx::RwTransaction<'env>>;
 
-    async fn mutable_cursor<'tx, B: Bucket>(
-        &'tx self,
-    ) -> anyhow::Result<Self::MutableCursor<'tx, B>> {
+    async fn mutable_cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>> {
         Ok(self.open_db(Some(B::DB_NAME))?.open_rw_cursor()?)
     }
 
     async fn commit(self) -> anyhow::Result<()> {
-        Ok(self.commit()?)
+        mdbx::Transaction::commit(self)?;
+
+        Ok(())
     }
 
     async fn bucket_size<B: Bucket>(&self) -> anyhow::Result<u64> {
-        let st = self
-            .open_db(Some(B::DB_NAME))?
-            .ok_or_else(|| anyhow!("no database"))?;
+        // let st = self.open_db(Some(B::DB_NAME))?.stat();
+        todo!()
     }
 
     fn comparator<B: Bucket>(&self) -> crate::ComparatorFunc {
@@ -82,7 +80,8 @@ impl<'e> traits::MutableTransaction for mdbx::RwTransaction<'e> {
 fn first<'tx, Txn: mdbx::Transaction, B: Bucket>(
     cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    Ok(cursor.get(None, None, mdbx_sys::MDBX_FIRST)?)
+    // Ok(cursor.get(None, None, mdbx_sys::MDBX_FIRST)?)
+    todo!()
 }
 
 fn seek_general<'tx, Txn: mdbx::Transaction, B: Bucket>(
@@ -96,11 +95,12 @@ fn seek_general_dupsort<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort>(
     cursor: &mut mdbx::RoCursor<'tx, Txn>,
     key: &[u8],
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    if B::AUTO_KEYS_CONVERSION {
-        return seek_dupsort::<B>(cursor, key);
-    }
+    // if B::AUTO_KEYS_CONVERSION {
+    //     return seek_dupsort::<'tx, Txn, B>(cursor, key);
+    // }
 
-    seek_general::<B>(cursor, key)
+    // seek_general::<'tx, Txn, B>(cursor, key)
+    todo!()
 }
 
 fn seek_dupsort<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort>(
@@ -113,47 +113,51 @@ fn seek_dupsort<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort>(
 fn next<'tx, Txn: mdbx::Transaction, B: Bucket>(
     cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    cursor
-        .move_on_next()?
-        .map(|(k, v)| (k.into(), v.into()))
-        .ok_or_else(|| anyhow!("not found"))
+    // cursor
+    //     .move_on_next()?
+    //     .map(|(k, v)| (k.into(), v.into()))
+    //     .ok_or_else(|| anyhow!("not found"))
+    todo!()
 }
 
 fn prev<'tx, Txn: mdbx::Transaction, B: Bucket>(
     cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    cursor
-        .move_on_prev()?
-        .map(|(k, v)| (k.into(), v.into()))
-        .ok_or_else(|| anyhow!("not found"))
+    // cursor
+    //     .move_on_prev()?
+    //     .map(|(k, v)| (k.into(), v.into()))
+    //     .ok_or_else(|| anyhow!("not found"))
+    todo!()
 }
 
 fn last<'tx, Txn: mdbx::Transaction, B: Bucket>(
     cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    cursor
-        .move_on_last()?
-        .map(|(k, v)| (k.into(), v.into()))
-        .ok_or_else(|| anyhow!("not found"))
+    // cursor
+    //     .move_on_last()?
+    //     .map(|(k, v)| (k.into(), v.into()))
+    //     .ok_or_else(|| anyhow!("not found"))
+    todo!()
 }
 
 fn current<'tx, Txn: mdbx::Transaction, B: Bucket>(
     cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    cursor
-        .current()?
-        .map(|(k, v)| (k.into(), v.into()))
-        .ok_or_else(|| anyhow!("not found"))
+    // cursor
+    //     .current()?
+    //     .map(|(k, v)| (k.into(), v.into()))
+    //     .ok_or_else(|| anyhow!("not found"))
+    todo!()
 }
 
 #[async_trait(?Send)]
 impl<'tx, Txn: mdbx::Transaction, B: Bucket> Cursor<'tx, B> for mdbx::RoCursor<'tx, Txn> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        first::<B>(self)
+        first::<Txn, B>(self)
     }
 
     default async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        seek_general::<B>(self, key)
+        seek_general::<Txn, B>(self, key)
     }
 
     async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
@@ -161,31 +165,33 @@ impl<'tx, Txn: mdbx::Transaction, B: Bucket> Cursor<'tx, B> for mdbx::RoCursor<'
     }
 
     async fn next(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        next::<B>(self)
+        next::<Txn, B>(self)
     }
 
     async fn prev(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        prev::<B>(self)
+        prev::<Txn, B>(self)
     }
 
     async fn last(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        last::<B>(self)
+        last::<Txn, B>(self)
     }
 
     async fn current(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        current::<B>(self)
+        current::<Txn, B>(self)
     }
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket + DupSort> Cursor<'tx, B> for heed::RoCursor<'tx> {
+impl<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort> Cursor<'tx, B> for mdbx::RoCursor<'tx, Txn> {
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        seek_general_dupsort::<B>(self, key)
+        seek_general_dupsort::<Txn, B>(self, key)
     }
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket + DupSort> CursorDupSort<'tx, B> for heed::RoCursor<'tx> {
+impl<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort> CursorDupSort<'tx, B>
+    for mdbx::RoCursor<'tx, Txn>
+{
     async fn seek_both_exact(
         &mut self,
         key: &[u8],
@@ -220,13 +226,13 @@ impl<'tx, B: Bucket + DupSort> CursorDupSort<'tx, B> for heed::RoCursor<'tx> {
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket> MutableCursor<'tx, B> for heed::RwCursor<'tx> {
+impl<'tx, Txn: mdbx::Transaction, B: Bucket> MutableCursor<'tx, B> for mdbx::RwCursor<'tx, Txn> {
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         todo!()
     }
 
     async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        Ok(self.append(key, value)?)
+        Ok(self.put(&key, &value, mdbx::WriteFlags::APPEND)?)
     }
 
     async fn delete(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
@@ -234,7 +240,7 @@ impl<'tx, B: Bucket> MutableCursor<'tx, B> for heed::RwCursor<'tx> {
     }
 
     async fn delete_current(&mut self) -> anyhow::Result<()> {
-        self.del_current()?;
+        self.del(Default::default())?;
 
         Ok(())
     }
@@ -244,7 +250,7 @@ impl<'tx, B: Bucket> MutableCursor<'tx, B> for heed::RwCursor<'tx> {
     }
 
     async fn put_current(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        self.put_current(key, value)?;
+        mdbx::RwCursor::put(self, &key, &value, mdbx::WriteFlags::CURRENT)?;
 
         Ok(())
     }

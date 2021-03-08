@@ -5,8 +5,8 @@ use ethereum::Header;
 use ethereum_types::H256;
 use tracing::*;
 
-pub async fn get_stage_progress<Tx: Transaction>(
-    tx: &Tx,
+pub async fn get_stage_progress<'tx, Tx: Transaction<'tx>>(
+    tx: &'tx Tx,
     stage: SyncStage,
 ) -> anyhow::Result<Option<u64>> {
     trace!("Reading stage {:?} progress", stage);

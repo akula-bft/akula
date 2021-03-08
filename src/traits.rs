@@ -9,23 +9,23 @@ use std::{cmp::Ordering, future::Future, pin::Pin};
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
 
 #[async_trait(?Send)]
-pub trait KV {
-    type Tx<'kv>: Transaction;
+pub trait KV<'kv: 'tx, 'tx> {
+    type Tx: Transaction<'tx>;
 
-    async fn begin<'kv>(&'kv self, flags: u8) -> anyhow::Result<Self::Tx<'kv>>;
+    async fn begin(&'kv self, flags: u8) -> anyhow::Result<Self::Tx>;
 }
 
 #[async_trait(?Send)]
-pub trait MutableKV {
-    type MutableTx<'tx>: MutableTransaction;
+pub trait MutableKV<'kv: 'tx, 'tx> {
+    type MutableTx: MutableTransaction<'tx>;
 
-    async fn begin_mutable<'kv>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv>>;
+    async fn begin_mutable(&'kv self) -> anyhow::Result<Self::MutableTx>;
 }
 
 #[async_trait(?Send)]
-pub trait Transaction {
-    type Cursor<'tx, B: Bucket>: Cursor<'tx, B>;
-    type CursorDupSort<'tx, B: Bucket + DupSort>: CursorDupSort<'tx, B>;
+pub trait Transaction<'tx> {
+    type Cursor<B: Bucket>: Cursor<'tx, B>;
+    type CursorDupSort<B: Bucket + DupSort>: CursorDupSort<'tx, B>;
 
     /// Cursor - creates cursor object on top of given bucket. Type of cursor - depends on bucket configuration.
     /// If bucket was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
@@ -33,17 +33,17 @@ pub trait Transaction {
     ///
     /// Cursor, also provides a grain of magic - it can use a declarative configuration - and automatically break
     /// long keys into DupSort key/values. See docs for `bucket.go:BucketConfigItem`
-    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>;
-    async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
+    async fn cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<B>>;
+    async fn cursor_dup_sort<B: Bucket + DupSort>(
         &'tx self,
-    ) -> anyhow::Result<Self::CursorDupSort<'tx, B>>;
+    ) -> anyhow::Result<Self::CursorDupSort<B>>;
 }
 
 /// Temporary as module due to current Rust type system limitations
 pub mod txutil {
     use super::*;
 
-    pub async fn get_one<'tx, Tx: Transaction, B: Bucket>(
+    pub async fn get_one<'tx, Tx: Transaction<'tx>, B: Bucket>(
         tx: &'tx Tx,
         key: &[u8],
     ) -> anyhow::Result<Bytes<'tx>> {
@@ -52,7 +52,7 @@ pub mod txutil {
         Ok(cursor.seek_exact(key).await?.1)
     }
 
-    pub async fn has_one<'tx, Tx: Transaction, B: Bucket>(
+    pub async fn has_one<'tx, Tx: Transaction<'tx>, B: Bucket>(
         tx: &'tx Tx,
         key: &[u8],
     ) -> anyhow::Result<bool> {
@@ -63,12 +63,10 @@ pub mod txutil {
 }
 
 #[async_trait(?Send)]
-pub trait MutableTransaction: Transaction {
-    type MutableCursor<'tx, B: Bucket>: MutableCursor<'tx, B>;
+pub trait MutableTransaction<'tx>: Transaction<'tx> {
+    type MutableCursor<B: Bucket>: MutableCursor<'tx, B>;
 
-    async fn mutable_cursor<'tx, B: Bucket>(
-        &'tx self,
-    ) -> anyhow::Result<Self::MutableCursor<'tx, B>>;
+    async fn mutable_cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>>;
 
     async fn commit(self) -> anyhow::Result<()>;
 

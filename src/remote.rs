@@ -36,11 +36,11 @@ pub struct RemoteCursor<'tx, B> {
 }
 
 #[async_trait(?Send)]
-impl crate::Transaction for RemoteTransaction {
-    type Cursor<'tx, B: Bucket> = RemoteCursor<'tx, B>;
-    type CursorDupSort<'tx, B: Bucket + DupSort> = RemoteCursor<'tx, B>;
+impl<'tx> crate::Transaction<'tx> for RemoteTransaction {
+    type Cursor<B: Bucket> = RemoteCursor<'tx, B>;
+    type CursorDupSort<B: Bucket + DupSort> = RemoteCursor<'tx, B>;
 
-    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>> {
+    async fn cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         // - send op open
         // - get cursor id
         let mut s = self.io.lock().await;
@@ -94,9 +94,7 @@ impl crate::Transaction for RemoteTransaction {
         })
     }
 
-    async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
-        &'tx self,
-    ) -> anyhow::Result<Self::Cursor<'tx, B>> {
+    async fn cursor_dup_sort<B: Bucket + DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         self.cursor().await
     }
 }

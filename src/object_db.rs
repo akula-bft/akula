@@ -1,8 +1,8 @@
 use crate::traits::KV;
 
-pub struct ObjectDatabase<K: KV> {
-    kv: K,
-}
+// pub struct ObjectDatabase<'kv: 'tx, 'tx, K: KV<'kv, 'tx>> {
+//     kv: K,
+// }
 
 // impl<K: KV> ObjectDatabase<K> {
 //     pub async fn open(path: &str) -> anyhow::Result<Self> {
