@@ -1,13 +1,15 @@
-use crate::traits::KV;
+use std::{marker::PhantomData, str::FromStr};
 
-// pub struct ObjectDatabase<'kv: 'tx, 'tx, K: KV<'kv, 'tx>> {
-//     kv: K,
-// }
+use bytes::Bytes;
 
-// impl<K: KV> ObjectDatabase<K> {
-//     pub async fn open(path: &str) -> anyhow::Result<Self> {
-//         let kv = MdbxOpts::new().path(path).open()?;
+use crate::{buckets, traits::KV, Cursor, Transaction};
 
-//         Ok(Self { kv })
-//     }
-// }
+pub struct ObjectDatabase<K: KV<'static, 'static>> {
+    kv: K,
+}
+
+impl From<mdbx::Environment> for ObjectDatabase<mdbx::Environment> {
+    fn from(kv: mdbx::Environment) -> Self {
+        Self { kv }
+    }
+}
