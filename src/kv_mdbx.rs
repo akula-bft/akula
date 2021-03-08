@@ -9,18 +9,18 @@ use thiserror::Error;
 
 #[async_trait(?Send)]
 impl traits::KV for mdbx::Environment {
-    type Tx<'kv, 'tx> = mdbx::RoTransaction<'tx>;
+    type Tx<'tx> = mdbx::RoTransaction<'tx>;
 
-    async fn begin<'kv: 'tx, 'tx>(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx<'kv, 'tx>> {
+    async fn begin<'kv: 'tx, 'tx>(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx<'tx>> {
         Ok(self.begin_ro_txn()?)
     }
 }
 
 #[async_trait(?Send)]
 impl traits::MutableKV for mdbx::Environment {
-    type MutableTx<'kv, 'tx> = mdbx::RwTransaction<'tx>;
+    type MutableTx<'tx> = mdbx::RwTransaction<'tx>;
 
-    async fn begin_mutable<'kv: 'tx, 'tx>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv, 'tx>> {
+    async fn begin_mutable<'kv: 'tx, 'tx>(&'kv self) -> anyhow::Result<Self::MutableTx<'tx>> {
         Ok(self.begin_rw_txn()?)
     }
 }
