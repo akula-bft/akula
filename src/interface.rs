@@ -1,6 +1,9 @@
 //! For info on database buckets see https://github.com/ledgerwatch/turbo-geth/docs/programmers_guide/db_walkthrough.MD
 
+use crate::{Bucket, DupSort};
 use async_trait::async_trait;
+use bytes::Bytes;
+use futures::Stream;
 
 /// Putter wraps the database write operations.
 #[async_trait(?Send)]
@@ -12,8 +15,8 @@ pub trait Putter {
 /// Getter wraps the database read operations.
 #[async_trait(?Send)]
 pub trait Getter {
-    type WalkStream<'a> = impl Stream<Item = (Bytes, Bytes)>;
-    type MultiWalkStream<'a> = impl Stream<Item = (usize, Bytes, Bytes)>;
+    type WalkStream<'a>: Stream<Item = (Bytes<'static>, Bytes<'static>)>;
+    type MultiWalkStream<'a>: Stream<Item = (usize, Bytes<'static>, Bytes<'static>)>;
 
     /// Get returns the value for a given key if it's present.
     async fn get<B: Bucket>(&self, key: &[u8]) -> anyhow::Result<Option<Bytes>>;
@@ -52,6 +55,8 @@ pub trait Deleter {
 /// Database wraps all database operations. All methods are safe for concurrent use.
 #[async_trait(?Send)]
 pub trait Database: Getter + Putter + Deleter {
+    type DbWithPendingMutations<'db>: DbWithPendingMutations<'db>;
+
     /// MultiPut inserts or updates multiple entries.
     /// Entries are passed as an array:
     /// bucket0, key0, val0, bucket1, key1, val1, ...
@@ -66,9 +71,9 @@ pub trait Database: Getter + Putter + Deleter {
     /// ... some calculations on `batch`
     /// batch.commit().await;
     /// ```
-    async fn new_batch(&self) -> DbWithPendingMutations;
+    async fn new_batch(&self) -> Self::DbWithPendingMutations<'_>;
 
-    async fn begin(&self, flags: TxFlags) -> anyhow::Result<DbWithPendingMutations>;
+    async fn begin(&self) -> anyhow::Result<Self::DbWithPendingMutations<'_>>;
 
     async fn last<B: Bucket>(&self) -> anyhow::Result<(Bytes, Bytes)>;
 
@@ -86,7 +91,7 @@ pub trait Database: Getter + Putter + Deleter {
 }
 
 #[async_trait(?Send)]
-pub trait DbWithPendingMutations: Database {
+pub trait DbWithPendingMutations<'db>: Database {
     async fn commit(self) -> anyhow::Result<usize>;
 
     async fn commit_and_begin(&mut self) -> anyhow::Result<()>;

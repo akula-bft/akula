@@ -6,49 +6,31 @@ use futures::future::LocalBoxFuture;
 use std::future::Future;
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, Error)]
-pub struct NoDatabaseError;
-
 #[async_trait(?Send)]
-impl traits::KV for heed::Env {
-    type Tx<'kv> = EnvWrapper<'kv, heed::RoTxn<'kv>>;
+impl traits::KV for mdbx::Environment {
+    type Tx<'kv> = mdbx::RoTransaction<'kv>;
 
     async fn begin<'kv>(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx<'kv>> {
-        Ok(EnvWrapper {
-            env: self,
-            v: self.read_txn()?,
-        })
+        Ok(self.begin_ro_txn()?)
     }
 }
 
 #[async_trait(?Send)]
-impl traits::MutableKV for heed::Env {
-    type MutableTx<'kv> = EnvWrapper<'kv, heed::RwTxn<'kv, 'kv>>;
+impl traits::MutableKV for mdbx::Environment {
+    type MutableTx<'kv> = mdbx::RwTransaction<'kv>;
 
     async fn begin_mutable<'kv>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv>> {
-        Ok(EnvWrapper {
-            env: self,
-            v: self.write_txn()?,
-        })
+        Ok(self.begin_rw_transaction()?)
     }
 }
 
-pub struct EnvWrapper<'e, T> {
-    env: &'e heed::Env,
-    v: T,
-}
-
 #[async_trait(?Send)]
-impl<'e> traits::Transaction for EnvWrapper<'e, heed::RoTxn<'e>> {
-    type Cursor<'tx, B: Bucket> = heed::RoCursor<'tx>;
-    type CursorDupSort<'tx, B: Bucket + DupSort> = heed::RoCursor<'tx>;
+impl<'tx, Txn: 'tx + mdbx::Transaction> traits::Transaction for Txn {
+    type Cursor<'tx, B: Bucket> = mdbx::RoCursor<'tx, Txn>;
+    type CursorDupSort<'tx, B: Bucket + DupSort> = mdbx::RoCursor<'tx, Txn>;
 
     async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>> {
-        Ok(self
-            .env
-            .open_database::<(), ()>(Some(B::DB_NAME))?
-            .ok_or_else(|| anyhow!("no database"))?
-            .cursor(&self.v)?)
+        Ok(self.open_db(Some(B::DB_NAME))?.open_ro_cursor()?)
     }
 
     async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
@@ -59,47 +41,22 @@ impl<'e> traits::Transaction for EnvWrapper<'e, heed::RoTxn<'e>> {
 }
 
 #[async_trait(?Send)]
-impl<'e> traits::Transaction for EnvWrapper<'e, heed::RwTxn<'e, 'e>> {
-    type Cursor<'tx, B: Bucket> = heed::RoCursor<'tx>;
-    type CursorDupSort<'tx, B: Bucket + DupSort> = heed::RoCursor<'tx>;
-
-    async fn cursor<'tx, B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>> {
-        Ok(self
-            .env
-            .open_database::<(), ()>(Some(B::DB_NAME))?
-            .ok_or_else(|| anyhow!("no database"))?
-            .cursor(&self.v)?)
-    }
-
-    async fn cursor_dup_sort<'tx, B: Bucket + DupSort>(
-        &'tx self,
-    ) -> anyhow::Result<Self::Cursor<'tx, B>> {
-        self.cursor::<B>().await
-    }
-}
-
-#[async_trait(?Send)]
-impl<'e> traits::MutableTransaction for EnvWrapper<'e, heed::RwTxn<'e, 'e>> {
-    type MutableCursor<'tx, B: Bucket> = heed::RwCursor<'tx>;
+impl<'e> traits::MutableTransaction for mdbx::RwTransaction<'e> {
+    type MutableCursor<'tx, B: Bucket> = mdbx::RwCursor<'tx, mdbx::RwTransaction<'e>>;
 
     async fn mutable_cursor<'tx, B: Bucket>(
         &'tx self,
     ) -> anyhow::Result<Self::MutableCursor<'tx, B>> {
-        Ok(self
-            .env
-            .open_database::<(), ()>(Some(B::DB_NAME))?
-            .ok_or_else(|| anyhow!("no database"))?
-            .cursor_mut(&self.v)?)
+        Ok(self.open_db(Some(B::DB_NAME))?.open_rw_cursor()?)
     }
 
     async fn commit(self) -> anyhow::Result<()> {
-        Ok(self.v.commit()?)
+        Ok(self.commit()?)
     }
 
     async fn bucket_size<B: Bucket>(&self) -> anyhow::Result<u64> {
         let st = self
-            .env
-            .open_database(Some(B::DB_NAME))?
+            .open_db(Some(B::DB_NAME))?
             .ok_or_else(|| anyhow!("no database"))?;
     }
 
@@ -122,24 +79,21 @@ impl<'e> traits::MutableTransaction for EnvWrapper<'e, heed::RwTxn<'e, 'e>> {
 
 // Cursor
 
-fn first<'tx, B: Bucket>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn first<'tx, Txn: mdbx::Transaction, B: Bucket>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-    Ok(cursor
-        .move_on_first()?
-        .map(|(k, v)| (k.into(), v.into()))
-        .ok_or_else(|| anyhow!("not found"))?)
+    Ok(cursor.get(None, None, mdbx_sys::MDBX_FIRST)?)
 }
 
-fn seek_general<'tx, B: Bucket>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn seek_general<'tx, Txn: mdbx::Transaction, B: Bucket>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
     key: &[u8],
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     todo!()
 }
 
-fn seek_general_dupsort<'tx, B: Bucket + DupSort>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn seek_general_dupsort<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
     key: &[u8],
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     if B::AUTO_KEYS_CONVERSION {
@@ -149,15 +103,15 @@ fn seek_general_dupsort<'tx, B: Bucket + DupSort>(
     seek_general::<B>(cursor, key)
 }
 
-fn seek_dupsort<'tx, B: Bucket + DupSort>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn seek_dupsort<'tx, Txn: mdbx::Transaction, B: Bucket + DupSort>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
     key: &[u8],
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     todo!()
 }
 
-fn next<'tx, B: Bucket>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn next<'tx, Txn: mdbx::Transaction, B: Bucket>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     cursor
         .move_on_next()?
@@ -165,8 +119,8 @@ fn next<'tx, B: Bucket>(
         .ok_or_else(|| anyhow!("not found"))
 }
 
-fn prev<'tx, B: Bucket>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn prev<'tx, Txn: mdbx::Transaction, B: Bucket>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     cursor
         .move_on_prev()?
@@ -174,8 +128,8 @@ fn prev<'tx, B: Bucket>(
         .ok_or_else(|| anyhow!("not found"))
 }
 
-fn last<'tx, B: Bucket>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn last<'tx, Txn: mdbx::Transaction, B: Bucket>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     cursor
         .move_on_last()?
@@ -183,8 +137,8 @@ fn last<'tx, B: Bucket>(
         .ok_or_else(|| anyhow!("not found"))
 }
 
-fn current<'tx, B: Bucket>(
-    cursor: &mut heed::RoCursor<'tx>,
+fn current<'tx, Txn: mdbx::Transaction, B: Bucket>(
+    cursor: &mut mdbx::RoCursor<'tx, Txn>,
 ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
     cursor
         .current()?
@@ -193,7 +147,7 @@ fn current<'tx, B: Bucket>(
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket> Cursor<'tx, B> for heed::RoCursor<'tx> {
+impl<'tx, Txn: mdbx::Transaction, B: Bucket> Cursor<'tx, B> for mdbx::RoCursor<'tx, Txn> {
     async fn first(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
         first::<B>(self)
     }
