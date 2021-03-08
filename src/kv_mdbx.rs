@@ -8,19 +8,19 @@ use std::future::Future;
 use thiserror::Error;
 
 #[async_trait(?Send)]
-impl<'kv: 'tx, 'tx> traits::KV<'kv, 'tx> for mdbx::Environment {
-    type Tx = mdbx::RoTransaction<'kv>;
+impl traits::KV for mdbx::Environment {
+    type Tx<'kv, 'tx> = mdbx::RoTransaction<'tx>;
 
-    async fn begin(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx> {
+    async fn begin<'kv: 'tx, 'tx>(&'kv self, _flags: u8) -> anyhow::Result<Self::Tx<'kv, 'tx>> {
         Ok(self.begin_ro_txn()?)
     }
 }
 
 #[async_trait(?Send)]
-impl<'kv: 'tx, 'tx> traits::MutableKV<'kv, 'tx> for mdbx::Environment {
-    type MutableTx = mdbx::RwTransaction<'kv>;
+impl traits::MutableKV for mdbx::Environment {
+    type MutableTx<'kv, 'tx> = mdbx::RwTransaction<'tx>;
 
-    async fn begin_mutable(&'kv self) -> anyhow::Result<Self::MutableTx> {
+    async fn begin_mutable<'kv: 'tx, 'tx>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv, 'tx>> {
         Ok(self.begin_rw_txn()?)
     }
 }

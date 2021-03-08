@@ -9,17 +9,17 @@ use std::{cmp::Ordering, future::Future, pin::Pin};
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
 
 #[async_trait(?Send)]
-pub trait KV<'kv, 'tx> {
-    type Tx: Transaction<'tx>;
+pub trait KV {
+    type Tx<'kv, 'tx>: Transaction<'tx>;
 
-    async fn begin(&'kv self, flags: u8) -> anyhow::Result<Self::Tx>;
+    async fn begin<'kv: 'tx, 'tx>(&'kv self, flags: u8) -> anyhow::Result<Self::Tx<'kv, 'tx>>;
 }
 
 #[async_trait(?Send)]
-pub trait MutableKV<'kv, 'tx> {
-    type MutableTx: MutableTransaction<'tx>;
+pub trait MutableKV {
+    type MutableTx<'kv, 'tx>: MutableTransaction<'tx>;
 
-    async fn begin_mutable(&'kv self) -> anyhow::Result<Self::MutableTx>;
+    async fn begin_mutable<'kv: 'tx, 'tx>(&'kv self) -> anyhow::Result<Self::MutableTx<'kv, 'tx>>;
 }
 
 #[async_trait(?Send)]

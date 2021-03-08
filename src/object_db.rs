@@ -2,7 +2,7 @@ use crate::{buckets, traits::KV, Cursor, Transaction};
 use bytes::Bytes;
 use std::{marker::PhantomData, str::FromStr};
 
-pub struct ObjectDatabase<K: KV<'static, 'static>> {
+pub struct ObjectDatabase<K: KV> {
     kv: K,
 }
 
