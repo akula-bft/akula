@@ -2,27 +2,25 @@ use super::*;
 use crate::{dbutils, CursorDupSort};
 use bytes::Bytes;
 
-pub async fn find_in_account_changeset<
-    'tx,
-    C: CursorDupSort<'tx, buckets::PlainAccountChangeSet>,
->(
+pub async fn find_in_account_changeset<'tx, Txn, C>(
     c: &mut C,
     block_number: u64,
     key: &[u8],
-) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let (k, v) = c
+) -> anyhow::Result<Option<Bytes<'tx>>>
+where
+    Txn: Transaction<'tx>,
+    C: CursorDupSort<'tx, Txn, buckets::PlainAccountChangeSet>,
+{
+    if let Some((k, v)) = c
         .seek_both_range(&dbutils::encode_block_number(block_number), key)
-        .await?;
+        .await?
+    {
+        let (_, k, v) = from_account_db_format(k, v);
 
-    if k.is_empty() {
-        return Ok(None);
+        if k.starts_with(key) {
+            return Ok(Some(v));
+        }
     }
 
-    let (_, k, v) = from_account_db_format(k, v);
-
-    if !k.starts_with(key) {
-        return Ok(None);
-    }
-
-    Ok(Some(v))
+    Ok(None)
 }

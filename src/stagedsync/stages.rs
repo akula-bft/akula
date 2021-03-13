@@ -11,16 +11,14 @@ pub async fn get_stage_progress<'tx, Tx: Transaction<'tx>>(
 ) -> anyhow::Result<Option<u64>> {
     trace!("Reading stage {:?} progress", stage);
 
-    let b = txutil::get_one::<_, buckets::SyncStageProgress>(tx, stage.as_ref()).await?;
-
-    if b.is_empty() {
-        return Ok(None);
+    if let Some(b) = txutil::get_one::<_, buckets::SyncStageProgress>(tx, stage.as_ref()).await? {
+        return Ok(Some(u64::from_be_bytes(*array_ref![
+            b.get(0..common::BLOCK_NUMBER_LENGTH)
+                .context("failed to read block number from bytes")?,
+            0,
+            common::BLOCK_NUMBER_LENGTH
+        ])));
     }
 
-    Ok(Some(u64::from_be_bytes(*array_ref![
-        b.get(0..common::BLOCK_NUMBER_LENGTH)
-            .context("failed to read block number from bytes")?,
-        0,
-        common::BLOCK_NUMBER_LENGTH
-    ])))
+    Ok(None)
 }

@@ -23,9 +23,9 @@ pub trait MutableKV {
 }
 
 #[async_trait(?Send)]
-pub trait Transaction<'tx> {
-    type Cursor<B: Bucket>: Cursor<'tx, B>;
-    type CursorDupSort<B: Bucket + DupSort>: CursorDupSort<'tx, B>;
+pub trait Transaction<'tx>: Sized {
+    type Cursor<B: Bucket>: Cursor<'tx, Self, B>;
+    type CursorDupSort<B: Bucket + DupSort>: CursorDupSort<'tx, Self, B>;
 
     /// Cursor - creates cursor object on top of given bucket. Type of cursor - depends on bucket configuration.
     /// If bucket was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
@@ -46,10 +46,10 @@ pub mod txutil {
     pub async fn get_one<'tx, Tx: Transaction<'tx>, B: Bucket>(
         tx: &'tx Tx,
         key: &[u8],
-    ) -> anyhow::Result<Bytes<'tx>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
         let mut cursor = tx.cursor::<B>().await?;
 
-        Ok(cursor.seek_exact(key).await?.1)
+        Ok(cursor.seek_exact(key).await?.map(|(k, v)| v))
     }
 
     pub async fn has_one<'tx, Tx: Transaction<'tx>, B: Bucket>(
@@ -58,23 +58,23 @@ pub mod txutil {
     ) -> anyhow::Result<bool> {
         let mut cursor = tx.cursor::<B>().await?;
 
-        Ok(key == cursor.seek(key).await?.0)
+        if let Some((k, _)) = cursor.seek(key).await? {
+            return Ok(key == k);
+        }
+
+        Ok(false)
     }
 }
 
 #[async_trait(?Send)]
 pub trait MutableTransaction<'tx>: Transaction<'tx> {
-    type MutableCursor<B: Bucket>: MutableCursor<'tx, B>;
+    type MutableCursor<B: Bucket>: MutableCursor<'tx, Self, B>;
 
     async fn mutable_cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>>;
 
     async fn commit(self) -> anyhow::Result<()>;
 
     async fn bucket_size<B: Bucket>(&self) -> anyhow::Result<u64>;
-
-    fn comparator<B: Bucket>(&self) -> ComparatorFunc;
-    fn cmp<B: Bucket>(a: &[u8], b: &[u8]) -> Ordering;
-    fn dcmp<B: Bucket>(a: &[u8], b: &[u8]) -> Ordering;
 
     /// Allows to create a linear sequence of unique positive integers for each table.
     /// Can be called for a read transaction to retrieve the current sequence value, and the increment must be zero.
@@ -84,18 +84,26 @@ pub trait MutableTransaction<'tx>: Transaction<'tx> {
 }
 
 #[async_trait(?Send)]
-pub trait Cursor<'tx, B: Bucket> {
-    async fn first(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-    async fn next(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-    async fn prev(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-    async fn last(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
-    async fn current(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
+pub trait Cursor<'tx, Txn, B>
+where
+    Txn: Transaction<'tx>,
+    B: Bucket,
+{
+    async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    async fn next(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    async fn prev(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    async fn last(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    async fn current(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
 }
 
 #[async_trait(?Send)]
-pub trait MutableCursor<'tx, B: Bucket> {
+pub trait MutableCursor<'tx, Txn, B>: Cursor<'tx, Txn, B>
+where
+    Txn: Transaction<'tx>,
+    B: Bucket,
+{
     /// Put based on order
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
     /// Append the given key/data pair to the end of the database.
@@ -120,30 +128,38 @@ pub trait MutableCursor<'tx, B: Bucket> {
 }
 
 #[async_trait(?Send)]
-pub trait CursorDupSort<'tx, B: Bucket + DupSort>: Cursor<'tx, B> {
+pub trait CursorDupSort<'tx, Txn, B>: Cursor<'tx, Txn, B>
+where
+    Txn: Transaction<'tx>,
+    B: Bucket + DupSort,
+{
     /// Second parameter can be nil only if searched key has no duplicates, or return error
     async fn seek_both_exact(
         &mut self,
         key: &[u8],
         value: &[u8],
-    ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
+    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     async fn seek_both_range(
         &mut self,
         key: &[u8],
         value: &[u8],
-    ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
+    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     /// Position at first data item of current key
-    async fn first_dup(&mut self) -> anyhow::Result<Bytes<'tx>>;
+    async fn first_dup(&mut self) -> anyhow::Result<Option<Bytes<'tx>>>;
     /// Position at next data item of current key
-    async fn next_dup(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
+    async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     /// Position at first data item of next key
-    async fn next_no_dup(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>;
+    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     /// Position at last data item of current key
-    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes<'tx>>;
+    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>;
 }
 
 #[async_trait(?Send)]
-pub trait MutableCursorDupSort<'tx, B: Bucket + DupSort>: MutableCursor<'tx, B> {
+pub trait MutableCursorDupSort<'tx, Txn, B>: MutableCursor<'tx, Txn, B>
+where
+    Txn: Transaction<'tx>,
+    B: Bucket + DupSort,
+{
     /// Deletes all of the data items for the current key
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()>;
     /// Same as `Cursor::append`, but for sorted dup data

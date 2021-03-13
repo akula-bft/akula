@@ -22,13 +22,14 @@ pub mod canonical_hash {
             hex::encode(&key)
         );
 
-        let b = txutil::get_one::<_, buckets::Header>(tx, &key).await?;
-
-        match b.len() {
-            0 => Ok(None),
-            common::HASH_LENGTH => Ok(Some(H256::from_slice(&*b))),
-            other => bail!("invalid length: {}", other),
+        if let Some(b) = txutil::get_one::<_, buckets::Header>(tx, &key).await? {
+            match b.len() {
+                common::HASH_LENGTH => return Ok(Some(H256::from_slice(&*b))),
+                other => bail!("invalid length: {}", other),
+            }
         }
+
+        Ok(None)
     }
 }
 
@@ -41,13 +42,18 @@ pub mod header_number {
     ) -> anyhow::Result<Option<u64>> {
         trace!("Reading block number for hash {:?}", hash);
 
-        let b = txutil::get_one::<_, buckets::HeaderNumber>(tx, &hash.to_fixed_bytes()).await?;
-
-        match b.len() {
-            0 => Ok(None),
-            common::BLOCK_NUMBER_LENGTH => Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8]))),
-            other => bail!("invalid length: {}", other),
+        if let Some(b) =
+            txutil::get_one::<_, buckets::HeaderNumber>(tx, &hash.to_fixed_bytes()).await?
+        {
+            match b.len() {
+                common::BLOCK_NUMBER_LENGTH => {
+                    return Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8])))
+                }
+                other => bail!("invalid length: {}", other),
+            }
         }
+
+        Ok(None)
     }
 }
 
@@ -61,14 +67,14 @@ pub mod header {
     ) -> anyhow::Result<Option<Header>> {
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        let b = txutil::get_one::<_, buckets::Header>(tx, &number_hash_composite_key(number, hash))
-            .await?;
-
-        if b.is_empty() {
-            return Ok(None);
+        if let Some(b) =
+            txutil::get_one::<_, buckets::Header>(tx, &number_hash_composite_key(number, hash))
+                .await?
+        {
+            return Ok(Some(rlp::decode(&b)?));
         }
 
-        Ok(Some(rlp::decode(&b)?))
+        Ok(None)
     }
 }
 
@@ -121,15 +127,14 @@ pub mod body {
     ) -> anyhow::Result<Option<BodyForStorage>> {
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
-        let b =
+        if let Some(b) =
             txutil::get_one::<_, buckets::BlockBody>(tx, &number_hash_composite_key(number, hash))
-                .await?;
-
-        if b.is_empty() {
-            return Ok(None);
+                .await?
+        {
+            return Ok(Some(rlp::decode(&b)?));
         }
 
-        Ok(rlp::decode(&b)?)
+        Ok(None)
     }
 }
 
@@ -143,14 +148,14 @@ pub mod td {
     ) -> anyhow::Result<Option<U256>> {
         trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
 
-        let b = txutil::get_one::<_, buckets::Header>(tx, &header_td_key(number, hash)).await?;
+        if let Some(b) =
+            txutil::get_one::<_, buckets::Header>(tx, &header_td_key(number, hash)).await?
+        {
+            trace!("Reading TD RLP: {}", hex::encode(&b));
 
-        if b.is_empty() {
-            return Ok(None);
+            return Ok(Some(rlp::decode(&b)?));
         }
 
-        trace!("Reading TD RLP: {}", hex::encode(&b));
-
-        Ok(Some(rlp::decode(&b)?))
+        Ok(None)
     }
 }

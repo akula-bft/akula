@@ -27,22 +27,30 @@ fn walk_continue<K: AsRef<[u8]>>(
                     == (start_key.as_ref()[fixed_bytes as usize - 1] & mask))
 }
 
-pub fn walk<'cur, 'tx: 'cur, B: Bucket, C: Cursor<'tx, B>>(
+pub fn walk<'cur, 'tx: 'cur, Txn, B, C>(
     c: &'cur mut C,
     start_key: &'cur [u8],
     fixed_bits: u64,
-) -> impl Stream<Item = anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>> + 'cur {
+) -> impl Stream<Item = anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>> + 'cur
+where
+    B: Bucket,
+    Txn: Transaction<'tx>,
+    C: Cursor<'tx, Txn, B>,
+{
     try_stream! {
         let (fixed_bytes, mask) = bytes_mask(fixed_bits);
 
-        let (mut k, mut v) = c.seek(start_key).await?;
+        if let Some((mut k, mut v)) = c.seek(start_key).await? {
+            while walk_continue(&k, fixed_bytes, fixed_bits, &start_key, mask) {
+                yield (k, v);
 
-        while walk_continue(&k, fixed_bytes, fixed_bits, &start_key, mask) {
-            yield (k, v);
-
-            let next = c.next().await?;
-            k = next.0;
-            v = next.1;
+                match c.next().await? {
+                    Some((k1, v1)) => {
+                        (k, v) = (k1, v1);
+                    }
+                    None => break,
+                }
+            }
         }
     }
 }

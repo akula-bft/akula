@@ -1,8 +1,7 @@
-use crate::{common, dbutils::*, Cursor, CursorDupSort};
+use crate::{common, dbutils::*, Cursor, CursorDupSort, Transaction};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
-use educe::Educe;
 use futures::Stream;
 use std::{collections::BTreeSet, fmt::Debug, usize};
 
@@ -22,13 +21,14 @@ pub trait ChangeSetBucket: Bucket + DupSort {
     type IndexBucket: Bucket;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
-    async fn find<'tx, C>(
+    async fn find<'tx, Txn, C>(
         cursor: &mut C,
         block_number: u64,
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, Self>,
+        Txn: Transaction<'tx>,
+        C: CursorDupSort<'tx, Txn, Self>,
         Self: Sized;
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
@@ -45,13 +45,14 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
     type IndexBucket = buckets::AccountsHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    async fn find<'tx, C>(
+    async fn find<'tx, Txn, C>(
         cursor: &mut C,
         block_number: u64,
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, Self>,
+        Txn: Transaction<'tx>,
+        C: CursorDupSort<'tx, Txn, Self>,
         Self: Sized,
     {
         find_in_account_changeset(cursor, block_number, k).await
@@ -88,13 +89,14 @@ impl ChangeSetBucket for buckets::PlainStorageChangeSet {
     type IndexBucket = buckets::StorageHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    async fn find<'tx, C>(
+    async fn find<'tx, Txn, C>(
         cursor: &mut C,
         block_number: u64,
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, Self>,
+        Txn: Transaction<'tx>,
+        C: CursorDupSort<'tx, Txn, Self>,
         Self: Sized,
     {
         find_without_incarnation_in_storage_changeset_2(

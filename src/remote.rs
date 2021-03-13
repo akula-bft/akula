@@ -17,7 +17,7 @@ use tokio_stream::StreamExt;
 use tonic::{body::BoxBody, client::GrpcService, codegen::HttpBody, Streaming};
 use tracing::*;
 
-tonic::include_proto!("remote");
+pub use ethereum_interfaces::remotekv::*;
 
 /// Remote transaction type via gRPC interface.
 pub struct RemoteTransaction {
@@ -105,14 +105,14 @@ impl<'tx, B: Bucket> RemoteCursor<'tx, B> {
         op: Op,
         key: Option<&[u8]>,
         value: Option<&[u8]>,
-    ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         let mut io = self.transaction.io.lock().await;
 
         io.0.send(Cursor {
             op: op as i32,
             cursor: self.id,
-            k: key.map(|v| v.to_vec()).unwrap_or_default(),
-            v: value.map(|v| v.to_vec()).unwrap_or_default(),
+            k: key.map(|v| v.to_vec().into()).unwrap_or_default(),
+            v: value.map(|v| v.to_vec().into()).unwrap_or_default(),
 
             bucket_name: Default::default(),
         })
@@ -120,48 +120,50 @@ impl<'tx, B: Bucket> RemoteCursor<'tx, B> {
 
         let rsp = io.1.message().await?.context("no response")?;
 
-        Ok((rsp.k.into(), rsp.v.into()))
+        Ok((!rsp.k.is_empty() && !rsp.v.is_empty()).then_some((rsp.k.into(), rsp.v.into())))
     }
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket> traits::Cursor<'tx, B> for RemoteCursor<'tx, B> {
-    async fn first(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+impl<'tx, B: Bucket> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<'tx, B> {
+    async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::First, None, None).await
     }
 
-    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::Seek, Some(key), None).await
     }
 
-    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::SeekExact, Some(key), None).await
     }
 
-    async fn next(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn next(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::Next, None, None).await
     }
 
-    async fn prev(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn prev(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::Prev, None, None).await
     }
 
-    async fn last(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn last(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::Last, None, None).await
     }
 
-    async fn current(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn current(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::Current, None, None).await
     }
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'tx, B> {
+impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, RemoteTransaction, B>
+    for RemoteCursor<'tx, B>
+{
     async fn seek_both_exact(
         &mut self,
         key: &[u8],
         value: &[u8],
-    ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::SeekBothExact, Some(key), Some(value)).await
     }
 
@@ -169,21 +171,21 @@ impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'t
         &mut self,
         key: &[u8],
         value: &[u8],
-    ) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::SeekBoth, Some(key), Some(value)).await
     }
 
-    async fn first_dup(&mut self) -> anyhow::Result<Bytes<'tx>> {
-        Ok(self.op(Op::FirstDup, None, None).await?.1)
+    async fn first_dup(&mut self) -> anyhow::Result<Option<Bytes<'tx>>> {
+        Ok(self.op(Op::FirstDup, None, None).await?.map(|(k, v)| v))
     }
-    async fn next_dup(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
-        self.op(Op::NextDup, None, None).await
+    async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
+        Ok(self.op(Op::NextDup, None, None).await?)
     }
-    async fn next_no_dup(&mut self) -> anyhow::Result<(Bytes<'tx>, Bytes<'tx>)> {
+    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::NextNoDup, None, None).await
     }
-    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Bytes<'tx>> {
-        Ok(self.op(Op::LastDup, Some(key), None).await?.1)
+    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
+        Ok(self.op(Op::LastDup, Some(key), None).await?.map(|(k, v)| v))
     }
 }
 

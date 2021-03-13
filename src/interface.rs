@@ -66,9 +66,9 @@ pub trait Database: Getter + Putter + Deleter {
     ///
     /// Common pattern:
     ///
-    /// ```norun
+    /// ```ignore
     /// let batch = db.new_batch().await;
-    /// ... some calculations on `batch`
+    /// // some calculations on `batch`
     /// batch.commit().await;
     /// ```
     async fn new_batch(&self) -> Self::DbWithPendingMutations<'_>;

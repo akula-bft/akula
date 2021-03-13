@@ -1,4 +1,4 @@
-use crate::{buckets, common, dbutils::*, models::*, txutil, Transaction};
+use crate::{buckets, models::*, txutil, Transaction};
 use anyhow::Context;
 use ethereum_types::H256;
 use tracing::*;
@@ -15,13 +15,11 @@ pub async fn read_chain_config<'tx, Tx: Transaction<'tx>>(
         hex::encode(&key)
     );
 
-    let b = txutil::get_one::<_, buckets::Config>(tx, &key).await?;
+    if let Some(b) = txutil::get_one::<_, buckets::Config>(tx, &key).await? {
+        trace!("Read chain config data: {}", hex::encode(&b));
 
-    trace!("Read chain config data: {}", hex::encode(&b));
-
-    if b.is_empty() {
-        return Ok(None);
+        return Ok(Some(serde_json::from_slice(&*b).context("invalid JSON")?));
     }
 
-    Ok(Some(serde_json::from_slice(&*b).context("invalid JSON")?))
+    Ok(None)
 }

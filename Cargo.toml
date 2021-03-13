@@ -12,8 +12,8 @@ arrayref = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
 bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }
-educe = { version = "0.4", features = ["Debug"] }
-ethereum = { git = "https://github.com/rust-blockchain/ethereum" }
+ethereum = "0.7"
+ethereum-interfaces = { git = "https://github.com/rust-ethereum/interfaces", default-features = false, features = ["remotekv"] }
 ethereum-types = "0.11"
 futures = "0.3"
 hex = "0.4"
@@ -21,7 +21,6 @@ hex-literal = "0.3"
 maplit = "1"
 mdbx = { git = "https://github.com/vorot93/mdbx-rs", branch = "full-bindings" }
 mdbx-sys = { git = "https://github.com/vorot93/mdbx-rs", branch = "full-bindings" }
-prost = "0.7"
 rand = "0.8"
 rlp = "0.5"
 rlp-derive = "0.1"
@@ -34,9 +33,6 @@ tokio = { version = "1", features = ["rt"] }
 tokio-stream = "0.1"
 tonic = { version = "0.4", default-features = false, features = ["codegen", "prost", "transport"] }
 tracing = "0.1"
-
-[build-dependencies]
-tonic-build = "0.4"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }

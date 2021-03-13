@@ -3,26 +3,28 @@ use crate::{common, CursorDupSort};
 use bytes::Bytes;
 
 impl buckets::PlainStorageChangeSet {
-    pub async fn find_with_incarnation<
-        'tx,
-        C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
-    >(
+    pub async fn find_with_incarnation<'tx, Txn, C>(
         c: &mut C,
         block_number: u64,
         k: &[u8],
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        Txn: Transaction<'tx>,
+        C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+    {
         find_in_storage_changeset_2(c, block_number, k).await
     }
 
-    pub async fn find_without_incarnation<
-        'tx,
-        C: CursorDupSort<'tx, buckets::PlainStorageChangeSet>,
-    >(
+    pub async fn find_without_incarnation<'tx, Txn, C>(
         c: &mut C,
         block_number: u64,
         address_to_find: &[u8],
         key_to_find: &[u8],
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        Txn: Transaction<'tx>,
+        C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+    {
         find_without_incarnation_in_storage_changeset_2(
             c,
             block_number,
