@@ -1,7 +1,7 @@
 use self::kv_client::*;
 use crate::{
     dbutils::{Bucket, DupSort},
-    traits::{self, Cursor as _},
+    kv::traits::{self, Cursor as _},
 };
 use anyhow::Context;
 use async_stream::stream;

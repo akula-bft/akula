@@ -19,22 +19,22 @@ mod changeset;
 mod common;
 mod dbutils;
 mod interface;
-mod kv_mdbx;
+mod kv;
 mod models;
 mod object_db;
-mod remote;
 pub mod stagedsync;
 mod state;
-mod traits;
 pub mod txdb;
 
 pub use changeset::ChangeSet;
 pub use dbutils::{buckets, Bucket, DupSort, SyncStage};
-pub use kv_mdbx::*;
-pub use object_db::*;
-pub use remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction};
-pub use state::*;
-pub use traits::{
-    txutil, ComparatorFunc, Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,
-    MutableTransaction, Transaction,
+pub use kv::{
+    mdbx::*,
+    remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
+    traits::{
+        txutil, ComparatorFunc, Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,
+        MutableTransaction, Transaction,
+    },
 };
+pub use object_db::*;
+pub use state::*;

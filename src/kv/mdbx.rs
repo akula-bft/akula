@@ -1,4 +1,4 @@
-use crate::{traits, Bucket, Cursor, CursorDupSort, DupSort, MutableCursor};
+use crate::{kv::traits, Bucket, Cursor, CursorDupSort, DupSort, MutableCursor};
 use anyhow::anyhow;
 use arrayref::array_ref;
 use async_trait::async_trait;
