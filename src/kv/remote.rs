@@ -159,14 +159,6 @@ impl<'tx, B: Bucket> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<
 impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, RemoteTransaction, B>
     for RemoteCursor<'tx, B>
 {
-    async fn seek_both_exact(
-        &mut self,
-        key: &[u8],
-        value: &[u8],
-    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        self.op(Op::SeekBothExact, Some(key), Some(value)).await
-    }
-
     async fn seek_both_range(
         &mut self,
         key: &[u8],
@@ -175,17 +167,11 @@ impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, RemoteTransaction, B>
         self.op(Op::SeekBoth, Some(key), Some(value)).await
     }
 
-    async fn first_dup(&mut self) -> anyhow::Result<Option<Bytes<'tx>>> {
-        Ok(self.op(Op::FirstDup, None, None).await?.map(|(k, v)| v))
-    }
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         Ok(self.op(Op::NextDup, None, None).await?)
     }
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::NextNoDup, None, None).await
-    }
-    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
-        Ok(self.op(Op::LastDup, Some(key), None).await?.map(|(k, v)| v))
     }
 }
 

@@ -1,4 +1,6 @@
-use crate::{kv::traits, Bucket, Cursor, CursorDupSort, DupSort, MutableCursor};
+use crate::{
+    kv::traits, Bucket, Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort,
+};
 use anyhow::anyhow;
 use arrayref::array_ref;
 use async_trait::async_trait;
@@ -147,10 +149,6 @@ where
     B: Bucket,
     C: mdbx::Cursor<'tx, Txn>,
 {
-    // cursor
-    //     .move_on_next()?
-    //     .map(|(k, v)| (k.into(), v.into()))
-    //     .ok_or_else(|| anyhow!("not found"))
     todo!()
 }
 
@@ -160,10 +158,6 @@ where
     B: Bucket,
     C: mdbx::Cursor<'tx, Txn>,
 {
-    // cursor
-    //     .move_on_prev()?
-    //     .map(|(k, v)| (k.into(), v.into()))
-    //     .ok_or_else(|| anyhow!("not found"))
     todo!()
 }
 
@@ -173,10 +167,6 @@ where
     B: Bucket,
     C: mdbx::Cursor<'tx, Txn>,
 {
-    // cursor
-    //     .move_on_last()?
-    //     .map(|(k, v)| (k.into(), v.into()))
-    //     .ok_or_else(|| anyhow!("not found"))
     todo!()
 }
 
@@ -186,10 +176,6 @@ where
     B: Bucket,
     C: mdbx::Cursor<'tx, Txn>,
 {
-    // cursor
-    //     .current()?
-    //     .map(|(k, v)| (k.into(), v.into()))
-    //     .ok_or_else(|| anyhow!("not found"))
     todo!()
 }
 
@@ -233,10 +219,11 @@ where
 }
 
 #[async_trait(?Send)]
-impl<'tx, Txn, B> Cursor<'tx, Txn, B> for mdbx::RoCursor<'tx, Txn>
+impl<'tx, Txn, B, C> Cursor<'tx, Txn, B> for C
 where
-    Txn: mdbx::Transaction,
+    Txn: 'tx + mdbx::Transaction,
     B: Bucket + DupSort,
+    C: mdbx::Cursor<'tx, Txn>,
 {
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         seek_general_dupsort::<Txn, B, Self>(self, key)
@@ -244,19 +231,12 @@ where
 }
 
 #[async_trait(?Send)]
-impl<'tx, Txn, B> CursorDupSort<'tx, Txn, B> for mdbx::RoCursor<'tx, Txn>
+impl<'tx, Txn, B, C> CursorDupSort<'tx, Txn, B> for C
 where
-    Txn: mdbx::Transaction,
+    Txn: 'tx + mdbx::Transaction,
     B: Bucket + DupSort,
+    C: mdbx::Cursor<'tx, Txn>,
 {
-    async fn seek_both_exact(
-        &mut self,
-        key: &[u8],
-        value: &[u8],
-    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        todo!()
-    }
-
     async fn seek_both_range(
         &mut self,
         key: &[u8],
@@ -265,19 +245,11 @@ where
         todo!()
     }
 
-    async fn first_dup(&mut self) -> anyhow::Result<Option<Bytes<'tx>>> {
-        todo!()
-    }
-
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         todo!()
     }
 
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        todo!()
-    }
-
-    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
         todo!()
     }
 }
@@ -306,17 +278,21 @@ where
         Ok(())
     }
 
-    async fn reserve(&mut self, key: &[u8], n: usize) -> anyhow::Result<Bytes<'tx>> {
-        todo!()
-    }
-
-    async fn put_current(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        mdbx::RwCursor::put(self, &key, &value, mdbx::WriteFlags::CURRENT)?;
-
-        Ok(())
-    }
-
     async fn count(&mut self) -> anyhow::Result<usize> {
         todo!()
+    }
+}
+
+#[async_trait(?Send)]
+impl<'tx, Txn, B> MutableCursorDupSort<'tx, Txn, B> for mdbx::RwCursor<'tx, Txn>
+where
+    Txn: mdbx::Transaction,
+    B: Bucket + DupSort,
+{
+    async fn delete_current_duplicates(&mut self) -> anyhow::Result<()> {
+        Ok(self.del(mdbx::WriteFlags::NO_DUP_DATA)?)
+    }
+    async fn append_dup(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+        Ok(self.put(&key, &value, mdbx::WriteFlags::APPEND_DUP)?)
     }
 }

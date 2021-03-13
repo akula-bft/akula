@@ -7,7 +7,6 @@ pub trait Bucket: 'static {
 
 pub trait DupSort {
     const AUTO_KEYS_CONVERSION: bool = false;
-    const CUSTOM_DUP_COMPARATOR: Option<&'static str> = None;
     const DUP_FROM_LEN: Option<usize> = None;
     const DUP_TO_LEN: Option<usize> = None;
 }
@@ -38,12 +37,10 @@ macro_rules! decl_bucket {
 pub mod buckets {
     use super::DupSort;
 
-    decl_bucket!(CurrentState, "CST2");
     decl_bucket!(AccountsHistory, "hAT");
     decl_bucket!(StorageHistory, "hST");
     decl_bucket!(Code, "CODE");
     decl_bucket!(ContractCode, "contractCode");
-    decl_bucket!(IntermediateTrieHash, "iTh2");
     decl_bucket!(DatabaseVersion, "DatabaseVersion");
     decl_bucket!(Header, "h"); // block_num_u64 + hash -> header
     decl_bucket!(HeaderNumber, "H"); // hash -> num (uint64 big endian)
@@ -68,20 +65,23 @@ pub mod buckets {
     decl_bucket!(HeadBlock, "LastBlock");
     decl_bucket!(HeadFastBlock, "LastFast");
     decl_bucket!(HeadHeader, "LastHeader");
-    decl_bucket!(Migrations, "migrations");
     decl_bucket!(LogTopicIndex, "log_topic_index");
     decl_bucket!(LogAddressIndex, "log_address_index");
     decl_bucket!(SnapshotInfo, "SNINFO");
-    decl_bucket!(HeadersSnapshotInfoBucket, "hSNINFO");
-    decl_bucket!(BodiesSnapshotInfoBucket, "bSNINFO");
-    decl_bucket!(StateSnapshotInfoBucket, "sSNINFO");
+    decl_bucket!(HeadersSnapshotInfo, "hSNINFO");
+    decl_bucket!(BodiesSnapshotInfo, "bSNINFO");
+    decl_bucket!(StateSnapshotInfo, "sSNINFO");
     decl_bucket!(CallFromIndex, "call_from_index");
     decl_bucket!(CallToIndex, "call_to_index");
     decl_bucket!(Log, "log"); // block_num_u64 + hash -> block receipts
     decl_bucket!(Sequence, "sequence");
     decl_bucket!(EthTx, "eth_tx"); // tbl_sequence_u64 -> rlp(tx)
+    decl_bucket!(TrieOfAccounts, "trie_account");
+    decl_bucket!(TrieOfStorage, "trie_storage");
+    decl_bucket!(HashedAccounts, "hashed_accounts");
+    decl_bucket!(HashedStorage, "hashed_storage");
 
-    impl DupSort for CurrentState {
+    impl DupSort for HashedStorage {
         const AUTO_KEYS_CONVERSION: bool = true;
         const DUP_FROM_LEN: Option<usize> = Some(72);
         const DUP_TO_LEN: Option<usize> = Some(40);
@@ -92,9 +92,6 @@ pub mod buckets {
         const AUTO_KEYS_CONVERSION: bool = true;
         const DUP_FROM_LEN: Option<usize> = Some(60);
         const DUP_TO_LEN: Option<usize> = Some(28);
-    }
-    impl DupSort for IntermediateTrieHash {
-        const CUSTOM_DUP_COMPARATOR: Option<&'static str> = Some("dup_cmp_suffix32");
     }
 }
 

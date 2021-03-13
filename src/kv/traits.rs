@@ -51,19 +51,6 @@ pub mod txutil {
 
         Ok(cursor.seek_exact(key).await?.map(|(k, v)| v))
     }
-
-    pub async fn has_one<'tx, Tx: Transaction<'tx>, B: Bucket>(
-        tx: &'tx Tx,
-        key: &[u8],
-    ) -> anyhow::Result<bool> {
-        let mut cursor = tx.cursor::<B>().await?;
-
-        if let Some((k, _)) = cursor.seek(key).await? {
-            return Ok(key == k);
-        }
-
-        Ok(false)
-    }
 }
 
 #[async_trait(?Send)]
@@ -119,10 +106,6 @@ where
     /// this operation.
     async fn delete_current(&mut self) -> anyhow::Result<()>;
 
-    async fn reserve(&mut self, key: &[u8], n: usize) -> anyhow::Result<Bytes<'tx>>;
-
-    async fn put_current(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
-
     /// Fast way to calculate amount of keys in bucket. It counts all keys even if prefix was set.
     async fn count(&mut self) -> anyhow::Result<usize>;
 }
@@ -133,25 +116,15 @@ where
     Txn: Transaction<'tx>,
     B: Bucket + DupSort,
 {
-    /// Second parameter can be nil only if searched key has no duplicates, or return error
-    async fn seek_both_exact(
-        &mut self,
-        key: &[u8],
-        value: &[u8],
-    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     async fn seek_both_range(
         &mut self,
         key: &[u8],
         value: &[u8],
     ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
-    /// Position at first data item of current key
-    async fn first_dup(&mut self) -> anyhow::Result<Option<Bytes<'tx>>>;
     /// Position at next data item of current key
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     /// Position at first data item of next key
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
-    /// Position at last data item of current key
-    async fn last_dup(&mut self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>;
 }
 
 #[async_trait(?Send)]
