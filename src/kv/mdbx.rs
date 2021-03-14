@@ -7,8 +7,51 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::future::LocalBoxFuture;
 use mdbx::{Cursor as _, Transaction as _};
+use mdbx_sys::{
+    MDBX_cursor_op, MDBX_FIRST, MDBX_GET_BOTH_RANGE, MDBX_NEXT_DUP, MDBX_NEXT_NODUP, MDBX_SET,
+};
 use std::future::Future;
 use thiserror::Error;
+
+trait MdbxCursorExt<'txn, Txn>: mdbx::Cursor<'txn, Txn>
+where
+    Txn: 'txn + mdbx::Transaction,
+{
+    fn get(
+        &mut self,
+        k: Option<&[u8]>,
+        v: Option<&[u8]>,
+        op: MDBX_cursor_op,
+    ) -> anyhow::Result<Option<(Option<Bytes<'txn>>, Bytes<'txn>)>> {
+        match mdbx::Cursor::get(self, k, v, op) {
+            Ok((k, v)) => Ok(Some((k, v))),
+            Err(mdbx::Error::NotFound) => Ok(None),
+            Err(other) => Err(other.into()),
+        }
+    }
+
+    fn set(&mut self, k: &[u8]) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
+        Ok(MdbxCursorExt::get(self, Some(k), None, MDBX_SET)?.map(|(k, v)| (k.unwrap(), v)))
+    }
+
+    fn get_both_range(
+        &mut self,
+        k: &[u8],
+        v: &[u8],
+    ) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
+        Ok(
+            MdbxCursorExt::get(self, Some(k), Some(v), MDBX_GET_BOTH_RANGE)?
+                .map(|(k, v)| (k.unwrap(), v)),
+        )
+    }
+}
+
+impl<'txn, Txn, C> MdbxCursorExt<'txn, Txn> for C
+where
+    Txn: 'txn + mdbx::Transaction,
+    C: mdbx::Cursor<'txn, Txn>,
+{
+}
 
 #[async_trait(?Send)]
 impl traits::KV for mdbx::Environment {
@@ -90,27 +133,23 @@ impl<'env: 'tx, 'tx> traits::MutableTransaction<'tx> for mdbx::RwTransaction<'en
 
 // Cursor
 
-fn first<'tx, Txn, B, C>(cursor: &mut C) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>
+fn first<'txn, Txn, B, C>(c: &mut C) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>>
 where
-    Txn: mdbx::Transaction,
+    Txn: 'txn + mdbx::Transaction,
     B: Bucket,
-    C: mdbx::Cursor<'tx, Txn>,
+    C: mdbx::Cursor<'txn, Txn>,
 {
-    match cursor.get(None, None, mdbx_sys::MDBX_FIRST) {
-        Ok((k, v)) => Ok(Some((k.unwrap(), v))),
-        Err(mdbx::Error::NotFound) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+    Ok(MdbxCursorExt::get(c, None, None, MDBX_FIRST)?.map(|(k, v)| (k.unwrap(), v)))
 }
 
-fn seek_general<'tx, Txn, B, C>(
-    cursor: &mut C,
+fn seek_general<'txn, Txn, B, C>(
+    c: &mut C,
     key: &[u8],
-) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>
+) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>>
 where
     Txn: mdbx::Transaction,
     B: Bucket,
-    C: mdbx::Cursor<'tx, Txn>,
+    C: mdbx::Cursor<'txn, Txn>,
 {
     todo!()
 }
@@ -124,7 +163,7 @@ where
     B: Bucket + DupSort,
     C: mdbx::Cursor<'tx, Txn>,
 {
-    if B::AUTO_KEYS_CONVERSION {
+    if B::AUTO_KEYS_CONVERSION.is_some() {
         return seek_dupsort::<Txn, B, C>(cursor, key);
     }
 
@@ -141,6 +180,42 @@ where
     C: mdbx::Cursor<'tx, Txn>,
 {
     todo!()
+}
+
+// SeekExact
+
+fn seek_exact<'txn, Txn, B, C>(
+    c: &mut C,
+    key: &[u8],
+) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>>
+where
+    Txn: 'txn + mdbx::Transaction,
+    B: Bucket,
+    C: mdbx::Cursor<'txn, Txn>,
+{
+    c.set(key)
+}
+
+fn seek_exact_dupsort<'txn, Txn, B, C>(
+    c: &mut C,
+    key: &[u8],
+) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>>
+where
+    Txn: 'txn + mdbx::Transaction,
+    B: Bucket + DupSort,
+    C: mdbx::Cursor<'txn, Txn>,
+{
+    if let Some((from, to)) = B::AUTO_KEYS_CONVERSION {
+        if let Some((k, v)) = c.get_both_range(&key[..to], &key[to..])? {
+            if key[to..] == v[..from - to] {
+                return Ok(Some((k, v.slice(from - to..))));
+            }
+        }
+
+        return Ok(None);
+    }
+
+    seek_exact::<Txn, B, C>(c, key)
 }
 
 fn next<'tx, Txn, B, C>(cursor: &mut C) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>
@@ -187,34 +262,37 @@ where
     C: mdbx::Cursor<'tx, Txn>,
 {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        first::<Txn, B, C>(self)
+        first::<Txn, B, Self>(self)
     }
 
     default async fn seek(
         &mut self,
         key: &[u8],
     ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        seek_general::<Txn, B, C>(self, key)
+        seek_general::<Txn, B, Self>(self, key)
     }
 
-    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        todo!()
+    default async fn seek_exact(
+        &mut self,
+        key: &[u8],
+    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
+        seek_exact::<Txn, B, Self>(self, key)
     }
 
     async fn next(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        next::<Txn, B, C>(self)
+        next::<Txn, B, Self>(self)
     }
 
     async fn prev(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        prev::<Txn, B, C>(self)
+        prev::<Txn, B, Self>(self)
     }
 
     async fn last(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        last::<Txn, B, C>(self)
+        last::<Txn, B, Self>(self)
     }
 
     async fn current(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        current::<Txn, B, C>(self)
+        current::<Txn, B, Self>(self)
     }
 }
 
@@ -227,6 +305,10 @@ where
 {
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         seek_general_dupsort::<Txn, B, Self>(self, key)
+    }
+
+    async fn seek_exact(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
+        seek_exact_dupsort::<Txn, B, Self>(self, key)
     }
 }
 
@@ -242,15 +324,19 @@ where
         key: &[u8],
         value: &[u8],
     ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        todo!()
+        self.get_both_range(key, value)
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        todo!()
+        Ok(self
+            .get(None, None, MDBX_NEXT_DUP)?
+            .map(|(k, v)| (k.unwrap(), v)))
     }
 
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        todo!()
+        Ok(self
+            .get(None, None, MDBX_NEXT_NODUP)?
+            .map(|(k, v)| (k.unwrap(), v)))
     }
 }
 
@@ -264,7 +350,7 @@ where
         todo!()
     }
 
-    async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+    default async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         Ok(self.put(&key, &value, mdbx::WriteFlags::APPEND)?)
     }
 

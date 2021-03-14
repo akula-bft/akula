@@ -6,9 +6,7 @@ pub trait Bucket: 'static {
 }
 
 pub trait DupSort {
-    const AUTO_KEYS_CONVERSION: bool = false;
-    const DUP_FROM_LEN: Option<usize> = None;
-    const DUP_TO_LEN: Option<usize> = None;
+    const AUTO_KEYS_CONVERSION: Option<(usize, usize)> = None;
 }
 
 macro_rules! decl_bucket {
@@ -82,16 +80,12 @@ pub mod buckets {
     decl_bucket!(HashedStorage, "hashed_storage");
 
     impl DupSort for HashedStorage {
-        const AUTO_KEYS_CONVERSION: bool = true;
-        const DUP_FROM_LEN: Option<usize> = Some(72);
-        const DUP_TO_LEN: Option<usize> = Some(40);
+        const AUTO_KEYS_CONVERSION: Option<(usize, usize)> = Some((72, 40));
     }
     impl DupSort for PlainAccountChangeSet {}
     impl DupSort for PlainStorageChangeSet {}
     impl DupSort for PlainState {
-        const AUTO_KEYS_CONVERSION: bool = true;
-        const DUP_FROM_LEN: Option<usize> = Some(60);
-        const DUP_TO_LEN: Option<usize> = Some(28);
+        const AUTO_KEYS_CONVERSION: Option<(usize, usize)> = Some((60, 28));
     }
 }
 
