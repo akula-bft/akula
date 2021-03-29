@@ -1,7 +1,7 @@
 use crate::dbutils;
 use async_trait::async_trait;
 use bytes::Bytes;
-use dbutils::{Bucket, DupSort};
+use dbutils::{DupSort, Table};
 use ethereum_types::Address;
 use futures::{future::LocalBoxFuture, stream::LocalBoxStream};
 use std::{cmp::Ordering, future::Future, pin::Pin};
@@ -24,26 +24,24 @@ pub trait MutableKV {
 
 #[async_trait(?Send)]
 pub trait Transaction<'tx>: Sized {
-    type Cursor<B: Bucket>: Cursor<'tx, Self, B>;
-    type CursorDupSort<B: Bucket + DupSort>: CursorDupSort<'tx, Self, B>;
+    type Cursor<B: Table>: Cursor<'tx, Self, B>;
+    type CursorDupSort<B: DupSort>: CursorDupSort<'tx, Self, B>;
 
-    /// Cursor - creates cursor object on top of given bucket. Type of cursor - depends on bucket configuration.
-    /// If bucket was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
+    /// Cursor - creates cursor object on top of given table. Type of cursor - depends on table configuration.
+    /// If table was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
     /// Otherwise - object of interface Cursor created
     ///
     /// Cursor, also provides a grain of magic - it can use a declarative configuration - and automatically break
-    /// long keys into DupSort key/values. See docs for `bucket.go:BucketConfigItem`
-    async fn cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<B>>;
-    async fn cursor_dup_sort<B: Bucket + DupSort>(
-        &'tx self,
-    ) -> anyhow::Result<Self::CursorDupSort<B>>;
+    /// long keys into DupSort key/values.
+    async fn cursor<B: Table>(&'tx self) -> anyhow::Result<Self::Cursor<B>>;
+    async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::CursorDupSort<B>>;
 }
 
 /// Temporary as module due to current Rust type system limitations
 pub mod txutil {
     use super::*;
 
-    pub async fn get_one<'tx, Tx: Transaction<'tx>, B: Bucket>(
+    pub async fn get_one<'tx, Tx: Transaction<'tx>, B: Table>(
         tx: &'tx Tx,
         key: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
@@ -55,26 +53,26 @@ pub mod txutil {
 
 #[async_trait(?Send)]
 pub trait MutableTransaction<'tx>: Transaction<'tx> {
-    type MutableCursor<B: Bucket>: MutableCursor<'tx, Self, B>;
+    type MutableCursor<B: Table>: MutableCursor<'tx, Self, B>;
 
-    async fn mutable_cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>>;
+    async fn mutable_cursor<B: Table>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>>;
 
     async fn commit(self) -> anyhow::Result<()>;
 
-    async fn bucket_size<B: Bucket>(&self) -> anyhow::Result<u64>;
+    async fn table_size<B: Table>(&self) -> anyhow::Result<u64>;
 
     /// Allows to create a linear sequence of unique positive integers for each table.
     /// Can be called for a read transaction to retrieve the current sequence value, and the increment must be zero.
     /// Sequence changes become visible outside the current write transaction after it is committed, and discarded on abort.
     /// Starts from 0.
-    async fn sequence<B: Bucket>(&self, amount: usize) -> anyhow::Result<usize>;
+    async fn sequence<B: Table>(&self, amount: usize) -> anyhow::Result<usize>;
 }
 
 #[async_trait(?Send)]
 pub trait Cursor<'tx, Txn, B>
 where
     Txn: Transaction<'tx>,
-    B: Bucket,
+    B: Table,
 {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
@@ -88,8 +86,8 @@ where
 #[async_trait(?Send)]
 pub trait MutableCursor<'tx, Txn, B>: Cursor<'tx, Txn, B>
 where
-    Txn: Transaction<'tx>,
-    B: Bucket,
+    Txn: MutableTransaction<'tx>,
+    B: Table,
 {
     /// Put based on order
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()>;
@@ -106,7 +104,7 @@ where
     /// this operation.
     async fn delete_current(&mut self) -> anyhow::Result<()>;
 
-    /// Fast way to calculate amount of keys in bucket. It counts all keys even if prefix was set.
+    /// Fast way to calculate amount of keys in table. It counts all keys even if prefix was set.
     async fn count(&mut self) -> anyhow::Result<usize>;
 }
 
@@ -114,13 +112,13 @@ where
 pub trait CursorDupSort<'tx, Txn, B>: Cursor<'tx, Txn, B>
 where
     Txn: Transaction<'tx>,
-    B: Bucket + DupSort,
+    B: DupSort,
 {
     async fn seek_both_range(
         &mut self,
         key: &[u8],
         value: &[u8],
-    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+    ) -> anyhow::Result<Option<Bytes<'tx>>>;
     /// Position at next data item of current key
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     /// Position at first data item of next key
@@ -130,8 +128,8 @@ where
 #[async_trait(?Send)]
 pub trait MutableCursorDupSort<'tx, Txn, B>: MutableCursor<'tx, Txn, B>
 where
-    Txn: Transaction<'tx>,
-    B: Bucket + DupSort,
+    Txn: MutableTransaction<'tx>,
+    B: DupSort,
 {
     /// Deletes all of the data items for the current key
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()>;

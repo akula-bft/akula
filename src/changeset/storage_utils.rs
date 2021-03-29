@@ -11,7 +11,7 @@ pub async fn find_in_storage_changeset_2<'tx, Txn, C>(
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
     Txn: Transaction<'tx>,
-    C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
 {
     do_search_2(
         c,
@@ -32,7 +32,7 @@ pub async fn find_without_incarnation_in_storage_changeset_2<'tx, Txn, C>(
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
     Txn: Transaction<'tx>,
-    C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
 {
     do_search_2(c, block_number, addr_bytes_to_find, key_bytes_to_find, 0).await
 }
@@ -46,7 +46,7 @@ pub async fn do_search_2<'tx, Txn, C>(
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
     Txn: Transaction<'tx>,
-    C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
 {
     if incarnation == 0 {
         let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH];
@@ -84,9 +84,9 @@ where
     seek[common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH..]
         .copy_from_slice(&incarnation.to_be_bytes());
 
-    if let Some((k, v)) = c.seek_both_range(&seek, key_bytes_to_find).await? {
+    if let Some(v) = c.seek_both_range(&seek, key_bytes_to_find).await? {
         if v.starts_with(key_bytes_to_find) {
-            let (_, _, v) = from_storage_db_format(k, v);
+            let (_, _, v) = from_storage_db_format(seek.into(), v);
 
             return Ok(Some(v));
         }

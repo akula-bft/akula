@@ -15,7 +15,7 @@ pub async fn get_account_data_as_of<'tx, Tx: Transaction<'tx>>(
         return Ok(Some(v));
     }
 
-    txutil::get_one::<_, buckets::PlainState>(tx, &key).await
+    txutil::get_one::<_, tables::PlainState>(tx, &key).await
 }
 
 pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
@@ -30,7 +30,7 @@ pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
         return Ok(Some(v));
     }
 
-    txutil::get_one::<_, buckets::PlainState>(tx, &key).await
+    txutil::get_one::<_, tables::PlainState>(tx, &key).await
 }
 
 pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
@@ -38,7 +38,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
     key: &[u8; ADDRESS_LENGTH],
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let mut ch = tx.cursor::<buckets::AccountsHistory>().await?;
+    let mut ch = tx.cursor::<tables::AccountsHistory>().await?;
     if let Some((k, v)) = ch.seek(&index_chunk_key(key, timestamp)).await? {
         if k.starts_with(key) {
             let change_set_block = RoaringTreemap::deserialize_from(&*v)?
@@ -48,7 +48,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
             let data = {
                 if let Some(change_set_block) = change_set_block {
                     let data = {
-                        type B = buckets::PlainAccountChangeSet;
+                        type B = tables::PlainAccountChangeSet;
                         let mut c = tx.cursor_dup_sort::<B>().await?;
                         B::find(&mut c, change_set_block, key).await?
                     };
@@ -66,7 +66,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
             //restore codehash
             if let Some(mut acc) = Account::decode_for_storage(&*data)? {
                 if acc.incarnation > 0 && acc.is_empty_code_hash() {
-                    if let Some(code_hash) = txutil::get_one::<_, buckets::PlainContractCode>(
+                    if let Some(code_hash) = txutil::get_one::<_, tables::PlainContractCode>(
                         tx,
                         &dbutils::plain_generate_storage_prefix(key, acc.incarnation),
                     )
@@ -94,7 +94,7 @@ pub async fn find_storage_by_history<'tx, Tx: Transaction<'tx>>(
     key: &PlainCompositeStorageKey,
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let mut ch = tx.cursor::<buckets::StorageHistory>().await?;
+    let mut ch = tx.cursor::<tables::StorageHistory>().await?;
     if let Some((k, v)) = ch.seek(&index_chunk_key(key, timestamp)).await? {
         if k[..common::ADDRESS_LENGTH] != key[..common::ADDRESS_LENGTH]
             || k[common::ADDRESS_LENGTH..common::ADDRESS_LENGTH + common::HASH_LENGTH]
@@ -109,7 +109,7 @@ pub async fn find_storage_by_history<'tx, Tx: Transaction<'tx>>(
         let data = {
             if let Some(change_set_block) = change_set_block {
                 let data = {
-                    type B = buckets::PlainStorageChangeSet;
+                    type B = tables::PlainStorageChangeSet;
                     let mut c = tx.cursor_dup_sort::<B>().await?;
                     B::find_with_incarnation(&mut c, change_set_block, key).await?
                 };

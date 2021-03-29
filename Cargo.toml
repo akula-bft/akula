@@ -19,8 +19,8 @@ futures = "0.3"
 hex = "0.4"
 hex-literal = "0.3"
 maplit = "1"
-mdbx = { git = "https://github.com/vorot93/mdbx-rs", branch = "full-bindings" }
-mdbx-sys = { git = "https://github.com/vorot93/mdbx-rs", branch = "full-bindings" }
+mdbx = { git = "https://github.com/vorot93/mdbx-rs" }
+mdbx-sys = { git = "https://github.com/vorot93/mdbx-rs" }
 rand = "0.8"
 rlp = "0.5"
 rlp-derive = "0.1"

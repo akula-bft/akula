@@ -33,7 +33,7 @@ pub fn walk<'cur, 'tx: 'cur, Txn, B, C>(
     fixed_bits: u64,
 ) -> impl Stream<Item = anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>> + 'cur
 where
-    B: Bucket,
+    B: Table,
     Txn: Transaction<'tx>,
     C: Cursor<'tx, Txn, B>,
 {

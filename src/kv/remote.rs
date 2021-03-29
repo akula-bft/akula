@@ -1,6 +1,6 @@
 use self::kv_client::*;
 use crate::{
-    dbutils::{Bucket, DupSort},
+    dbutils::{DupSort, Table},
     kv::traits::{self, Cursor as _},
 };
 use anyhow::Context;
@@ -37,10 +37,10 @@ pub struct RemoteCursor<'tx, B> {
 
 #[async_trait(?Send)]
 impl<'tx> crate::Transaction<'tx> for RemoteTransaction {
-    type Cursor<B: Bucket> = RemoteCursor<'tx, B>;
-    type CursorDupSort<B: Bucket + DupSort> = RemoteCursor<'tx, B>;
+    type Cursor<B: Table> = RemoteCursor<'tx, B>;
+    type CursorDupSort<B: DupSort> = RemoteCursor<'tx, B>;
 
-    async fn cursor<B: Bucket>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
+    async fn cursor<B: Table>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         // - send op open
         // - get cursor id
         let mut s = self.io.lock().await;
@@ -94,12 +94,12 @@ impl<'tx> crate::Transaction<'tx> for RemoteTransaction {
         })
     }
 
-    async fn cursor_dup_sort<B: Bucket + DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
+    async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         self.cursor().await
     }
 }
 
-impl<'tx, B: Bucket> RemoteCursor<'tx, B> {
+impl<'tx, B: Table> RemoteCursor<'tx, B> {
     async fn op(
         &mut self,
         op: Op,
@@ -120,12 +120,12 @@ impl<'tx, B: Bucket> RemoteCursor<'tx, B> {
 
         let rsp = io.1.message().await?.context("no response")?;
 
-        Ok((!rsp.k.is_empty() && !rsp.v.is_empty()).then_some((rsp.k.into(), rsp.v.into())))
+        Ok((!rsp.k.is_empty() || !rsp.v.is_empty()).then_some((rsp.k.into(), rsp.v.into())))
     }
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<'tx, B> {
+impl<'tx, B: Table> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<'tx, B> {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::First, None, None).await
     }
@@ -156,19 +156,20 @@ impl<'tx, B: Bucket> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Bucket + DupSort> traits::CursorDupSort<'tx, RemoteTransaction, B>
-    for RemoteCursor<'tx, B>
-{
+impl<'tx, B: DupSort> traits::CursorDupSort<'tx, RemoteTransaction, B> for RemoteCursor<'tx, B> {
     async fn seek_both_range(
         &mut self,
         key: &[u8],
         value: &[u8],
-    ) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        self.op(Op::SeekBoth, Some(key), Some(value)).await
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
+        Ok(self
+            .op(Op::SeekBoth, Some(key), Some(value))
+            .await?
+            .map(|(k, v)| v))
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
-        Ok(self.op(Op::NextDup, None, None).await?)
+        self.op(Op::NextDup, None, None).await
     }
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::NextNoDup, None, None).await

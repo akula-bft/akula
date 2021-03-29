@@ -5,7 +5,7 @@
     int_bits_const,
     specialization,
     trait_alias,
-    type_alias_impl_trait
+    min_type_alias_impl_trait
 )]
 #![allow(
     incomplete_features,
@@ -18,16 +18,14 @@ pub mod adapter;
 mod changeset;
 mod common;
 mod dbutils;
-mod interface;
 mod kv;
 mod models;
-mod object_db;
 pub mod stagedsync;
 mod state;
 pub mod txdb;
 
 pub use changeset::ChangeSet;
-pub use dbutils::{buckets, Bucket, DupSort, SyncStage};
+pub use dbutils::{tables, DupSort, SyncStage, Table};
 pub use kv::{
     mdbx::*,
     remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
@@ -36,5 +34,4 @@ pub use kv::{
         MutableTransaction, Transaction,
     },
 };
-pub use object_db::*;
 pub use state::*;

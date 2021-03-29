@@ -1,4 +1,4 @@
-use crate::{buckets, common, dbutils::*, models::*, txdb, txutil, Transaction};
+use crate::{common, dbutils::*, models::*, tables, txdb, txutil, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use ethereum::Header;
@@ -14,7 +14,7 @@ pub mod canonical_hash {
         tx: &'tx Tx,
         block_num: u64,
     ) -> anyhow::Result<Option<H256>> {
-        let key = header_hash_key(block_num);
+        let key = encode_block_number(block_num);
 
         trace!(
             "Reading canonical hash of {} from at {}",
@@ -22,7 +22,7 @@ pub mod canonical_hash {
             hex::encode(&key)
         );
 
-        if let Some(b) = txutil::get_one::<_, buckets::Header>(tx, &key).await? {
+        if let Some(b) = txutil::get_one::<_, tables::HeaderCanonical>(tx, &key).await? {
             match b.len() {
                 common::HASH_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
@@ -43,7 +43,7 @@ pub mod header_number {
         trace!("Reading block number for hash {:?}", hash);
 
         if let Some(b) =
-            txutil::get_one::<_, buckets::HeaderNumber>(tx, &hash.to_fixed_bytes()).await?
+            txutil::get_one::<_, tables::HeaderNumber>(tx, &hash.to_fixed_bytes()).await?
         {
             match b.len() {
                 common::BLOCK_NUMBER_LENGTH => {
@@ -68,8 +68,7 @@ pub mod header {
         trace!("Reading header for block {}/{:?}", number, hash);
 
         if let Some(b) =
-            txutil::get_one::<_, buckets::Header>(tx, &number_hash_composite_key(number, hash))
-                .await?
+            txutil::get_one::<_, tables::Headers>(tx, &header_key(number, hash)).await?
         {
             return Ok(Some(rlp::decode(&b)?));
         }
@@ -95,7 +94,7 @@ pub mod tx {
         Ok(if amount > 0 {
             let mut out = Vec::with_capacity(amount as usize);
 
-            let mut cursor = tx.cursor::<buckets::EthTx>().await?;
+            let mut cursor = tx.cursor::<tables::EthTx>().await?;
 
             let start_key = base_tx_id.to_be_bytes();
             let walker = txdb::walk(&mut cursor, &start_key, 0);
@@ -117,24 +116,45 @@ pub mod tx {
     }
 }
 
-pub mod body {
+pub mod storage_body {
+    use bytes::Bytes;
+
     use super::*;
+
+    async fn read_raw<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
+        hash: H256,
+        number: u64,
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
+        trace!("Reading storage body for block {}/{:?}", number, hash);
+
+        if let Some(b) =
+            txutil::get_one::<_, tables::BlockBody>(tx, &header_key(number, hash)).await?
+        {
+            return Ok(Some(b));
+        }
+
+        Ok(None)
+    }
 
     pub async fn read<'tx, Tx: Transaction<'tx>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
     ) -> anyhow::Result<Option<BodyForStorage>> {
-        trace!("Reading storage body for block {}/{:?}", number, hash);
-
-        if let Some(b) =
-            txutil::get_one::<_, buckets::BlockBody>(tx, &number_hash_composite_key(number, hash))
-                .await?
-        {
+        if let Some(b) = read_raw(tx, hash, number).await? {
             return Ok(Some(rlp::decode(&b)?));
         }
 
         Ok(None)
+    }
+
+    pub async fn has<'tx, Tx: Transaction<'tx>>(
+        tx: &'tx Tx,
+        hash: H256,
+        number: u64,
+    ) -> anyhow::Result<bool> {
+        Ok(read_raw(tx, hash, number).await?.is_some())
     }
 }
 
@@ -149,7 +169,7 @@ pub mod td {
         trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) =
-            txutil::get_one::<_, buckets::Header>(tx, &header_td_key(number, hash)).await?
+            txutil::get_one::<_, tables::HeaderTD>(tx, &header_key(number, hash)).await?
         {
             trace!("Reading TD RLP: {}", hex::encode(&b));
 

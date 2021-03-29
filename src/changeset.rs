@@ -1,9 +1,8 @@
-use crate::{common, dbutils::*, Cursor, CursorDupSort, Transaction};
+use crate::{common, dbutils::*, CursorDupSort, Transaction};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::Stream;
-use std::{collections::BTreeSet, fmt::Debug, usize};
+use std::{collections::BTreeSet, fmt::Debug};
 
 mod account;
 mod account_utils;
@@ -14,11 +13,11 @@ pub use self::{account::*, account_utils::*, storage::*, storage_utils::*};
 pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
 #[async_trait(?Send)]
-pub trait ChangeSetBucket: Bucket + DupSort {
+pub trait ChangeSetTable: DupSort {
     const TEMPLATE: &'static str;
 
     type Key: Eq + Ord + AsRef<[u8]>;
-    type IndexBucket: Bucket;
+    type IndexTable: Table;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
     async fn find<'tx, Txn, C>(
@@ -38,11 +37,11 @@ pub trait ChangeSetBucket: Bucket + DupSort {
 }
 
 #[async_trait(?Send)]
-impl ChangeSetBucket for buckets::PlainAccountChangeSet {
+impl ChangeSetTable for tables::PlainAccountChangeSet {
     const TEMPLATE: &'static str = "acc-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH];
-    type IndexBucket = buckets::AccountsHistory;
+    type IndexTable = tables::AccountsHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
     async fn find<'tx, Txn, C>(
@@ -82,11 +81,11 @@ impl ChangeSetBucket for buckets::PlainAccountChangeSet {
 }
 
 #[async_trait(?Send)]
-impl ChangeSetBucket for buckets::PlainStorageChangeSet {
+impl ChangeSetTable for tables::PlainStorageChangeSet {
     const TEMPLATE: &'static str = "st-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
-    type IndexBucket = buckets::StorageHistory;
+    type IndexTable = tables::StorageHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
     async fn find<'tx, Txn, C>(
@@ -172,7 +171,7 @@ pub fn from_account_db_format<'tx>(
     let mut k = db_value;
     let v = k.split_off(common::ADDRESS_LENGTH);
 
-    (block_n, k.into(), v)
+    (block_n, k, v)
 }
 
 pub fn from_storage_db_format<'tx>(

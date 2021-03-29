@@ -7,7 +7,7 @@ mod tests {
 
     #[test]
     fn account_encoding() {
-        type Bucket = buckets::PlainAccountChangeSet;
+        type Table = tables::PlainAccountChangeSet;
 
         let mut ch = ChangeSet::default();
 
@@ -28,8 +28,8 @@ mod tests {
 
         let mut ch2 = ChangeSet::default();
 
-        for (k, v) in Bucket::encode(1, &ch) {
-            let (_, k, v) = Bucket::decode(k, v);
+        for (k, v) in Table::encode(1, &ch) {
+            let (_, k, v) = Table::decode(k, v);
 
             ch2.insert(Change::new(k, v));
         }

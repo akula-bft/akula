@@ -2,7 +2,7 @@ use super::*;
 use crate::{common, CursorDupSort};
 use bytes::Bytes;
 
-impl buckets::PlainStorageChangeSet {
+impl tables::PlainStorageChangeSet {
     pub async fn find_with_incarnation<'tx, Txn, C>(
         c: &mut C,
         block_number: u64,
@@ -10,7 +10,7 @@ impl buckets::PlainStorageChangeSet {
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+        C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
     {
         find_in_storage_changeset_2(c, block_number, k).await
     }
@@ -23,7 +23,7 @@ impl buckets::PlainStorageChangeSet {
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, buckets::PlainStorageChangeSet>,
+        C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
     {
         find_without_incarnation_in_storage_changeset_2(
             c,
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn encoding_storage_new_with_random_incarnation() {
-        do_test_encoding_storage_new::<buckets::PlainStorageChangeSet, _, _, _, _>(
+        do_test_encoding_storage_new::<tables::PlainStorageChangeSet, _, _, _, _>(
             &plain_key_generator,
             &random_incarnation,
             &hash_value_generator,
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn encoding_storage_new_with_default_incarnation() {
-        do_test_encoding_storage_new::<buckets::PlainStorageChangeSet, _, _, _, _>(
+        do_test_encoding_storage_new::<tables::PlainStorageChangeSet, _, _, _, _>(
             &plain_key_generator,
             &default_incarnation,
             &hash_value_generator,
@@ -113,7 +113,7 @@ mod tests {
 
     #[test]
     fn encoding_storage_new_with_default_incarnation_and_empty_value() {
-        do_test_encoding_storage_new::<buckets::PlainStorageChangeSet, _, _, _, _>(
+        do_test_encoding_storage_new::<tables::PlainStorageChangeSet, _, _, _, _>(
             &plain_key_generator,
             &default_incarnation,
             &empty_value_generator,
@@ -121,7 +121,7 @@ mod tests {
     }
 
     fn do_test_encoding_storage_new<
-        Bucket: ChangeSetBucket<Key = Key>,
+        Table: ChangeSetTable<Key = Key>,
         Key: ChangeKey,
         KeyGen: Fn(common::Address, common::Incarnation, common::Hash) -> Key,
         IncarnationGen: Fn() -> common::Incarnation,
@@ -145,8 +145,8 @@ mod tests {
 
             let mut ch2 = ChangeSet::new();
 
-            for (k, v) in Bucket::encode(0, &ch) {
-                let (_, k, v) = Bucket::decode(k, v);
+            for (k, v) in Table::encode(0, &ch) {
+                let (_, k, v) = Table::decode(k, v);
                 ch2.insert(Change::new(k, v));
             }
 
