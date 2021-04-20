@@ -2,8 +2,6 @@
     bool_to_option,
     destructuring_assignment,
     generic_associated_types,
-    int_bits_const,
-    specialization,
     trait_alias,
     min_type_alias_impl_trait
 )]

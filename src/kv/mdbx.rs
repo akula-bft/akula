@@ -127,14 +127,11 @@ where
         filter_not_found(MdbxCursor::first(self))
     }
 
-    default async fn seek(
-        &mut self,
-        key: &[u8],
-    ) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
+    async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
         todo!()
     }
 
-    default async fn seek_exact(
+    async fn seek_exact(
         &mut self,
         key: &[u8],
     ) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
@@ -194,7 +191,7 @@ where
         todo!()
     }
 
-    default async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
+    async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         Ok(MdbxCursor::put(self, &key, &value, WriteFlags::APPEND)?)
     }
 
