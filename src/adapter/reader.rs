@@ -1,4 +1,4 @@
-use crate::{changeset::*, dbutils::*, models::*, txutil, Cursor, Transaction};
+use crate::{changeset::*, dbutils::*, models::*, Cursor, Transaction};
 use anyhow::bail;
 use ethereum_types::Address;
 

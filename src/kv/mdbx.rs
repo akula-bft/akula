@@ -9,19 +9,11 @@ use mdbx::{
     Transaction as MdbxTransaction, TransactionKind, WriteFlags, WriteMap, RO, RW,
 };
 
-fn filter_not_found<T>(res: Result<T, mdbx::Error>) -> anyhow::Result<Option<T>> {
-    match res {
-        Ok(v) => Ok(Some(v)),
-        Err(MdbxError::NotFound) => Ok(None),
-        Err(other) => Err(other.into()),
-    }
-}
-
 fn set<'txn, K: TransactionKind>(
     c: &mut MdbxCursor<'txn, K>,
     k: &[u8],
 ) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
-    filter_not_found(MdbxCursor::set_key(c, k))
+    Ok(MdbxCursor::set_key(c, k)?)
 }
 
 fn get_both_range<'txn, K: TransactionKind>(
@@ -29,7 +21,7 @@ fn get_both_range<'txn, K: TransactionKind>(
     k: &[u8],
     v: &[u8],
 ) -> anyhow::Result<Option<Bytes<'txn>>> {
-    filter_not_found(MdbxCursor::get_both_range(c, k, v))
+    Ok(MdbxCursor::get_both_range(c, k, v)?)
 }
 
 #[async_trait(?Send)]
@@ -124,7 +116,7 @@ where
     B: Table,
 {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
-        filter_not_found(MdbxCursor::first(self))
+        Ok(MdbxCursor::first(self)?)
     }
 
     async fn seek(&mut self, key: &[u8]) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
@@ -172,11 +164,11 @@ where
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
-        filter_not_found(MdbxCursor::next_dup(self))
+        Ok(MdbxCursor::next_dup(self)?)
     }
 
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
-        filter_not_found(MdbxCursor::next_nodup(self))
+        Ok(MdbxCursor::next_nodup(self)?)
     }
 }
 

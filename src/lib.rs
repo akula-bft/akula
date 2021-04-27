@@ -28,7 +28,7 @@ pub use kv::{
     mdbx::*,
     remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
     traits::{
-        txutil, ComparatorFunc, Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,
+        ComparatorFunc, Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,
         MutableTransaction, Transaction,
     },
 };

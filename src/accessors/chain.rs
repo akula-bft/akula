@@ -1,4 +1,4 @@
-use crate::{common, dbutils::*, models::*, tables, txdb, txutil, Transaction};
+use crate::{common, dbutils::*, models::*, tables, txdb, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use ethereum::Header;
@@ -22,7 +22,7 @@ pub mod canonical_hash {
             hex::encode(&key)
         );
 
-        if let Some(b) = txutil::get_one::<_, tables::HeaderCanonical>(tx, &key).await? {
+        if let Some(b) = tx.get_one::<tables::HeaderCanonical>(&key).await? {
             match b.len() {
                 common::HASH_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
@@ -42,8 +42,9 @@ pub mod header_number {
     ) -> anyhow::Result<Option<u64>> {
         trace!("Reading block number for hash {:?}", hash);
 
-        if let Some(b) =
-            txutil::get_one::<_, tables::HeaderNumber>(tx, &hash.to_fixed_bytes()).await?
+        if let Some(b) = tx
+            .get_one::<tables::HeaderNumber>(&hash.to_fixed_bytes())
+            .await?
         {
             match b.len() {
                 common::BLOCK_NUMBER_LENGTH => {
@@ -67,8 +68,9 @@ pub mod header {
     ) -> anyhow::Result<Option<Header>> {
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        if let Some(b) =
-            txutil::get_one::<_, tables::Headers>(tx, &header_key(number, hash)).await?
+        if let Some(b) = tx
+            .get_one::<tables::Headers>(&header_key(number, hash))
+            .await?
         {
             return Ok(Some(rlp::decode(&b)?));
         }
@@ -128,8 +130,9 @@ pub mod storage_body {
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
-        if let Some(b) =
-            txutil::get_one::<_, tables::BlockBody>(tx, &header_key(number, hash)).await?
+        if let Some(b) = tx
+            .get_one::<tables::BlockBody>(&header_key(number, hash))
+            .await?
         {
             return Ok(Some(b));
         }
@@ -168,8 +171,9 @@ pub mod td {
     ) -> anyhow::Result<Option<U256>> {
         trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
 
-        if let Some(b) =
-            txutil::get_one::<_, tables::HeaderTD>(tx, &header_key(number, hash)).await?
+        if let Some(b) = tx
+            .get_one::<tables::HeaderTD>(&header_key(number, hash))
+            .await?
         {
             trace!("Reading TD RLP: {}", hex::encode(&b));
 

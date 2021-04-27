@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dbutils::{DupSort, Table};
 use ethereum_types::Address;
-use futures::{future::LocalBoxFuture, stream::LocalBoxStream};
-use std::{cmp::Ordering, future::Future, pin::Pin};
+use futures_core::stream::LocalBoxStream;
+use std::{cmp::Ordering, pin::Pin};
 
 pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
 
@@ -35,17 +35,9 @@ pub trait Transaction<'tx>: Sized {
     /// long keys into DupSort key/values.
     async fn cursor<B: Table>(&'tx self) -> anyhow::Result<Self::Cursor<B>>;
     async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::CursorDupSort<B>>;
-}
 
-/// Temporary as module due to current Rust type system limitations
-pub mod txutil {
-    use super::*;
-
-    pub async fn get_one<'tx, Tx: Transaction<'tx>, B: Table>(
-        tx: &'tx Tx,
-        key: &[u8],
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        let mut cursor = tx.cursor::<B>().await?;
+    async fn get_one<B: Table>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
+        let mut cursor = self.cursor::<B>().await?;
 
         Ok(cursor.seek_exact(key).await?.map(|(k, v)| v))
     }

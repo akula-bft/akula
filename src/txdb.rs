@@ -1,4 +1,4 @@
-use crate::{changeset::*, common, dbutils::*, models::*, txutil, Cursor, Transaction};
+use crate::{changeset::*, common, dbutils::*, models::*, Cursor, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use async_stream::try_stream;
@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum::Header;
 use ethereum_types::{Address, H256, U256};
-use futures::stream::LocalBoxStream;
 use std::collections::{HashMap, HashSet};
 use tokio::pin;
 use tokio_stream::Stream;

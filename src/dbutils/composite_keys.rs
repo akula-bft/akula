@@ -2,8 +2,7 @@ use super::*;
 use crate::common;
 use common::HASH_LENGTH;
 use ethereum_types::H256;
-use futures::io::copy;
-use std::{io::Write, mem::size_of};
+use std::io::Write;
 
 pub const HEADER_KEY_LEN: usize = common::BLOCK_NUMBER_LENGTH + common::HASH_LENGTH;
 
