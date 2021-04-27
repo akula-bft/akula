@@ -23,9 +23,9 @@ pub trait MutableKV {
 }
 
 #[async_trait(?Send)]
-pub trait Transaction<'tx>: Sized {
-    type Cursor<B: Table>: Cursor<'tx, Self, B>;
-    type CursorDupSort<B: DupSort>: CursorDupSort<'tx, Self, B>;
+pub trait Transaction<'env>: Sized {
+    type Cursor<'tx, B: Table>: Cursor<'tx, B>;
+    type CursorDupSort<'tx, B: DupSort>: CursorDupSort<'tx, B>;
 
     /// Cursor - creates cursor object on top of given table. Type of cursor - depends on table configuration.
     /// If table was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
@@ -33,10 +33,20 @@ pub trait Transaction<'tx>: Sized {
     ///
     /// Cursor, also provides a grain of magic - it can use a declarative configuration - and automatically break
     /// long keys into DupSort key/values.
-    async fn cursor<B: Table>(&'tx self) -> anyhow::Result<Self::Cursor<B>>;
-    async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::CursorDupSort<B>>;
+    async fn cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    where
+        'env: 'tx,
+        B: Table;
+    async fn cursor_dup_sort<'tx, B>(&'tx self) -> anyhow::Result<Self::CursorDupSort<'tx, B>>
+    where
+        'env: 'tx,
+        B: DupSort;
 
-    async fn get_one<B: Table>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
+    async fn get_one<'tx, B>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        'env: 'tx,
+        B: Table,
+    {
         let mut cursor = self.cursor::<B>().await?;
 
         Ok(cursor.seek_exact(key).await?.map(|(k, v)| v))
@@ -44,10 +54,13 @@ pub trait Transaction<'tx>: Sized {
 }
 
 #[async_trait(?Send)]
-pub trait MutableTransaction<'tx>: Transaction<'tx> {
-    type MutableCursor<B: Table>: MutableCursor<'tx, Self, B>;
+pub trait MutableTransaction<'env>: Transaction<'env> {
+    type MutableCursor<'tx, B: Table>: MutableCursor<'tx, B>;
 
-    async fn mutable_cursor<B: Table>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>>;
+    async fn mutable_cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, B>>
+    where
+        'env: 'tx,
+        B: Table;
 
     async fn commit(self) -> anyhow::Result<()>;
 
@@ -61,9 +74,8 @@ pub trait MutableTransaction<'tx>: Transaction<'tx> {
 }
 
 #[async_trait(?Send)]
-pub trait Cursor<'tx, Txn, B>
+pub trait Cursor<'tx, B>
 where
-    Txn: Transaction<'tx>,
     B: Table,
 {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
@@ -76,9 +88,8 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait MutableCursor<'tx, Txn, B>: Cursor<'tx, Txn, B>
+pub trait MutableCursor<'tx, B>: Cursor<'tx, B>
 where
-    Txn: MutableTransaction<'tx>,
     B: Table,
 {
     /// Put based on order
@@ -101,9 +112,8 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait CursorDupSort<'tx, Txn, B>: Cursor<'tx, Txn, B>
+pub trait CursorDupSort<'tx, B>: Cursor<'tx, B>
 where
-    Txn: Transaction<'tx>,
     B: DupSort,
 {
     async fn seek_both_range(
@@ -118,9 +128,8 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait MutableCursorDupSort<'tx, Txn, B>: MutableCursor<'tx, Txn, B>
+pub trait MutableCursorDupSort<'tx, B>: MutableCursor<'tx, B>
 where
-    Txn: MutableTransaction<'tx>,
     B: DupSort,
 {
     /// Deletes all of the data items for the current key

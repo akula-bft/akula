@@ -26,15 +26,14 @@ fn walk_continue<K: AsRef<[u8]>>(
                     == (start_key.as_ref()[fixed_bytes as usize - 1] & mask))
 }
 
-pub fn walk<'cur, 'tx: 'cur, Txn, B, C>(
+pub fn walk<'cur, 'tx: 'cur, B, C>(
     c: &'cur mut C,
     start_key: &'cur [u8],
     fixed_bits: u64,
 ) -> impl Stream<Item = anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>> + 'cur
 where
     B: Table,
-    Txn: Transaction<'tx>,
-    C: Cursor<'tx, Txn, B>,
+    C: Cursor<'tx, B>,
 {
     try_stream! {
         let (fixed_bytes, mask) = bytes_mask(fixed_bits);

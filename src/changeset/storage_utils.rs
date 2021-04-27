@@ -4,14 +4,13 @@ use async_stream::try_stream;
 use bytes::Bytes;
 use std::io::Write;
 
-pub async fn find_in_storage_changeset_2<'tx, Txn, C>(
+pub async fn find_in_storage_changeset_2<'tx, C>(
     c: &mut C,
     block_number: u64,
     k: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    Txn: Transaction<'tx>,
-    C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
 {
     do_search_2(
         c,
@@ -24,20 +23,19 @@ where
     .await
 }
 
-pub async fn find_without_incarnation_in_storage_changeset_2<'tx, Txn, C>(
+pub async fn find_without_incarnation_in_storage_changeset_2<'tx, C>(
     c: &mut C,
     block_number: u64,
     addr_bytes_to_find: &[u8],
     key_bytes_to_find: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    Txn: Transaction<'tx>,
-    C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
 {
     do_search_2(c, block_number, addr_bytes_to_find, key_bytes_to_find, 0).await
 }
 
-pub async fn do_search_2<'tx, Txn, C>(
+pub async fn do_search_2<'tx, C>(
     c: &mut C,
     block_number: u64,
     addr_bytes_to_find: &[u8],
@@ -45,8 +43,7 @@ pub async fn do_search_2<'tx, Txn, C>(
     incarnation: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    Txn: Transaction<'tx>,
-    C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
 {
     if incarnation == 0 {
         let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH];

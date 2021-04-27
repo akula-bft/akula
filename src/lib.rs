@@ -26,6 +26,7 @@ pub use changeset::ChangeSet;
 pub use dbutils::{tables, DupSort, SyncStage, Table};
 pub use kv::{
     mdbx::*,
+    new_mem_database,
     remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
     traits::{
         ComparatorFunc, Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,

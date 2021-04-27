@@ -7,8 +7,11 @@ pub trait Table: 'static {
 
 pub trait DupSort: Table {}
 
-macro_rules! decl_table {
-    ($name:ident, $db_name:expr) => {
+macro_rules! decl_tables {
+    ($accum:expr => /* nothing left */) => { pub const COUNT: usize = $accum; };
+    ($accum:expr => $name:ident => $db_name:expr, $($tail:tt)*) => {
+        decl_tables!($accum + 1 => $($tail)*);
+
         #[derive(Clone, Copy, Debug)]
         pub struct $name;
 
@@ -28,56 +31,61 @@ macro_rules! decl_table {
             }
         }
     };
+    ($name:ident => $db_name:expr, $($tail:tt)*) => {
+        decl_tables!(0 => $name => $db_name, $($tail)*);
+    }
 }
 
 pub mod tables {
     use super::DupSort;
 
-    decl_table!(AccountsHistory, "hAT");
-    decl_table!(StorageHistory, "hST");
-    decl_table!(Code, "CODE");
-    decl_table!(ContractCode, "contractCode");
-    decl_table!(DatabaseVersion, "DatabaseVersion");
-    decl_table!(HeaderNumber, "H"); // hash -> num (uint64 big endian)
-    decl_table!(BlockBody, "b"); // block_num_u64 + hash -> block body
-    decl_table!(BlockReceipts, "r"); // block_num_u64 + hash -> block receipts
-    decl_table!(TxLookup, "l");
-    decl_table!(BloomBits, "B");
-    decl_table!(Preimage, "secure-key-"); // hash -> preimage
-    decl_table!(Config, "ethereum-config-"); // config prefix for the db
-    decl_table!(BloomBitsIndex, "iB");
-    decl_table!(DatabaseInfo, "DBINFO");
-    decl_table!(IncarnationMap, "incarnationMap");
-    decl_table!(Clique, "clique-");
-    decl_table!(SyncStageProgress, "SSP2");
-    decl_table!(SyncStageUnwind, "SSU2");
-    decl_table!(PlainState, "PLAIN-CST2");
-    decl_table!(PlainContractCode, "PLAIN-contractCode");
-    decl_table!(PlainAccountChangeSet, "PLAIN-ACS");
-    decl_table!(PlainStorageChangeSet, "PLAIN-SCS");
-    decl_table!(Senders, "txSenders");
-    decl_table!(FastTrieProgress, "TrieSync");
-    decl_table!(HeadBlock, "LastBlock");
-    decl_table!(HeadFastBlock, "LastFast");
-    decl_table!(HeadHeader, "LastHeader");
-    decl_table!(LogTopicIndex, "log_topic_index");
-    decl_table!(LogAddressIndex, "log_address_index");
-    decl_table!(SnapshotInfo, "SNINFO");
-    decl_table!(HeadersSnapshotInfo, "hSNINFO");
-    decl_table!(BodiesSnapshotInfo, "bSNINFO");
-    decl_table!(StateSnapshotInfo, "sSNINFO");
-    decl_table!(CallFromIndex, "call_from_index");
-    decl_table!(CallToIndex, "call_to_index");
-    decl_table!(Log, "log"); // block_num_u64 + hash -> block receipts
-    decl_table!(Sequence, "sequence");
-    decl_table!(EthTx, "eth_tx"); // tbl_sequence_u64 -> rlp(tx)
-    decl_table!(TrieOfAccounts, "trie_account");
-    decl_table!(TrieOfStorage, "trie_storage");
-    decl_table!(HashedAccounts, "hashed_accounts");
-    decl_table!(HashedStorage, "hashed_storage");
-    decl_table!(HeaderCanonical, "canonical_headers");
-    decl_table!(Headers, "headers");
-    decl_table!(HeaderTD, "header_to_td");
+    decl_tables!(
+        AccountsHistory => "hAT",
+        StorageHistory => "hST",
+        Code => "CODE",
+        ContractCode => "contractCode",
+        DatabaseVersion => "DatabaseVersion",
+        HeaderNumber => "H", // hash -> num (uint64 big endian)
+        BlockBody => "b", // block_num_u64 + hash -> block body
+        BlockReceipts => "r", // block_num_u64 + hash -> block receipts
+        TxLookup => "l",
+        BloomBits => "B",
+        Preimage => "secure-key-", // hash -> preimage
+        Config => "ethereum-config-", // config prefix for the db
+        BloomBitsIndex => "iB",
+        DatabaseInfo => "DBINFO",
+        IncarnationMap => "incarnationMap",
+        Clique => "clique-",
+        SyncStageProgress => "SSP2",
+        SyncStageUnwind => "SSU2",
+        PlainState => "PLAIN-CST2",
+        PlainContractCode => "PLAIN-contractCode",
+        PlainAccountChangeSet => "PLAIN-ACS",
+        PlainStorageChangeSet => "PLAIN-SCS",
+        Senders => "txSenders",
+        FastTrieProgress => "TrieSync",
+        HeadBlock => "LastBlock",
+        HeadFastBlock => "LastFast",
+        HeadHeader => "LastHeader",
+        LogTopicIndex => "log_topic_index",
+        LogAddressIndex => "log_address_index",
+        SnapshotInfo => "SNINFO",
+        HeadersSnapshotInfo => "hSNINFO",
+        BodiesSnapshotInfo => "bSNINFO",
+        StateSnapshotInfo => "sSNINFO",
+        CallFromIndex => "call_from_index",
+        CallToIndex => "call_to_index",
+        Log => "log", // block_num_u64 + hash -> block receipts
+        Sequence => "sequence",
+        EthTx => "eth_tx", // tbl_sequence_u64 -> rlp(tx)
+        TrieOfAccounts => "trie_account",
+        TrieOfStorage => "trie_storage",
+        HashedAccounts => "hashed_accounts",
+        HashedStorage => "hashed_storage",
+        HeaderCanonical => "canonical_headers",
+        Headers => "headers",
+        HeaderTD => "header_to_td",
+    );
 
     impl DupSort for HashedStorage {}
     impl DupSort for PlainAccountChangeSet {}

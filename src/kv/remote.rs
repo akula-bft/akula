@@ -36,11 +36,15 @@ pub struct RemoteCursor<'tx, B> {
 }
 
 #[async_trait(?Send)]
-impl<'tx> crate::Transaction<'tx> for RemoteTransaction {
-    type Cursor<B: Table> = RemoteCursor<'tx, B>;
-    type CursorDupSort<B: DupSort> = RemoteCursor<'tx, B>;
+impl<'env> crate::Transaction<'env> for RemoteTransaction {
+    type Cursor<'tx, B: Table> = RemoteCursor<'tx, B>;
+    type CursorDupSort<'tx, B: DupSort> = RemoteCursor<'tx, B>;
 
-    async fn cursor<B: Table>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
+    async fn cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    where
+        'env: 'tx,
+        B: Table,
+    {
         // - send op open
         // - get cursor id
         let mut s = self.io.lock().await;
@@ -94,7 +98,10 @@ impl<'tx> crate::Transaction<'tx> for RemoteTransaction {
         })
     }
 
-    async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
+    async fn cursor_dup_sort<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    where
+        B: DupSort,
+    {
         self.cursor().await
     }
 }
@@ -125,7 +132,7 @@ impl<'tx, B: Table> RemoteCursor<'tx, B> {
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Table> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<'tx, B> {
+impl<'tx, B: Table> traits::Cursor<'tx, B> for RemoteCursor<'tx, B> {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::First, None, None).await
     }
@@ -156,7 +163,7 @@ impl<'tx, B: Table> traits::Cursor<'tx, RemoteTransaction, B> for RemoteCursor<'
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: DupSort> traits::CursorDupSort<'tx, RemoteTransaction, B> for RemoteCursor<'tx, B> {
+impl<'tx, B: DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'tx, B> {
     async fn seek_both_range(
         &mut self,
         key: &[u8],

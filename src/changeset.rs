@@ -20,14 +20,13 @@ pub trait ChangeSetTable: DupSort {
     type IndexTable: Table;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
-    async fn find<'tx, Txn, C>(
+    async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, Self>,
+        C: CursorDupSort<'tx, Self>,
         Self: Sized;
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
@@ -44,14 +43,13 @@ impl ChangeSetTable for tables::PlainAccountChangeSet {
     type IndexTable = tables::AccountsHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    async fn find<'tx, Txn, C>(
+    async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, Self>,
+        C: CursorDupSort<'tx, Self>,
         Self: Sized,
     {
         find_in_account_changeset(cursor, block_number, k).await
@@ -88,14 +86,13 @@ impl ChangeSetTable for tables::PlainStorageChangeSet {
     type IndexTable = tables::StorageHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    async fn find<'tx, Txn, C>(
+    async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, Self>,
+        C: CursorDupSort<'tx, Self>,
         Self: Sized,
     {
         find_without_incarnation_in_storage_changeset_2(

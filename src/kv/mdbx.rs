@@ -5,7 +5,7 @@ use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mdbx::{
-    Cursor as MdbxCursor, EnvironmentKind, Error as MdbxError, GenericEnvironment,
+    Cursor as MdbxCursor, DatabaseFlags, EnvironmentKind, Error as MdbxError, GenericEnvironment,
     Transaction as MdbxTransaction, TransactionKind, WriteFlags, WriteMap, RO, RW,
 };
 
@@ -43,35 +43,58 @@ impl<E: EnvironmentKind> traits::MutableKV for GenericEnvironment<E> {
 }
 
 #[async_trait(?Send)]
-impl<'env: 'tx, 'tx, K, E> traits::Transaction<'tx> for MdbxTransaction<'env, K, E>
+impl<'env, K, E> traits::Transaction<'env> for MdbxTransaction<'env, K, E>
 where
     K: TransactionKind,
     E: EnvironmentKind,
 {
-    type Cursor<B: Table> = MdbxCursor<'tx, K>;
-    type CursorDupSort<B: DupSort> = MdbxCursor<'tx, K>;
+    type Cursor<'tx, B: Table> = MdbxCursor<'tx, K>;
+    type CursorDupSort<'tx, B: DupSort> = MdbxCursor<'tx, K>;
 
-    async fn cursor<B: Table>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
+    async fn cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    where
+        'env: 'tx,
+        B: Table,
+    {
         Ok(self.open_db(Some(B::DB_NAME))?.cursor()?)
     }
 
-    async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
+    async fn cursor_dup_sort<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    where
+        'env: 'tx,
+        B: DupSort,
+    {
         self.cursor::<B>().await
     }
 
-    async fn get_one<B: Table>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
+    async fn get_one<'tx, B>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        'env: 'tx,
+        B: Table,
+    {
         Ok(self.open_db(Some(B::DB_NAME))?.get(key)?)
     }
 }
 
 #[async_trait(?Send)]
-impl<'env: 'tx, 'tx, E: EnvironmentKind> traits::MutableTransaction<'tx>
-    for MdbxTransaction<'env, RW, E>
-{
-    type MutableCursor<B: Table> = MdbxCursor<'tx, RW>;
+impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransaction<'env, RW, E> {
+    type MutableCursor<'tx, B: Table> = MdbxCursor<'tx, RW>;
 
-    async fn mutable_cursor<B: Table>(&'tx self) -> anyhow::Result<Self::MutableCursor<B>> {
-        Ok(self.open_db(Some(B::DB_NAME))?.cursor()?)
+    async fn mutable_cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, B>>
+    where
+        'env: 'tx,
+        B: Table,
+    {
+        Ok(self
+            .create_db(
+                Some(B::DB_NAME),
+                if impls::impls!(B: DupSort) {
+                    DatabaseFlags::DUP_SORT
+                } else {
+                    DatabaseFlags::default()
+                },
+            )?
+            .cursor()?)
     }
 
     async fn commit(self) -> anyhow::Result<()> {
@@ -92,7 +115,7 @@ impl<'env: 'tx, 'tx, E: EnvironmentKind> traits::MutableTransaction<'tx>
     async fn sequence<B: Table>(&self, amount: usize) -> anyhow::Result<usize> {
         let mut c = self.mutable_cursor::<B>().await?;
 
-        let current_v = Cursor::<Self, B>::seek_exact(&mut c, B::DB_NAME.as_bytes())
+        let current_v = Cursor::<B>::seek_exact(&mut c, B::DB_NAME.as_bytes())
             .await?
             .map(|(k, v)| usize::from_be_bytes(*array_ref!(v, 0, 8)))
             .unwrap_or(0);
@@ -101,7 +124,7 @@ impl<'env: 'tx, 'tx, E: EnvironmentKind> traits::MutableTransaction<'tx>
             return Ok(current_v);
         }
 
-        MutableCursor::<Self, B>::put(
+        MutableCursor::<B>::put(
             &mut c,
             B::DB_NAME.as_bytes(),
             &(current_v + amount).to_be_bytes(),
@@ -113,11 +136,10 @@ impl<'env: 'tx, 'tx, E: EnvironmentKind> traits::MutableTransaction<'tx>
 }
 
 #[async_trait(?Send)]
-impl<'env: 'txn, 'txn, K, E, B> Cursor<'txn, MdbxTransaction<'env, K, E>, B> for MdbxCursor<'txn, K>
+impl<'txn, K, T> Cursor<'txn, T> for MdbxCursor<'txn, K>
 where
     K: TransactionKind,
-    E: EnvironmentKind,
-    B: Table,
+    T: Table,
 {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
         Ok(MdbxCursor::first(self)?)
@@ -152,12 +174,10 @@ where
 }
 
 #[async_trait(?Send)]
-impl<'env: 'txn, 'txn, K, E, B> CursorDupSort<'txn, MdbxTransaction<'env, K, E>, B>
-    for MdbxCursor<'txn, K>
+impl<'txn, K, T> CursorDupSort<'txn, T> for MdbxCursor<'txn, K>
 where
     K: TransactionKind,
-    E: EnvironmentKind,
-    B: DupSort,
+    T: DupSort,
 {
     async fn seek_both_range(
         &mut self,
@@ -177,11 +197,9 @@ where
 }
 
 #[async_trait(?Send)]
-impl<'env: 'txn, 'txn, E, B> MutableCursor<'txn, MdbxTransaction<'env, RW, E>, B>
-    for MdbxCursor<'txn, RW>
+impl<'txn, T> MutableCursor<'txn, T> for MdbxCursor<'txn, RW>
 where
-    E: EnvironmentKind,
-    B: Table,
+    T: Table,
 {
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
         todo!()
@@ -207,10 +225,8 @@ where
 }
 
 #[async_trait(?Send)]
-impl<'env: 'txn, 'txn, E, B> MutableCursorDupSort<'txn, MdbxTransaction<'env, RW, E>, B>
-    for MdbxCursor<'txn, RW>
+impl<'txn, B> MutableCursorDupSort<'txn, B> for MdbxCursor<'txn, RW>
 where
-    E: EnvironmentKind,
     B: DupSort,
 {
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()> {

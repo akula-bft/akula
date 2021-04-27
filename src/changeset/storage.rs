@@ -1,29 +1,27 @@
 use super::*;
-use crate::{common, CursorDupSort};
+use crate::CursorDupSort;
 use bytes::Bytes;
 
 impl tables::PlainStorageChangeSet {
-    pub async fn find_with_incarnation<'tx, Txn, C>(
+    pub async fn find_with_incarnation<'tx, C>(
         c: &mut C,
         block_number: u64,
         k: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
+        C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
     {
         find_in_storage_changeset_2(c, block_number, k).await
     }
 
-    pub async fn find_without_incarnation<'tx, Txn, C>(
+    pub async fn find_without_incarnation<'tx, C>(
         c: &mut C,
         block_number: u64,
         address_to_find: &[u8],
         key_to_find: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        Txn: Transaction<'tx>,
-        C: CursorDupSort<'tx, Txn, tables::PlainStorageChangeSet>,
+        C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
     {
         find_without_incarnation_in_storage_changeset_2(
             c,
