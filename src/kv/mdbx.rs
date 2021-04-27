@@ -58,6 +58,10 @@ where
     async fn cursor_dup_sort<B: DupSort>(&'tx self) -> anyhow::Result<Self::Cursor<B>> {
         self.cursor::<B>().await
     }
+
+    async fn get_one<B: Table>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>> {
+        Ok(self.open_db(Some(B::DB_NAME))?.get(key)?)
+    }
 }
 
 #[async_trait(?Send)]
