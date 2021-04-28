@@ -5,6 +5,7 @@
     trait_alias,
     min_type_alias_impl_trait
 )]
+#![recursion_limit = "256"]
 #![allow(
     incomplete_features,
     clippy::mutable_key_type,

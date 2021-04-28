@@ -12,6 +12,7 @@ arrayref = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
 bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }
+const_format = "0.2"
 ethereum = "0.7"
 ethereum-interfaces = { git = "https://github.com/rust-ethereum/interfaces", default-features = false, features = ["remotekv"] }
 ethereum-types = "0.11"
@@ -22,6 +23,7 @@ impls = "1"
 maplit = "1"
 mdbx = { git = "https://github.com/vorot93/mdbx-rs" }
 mdbx-sys = { git = "https://github.com/vorot93/mdbx-rs" }
+once_cell = "1"
 rand = "0.8"
 rlp = "0.5"
 rlp-derive = "0.1"

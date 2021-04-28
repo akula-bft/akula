@@ -8,9 +8,15 @@ pub trait Table: 'static {
 pub trait DupSort: Table {}
 
 macro_rules! decl_tables {
-    ($accum:expr => /* nothing left */) => { pub const COUNT: usize = $accum; };
-    ($accum:expr => $name:ident => $db_name:expr, $($tail:tt)*) => {
-        decl_tables!($accum + 1 => $($tail)*);
+    (($count:expr, $all_tables:expr) => /* nothing left */) => {
+        const COUNT: usize = $count;
+
+        fn all_tables() -> impl Iterator<Item = &'static str> {
+            $all_tables.split(' ')
+        }
+    };
+    (($count:expr, $all_tables:expr) => $name:ident => $db_name:expr, $($tail:tt)*) => {
+        decl_tables!(($count, const_format::concatcp!($all_tables, " ", $db_name)) => $($tail)*);
 
         #[derive(Clone, Copy, Debug)]
         pub struct $name;
@@ -32,11 +38,17 @@ macro_rules! decl_tables {
         }
     };
     ($name:ident => $db_name:expr, $($tail:tt)*) => {
-        decl_tables!(0 => $name => $db_name, $($tail)*);
+        decl_tables!((0, "") => $name => $db_name, $($tail)*);
     }
 }
 
 pub mod tables {
+    use std::collections::HashMap;
+
+    use once_cell::sync::Lazy;
+
+    use crate::Table;
+
     use super::DupSort;
 
     decl_tables!(
@@ -91,6 +103,26 @@ pub mod tables {
     impl DupSort for PlainAccountChangeSet {}
     impl DupSort for PlainStorageChangeSet {}
     impl DupSort for PlainState {}
+
+    pub const DUPSORT_TABLES: &[&str] = &[
+        HashedStorage::DB_NAME,
+        PlainAccountChangeSet::DB_NAME,
+        PlainStorageChangeSet::DB_NAME,
+        PlainState::DB_NAME,
+    ];
+
+    pub static TABLE_MAP: Lazy<HashMap<&'static str, bool>> = Lazy::new(|| {
+        let mut v = HashMap::with_capacity(COUNT);
+        for table in all_tables() {
+            v.insert(table, false);
+        }
+
+        for table in DUPSORT_TABLES {
+            v.insert(table, true);
+        }
+
+        v
+    });
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -1,3 +1,5 @@
+use std::{collections::HashMap, path::Path};
+
 use crate::{
     kv::traits, Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, Table,
 };
@@ -24,21 +26,50 @@ fn get_both_range<'txn, K: TransactionKind>(
     Ok(MdbxCursor::get_both_range(c, k, v)?)
 }
 
-#[async_trait(?Send)]
-impl<E: EnvironmentKind> traits::KV for GenericEnvironment<E> {
-    type Tx<'tx> = MdbxTransaction<'tx, RO, E>;
+pub struct Environment<E: EnvironmentKind> {
+    inner: mdbx::GenericEnvironment<E>,
+}
 
-    async fn begin(&self, _flags: u8) -> anyhow::Result<Self::Tx<'_>> {
-        Ok(self.begin_ro_txn()?)
+impl<E: EnvironmentKind> Environment<E> {
+    pub fn open(
+        b: mdbx::EnvironmentBuilder<E>,
+        path: &Path,
+        chart: &HashMap<&'static str, bool>,
+    ) -> anyhow::Result<Self> {
+        let env = b.open(path)?;
+
+        let tx = env.begin_rw_txn()?;
+        for (&db, &is_dup_sort) in chart {
+            tx.create_db(
+                Some(db),
+                if is_dup_sort {
+                    DatabaseFlags::DUP_SORT
+                } else {
+                    DatabaseFlags::default()
+                },
+            )?;
+        }
+        tx.commit()?;
+
+        Ok(Self { inner: env })
     }
 }
 
 #[async_trait(?Send)]
-impl<E: EnvironmentKind> traits::MutableKV for GenericEnvironment<E> {
+impl<E: EnvironmentKind> traits::KV for Environment<E> {
+    type Tx<'tx> = MdbxTransaction<'tx, RO, E>;
+
+    async fn begin(&self, _flags: u8) -> anyhow::Result<Self::Tx<'_>> {
+        Ok(self.inner.begin_ro_txn()?)
+    }
+}
+
+#[async_trait(?Send)]
+impl<E: EnvironmentKind> traits::MutableKV for Environment<E> {
     type MutableTx<'tx> = MdbxTransaction<'tx, RW, E>;
 
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>> {
-        Ok(self.begin_rw_txn()?)
+        Ok(self.inner.begin_rw_txn()?)
     }
 }
 
