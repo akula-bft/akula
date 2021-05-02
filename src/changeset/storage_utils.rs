@@ -47,25 +47,24 @@ where
 {
     if incarnation == 0 {
         let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH];
-        seek[..].as_mut().write(&block_number.to_be_bytes());
+        seek[..]
+            .as_mut()
+            .write(&block_number.to_be_bytes())
+            .unwrap();
         seek[8..].as_mut().write(addr_bytes_to_find).unwrap();
         let mut b = c.seek(&*seek).await?;
-        loop {
-            if let Some((k, v)) = b {
-                let (_, k1, v1) = from_storage_db_format(k, v);
-                if !k1.starts_with(addr_bytes_to_find) {
-                    break;
-                }
-
-                let st_hash = &k1[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..];
-                if st_hash == key_bytes_to_find {
-                    return Ok(Some(v1));
-                }
-
-                b = c.next().await?
-            } else {
+        while let Some((k, v)) = b {
+            let (_, k1, v1) = from_storage_db_format(k, v);
+            if !k1.starts_with(addr_bytes_to_find) {
                 break;
             }
+
+            let st_hash = &k1[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..];
+            if st_hash == key_bytes_to_find {
+                return Ok(Some(v1));
+            }
+
+            b = c.next().await?
         }
 
         return Ok(None);
