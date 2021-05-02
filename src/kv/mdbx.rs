@@ -3,31 +3,16 @@ use std::{collections::HashMap, path::Path};
 use crate::{
     kv::traits,
     tables::{AutoDupSort, AUTO_DUP_SORT, DUPSORT_TABLES},
-    Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, MutableTransaction, Table,
+    Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, Table,
 };
 use anyhow::bail;
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use mdbx::{
-    Cursor as MdbxCursor, DatabaseFlags, EnvironmentKind, Error as MdbxError, GenericEnvironment,
-    Transaction as MdbxTransaction, TransactionKind, WriteFlags, WriteMap, RO, RW,
+    Cursor as MdbxCursor, DatabaseFlags, EnvironmentKind, Error as MdbxError,
+    Transaction as MdbxTransaction, TransactionKind, WriteFlags, RO, RW,
 };
-
-fn set<'txn, K: TransactionKind>(
-    c: &mut MdbxCursor<'txn, K>,
-    k: &[u8],
-) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
-    Ok(MdbxCursor::set_key(c, k)?)
-}
-
-fn get_both_range<'txn, K: TransactionKind>(
-    c: &mut MdbxCursor<'txn, K>,
-    k: &[u8],
-    v: &[u8],
-) -> anyhow::Result<Option<Bytes<'txn>>> {
-    Ok(MdbxCursor::get_both_range(c, k, v)?)
-}
 
 pub struct Environment<E: EnvironmentKind> {
     inner: mdbx::GenericEnvironment<E>,
@@ -143,7 +128,7 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
 
         let current_v = Cursor::<B>::seek_exact(&mut c, B::DB_NAME.as_bytes())
             .await?
-            .map(|(k, v)| usize::from_be_bytes(*array_ref!(v, 0, 8)))
+            .map(|(_, v)| usize::from_be_bytes(*array_ref!(v, 0, 8)))
             .unwrap_or(0);
 
         if amount == 0 {
@@ -303,7 +288,7 @@ where
         key: &[u8],
         value: &[u8],
     ) -> anyhow::Result<Option<Bytes<'txn>>> {
-        get_both_range(self, key, value)
+        Ok(MdbxCursor::get_both_range(self, key, value)?)
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {

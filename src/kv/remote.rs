@@ -1,7 +1,7 @@
 use self::kv_client::*;
 use crate::{
     dbutils::{DupSort, Table},
-    kv::traits::{self, Cursor as _},
+    kv::traits,
 };
 use anyhow::Context;
 use async_stream::stream;
@@ -172,7 +172,7 @@ impl<'tx, B: DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'tx, B> {
         Ok(self
             .op(Op::SeekBoth, Some(key), Some(value))
             .await?
-            .map(|(k, v)| v))
+            .map(|(_, v)| v))
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {

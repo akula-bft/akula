@@ -49,7 +49,7 @@ pub trait Transaction<'env>: Sized {
     {
         let mut cursor = self.cursor::<B>().await?;
 
-        Ok(cursor.seek_exact(key).await?.map(|(k, v)| v))
+        Ok(cursor.seek_exact(key).await?.map(|(_, v)| v))
     }
 }
 
@@ -151,6 +151,7 @@ pub trait HasStats: Send {
     async fn disk_size(&self) -> anyhow::Result<u64>;
 }
 
+#[allow(dead_code)]
 pub struct SubscribeReply;
 
 #[async_trait(?Send)]

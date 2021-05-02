@@ -1,8 +1,6 @@
 use crate::{common, dbutils::*, tables, Transaction};
-use anyhow::{bail, Context};
+use anyhow::Context;
 use arrayref::array_ref;
-use ethereum::Header;
-use ethereum_types::H256;
 use tracing::*;
 
 pub async fn get_stage_progress<'tx, Tx: Transaction<'tx>>(

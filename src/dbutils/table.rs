@@ -1,6 +1,3 @@
-use maplit::hashmap;
-use std::collections::HashMap;
-
 pub trait Table: 'static {
     const DB_NAME: &'static str;
 }
@@ -173,7 +170,3 @@ impl AsRef<[u8]> for SyncStage {
         .as_bytes()
     }
 }
-
-// Data item prefixes (use single byte to avoid mixing data types, avoid `i`, used for indexes).
-pub const HEADER_TD_SUFFIX: &str = "t"; // block_num_u64 + hash + headerTDSuffix -> td
-pub const HEADER_HASH_SUFFIX: &str = "n"; // block_num_u64 + headerHashSuffix -> hash

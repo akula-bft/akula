@@ -1,4 +1,4 @@
-use crate::{common, dbutils::*, CursorDupSort, Transaction};
+use crate::{common, dbutils::*, CursorDupSort};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -182,7 +182,7 @@ pub fn from_storage_db_format<'tx>(
     let mut k = vec![0; st_sz];
     let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
 
-    k[..db_key.len()].copy_from_slice(&db_key[..]);
+    k[..db_key.len()].copy_from_slice(&db_key);
     k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
 
     let v = db_value.split_off(common::HASH_LENGTH);

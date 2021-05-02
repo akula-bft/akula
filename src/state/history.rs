@@ -129,8 +129,3 @@ pub async fn find_storage_by_history<'tx, Tx: Transaction<'tx>>(
 
     Ok(None)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-}

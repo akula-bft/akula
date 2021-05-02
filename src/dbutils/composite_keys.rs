@@ -1,6 +1,5 @@
-use super::*;
+#![allow(dead_code)]
 use crate::common;
-use common::HASH_LENGTH;
 use ethereum_types::H256;
 use std::io::Write;
 

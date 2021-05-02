@@ -60,7 +60,7 @@ mod tests {
             .into()
     }
 
-    fn empty_value_generator(j: usize) -> Bytes<'static> {
+    fn empty_value_generator(_: usize) -> Bytes<'static> {
         Bytes::new()
     }
 
@@ -78,14 +78,6 @@ mod tests {
             .unwrap();
         let key = common::hash_data(format!("key{}", j).as_bytes());
         (generator)(address, inc, key)
-    }
-
-    fn hash_key_generator(
-        address: common::Address,
-        inc: common::Incarnation,
-        key: common::Hash,
-    ) -> dbutils::CompositeStorageKey {
-        dbutils::generate_composite_storage_key(common::hash_data(address.as_bytes()), inc, key)
     }
 
     fn plain_key_generator(

@@ -45,7 +45,7 @@ impl Account {
         }
 
         if self.nonce > 0 {
-            struct_length += ((u64::BITS - self.nonce.leading_zeros()) as usize + 7 / 8) + 1;
+            struct_length += (u64::BITS - self.nonce.leading_zeros()) as usize;
         }
 
         if self.is_empty_code_hash() {
@@ -53,7 +53,7 @@ impl Account {
         }
 
         if self.incarnation > 0 {
-            struct_length += ((u64::BITS - self.incarnation.leading_zeros()) as usize + 7 / 8) + 1;
+            struct_length += (u64::BITS - self.incarnation.leading_zeros()) as usize;
         }
 
         struct_length
@@ -80,33 +80,33 @@ impl Account {
     }
 
     pub fn encode_for_storage(&self, buffer: &mut [u8]) {
-        let mut fieldSet = 0; // start with first bit set to 0
+        let mut field_set = 0; // start with first bit set to 0
         let mut pos = 1;
         if self.nonce > 0 {
-            fieldSet = 1;
+            field_set = 1;
             pos += Self::write_compact(&self.nonce.to_be_bytes(), &mut buffer[pos..]);
         }
 
         // Encoding balance
         if !self.balance.is_zero() {
-            fieldSet |= 2;
+            field_set |= 2;
             pos += Self::write_compact(&<[u8; 32]>::from(self.balance), &mut buffer[pos..]);
         }
 
         if self.incarnation > 0 {
-            fieldSet |= 4;
+            field_set |= 4;
             pos += Self::write_compact(&self.incarnation.to_be_bytes(), &mut buffer[pos..]);
         }
 
         // Encoding CodeHash
         if !self.is_empty_code_hash() {
-            fieldSet |= 8;
+            field_set |= 8;
             buffer[pos] = 32;
             buffer[pos + 1..pos + 33].copy_from_slice(self.code_hash.as_bytes());
             //pos += 33;
         }
 
-        buffer[0] = fieldSet;
+        buffer[0] = field_set;
     }
 
     pub fn is_empty_code_hash(&self) -> bool {
@@ -120,75 +120,77 @@ impl Account {
 
         let mut a = Self::default();
 
-        let fieldSet = enc[0];
+        let field_set = enc[0];
         let mut pos = 1;
 
-        if fieldSet & 1 > 0 {
-            let decodeLength = enc[pos] as usize;
+        if field_set & 1 > 0 {
+            let decode_length = enc[pos] as usize;
 
-            if enc.len() < pos + decodeLength + 1 {
+            if enc.len() < pos + decode_length + 1 {
                 bail!(
                     "malformed CBOR for Account.Nonce: 0x{}, Length {}",
                     hex::encode(&enc[pos + 1..]),
-                    decodeLength
+                    decode_length
                 );
             }
 
-            a.nonce = bytes_to_u64(&enc[pos + 1..pos + decodeLength + 1]);
-            pos += decodeLength + 1;
+            a.nonce = bytes_to_u64(&enc[pos + 1..pos + decode_length + 1]);
+            pos += decode_length + 1;
         }
 
-        if fieldSet & 2 > 0 {
-            let decodeLength = enc[pos] as usize;
+        if field_set & 2 > 0 {
+            let decode_length = enc[pos] as usize;
 
-            if enc.len() < pos + decodeLength + 1 {
+            if enc.len() < pos + decode_length + 1 {
                 bail!(
                     "malformed CBOR for Account.Nonce: 0x{}, Length {}",
                     hex::encode(&enc[pos + 1..]),
-                    decodeLength
+                    decode_length
                 );
             }
 
-            a.balance = U256::from_big_endian(&enc[pos + 1..pos + decodeLength + 1]);
-            pos += decodeLength + 1;
+            a.balance = U256::from_big_endian(&enc[pos + 1..pos + decode_length + 1]);
+            pos += decode_length + 1;
         }
 
-        if fieldSet & 4 > 0 {
-            let decodeLength = enc[pos] as usize;
+        if field_set & 4 > 0 {
+            let decode_length = enc[pos] as usize;
 
-            if enc.len() < pos + decodeLength + 1 {
+            if enc.len() < pos + decode_length + 1 {
                 bail!(
                     "malformed CBOR for Account.Incarnation: 0x{}, Length {}",
                     hex::encode(&enc[pos + 1..]),
-                    decodeLength
+                    decode_length
                 )
             }
 
-            a.incarnation = bytes_to_u64(&enc[pos + 1..pos + decodeLength + 1]);
-            pos += decodeLength + 1;
+            a.incarnation = bytes_to_u64(&enc[pos + 1..pos + decode_length + 1]);
+            pos += decode_length + 1;
         }
 
-        if fieldSet & 8 > 0 {
-            let decodeLength = enc[pos] as usize;
+        if field_set & 8 > 0 {
+            let decode_length = enc[pos] as usize;
 
-            if decodeLength != 32 {
+            if decode_length != 32 {
                 bail!(
                     "codehash should be 32 bytes long, got {} instead",
-                    decodeLength
+                    decode_length
                 )
             }
 
-            if enc.len() < pos + decodeLength + 1 {
+            if enc.len() < pos + decode_length + 1 {
                 bail!(
                     "malformed CBOR for Account.CodeHash: 0x{}, Length {}",
                     hex::encode(&enc[pos + 1..]),
-                    decodeLength
+                    decode_length
                 );
             }
 
-            a.code_hash = H256::from_slice(&enc[pos + 1..pos + decodeLength + 1]);
-            pos += decodeLength + 1;
+            a.code_hash = H256::from_slice(&enc[pos + 1..pos + decode_length + 1]);
+            pos += decode_length + 1;
         }
+
+        _ = pos;
 
         Ok(Some(a))
     }

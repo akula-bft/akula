@@ -1,15 +1,7 @@
-use crate::{changeset::*, common, dbutils::*, models::*, Cursor, Transaction};
-use anyhow::{bail, Context};
-use arrayref::array_ref;
+use crate::{dbutils::*, Cursor};
 use async_stream::try_stream;
-use async_trait::async_trait;
 use bytes::Bytes;
-use ethereum::Header;
-use ethereum_types::{Address, H256, U256};
-use std::collections::{HashMap, HashSet};
-use tokio::pin;
 use tokio_stream::Stream;
-use tracing::*;
 
 fn walk_continue<K: AsRef<[u8]>>(
     k: &[u8],
