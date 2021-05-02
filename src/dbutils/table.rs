@@ -43,13 +43,10 @@ macro_rules! decl_tables {
 }
 
 pub mod tables {
-    use std::collections::HashMap;
-
-    use once_cell::sync::Lazy;
-
+    use super::*;
     use crate::Table;
-
-    use super::DupSort;
+    use once_cell::sync::Lazy;
+    use std::collections::HashMap;
 
     decl_tables!(
         AccountsHistory => "hAT",
@@ -121,6 +118,18 @@ pub mod tables {
             v.insert(table, true);
         }
 
+        v
+    });
+
+    pub struct AutoDupSort {
+        pub from: usize,
+        pub to: usize,
+    }
+
+    pub static AUTO_DUP_SORT: Lazy<HashMap<&'static str, AutoDupSort>> = Lazy::new(|| {
+        let mut v = HashMap::new();
+        v.insert(HashedStorage::DB_NAME, AutoDupSort { from: 72, to: 40 });
+        v.insert(PlainState::DB_NAME, AutoDupSort { from: 60, to: 28 });
         v
     });
 }

@@ -56,11 +56,18 @@ pub trait Transaction<'env>: Sized {
 #[async_trait(?Send)]
 pub trait MutableTransaction<'env>: Transaction<'env> {
     type MutableCursor<'tx, B: Table>: MutableCursor<'tx, B>;
+    type MutableCursorDupSort<'tx, B: DupSort>: MutableCursorDupSort<'tx, B>;
 
     async fn mutable_cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, B>>
     where
         'env: 'tx,
         B: Table;
+    async fn mutable_cursor_dupsort<'tx, B>(
+        &'tx self,
+    ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, B>>
+    where
+        'env: 'tx,
+        B: DupSort;
 
     async fn commit(self) -> anyhow::Result<()>;
 
@@ -128,7 +135,7 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait MutableCursorDupSort<'tx, B>: MutableCursor<'tx, B>
+pub trait MutableCursorDupSort<'tx, B>: MutableCursor<'tx, B> + CursorDupSort<'tx, B>
 where
     B: DupSort,
 {
