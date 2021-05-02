@@ -5,6 +5,7 @@ use crate::{
     tables::{AutoDupSort, AUTO_DUP_SORT, DUPSORT_TABLES},
     Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, MutableTransaction, Table,
 };
+use anyhow::bail;
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
@@ -314,12 +315,92 @@ where
     }
 }
 
-fn delete_autodupsort<'txn, K: TransactionKind>(
-    c: &mut MdbxCursor<'txn, K>,
-    dupsort_data: &AutoDupSort,
+fn delete_autodupsort<'txn>(
+    c: &mut MdbxCursor<'txn, RW>,
+    &AutoDupSort { from, to }: &AutoDupSort,
     key: &[u8],
 ) -> anyhow::Result<()> {
-    todo!()
+    if key.len() != from && key.len() >= to {
+        bail!(
+            "delete from dupsort bucket: can have keys of len=={} and len<{}. key: {},{}",
+            from,
+            to,
+            hex::encode(key),
+            key.len(),
+        );
+    }
+
+    if key.len() == from {
+        if let Some(v) = MdbxCursor::get_both_range(c, &key[..to], &key[to..])? {
+            if v[..from - to] == key[to..] {
+                return Ok(MdbxCursor::del(c, WriteFlags::CURRENT)?);
+            }
+        }
+
+        return Ok(());
+    }
+
+    if MdbxCursor::set(c, key)?.is_some() {
+        MdbxCursor::del(c, WriteFlags::CURRENT)?;
+    }
+
+    Ok(())
+}
+
+fn put_autodupsort<'txn>(
+    c: &mut MdbxCursor<'txn, RW>,
+    &AutoDupSort { from, to }: &AutoDupSort,
+    key: &[u8],
+    value: &[u8],
+) -> anyhow::Result<()> {
+    if key.len() != from && key.len() >= to {
+        bail!(
+            "put dupsort: can have keys of len=={} and len<{}. key: {},{}",
+            from,
+            to,
+            hex::encode(key),
+            key.len(),
+        );
+    }
+
+    if key.len() != from {
+        match MdbxCursor::put(c, key, value, WriteFlags::NO_OVERWRITE) {
+            Err(MdbxError::KeyExist) => {
+                return Ok(MdbxCursor::put(c, key, value, WriteFlags::CURRENT)?)
+            }
+            Err(e) => {
+                return Err(anyhow::Error::from(e).context(format!(
+                    "key: {}, val: {}",
+                    hex::encode(key),
+                    hex::encode(value)
+                )))
+            }
+            Ok(()) => return Ok(()),
+        }
+    }
+
+    let value = key[to..]
+        .iter()
+        .chain(value.iter())
+        .copied()
+        .collect::<Vec<_>>();
+    let key = &key[..to];
+    let v = match MdbxCursor::get_both_range(c, key, &value[..from - to])? {
+        None => {
+            return Ok(MdbxCursor::put(c, key, value, WriteFlags::default())?);
+        }
+        Some(v) => v,
+    };
+
+    if v[..from - to] == value[..from - to] {
+        if v.len() == value.len() {
+            // in DupSort case mdbx.Current works only with values of same length
+            return Ok(MdbxCursor::put(c, key, value, WriteFlags::CURRENT)?);
+        }
+        MdbxCursor::del(c, WriteFlags::CURRENT)?;
+    }
+
+    Ok(MdbxCursor::put(c, key, value, WriteFlags::default())?)
 }
 
 #[async_trait(?Send)]
@@ -328,7 +409,15 @@ where
     T: Table,
 {
     async fn put(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        todo!()
+        if key.is_empty() {
+            bail!("Key must not be empty");
+        }
+
+        if let Some(info) = AUTO_DUP_SORT.get(T::DB_NAME) {
+            return put_autodupsort(self, info, key, value);
+        }
+
+        Ok(MdbxCursor::put(self, key, value, WriteFlags::default())?)
     }
 
     async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
