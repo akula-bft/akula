@@ -43,6 +43,8 @@ mod tests {
     use ethereum_types::Address;
     use hex_literal::hex;
 
+    type Table = tables::PlainStorageChangeSet;
+
     const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
 
     const fn default_incarnation() -> common::Incarnation {
@@ -64,20 +66,16 @@ mod tests {
         Bytes::new()
     }
 
-    fn get_test_data_at_index<
-        Key,
-        KeyGen: Fn(common::Address, common::Incarnation, common::Hash) -> Key,
-    >(
+    fn get_test_data_at_index(
         i: usize,
         j: usize,
         inc: common::Incarnation,
-        generator: &KeyGen,
-    ) -> Key {
+    ) -> dbutils::PlainCompositeStorageKey {
         let address = format!("0xBe828AD8B538D1D691891F6c725dEdc5989abB{:02x}", i)
             .parse()
             .unwrap();
         let key = common::hash_data(format!("key{}", j).as_bytes());
-        (generator)(address, inc, key)
+        plain_key_generator(address, inc, key)
     }
 
     fn plain_key_generator(
@@ -90,39 +88,23 @@ mod tests {
 
     #[test]
     fn encoding_storage_new_with_random_incarnation() {
-        do_test_encoding_storage_new::<tables::PlainStorageChangeSet, _, _, _, _>(
-            &plain_key_generator,
-            &random_incarnation,
-            &hash_value_generator,
-        )
+        do_test_encoding_storage_new(&random_incarnation, &hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation() {
-        do_test_encoding_storage_new::<tables::PlainStorageChangeSet, _, _, _, _>(
-            &plain_key_generator,
-            &default_incarnation,
-            &hash_value_generator,
-        )
+        do_test_encoding_storage_new(&default_incarnation, &hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation_and_empty_value() {
-        do_test_encoding_storage_new::<tables::PlainStorageChangeSet, _, _, _, _>(
-            &plain_key_generator,
-            &default_incarnation,
-            &empty_value_generator,
-        )
+        do_test_encoding_storage_new(&default_incarnation, &empty_value_generator)
     }
 
     fn do_test_encoding_storage_new<
-        Table: ChangeSetTable<Key = Key>,
-        Key: ChangeKey,
-        KeyGen: Fn(common::Address, common::Incarnation, common::Hash) -> Key,
         IncarnationGen: Fn() -> common::Incarnation,
         ValueGen: Fn(usize) -> Bytes<'static>,
     >(
-        key_gen: &KeyGen,
         incarnation_generator: &IncarnationGen,
         value_generator: &ValueGen,
     ) {
@@ -132,7 +114,7 @@ mod tests {
             for i in 0..num_of_elements {
                 let inc = (incarnation_generator)();
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, inc, key_gen);
+                    let key = get_test_data_at_index(i, j, inc);
                     let val = (value_generator)(j);
                     ch.insert(Change::new(key, val));
                 }
