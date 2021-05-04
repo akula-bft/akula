@@ -17,7 +17,7 @@ impl tables::StorageChangeSet {
     pub async fn find_without_incarnation<'tx, C>(
         c: &mut C,
         block_number: u64,
-        address_to_find: &[u8],
+        address_to_find: common::Address,
         key_to_find: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where

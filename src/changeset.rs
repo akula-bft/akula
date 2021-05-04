@@ -108,7 +108,7 @@ impl ChangeSetTable for tables::StorageChangeSet {
         find_without_incarnation_in_storage_changeset_2(
             cursor,
             block_number,
-            &k[..common::ADDRESS_LENGTH],
+            common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
             &k[common::ADDRESS_LENGTH..],
         )
         .await
