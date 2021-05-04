@@ -6,8 +6,6 @@ use std::{collections::BTreeSet, fmt::Debug};
 
 mod account;
 mod storage;
-mod storage_utils;
-pub use self::{account::*, storage::*, storage_utils::*};
 
 pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
@@ -105,7 +103,7 @@ impl ChangeSetTable for tables::StorageChangeSet {
         C: CursorDupSort<'tx, Self>,
         Self: Sized,
     {
-        find_without_incarnation_in_storage_changeset_2(
+        storage::find_without_incarnation_in_storage_changeset_2(
             cursor,
             block_number,
             common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
