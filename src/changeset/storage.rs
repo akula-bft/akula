@@ -257,6 +257,40 @@ mod tests {
         run_test(&f, 100, 1000);
     }
 
+    #[tokio::test]
+    async fn encoding_storage_new_without_not_default_incarnation() {
+        let f = |num_of_elements, num_of_keys| {
+            let mut ch = ChangeSet::new();
+
+            for i in 0..num_of_elements {
+                for j in 0..num_of_keys {
+                    let key = get_test_data_at_index(i, j, default_incarnation());
+                    let val = hash_value_generator(j);
+                    ch.insert(Change::new(key, val));
+                }
+            }
+
+            for ((_, k, v), change) in Table::encode(0, &ch)
+                .map(|(k, v)| Table::decode(k, v))
+                .zip(&ch)
+            {
+                assert_eq!(k, change.key);
+                assert_eq!(v, change.value);
+            }
+        };
+
+        for &v in NUM_OF_CHANGES {
+            run_test(&f, v, 1)
+        }
+
+        for &v in NUM_OF_CHANGES {
+            run_test(&f, v, 5);
+        }
+
+        run_test(&f, 50, 1000);
+        run_test(&f, 5, 1000);
+    }
+
     fn run_test<F: Fn(usize, usize)>(f: F, elements: usize, keys: usize) {
         println!("elements: {}, keys: {}", elements, keys);
         (f)(elements, keys);
@@ -267,9 +301,7 @@ mod tests {
         let env = crate::kv::new_mem_database().unwrap();
         let tx = env.begin_mutable().await.unwrap();
 
-        type CsTable = tables::StorageChangeSet;
-
-        let mut cs = tx.mutable_cursor_dupsort::<CsTable>().await.unwrap();
+        let mut cs = tx.mutable_cursor_dupsort::<Table>().await.unwrap();
 
         let contract_a = Address::from(hex!("6f0e0cdac6c716a00bd8db4d0eee4f2bfccf8e6a"));
         let contract_b = Address::from(hex!("c5acb79c258108f288288bc26f7820d06f45f08c"));
@@ -335,13 +367,13 @@ mod tests {
         .map(|(k, v)| Change::new(k, v))
         .collect();
 
-        let mut c = tx.mutable_cursor_dupsort::<CsTable>().await.unwrap();
-        for (k, v) in CsTable::encode(1, &ch) {
+        let mut c = tx.mutable_cursor_dupsort::<Table>().await.unwrap();
+        for (k, v) in Table::encode(1, &ch) {
             c.put(&k, &v).await.unwrap()
         }
 
         assert_eq!(
-            CsTable::find_with_incarnation(
+            Table::find_with_incarnation(
                 &mut cs,
                 1,
                 &dbutils::plain_generate_composite_storage_key(contract_a, 2, key1),
@@ -353,7 +385,7 @@ mod tests {
         );
 
         assert_eq!(
-            CsTable::find_with_incarnation(
+            Table::find_with_incarnation(
                 &mut cs,
                 1,
                 &dbutils::plain_generate_composite_storage_key(contract_b, 1, key3)
@@ -365,7 +397,7 @@ mod tests {
         );
 
         assert_eq!(
-            CsTable::find_with_incarnation(
+            Table::find_with_incarnation(
                 &mut cs,
                 1,
                 &dbutils::plain_generate_composite_storage_key(contract_a, 1, key5)
@@ -377,7 +409,7 @@ mod tests {
         );
 
         assert_eq!(
-            CsTable::find_with_incarnation(
+            Table::find_with_incarnation(
                 &mut cs,
                 1,
                 &dbutils::plain_generate_composite_storage_key(contract_a, 1, key1)
@@ -388,7 +420,7 @@ mod tests {
         );
 
         assert_eq!(
-            CsTable::find_with_incarnation(
+            Table::find_with_incarnation(
                 &mut cs,
                 1,
                 &dbutils::plain_generate_composite_storage_key(contract_d, 2, key1)
@@ -399,7 +431,7 @@ mod tests {
         );
 
         assert_eq!(
-            CsTable::find_with_incarnation(
+            Table::find_with_incarnation(
                 &mut cs,
                 1,
                 &dbutils::plain_generate_composite_storage_key(contract_b, 1, key7)
