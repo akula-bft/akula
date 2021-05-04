@@ -87,7 +87,7 @@ where
             .unwrap();
         let mut b = c.seek(&*seek).await?;
         while let Some((k, v)) = b {
-            let (_, k1, v1) = from_storage_db_format(k, v);
+            let (_, k1, v1) = tables::StorageChangeSet::decode(k, v);
             if !k1.starts_with(address_to_find.as_bytes()) {
                 break;
             }
@@ -115,7 +115,7 @@ where
 
     if let Some(v) = c.seek_both_range(&seek, key_bytes_to_find).await? {
         if v.starts_with(key_bytes_to_find) {
-            let (_, _, v) = from_storage_db_format(seek.into(), v);
+            let (_, _, v) = tables::StorageChangeSet::decode(seek.into(), v);
 
             return Ok(Some(v));
         }

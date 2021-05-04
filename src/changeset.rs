@@ -9,6 +9,31 @@ mod storage;
 
 pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
+pub trait ChangeKey = Eq + Ord + AsRef<[u8]>;
+
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
+pub struct Change<'tx, Key: ChangeKey> {
+    pub key: Key,
+    pub value: Bytes<'tx>,
+}
+
+impl<'tx, Key: ChangeKey> Debug for Change<'tx, Key> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Change")
+            .field("key", &hex::encode(self.key.as_ref()))
+            .field("value", &hex::encode(&self.value))
+            .finish()
+    }
+}
+
+impl<'tx, Key: ChangeKey> Change<'tx, Key> {
+    pub fn new(key: Key, value: Bytes<'tx>) -> Self {
+        Self { key, value }
+    }
+}
+
+pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
+
 #[async_trait(?Send)]
 pub trait ChangeSetTable: DupSort {
     const TEMPLATE: &'static str;
@@ -134,54 +159,17 @@ impl ChangeSetTable for tables::StorageChangeSet {
         })
     }
 
-    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
-        let (b, k1, v) = from_storage_db_format(k, v);
+    fn decode<'tx>(db_key: Bytes<'tx>, mut db_value: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
+        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+
         let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
-        k[..].copy_from_slice(&k1);
-        (b, k, v)
+        let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
+
+        k[..db_key.len()].copy_from_slice(&db_key);
+        k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
+
+        let v = db_value.split_off(common::HASH_LENGTH);
+
+        (block_n, k, v)
     }
-}
-
-pub trait ChangeKey = Eq + Ord + AsRef<[u8]>;
-
-#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub struct Change<'tx, Key: ChangeKey> {
-    pub key: Key,
-    pub value: Bytes<'tx>,
-}
-
-impl<'tx, Key: ChangeKey> Debug for Change<'tx, Key> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Change")
-            .field("key", &hex::encode(self.key.as_ref()))
-            .field("value", &hex::encode(&self.value))
-            .finish()
-    }
-}
-
-impl<'tx, Key: ChangeKey> Change<'tx, Key> {
-    pub fn new(key: Key, value: Bytes<'tx>) -> Self {
-        Self { key, value }
-    }
-}
-
-pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
-
-pub fn from_storage_db_format<'tx>(
-    db_key: Bytes<'tx>,
-    mut db_value: Bytes<'tx>,
-) -> (u64, Bytes<'tx>, Bytes<'tx>) {
-    let st_sz = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH;
-
-    let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
-
-    let mut k = vec![0; st_sz];
-    let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
-
-    k[..db_key.len()].copy_from_slice(&db_key);
-    k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
-
-    let v = db_value.split_off(common::HASH_LENGTH);
-
-    (block_n, k.into(), v)
 }
