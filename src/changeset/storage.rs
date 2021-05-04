@@ -3,6 +3,70 @@ use crate::{common, CursorDupSort};
 use bytes::Bytes;
 use std::io::Write;
 
+#[async_trait(?Send)]
+impl ChangeSetTable for tables::StorageChangeSet {
+    const TEMPLATE: &'static str = "st-ind-";
+
+    type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
+    type IndexTable = tables::StorageHistory;
+    type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
+
+    async fn find<'tx, C>(
+        cursor: &mut C,
+        block_number: u64,
+        k: &Self::Key,
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        C: CursorDupSort<'tx, Self>,
+        Self: Sized,
+    {
+        do_search_2(
+            cursor,
+            block_number,
+            common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
+            &k[common::ADDRESS_LENGTH..],
+            0,
+        )
+        .await
+    }
+
+    fn encode<'cs, 'tx: 'cs>(
+        block_number: u64,
+        s: &'cs ChangeSet<'tx, Self::Key>,
+    ) -> Self::EncodedStream<'tx, 'cs> {
+        s.iter().map(move |cs| {
+            let cs_key = cs.key.as_ref();
+
+            let key_part = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
+
+            let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + key_part];
+            new_k[..common::BLOCK_NUMBER_LENGTH]
+                .copy_from_slice(&dbutils::encode_block_number(block_number));
+            new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs_key[..key_part]);
+
+            let mut new_v = vec![0; common::HASH_LENGTH + cs.value.len()];
+            new_v[..common::HASH_LENGTH].copy_from_slice(&cs_key[key_part..]);
+            new_v[common::HASH_LENGTH..].copy_from_slice(&cs.value[..]);
+
+            (new_k.into(), new_v.into())
+        })
+    }
+
+    fn decode<'tx>(db_key: Bytes<'tx>, mut db_value: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
+        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+
+        let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
+        let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
+
+        k[..db_key.len()].copy_from_slice(&db_key);
+        k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
+
+        let v = db_value.split_off(common::HASH_LENGTH);
+
+        (block_n, k, v)
+    }
+}
+
 impl tables::StorageChangeSet {
     pub async fn find_with_incarnation<'tx, C>(
         c: &mut C,
@@ -13,24 +77,6 @@ impl tables::StorageChangeSet {
         C: CursorDupSort<'tx, tables::StorageChangeSet>,
     {
         find_in_storage_changeset_2(c, block_number, k).await
-    }
-
-    pub async fn find_without_incarnation<'tx, C>(
-        c: &mut C,
-        block_number: u64,
-        address_to_find: common::Address,
-        key_to_find: &[u8],
-    ) -> anyhow::Result<Option<Bytes<'tx>>>
-    where
-        C: CursorDupSort<'tx, tables::StorageChangeSet>,
-    {
-        find_without_incarnation_in_storage_changeset_2(
-            c,
-            block_number,
-            address_to_find,
-            key_to_find,
-        )
-        .await
     }
 }
 
@@ -51,18 +97,6 @@ where
         u64::from_be_bytes(*array_ref!(&k[common::ADDRESS_LENGTH..], 0, 8)),
     )
     .await
-}
-
-pub async fn find_without_incarnation_in_storage_changeset_2<'tx, C>(
-    c: &mut C,
-    block_number: u64,
-    address_to_find: common::Address,
-    key_bytes_to_find: &[u8],
-) -> anyhow::Result<Option<Bytes<'tx>>>
-where
-    C: CursorDupSort<'tx, tables::StorageChangeSet>,
-{
-    do_search_2(c, block_number, address_to_find, key_bytes_to_find, 0).await
 }
 
 pub async fn do_search_2<'tx, C>(
