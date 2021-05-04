@@ -23,7 +23,7 @@ mod tests {
                 .parse::<Address>()
                 .unwrap();
 
-            ch.insert(Change::new(address.to_fixed_bytes(), val));
+            ch.insert(Change::new(address, val));
         }
 
         let mut ch2 = ChangeSet::default();

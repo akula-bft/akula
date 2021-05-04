@@ -1,14 +1,13 @@
-use crate::{common, dbutils::*, CursorDupSort};
+use crate::{common, CursorDupSort, *};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::{collections::BTreeSet, fmt::Debug};
 
 mod account;
-mod account_utils;
 mod storage;
 mod storage_utils;
-pub use self::{account::*, account_utils::*, storage::*, storage_utils::*};
+pub use self::{account::*, storage::*, storage_utils::*};
 
 pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
@@ -39,27 +38,36 @@ pub trait ChangeSetTable: DupSort {
 impl ChangeSetTable for tables::AccountChangeSet {
     const TEMPLATE: &'static str = "acc-ind-";
 
-    type Key = [u8; common::ADDRESS_LENGTH];
+    type Key = common::Address;
     type IndexTable = tables::AccountsHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
-        k: &Self::Key,
+        key: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         C: CursorDupSort<'tx, Self>,
         Self: Sized,
     {
-        find_in_account_changeset(cursor, block_number, k).await
+        let k = dbutils::encode_block_number(block_number);
+        if let Some(v) = cursor.seek_both_range(&k, key.as_bytes()).await? {
+            let (_, k, v) = Self::decode(k.to_vec().into(), v);
+
+            if k == *key {
+                return Ok(Some(v));
+            }
+        }
+
+        Ok(None)
     }
 
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
         s: &'cs ChangeSet<'tx, Self::Key>,
     ) -> Self::EncodedStream<'tx, 'cs> {
-        let k = encode_block_number(block_number);
+        let k = dbutils::encode_block_number(block_number);
 
         s.iter().map(move |cs| {
             let mut new_v = vec![0; cs.key.as_ref().len() + cs.value.len()];
@@ -70,11 +78,13 @@ impl ChangeSetTable for tables::AccountChangeSet {
         })
     }
 
-    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
-        let (b, k1, v) = from_account_db_format(k, v);
-        let mut k = [0; common::ADDRESS_LENGTH];
-        k[..].copy_from_slice(&*k1);
-        (b, k, v)
+    fn decode<'tx>(db_key: Bytes<'tx>, db_value: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
+        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+
+        let mut k = db_value;
+        let v = k.split_off(common::ADDRESS_LENGTH);
+
+        (block_n, common::Address::from_slice(&k), v)
     }
 }
 
@@ -115,7 +125,7 @@ impl ChangeSetTable for tables::StorageChangeSet {
 
             let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + key_part];
             new_k[..common::BLOCK_NUMBER_LENGTH]
-                .copy_from_slice(&encode_block_number(block_number));
+                .copy_from_slice(&dbutils::encode_block_number(block_number));
             new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs_key[..key_part]);
 
             let mut new_v = vec![0; common::HASH_LENGTH + cs.value.len()];
@@ -158,18 +168,6 @@ impl<'tx, Key: ChangeKey> Change<'tx, Key> {
 }
 
 pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
-
-pub fn from_account_db_format<'tx>(
-    db_key: Bytes<'tx>,
-    db_value: Bytes<'tx>,
-) -> (u64, Bytes<'tx>, Bytes<'tx>) {
-    let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
-
-    let mut k = db_value;
-    let v = k.split_off(common::ADDRESS_LENGTH);
-
-    (block_n, k, v)
-}
 
 pub fn from_storage_db_format<'tx>(
     db_key: Bytes<'tx>,

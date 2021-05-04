@@ -1,7 +1,7 @@
 use crate::{changeset::*, common, dbutils, dbutils::*, models::*, Cursor, Transaction};
 use arrayref::array_ref;
 use bytes::Bytes;
-use common::{Hash, Incarnation, ADDRESS_LENGTH};
+use common::{Hash, Incarnation};
 use ethereum_types::{Address, H256};
 use roaring::RoaringTreemap;
 
@@ -10,12 +10,12 @@ pub async fn get_account_data_as_of<'tx, Tx: Transaction<'tx>>(
     address: Address,
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let key = address.to_fixed_bytes();
-    if let Some(v) = find_data_by_history(tx, &key, timestamp).await? {
+    if let Some(v) = find_data_by_history(tx, address, timestamp).await? {
         return Ok(Some(v));
     }
 
-    tx.get_one::<tables::PlainState>(&key).await
+    tx.get_one::<tables::PlainState>(address.as_fixed_bytes())
+        .await
 }
 
 pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
@@ -35,12 +35,15 @@ pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
 
 pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
     tx: &'tx Tx,
-    key: &[u8; ADDRESS_LENGTH],
+    key: common::Address,
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor::<tables::AccountsHistory>().await?;
-    if let Some((k, v)) = ch.seek(&index_chunk_key(key, timestamp)).await? {
-        if k.starts_with(key) {
+    if let Some((k, v)) = ch
+        .seek(&index_chunk_key(key.as_fixed_bytes(), timestamp))
+        .await?
+    {
+        if k.starts_with(key.as_fixed_bytes()) {
             let change_set_block = RoaringTreemap::deserialize_from(&*v)?
                 .into_iter()
                 .find(|n| *n >= timestamp);
@@ -50,7 +53,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
                     let data = {
                         type B = tables::AccountChangeSet;
                         let mut c = tx.cursor_dup_sort::<B>().await?;
-                        B::find(&mut c, change_set_block, key).await?
+                        B::find(&mut c, change_set_block, &key).await?
                     };
 
                     if let Some(data) = data {
@@ -68,7 +71,10 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
                 if acc.incarnation > 0 && acc.is_empty_code_hash() {
                     if let Some(code_hash) = tx
                         .get_one::<tables::PlainContractCode>(
-                            &dbutils::plain_generate_storage_prefix(key, acc.incarnation),
+                            &dbutils::plain_generate_storage_prefix(
+                                key.as_fixed_bytes(),
+                                acc.incarnation,
+                            ),
                         )
                         .await?
                     {
