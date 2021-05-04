@@ -37,19 +37,19 @@ pub struct RemoteCursor<'tx, B> {
 
 #[async_trait(?Send)]
 impl<'env> crate::Transaction<'env> for RemoteTransaction {
-    type Cursor<'tx, B: Table> = RemoteCursor<'tx, B>;
-    type CursorDupSort<'tx, B: DupSort> = RemoteCursor<'tx, B>;
+    type Cursor<'tx, T: Table> = RemoteCursor<'tx, T>;
+    type CursorDupSort<'tx, T: DupSort> = RemoteCursor<'tx, T>;
 
-    async fn cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    async fn cursor<'tx, T>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,
-        B: Table,
+        T: Table,
     {
         // - send op open
         // - get cursor id
         let mut s = self.io.lock().await;
 
-        let bucket_name = B::DB_NAME.to_string();
+        let bucket_name = T::DB_NAME.to_string();
 
         trace!("Sending request to open cursor");
 
@@ -98,15 +98,15 @@ impl<'env> crate::Transaction<'env> for RemoteTransaction {
         })
     }
 
-    async fn cursor_dup_sort<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    async fn cursor_dup_sort<'tx, T>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
-        B: DupSort,
+        T: DupSort,
     {
         self.cursor().await
     }
 }
 
-impl<'tx, B: Table> RemoteCursor<'tx, B> {
+impl<'tx, T: Table> RemoteCursor<'tx, T> {
     async fn op(
         &mut self,
         op: Op,
@@ -132,7 +132,7 @@ impl<'tx, B: Table> RemoteCursor<'tx, B> {
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: Table> traits::Cursor<'tx, B> for RemoteCursor<'tx, B> {
+impl<'tx, T: Table> traits::Cursor<'tx, T> for RemoteCursor<'tx, T> {
     async fn first(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>> {
         self.op(Op::First, None, None).await
     }
@@ -163,7 +163,7 @@ impl<'tx, B: Table> traits::Cursor<'tx, B> for RemoteCursor<'tx, B> {
 }
 
 #[async_trait(?Send)]
-impl<'tx, B: DupSort> traits::CursorDupSort<'tx, B> for RemoteCursor<'tx, B> {
+impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
     async fn seek_both_range(
         &mut self,
         key: &[u8],

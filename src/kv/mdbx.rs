@@ -66,45 +66,45 @@ where
     K: TransactionKind,
     E: EnvironmentKind,
 {
-    type Cursor<'tx, B: Table> = MdbxCursor<'tx, K>;
-    type CursorDupSort<'tx, B: DupSort> = MdbxCursor<'tx, K>;
+    type Cursor<'tx, T: Table> = MdbxCursor<'tx, K>;
+    type CursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, K>;
 
-    async fn cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    async fn cursor<'tx, T>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,
-        B: Table,
+        T: Table,
     {
-        Ok(self.open_db(Some(B::DB_NAME))?.cursor()?)
+        Ok(self.open_db(Some(T::DB_NAME))?.cursor()?)
     }
 
-    async fn cursor_dup_sort<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
+    async fn cursor_dup_sort<'tx, T>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,
-        B: DupSort,
+        T: DupSort,
     {
-        self.cursor::<B>().await
+        self.cursor::<T>().await
     }
 
-    async fn get_one<'tx, B>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
+    async fn get_one<'tx, T>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         'env: 'tx,
-        B: Table,
+        T: Table,
     {
-        Ok(self.open_db(Some(B::DB_NAME))?.get(key)?)
+        Ok(self.open_db(Some(T::DB_NAME))?.get(key)?)
     }
 }
 
 #[async_trait(?Send)]
 impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransaction<'env, RW, E> {
-    type MutableCursor<'tx, B: Table> = MdbxCursor<'tx, RW>;
+    type MutableCursor<'tx, T: Table> = MdbxCursor<'tx, RW>;
     type MutableCursorDupSort<'tx, B: DupSort> = MdbxCursor<'tx, RW>;
 
-    async fn mutable_cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, B>>
+    async fn mutable_cursor<'tx, T>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, T>>
     where
         'env: 'tx,
-        B: Table,
+        T: Table,
     {
-        Ok(self.open_db(Some(B::DB_NAME))?.cursor()?)
+        Ok(self.open_db(Some(T::DB_NAME))?.cursor()?)
     }
 
     async fn commit(self) -> anyhow::Result<()> {
@@ -113,8 +113,11 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         Ok(())
     }
 
-    async fn table_size<B: Table>(&self) -> anyhow::Result<u64> {
-        let st = self.open_db(Some(B::DB_NAME))?.stat()?;
+    async fn table_size<T>(&self) -> anyhow::Result<u64>
+    where
+        T: Table,
+    {
+        let st = self.open_db(Some(T::DB_NAME))?.stat()?;
 
         Ok(
             ((st.leaf_pages() + st.branch_pages() + st.overflow_pages()) * st.page_size() as usize)
