@@ -6,7 +6,6 @@ use crate::{
     Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, Table,
 };
 use anyhow::bail;
-use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use mdbx::{
@@ -121,28 +120,6 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
             ((st.leaf_pages() + st.branch_pages() + st.overflow_pages()) * st.page_size() as usize)
                 as u64,
         )
-    }
-
-    async fn sequence<B: Table>(&self, amount: usize) -> anyhow::Result<usize> {
-        let mut c = self.mutable_cursor::<B>().await?;
-
-        let current_v = Cursor::<B>::seek_exact(&mut c, B::DB_NAME.as_bytes())
-            .await?
-            .map(|(_, v)| usize::from_be_bytes(*array_ref!(v, 0, 8)))
-            .unwrap_or(0);
-
-        if amount == 0 {
-            return Ok(current_v);
-        }
-
-        MutableCursor::<B>::put(
-            &mut c,
-            B::DB_NAME.as_bytes(),
-            &(current_v + amount).to_be_bytes(),
-        )
-        .await?;
-
-        Ok(current_v)
     }
 
     async fn mutable_cursor_dupsort<'tx, B>(

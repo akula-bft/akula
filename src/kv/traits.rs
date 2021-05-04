@@ -1,4 +1,5 @@
 use crate::dbutils;
+use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
 use dbutils::{DupSort, Table};
@@ -27,12 +28,6 @@ pub trait Transaction<'env>: Sized {
     type Cursor<'tx, B: Table>: Cursor<'tx, B>;
     type CursorDupSort<'tx, B: DupSort>: CursorDupSort<'tx, B>;
 
-    /// Cursor - creates cursor object on top of given table. Type of cursor - depends on table configuration.
-    /// If table was created with lmdb.DupSort flag, then cursor with interface CursorDupSort created
-    /// Otherwise - object of interface Cursor created
-    ///
-    /// Cursor, also provides a grain of magic - it can use a declarative configuration - and automatically break
-    /// long keys into DupSort key/values.
     async fn cursor<'tx, B>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, B>>
     where
         'env: 'tx,
@@ -50,6 +45,19 @@ pub trait Transaction<'env>: Sized {
         let mut cursor = self.cursor::<B>().await?;
 
         Ok(cursor.seek_exact(key).await?.map(|(_, v)| v))
+    }
+
+    async fn read_sequence<'tx, T>(&'tx self) -> anyhow::Result<u64>
+    where
+        T: Table,
+    {
+        Ok(self
+            .cursor::<T>()
+            .await?
+            .seek_exact(T::DB_NAME.as_bytes())
+            .await?
+            .map(|(_, v)| u64::from_be_bytes(*array_ref!(v, 0, 8)))
+            .unwrap_or(0))
     }
 }
 
@@ -77,7 +85,23 @@ pub trait MutableTransaction<'env>: Transaction<'env> {
     /// Can be called for a read transaction to retrieve the current sequence value, and the increment must be zero.
     /// Sequence changes become visible outside the current write transaction after it is committed, and discarded on abort.
     /// Starts from 0.
-    async fn sequence<B: Table>(&self, amount: usize) -> anyhow::Result<usize>;
+    async fn increment_sequence<T>(&self, amount: u64) -> anyhow::Result<u64>
+    where
+        T: Table,
+    {
+        let mut c = self.mutable_cursor::<T>().await?;
+
+        let current_v = c
+            .seek_exact(T::DB_NAME.as_bytes())
+            .await?
+            .map(|(_, v)| u64::from_be_bytes(*array_ref!(v, 0, 8)))
+            .unwrap_or(0);
+
+        c.put(T::DB_NAME.as_bytes(), &(current_v + amount).to_be_bytes())
+            .await?;
+
+        Ok(current_v)
+    }
 }
 
 #[async_trait(?Send)]
