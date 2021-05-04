@@ -8,7 +8,7 @@ pub async fn find_in_account_changeset<'tx, C>(
     key: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    C: CursorDupSort<'tx, tables::PlainAccountChangeSet>,
+    C: CursorDupSort<'tx, tables::AccountChangeSet>,
 {
     let k = dbutils::encode_block_number(block_number);
     if let Some(v) = c.seek_both_range(&k, key).await? {

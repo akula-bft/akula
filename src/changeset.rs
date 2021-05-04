@@ -36,7 +36,7 @@ pub trait ChangeSetTable: DupSort {
 }
 
 #[async_trait(?Send)]
-impl ChangeSetTable for tables::PlainAccountChangeSet {
+impl ChangeSetTable for tables::AccountChangeSet {
     const TEMPLATE: &'static str = "acc-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH];
@@ -79,7 +79,7 @@ impl ChangeSetTable for tables::PlainAccountChangeSet {
 }
 
 #[async_trait(?Send)]
-impl ChangeSetTable for tables::PlainStorageChangeSet {
+impl ChangeSetTable for tables::StorageChangeSet {
     const TEMPLATE: &'static str = "st-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];

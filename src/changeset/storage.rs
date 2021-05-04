@@ -2,14 +2,14 @@ use super::*;
 use crate::CursorDupSort;
 use bytes::Bytes;
 
-impl tables::PlainStorageChangeSet {
+impl tables::StorageChangeSet {
     pub async fn find_with_incarnation<'tx, C>(
         c: &mut C,
         block_number: u64,
         k: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
+        C: CursorDupSort<'tx, tables::StorageChangeSet>,
     {
         find_in_storage_changeset_2(c, block_number, k).await
     }
@@ -21,7 +21,7 @@ impl tables::PlainStorageChangeSet {
         key_to_find: &[u8],
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
+        C: CursorDupSort<'tx, tables::StorageChangeSet>,
     {
         find_without_incarnation_in_storage_changeset_2(
             c,
@@ -43,7 +43,7 @@ mod tests {
     use ethereum_types::Address;
     use hex_literal::hex;
 
-    type Table = tables::PlainStorageChangeSet;
+    type Table = tables::StorageChangeSet;
 
     const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
 
@@ -75,38 +75,27 @@ mod tests {
             .parse()
             .unwrap();
         let key = common::hash_data(format!("key{}", j).as_bytes());
-        plain_key_generator(address, inc, key)
-    }
-
-    fn plain_key_generator(
-        address: common::Address,
-        inc: common::Incarnation,
-        key: common::Hash,
-    ) -> dbutils::PlainCompositeStorageKey {
         dbutils::plain_generate_composite_storage_key(address, inc, key)
     }
 
     #[test]
     fn encoding_storage_new_with_random_incarnation() {
-        do_test_encoding_storage_new(&random_incarnation, &hash_value_generator)
+        do_test_encoding_storage_new(random_incarnation, hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation() {
-        do_test_encoding_storage_new(&default_incarnation, &hash_value_generator)
+        do_test_encoding_storage_new(default_incarnation, hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation_and_empty_value() {
-        do_test_encoding_storage_new(&default_incarnation, &empty_value_generator)
+        do_test_encoding_storage_new(default_incarnation, empty_value_generator)
     }
 
-    fn do_test_encoding_storage_new<
-        IncarnationGen: Fn() -> common::Incarnation,
-        ValueGen: Fn(usize) -> Bytes<'static>,
-    >(
-        incarnation_generator: &IncarnationGen,
-        value_generator: &ValueGen,
+    fn do_test_encoding_storage_new(
+        incarnation_generator: impl Fn() -> common::Incarnation,
+        value_generator: impl Fn(usize) -> Bytes<'static>,
     ) {
         let f = move |num_of_elements, num_of_keys| {
             let mut ch = ChangeSet::new();
@@ -131,16 +120,16 @@ mod tests {
         };
 
         for &v in NUM_OF_CHANGES {
-            run_test(f, v, 1)
+            run_test(&f, v, 1)
         }
 
         for &v in NUM_OF_CHANGES {
-            run_test(f, v, 5);
+            run_test(&f, v, 5);
         }
 
-        run_test(f, 10, 10);
-        run_test(f, 50, 1000);
-        run_test(f, 100, 1000);
+        run_test(&f, 10, 10);
+        run_test(&f, 50, 1000);
+        run_test(&f, 100, 1000);
     }
 
     fn run_test<F: Fn(usize, usize)>(f: F, elements: usize, keys: usize) {
@@ -153,7 +142,7 @@ mod tests {
         let env = crate::kv::new_mem_database().unwrap();
         let tx = env.begin_mutable().await.unwrap();
 
-        type CsTable = tables::PlainStorageChangeSet;
+        type CsTable = tables::StorageChangeSet;
 
         let mut cs = tx.mutable_cursor_dupsort::<CsTable>().await.unwrap();
 

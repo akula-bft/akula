@@ -66,8 +66,8 @@ pub mod tables {
         SyncStageUnwind => "SSU2",
         PlainState => "PLAIN-CST2",
         PlainContractCode => "PLAIN-contractCode",
-        PlainAccountChangeSet => "PLAIN-ACS",
-        PlainStorageChangeSet => "PLAIN-SCS",
+        AccountChangeSet => "PLAIN-ACS",
+        StorageChangeSet => "PLAIN-SCS",
         Senders => "txSenders",
         FastTrieProgress => "TrieSync",
         HeadBlock => "LastBlock",
@@ -94,14 +94,14 @@ pub mod tables {
     );
 
     impl DupSort for HashedStorage {}
-    impl DupSort for PlainAccountChangeSet {}
-    impl DupSort for PlainStorageChangeSet {}
+    impl DupSort for AccountChangeSet {}
+    impl DupSort for StorageChangeSet {}
     impl DupSort for PlainState {}
 
     pub const DUPSORT_TABLES: &[&str] = &[
         HashedStorage::DB_NAME,
-        PlainAccountChangeSet::DB_NAME,
-        PlainStorageChangeSet::DB_NAME,
+        AccountChangeSet::DB_NAME,
+        StorageChangeSet::DB_NAME,
         PlainState::DB_NAME,
     ];
 

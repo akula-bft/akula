@@ -48,7 +48,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
             let data = {
                 if let Some(change_set_block) = change_set_block {
                     let data = {
-                        type B = tables::PlainAccountChangeSet;
+                        type B = tables::AccountChangeSet;
                         let mut c = tx.cursor_dup_sort::<B>().await?;
                         B::find(&mut c, change_set_block, key).await?
                     };
@@ -109,7 +109,7 @@ pub async fn find_storage_by_history<'tx, Tx: Transaction<'tx>>(
         let data = {
             if let Some(change_set_block) = change_set_block {
                 let data = {
-                    type B = tables::PlainStorageChangeSet;
+                    type B = tables::StorageChangeSet;
                     let mut c = tx.cursor_dup_sort::<B>().await?;
                     B::find_with_incarnation(&mut c, change_set_block, key).await?
                 };

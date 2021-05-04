@@ -9,7 +9,7 @@ pub async fn find_in_storage_changeset_2<'tx, C>(
     k: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
     do_search_2(
         c,
@@ -29,7 +29,7 @@ pub async fn find_without_incarnation_in_storage_changeset_2<'tx, C>(
     key_bytes_to_find: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
     do_search_2(c, block_number, addr_bytes_to_find, key_bytes_to_find, 0).await
 }
@@ -42,7 +42,7 @@ pub async fn do_search_2<'tx, C>(
     incarnation: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
-    C: CursorDupSort<'tx, tables::PlainStorageChangeSet>,
+    C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
     if incarnation == 0 {
         let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH];

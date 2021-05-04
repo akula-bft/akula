@@ -7,7 +7,7 @@ mod tests {
 
     #[test]
     fn account_encoding() {
-        type Table = tables::PlainAccountChangeSet;
+        type Table = tables::AccountChangeSet;
 
         let mut ch = ChangeSet::default();
 
