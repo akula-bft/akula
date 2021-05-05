@@ -76,27 +76,28 @@ impl tables::StorageChangeSet {
     where
         C: CursorDupSort<'tx, tables::StorageChangeSet>,
     {
-        find_in_storage_changeset_2(c, block_number, k).await
+        do_search_2(
+            c,
+            block_number,
+            common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
+            &k[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH
+                ..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH],
+            u64::from_be_bytes(*array_ref!(&k[common::ADDRESS_LENGTH..], 0, 8)),
+        )
+        .await
     }
-}
 
-async fn find_in_storage_changeset_2<'tx, C>(
-    c: &mut C,
-    block_number: u64,
-    k: &[u8],
-) -> anyhow::Result<Option<Bytes<'tx>>>
-where
-    C: CursorDupSort<'tx, tables::StorageChangeSet>,
-{
-    do_search_2(
-        c,
-        block_number,
-        common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
-        &k[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH
-            ..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH],
-        u64::from_be_bytes(*array_ref!(&k[common::ADDRESS_LENGTH..], 0, 8)),
-    )
-    .await
+    pub async fn find_without_incarnation<'tx, C>(
+        c: &mut C,
+        block_number: u64,
+        address_to_find: common::Address,
+        key_to_find: &[u8],
+    ) -> anyhow::Result<Option<Bytes<'tx>>>
+    where
+        C: CursorDupSort<'tx, tables::StorageChangeSet>,
+    {
+        do_search_2(c, block_number, address_to_find, key_to_find, 0).await
+    }
 }
 
 pub async fn do_search_2<'tx, C>(
@@ -166,6 +167,7 @@ mod tests {
         kv::traits::{MutableCursor, MutableKV, MutableTransaction},
     };
     use ethereum_types::Address;
+    use futures_core::Future;
     use hex_literal::hex;
 
     type Table = tables::StorageChangeSet;
@@ -258,7 +260,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn encoding_storage_new_without_not_default_incarnation() {
+    async fn encoding_storage_new_without_not_default_incarnation_walk() {
         let f = |num_of_elements, num_of_keys| {
             let mut ch = ChangeSet::new();
 
@@ -291,9 +293,123 @@ mod tests {
         run_test(&f, 5, 1000);
     }
 
+    #[tokio::test]
+    async fn encoding_storage_new_without_not_default_incarnation_find() {
+        let db = kv::new_mem_database().unwrap();
+        let tx = db.begin_mutable().await.unwrap();
+
+        let tx = &tx;
+        let f = |num_of_elements, num_of_keys| async move {
+            let mut ch = ChangeSet::new();
+
+            for i in 0..num_of_elements {
+                for j in 0..num_of_keys {
+                    let key = get_test_data_at_index(i, j, default_incarnation());
+                    let val = hash_value_generator(j);
+                    ch.insert(Change::new(key, val));
+                }
+            }
+
+            let mut c = tx.mutable_cursor_dupsort::<Table>().await.unwrap();
+
+            for (k, v) in Table::encode(1, &ch) {
+                c.put(&k, &v).await.unwrap()
+            }
+
+            for v in ch {
+                assert_eq!(
+                    v.value,
+                    Table::find_with_incarnation(&mut c, 1, &v.key)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .to_vec()
+                )
+            }
+
+            let mut c = tx.mutable_cursor_dupsort::<Table>().await.unwrap();
+
+            while c.first().await.unwrap().is_some() {
+                c.delete_current().await.unwrap();
+            }
+        };
+
+        for &v in NUM_OF_CHANGES[..NUM_OF_CHANGES.len() - 2].iter() {
+            run_test_async(f, v, 1).await;
+        }
+
+        for &v in NUM_OF_CHANGES[..NUM_OF_CHANGES.len() - 2].iter() {
+            run_test_async(f, v, 5).await;
+        }
+
+        run_test_async(f, 50, 1000).await;
+        run_test_async(f, 100, 1000).await;
+    }
+
+    #[tokio::test]
+    async fn encoding_storage_new_without_not_default_incarnation_find_without_incarnation() {
+        let db = kv::new_mem_database().unwrap();
+        let tx = db.begin_mutable().await.unwrap();
+
+        let tx = &tx;
+        let f = |num_of_elements, num_of_keys| async move {
+            let mut ch = ChangeSet::new();
+
+            for i in 0..num_of_elements {
+                for j in 0..num_of_keys {
+                    let key = get_test_data_at_index(i, j, default_incarnation());
+                    let val = hash_value_generator(j);
+                    ch.insert(Change::new(key, val));
+                }
+            }
+
+            let mut c = tx.mutable_cursor_dupsort::<Table>().await.unwrap();
+
+            for (k, v) in Table::encode(1, &ch) {
+                c.put(&k, &v).await.unwrap()
+            }
+
+            for v in ch {
+                let (addr, _, key) = dbutils::plain_parse_composite_storage_key(&v.key);
+                let value = Table::find_without_incarnation(&mut c, 1, addr, key.as_bytes())
+                    .await
+                    .unwrap()
+                    .unwrap();
+
+                assert_eq!(v.value, value)
+            }
+
+            let mut c = tx.mutable_cursor_dupsort::<Table>().await.unwrap();
+
+            while c.first().await.unwrap().is_some() {
+                c.delete_current().await.unwrap();
+            }
+        };
+
+        for &v in NUM_OF_CHANGES[..NUM_OF_CHANGES.len() - 2].iter() {
+            run_test_async(f, v, 1).await;
+        }
+
+        for &v in NUM_OF_CHANGES[..NUM_OF_CHANGES.len() - 2].iter() {
+            run_test_async(f, v, 5).await;
+        }
+
+        run_test_async(f, 50, 1000).await;
+        run_test_async(f, 100, 1000).await;
+    }
+
     fn run_test<F: Fn(usize, usize)>(f: F, elements: usize, keys: usize) {
         println!("elements: {}, keys: {}", elements, keys);
         (f)(elements, keys);
+    }
+
+    async fn run_test_async<F: Fn(usize, usize) -> Fut, Fut: Future<Output = ()>>(
+        f: F,
+        elements: usize,
+        keys: usize,
+    ) {
+        println!("elements: {}, keys: {}", elements, keys);
+        (f)(elements, keys).await;
     }
 
     #[tokio::test]

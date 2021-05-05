@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use crate::common;
+use arrayref::array_ref;
 use ethereum_types::H256;
 use std::io::Write;
 
@@ -60,6 +61,19 @@ pub fn plain_generate_composite_storage_key(
     composite_key
 }
 
+pub fn plain_parse_composite_storage_key(
+    composite_key: &PlainCompositeStorageKey,
+) -> (common::Address, common::Incarnation, common::Hash) {
+    const PREFIX_LEN: usize = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
+
+    let (addr, inc) = plain_parse_storage_prefix(&composite_key[..PREFIX_LEN]);
+    (
+        addr,
+        inc,
+        common::Hash::from_slice(&composite_key[PREFIX_LEN..PREFIX_LEN + common::HASH_LENGTH]),
+    )
+}
+
 /// address hash + incarnation prefix
 pub fn generate_storage_prefix(
     address_hash: common::Hash,
@@ -80,4 +94,15 @@ pub fn plain_generate_storage_prefix(
     prefix[..common::ADDRESS_LENGTH].copy_from_slice(address);
     prefix[common::ADDRESS_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
     prefix
+}
+
+pub fn plain_parse_storage_prefix(prefix: &[u8]) -> (common::Address, u64) {
+    (
+        common::Address::from_slice(&prefix[..common::ADDRESS_LENGTH]),
+        u64::from_be_bytes(*array_ref!(
+            prefix[common::ADDRESS_LENGTH..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH],
+            0,
+            8
+        )),
+    )
 }
