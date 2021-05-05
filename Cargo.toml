@@ -11,6 +11,7 @@ anyhow = "1"
 arrayref = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
+byte-unit = "4"
 bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }
 const_format = "0.2"
 ethereum = "0.7"
