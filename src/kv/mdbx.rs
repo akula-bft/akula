@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path};
 
 use crate::{
     kv::traits,
-    tables::{AutoDupSort, AUTO_DUP_SORT, DUPSORT_TABLES},
+    tables::{self, AutoDupSort, AUTO_DUP_SORT, DUPSORT_TABLES},
     Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, Table,
 };
 use anyhow::bail;
@@ -12,6 +12,26 @@ use mdbx::{
     Cursor as MdbxCursor, DatabaseFlags, EnvironmentKind, Error as MdbxError,
     Transaction as MdbxTransaction, TransactionKind, WriteFlags, RO, RW,
 };
+use tables::TABLE_MAP;
+
+pub fn table_sizes<K, E>(tx: &mdbx::Transaction<K, E>) -> anyhow::Result<HashMap<&'static str, u64>>
+where
+    K: mdbx::TransactionKind,
+    E: mdbx::EnvironmentKind,
+{
+    let mut out = HashMap::new();
+    for (table, _) in TABLE_MAP.iter() {
+        let st = tx.open_db(Some(table))?.stat()?;
+
+        out.insert(
+            *table,
+            ((st.leaf_pages() + st.branch_pages() + st.overflow_pages()) * st.page_size() as usize)
+                as u64,
+        );
+    }
+
+    Ok(out)
+}
 
 pub struct Environment<E: EnvironmentKind> {
     inner: mdbx::GenericEnvironment<E>,
@@ -19,10 +39,11 @@ pub struct Environment<E: EnvironmentKind> {
 
 impl<E: EnvironmentKind> Environment<E> {
     pub fn open(
-        b: mdbx::EnvironmentBuilder<E>,
+        mut b: mdbx::EnvironmentBuilder<E>,
         path: &Path,
         chart: &HashMap<&'static str, bool>,
     ) -> anyhow::Result<Self> {
+        b.set_max_dbs(crate::tables::TABLE_MAP.len());
         let env = b.open(path)?;
 
         let tx = env.begin_rw_txn()?;
@@ -111,18 +132,6 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         MdbxTransaction::commit(self)?;
 
         Ok(())
-    }
-
-    async fn table_size<T>(&self) -> anyhow::Result<u64>
-    where
-        T: Table,
-    {
-        let st = self.open_db(Some(T::DB_NAME))?.stat()?;
-
-        Ok(
-            ((st.leaf_pages() + st.branch_pages() + st.overflow_pages()) * st.page_size() as usize)
-                as u64,
-        )
     }
 
     async fn mutable_cursor_dupsort<'tx, B>(

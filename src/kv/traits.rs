@@ -79,10 +79,6 @@ pub trait MutableTransaction<'env>: Transaction<'env> {
 
     async fn commit(self) -> anyhow::Result<()>;
 
-    async fn table_size<T>(&self) -> anyhow::Result<u64>
-    where
-        T: Table;
-
     /// Allows to create a linear sequence of unique positive integers for each table.
     /// Can be called for a read transaction to retrieve the current sequence value, and the increment must be zero.
     /// Sequence changes become visible outside the current write transaction after it is committed, and discarded on abort.
