@@ -106,12 +106,8 @@ where
         self.cursor::<T>().await
     }
 
-    async fn get_one<'tx, T>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
-    where
-        'env: 'tx,
-        T: Table,
-    {
-        Ok(self.open_db(Some(T::DB_NAME))?.get(key)?)
+    async fn get<'s, T: Table>(&'s self, k: &[u8]) -> anyhow::Result<Option<Bytes<'s>>> {
+        Ok(self.open_db(Some(T::DB_NAME))?.get(k)?)
     }
 }
 
@@ -128,12 +124,6 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         Ok(self.open_db(Some(T::DB_NAME))?.cursor()?)
     }
 
-    async fn commit(self) -> anyhow::Result<()> {
-        MdbxTransaction::commit(self)?;
-
-        Ok(())
-    }
-
     async fn mutable_cursor_dupsort<'tx, B>(
         &'tx self,
     ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, B>>
@@ -142,6 +132,21 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         B: DupSort,
     {
         self.mutable_cursor::<B>().await
+    }
+
+    async fn set<T: Table>(&self, k: &[u8], v: &[u8]) -> anyhow::Result<()> {
+        if AUTO_DUP_SORT.contains_key(T::DB_NAME) {
+            return MutableCursor::<T>::put(&mut self.mutable_cursor::<T>().await?, k, v).await;
+        }
+        Ok(self
+            .open_db(Some(T::DB_NAME))?
+            .put(k, v, WriteFlags::UPSERT)?)
+    }
+
+    async fn commit(self) -> anyhow::Result<()> {
+        MdbxTransaction::commit(self)?;
+
+        Ok(())
     }
 }
 

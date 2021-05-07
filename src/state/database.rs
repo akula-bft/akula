@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use bytes::Bytes;
 
 use crate::{common, models::Account};
 
@@ -71,43 +70,39 @@ pub struct Noop;
 impl StateWriter for Noop {
     async fn update_account_data(
         &mut self,
-        address: ethereum_types::Address,
-        original: &Account,
-        account: &Account,
+        _: common::Address,
+        _: &Account,
+        _: &Account,
     ) -> anyhow::Result<()> {
         Ok(())
     }
 
     async fn update_account_code(
         &mut self,
-        address: ethereum_types::Address,
-        incarnation: common::Incarnation,
-        code_hash: common::Hash,
-        code: &[u8],
+        _: common::Address,
+        _: common::Incarnation,
+        _: common::Hash,
+        _: &[u8],
     ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn delete_account(
-        &mut self,
-        address: ethereum_types::Address,
-        original: &Account,
-    ) -> anyhow::Result<()> {
+    async fn delete_account(&mut self, _: common::Address, _: &Account) -> anyhow::Result<()> {
         Ok(())
     }
 
     async fn write_account_storage(
         &mut self,
-        address: ethereum_types::Address,
-        incarnation: common::Incarnation,
-        key: Option<common::Hash>,
-        original: Option<common::Value>,
-        value: Option<common::Value>,
+        _: common::Address,
+        _: common::Incarnation,
+        _: Option<common::Hash>,
+        _: Option<common::Value>,
+        _: Option<common::Value>,
     ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn create_contract(&mut self, address: ethereum_types::Address) -> anyhow::Result<()> {
+    async fn create_contract(&mut self, _: common::Address) -> anyhow::Result<()> {
         Ok(())
     }
 }

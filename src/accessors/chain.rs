@@ -10,7 +10,7 @@ use tracing::*;
 pub mod canonical_hash {
     use super::*;
 
-    pub async fn read<'tx, Tx: Transaction<'tx>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         block_num: u64,
     ) -> anyhow::Result<Option<H256>> {
@@ -22,7 +22,7 @@ pub mod canonical_hash {
             hex::encode(&key)
         );
 
-        if let Some(b) = tx.get_one::<tables::HeaderCanonical>(&key).await? {
+        if let Some(b) = tx.get::<tables::HeaderCanonical>(&key).await? {
             match b.len() {
                 common::HASH_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
@@ -36,14 +36,14 @@ pub mod canonical_hash {
 pub mod header_number {
     use super::*;
 
-    pub async fn read<'tx, Tx: Transaction<'tx>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
     ) -> anyhow::Result<Option<u64>> {
         trace!("Reading block number for hash {:?}", hash);
 
         if let Some(b) = tx
-            .get_one::<tables::HeaderNumber>(&hash.to_fixed_bytes())
+            .get::<tables::HeaderNumber>(&hash.to_fixed_bytes())
             .await?
         {
             match b.len() {
@@ -61,17 +61,14 @@ pub mod header_number {
 pub mod header {
     use super::*;
 
-    pub async fn read<'tx, Tx: Transaction<'tx>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
     ) -> anyhow::Result<Option<Header>> {
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        if let Some(b) = tx
-            .get_one::<tables::Headers>(&header_key(number, hash))
-            .await?
-        {
+        if let Some(b) = tx.get::<tables::Headers>(&header_key(number, hash)).await? {
             return Ok(Some(rlp::decode(&b)?));
         }
 
@@ -82,7 +79,7 @@ pub mod header {
 pub mod tx {
     use super::*;
 
-    pub async fn read<'tx, Tx: Transaction<'tx>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         base_tx_id: u64,
         amount: u32,
@@ -123,7 +120,7 @@ pub mod storage_body {
 
     use super::*;
 
-    async fn read_raw<'tx, Tx: Transaction<'tx>>(
+    async fn read_raw<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -131,7 +128,7 @@ pub mod storage_body {
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get_one::<tables::BlockBody>(&header_key(number, hash))
+            .get::<tables::BlockBody>(&header_key(number, hash))
             .await?
         {
             return Ok(Some(b));
@@ -140,7 +137,7 @@ pub mod storage_body {
         Ok(None)
     }
 
-    pub async fn read<'tx, Tx: Transaction<'tx>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -152,7 +149,7 @@ pub mod storage_body {
         Ok(None)
     }
 
-    pub async fn has<'tx, Tx: Transaction<'tx>>(
+    pub async fn has<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -164,7 +161,7 @@ pub mod storage_body {
 pub mod td {
     use super::*;
 
-    pub async fn read<'tx, Tx: Transaction<'tx>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -172,7 +169,7 @@ pub mod td {
         trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get_one::<tables::HeaderTD>(&header_key(number, hash))
+            .get::<tables::HeaderTD>(&header_key(number, hash))
             .await?
         {
             trace!("Reading TD RLP: {}", hex::encode(&b));

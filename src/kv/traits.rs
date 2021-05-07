@@ -11,35 +11,35 @@ pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering
 
 #[async_trait(?Send)]
 pub trait KV {
-    type Tx<'tx>: Transaction<'tx>;
+    type Tx<'db>: Transaction<'db>;
 
     async fn begin(&self, flags: u8) -> anyhow::Result<Self::Tx<'_>>;
 }
 
 #[async_trait(?Send)]
 pub trait MutableKV {
-    type MutableTx<'tx>: MutableTransaction<'tx>;
+    type MutableTx<'db>: MutableTransaction<'db>;
 
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>>;
 }
 
 #[async_trait(?Send)]
-pub trait Transaction<'env>: Sized {
+pub trait Transaction<'db>: Sized {
     type Cursor<'tx, T: Table>: Cursor<'tx, T>;
     type CursorDupSort<'tx, T: DupSort>: CursorDupSort<'tx, T>;
 
     async fn cursor<'tx, T>(&'tx self) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
-        'env: 'tx,
+        'db: 'tx,
         T: Table;
     async fn cursor_dup_sort<'tx, T>(&'tx self) -> anyhow::Result<Self::CursorDupSort<'tx, T>>
     where
-        'env: 'tx,
+        'db: 'tx,
         T: DupSort;
 
-    async fn get_one<'tx, T>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
+    async fn get<'tx, T>(&'tx self, key: &[u8]) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        'env: 'tx,
+        'db: 'tx,
         T: Table,
     {
         let mut cursor = self.cursor::<T>().await?;
@@ -62,20 +62,22 @@ pub trait Transaction<'env>: Sized {
 }
 
 #[async_trait(?Send)]
-pub trait MutableTransaction<'env>: Transaction<'env> {
+pub trait MutableTransaction<'db>: Transaction<'db> {
     type MutableCursor<'tx, T: Table>: MutableCursor<'tx, T>;
     type MutableCursorDupSort<'tx, T: DupSort>: MutableCursorDupSort<'tx, T>;
 
     async fn mutable_cursor<'tx, T>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, T>>
     where
-        'env: 'tx,
+        'db: 'tx,
         T: Table;
     async fn mutable_cursor_dupsort<'tx, T>(
         &'tx self,
     ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, T>>
     where
-        'env: 'tx,
+        'db: 'tx,
         T: DupSort;
+
+    async fn set<T: Table>(&self, k: &[u8], v: &[u8]) -> anyhow::Result<()>;
 
     async fn commit(self) -> anyhow::Result<()>;
 

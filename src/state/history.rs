@@ -5,7 +5,7 @@ use common::{Hash, Incarnation};
 use ethereum_types::{Address, H256};
 use roaring::RoaringTreemap;
 
-pub async fn get_account_data_as_of<'tx, Tx: Transaction<'tx>>(
+pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     timestamp: u64,
@@ -14,11 +14,10 @@ pub async fn get_account_data_as_of<'tx, Tx: Transaction<'tx>>(
         return Ok(Some(v));
     }
 
-    tx.get_one::<tables::PlainState>(address.as_fixed_bytes())
-        .await
+    tx.get::<tables::PlainState>(address.as_fixed_bytes()).await
 }
 
-pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
+pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     incarnation: Incarnation,
@@ -30,10 +29,10 @@ pub async fn get_storage_as_of<'tx, Tx: Transaction<'tx>>(
         return Ok(Some(v));
     }
 
-    tx.get_one::<tables::PlainState>(&key).await
+    tx.get::<tables::PlainState>(&key).await
 }
 
-pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
+pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     key: common::Address,
     timestamp: u64,
@@ -70,12 +69,10 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
             if let Some(mut acc) = Account::decode_for_storage(&*data)? {
                 if acc.incarnation > 0 && acc.is_empty_code_hash() {
                     if let Some(code_hash) = tx
-                        .get_one::<tables::PlainContractCode>(
-                            &dbutils::plain_generate_storage_prefix(
-                                key.as_fixed_bytes(),
-                                acc.incarnation,
-                            ),
-                        )
+                        .get::<tables::PlainContractCode>(&dbutils::plain_generate_storage_prefix(
+                            key.as_fixed_bytes(),
+                            acc.incarnation,
+                        ))
                         .await?
                     {
                         acc.code_hash = H256(*array_ref![&*code_hash, 0, 32]);
@@ -95,7 +92,7 @@ pub async fn find_data_by_history<'tx, Tx: Transaction<'tx>>(
     Ok(None)
 }
 
-pub async fn find_storage_by_history<'tx, Tx: Transaction<'tx>>(
+pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     key: &PlainCompositeStorageKey,
     timestamp: u64,
