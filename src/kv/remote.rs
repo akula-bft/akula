@@ -20,12 +20,14 @@ use tracing::*;
 pub use ethereum_interfaces::remotekv::*;
 
 /// Remote transaction type via gRPC interface.
+#[derive(Debug)]
 pub struct RemoteTransaction {
     // Invariant: cannot send new message until we process response to it.
     io: Arc<AsyncMutex<(Sender<Cursor>, Streaming<Pair>)>>,
 }
 
 /// Cursor opened by `RemoteTransaction`.
+#[derive(Debug)]
 pub struct RemoteCursor<'tx, B> {
     transaction: &'tx RemoteTransaction,
     id: u32,

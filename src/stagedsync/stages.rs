@@ -4,6 +4,7 @@ use arrayref::array_ref;
 use tracing::*;
 
 impl SyncStage {
+    #[instrument]
     async fn get<'db, Tx: Transaction<'db>, T: Table>(
         &self,
         tx: &Tx,
@@ -20,6 +21,7 @@ impl SyncStage {
         Ok(None)
     }
 
+    #[instrument]
     async fn save<'db, RwTx: MutableTransaction<'db>, T: Table>(
         &self,
         tx: &RwTx,
@@ -28,6 +30,7 @@ impl SyncStage {
         tx.set::<T>(self.as_ref(), &block.to_be_bytes()).await
     }
 
+    #[instrument]
     pub async fn get_progress<'db, Tx: Transaction<'db>>(
         &self,
         tx: &Tx,
@@ -35,6 +38,7 @@ impl SyncStage {
         self.get::<Tx, tables::SyncStageProgress>(tx).await
     }
 
+    #[instrument]
     pub async fn save_progress<'db, RwTx: MutableTransaction<'db>>(
         &self,
         tx: &RwTx,
@@ -44,6 +48,7 @@ impl SyncStage {
             .await
     }
 
+    #[instrument]
     pub async fn get_unwind<'db, Tx: Transaction<'db>>(
         &self,
         tx: &Tx,
@@ -51,6 +56,7 @@ impl SyncStage {
         self.get::<Tx, tables::SyncStageUnwind>(tx).await
     }
 
+    #[instrument]
     pub async fn save_unwind<'db, RwTx: MutableTransaction<'db>>(
         &self,
         tx: &RwTx,

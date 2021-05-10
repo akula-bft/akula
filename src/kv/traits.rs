@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::dbutils;
 use arrayref::array_ref;
 use async_trait::async_trait;
@@ -5,7 +7,6 @@ use bytes::Bytes;
 use dbutils::{DupSort, Table};
 use ethereum_types::Address;
 use futures_core::stream::LocalBoxStream;
-use std::{cmp::Ordering, pin::Pin};
 
 #[async_trait(?Send)]
 pub trait KV {
@@ -22,7 +23,7 @@ pub trait MutableKV {
 }
 
 #[async_trait(?Send)]
-pub trait Transaction<'db>: Sized {
+pub trait Transaction<'db>: Debug + Sized {
     type Cursor<'tx, T: Table>: Cursor<'tx, T>;
     type CursorDupSort<'tx, T: DupSort>: CursorDupSort<'tx, T>;
 
@@ -103,7 +104,7 @@ pub trait MutableTransaction<'db>: Transaction<'db> {
 }
 
 #[async_trait(?Send)]
-pub trait Cursor<'tx, T>
+pub trait Cursor<'tx, T>: Debug
 where
     T: Table,
 {

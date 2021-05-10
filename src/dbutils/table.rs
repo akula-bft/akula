@@ -1,4 +1,6 @@
-pub trait Table: 'static {
+use core::fmt::Debug;
+
+pub trait Table: Debug + 'static {
     const DB_NAME: &'static str;
 }
 
