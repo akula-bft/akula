@@ -114,7 +114,7 @@ where
 #[async_trait(?Send)]
 impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransaction<'env, RW, E> {
     type MutableCursor<'tx, T: Table> = MdbxCursor<'tx, RW>;
-    type MutableCursorDupSort<'tx, B: DupSort> = MdbxCursor<'tx, RW>;
+    type MutableCursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, RW>;
 
     async fn mutable_cursor<'tx, T>(&'tx self) -> anyhow::Result<Self::MutableCursor<'tx, T>>
     where
@@ -124,14 +124,14 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         Ok(self.open_db(Some(T::DB_NAME))?.cursor()?)
     }
 
-    async fn mutable_cursor_dupsort<'tx, B>(
+    async fn mutable_cursor_dupsort<'tx, T>(
         &'tx self,
-    ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, B>>
+    ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, T>>
     where
         'env: 'tx,
-        B: DupSort,
+        T: DupSort,
     {
-        self.mutable_cursor::<B>().await
+        self.mutable_cursor::<T>().await
     }
 
     async fn set<T: Table>(&self, k: &[u8], v: &[u8]) -> anyhow::Result<()> {
@@ -435,9 +435,9 @@ where
 }
 
 #[async_trait(?Send)]
-impl<'txn, B> MutableCursorDupSort<'txn, B> for MdbxCursor<'txn, RW>
+impl<'txn, T> MutableCursorDupSort<'txn, T> for MdbxCursor<'txn, RW>
 where
-    B: DupSort,
+    T: DupSort,
 {
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()> {
         Ok(self.del(WriteFlags::NO_DUP_DATA)?)

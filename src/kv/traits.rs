@@ -143,9 +143,9 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait CursorDupSort<'tx, B>: Cursor<'tx, B>
+pub trait CursorDupSort<'tx, T>: Cursor<'tx, T>
 where
-    B: DupSort,
+    T: DupSort,
 {
     async fn seek_both_range(
         &mut self,
@@ -159,9 +159,9 @@ where
 }
 
 #[async_trait(?Send)]
-pub trait MutableCursorDupSort<'tx, B>: MutableCursor<'tx, B> + CursorDupSort<'tx, B>
+pub trait MutableCursorDupSort<'tx, T>: MutableCursor<'tx, T> + CursorDupSort<'tx, T>
 where
-    B: DupSort,
+    T: DupSort,
 {
     /// Deletes all of the data items for the current key
     async fn delete_current_duplicates(&mut self) -> anyhow::Result<()>;
