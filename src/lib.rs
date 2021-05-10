@@ -30,8 +30,7 @@ pub use kv::{
     new_mem_database,
     remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
     traits::{
-        ComparatorFunc, Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,
-        MutableTransaction, Transaction,
+        Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
     },
 };
 pub use state::*;

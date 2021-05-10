@@ -7,8 +7,6 @@ use ethereum_types::Address;
 use futures_core::stream::LocalBoxStream;
 use std::{cmp::Ordering, pin::Pin};
 
-pub type ComparatorFunc = Pin<Box<dyn Fn(&[u8], &[u8], &[u8], &[u8]) -> Ordering>>;
-
 #[async_trait(?Send)]
 pub trait KV {
     type Tx<'db>: Transaction<'db>;
