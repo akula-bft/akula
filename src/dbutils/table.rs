@@ -52,7 +52,6 @@ pub mod tables {
         StorageHistory => "hST",
         Code => "CODE",
         ContractCode => "contractCode",
-        DatabaseVersion => "DatabaseVersion",
         HeaderNumber => "H", // hash -> num (uint64 big endian)
         BlockBody => "b", // block_num_u64 + hash -> block body
         BlockReceipts => "r", // block_num_u64 + hash -> block receipts
@@ -63,7 +62,9 @@ pub mod tables {
         BloomBitsIndex => "iB",
         DatabaseInfo => "DBINFO",
         IncarnationMap => "incarnationMap",
-        Clique => "clique-",
+        CliqueSeparate => "clique-snapshots-",
+        CliqueLastSnapshot => "lastSnap",
+        CliqueSnapshot => "snap",
         SyncStageProgress => "SSP2",
         SyncStageUnwind => "SSU2",
         PlainState => "PLAIN-CST2",
@@ -71,16 +72,16 @@ pub mod tables {
         AccountChangeSet => "PLAIN-ACS",
         StorageChangeSet => "PLAIN-SCS",
         Senders => "txSenders",
-        FastTrieProgress => "TrieSync",
         HeadBlock => "LastBlock",
-        HeadFastBlock => "LastFast",
         HeadHeader => "LastHeader",
+        Migrations => "migrations",
         LogTopicIndex => "log_topic_index",
         LogAddressIndex => "log_address_index",
         SnapshotInfo => "SNINFO",
         HeadersSnapshotInfo => "hSNINFO",
         BodiesSnapshotInfo => "bSNINFO",
         StateSnapshotInfo => "sSNINFO",
+        CallTraceSet => "call_trace_set",
         CallFromIndex => "call_from_index",
         CallToIndex => "call_to_index",
         Log => "log", // block_num_u64 + hash -> block receipts
@@ -90,6 +91,7 @@ pub mod tables {
         TrieOfStorage => "trie_storage",
         HashedAccounts => "hashed_accounts",
         HashedStorage => "hashed_storage",
+        BittorrentInfoBucket => "BTINFO",
         HeaderCanonical => "canonical_headers",
         Headers => "headers",
         HeaderTD => "header_to_td",
@@ -99,12 +101,14 @@ pub mod tables {
     impl DupSort for AccountChangeSet {}
     impl DupSort for StorageChangeSet {}
     impl DupSort for PlainState {}
+    impl DupSort for CallTraceSet {}
 
     pub const DUPSORT_TABLES: &[&str] = &[
         HashedStorage::DB_NAME,
         AccountChangeSet::DB_NAME,
         StorageChangeSet::DB_NAME,
         PlainState::DB_NAME,
+        CallTraceSet::DB_NAME,
     ];
 
     pub static TABLE_MAP: Lazy<HashMap<&'static str, bool>> = Lazy::new(|| {
