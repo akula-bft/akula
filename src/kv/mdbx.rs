@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::{collections::HashMap, ops::Deref, path::Path};
 
 use crate::{
     kv::traits,
@@ -60,6 +60,14 @@ impl<E: EnvironmentKind> Environment<E> {
         tx.commit()?;
 
         Ok(Self { inner: env })
+    }
+}
+
+impl<E: EnvironmentKind> Deref for Environment<E> {
+    type Target = mdbx::GenericEnvironment<E>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 

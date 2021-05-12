@@ -22,7 +22,11 @@ async fn main() -> anyhow::Result<()> {
 
     match opt {
         Opt::DbStats { chaindata } => {
-            let env = mdbx::Environment::new().open(&chaindata)?;
+            let env = akula::Environment::open(
+                mdbx::Environment::new(),
+                &chaindata,
+                &akula::tables::TABLE_MAP,
+            )?;
             for (table, size) in table_sizes(&env.begin_ro_txn()?)? {
                 println!("{} - {}", table, size);
             }
