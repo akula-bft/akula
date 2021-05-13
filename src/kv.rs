@@ -39,7 +39,7 @@ pub fn new_mem_database() -> anyhow::Result<impl traits::MutableKV> {
         shrink_threshold: None,
         page_size: None,
     });
-    let inner = mdbx::Environment::open(builder, tmpdir.path(), &crate::tables::TABLE_MAP)?;
+    let inner = mdbx::Environment::open_rw(builder, tmpdir.path(), &crate::tables::TABLE_MAP)?;
 
     Ok(MemoryKv {
         inner,

@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
 
     match opt {
         Opt::DbStats { chaindata } => {
-            let env = akula::Environment::open(
+            let env = akula::Environment::open_ro(
                 mdbx::Environment::new(),
                 &chaindata,
                 &akula::tables::TABLE_MAP,

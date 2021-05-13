@@ -24,15 +24,9 @@ macro_rules! decl_tables {
             const DB_NAME: &'static str = $db_name;
         }
 
-        impl AsRef<str> for $name {
-            fn as_ref(&self) -> &str {
-                <Self as $crate::dbutils::Table>::DB_NAME
-            }
-        }
-
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", <Self as $crate::dbutils::Table>::DB_NAME)
+                write!(f, "{}", stringify!($name))
             }
         }
     };

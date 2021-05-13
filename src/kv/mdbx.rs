@@ -5,7 +5,7 @@ use crate::{
     tables::{self, AutoDupSort, AUTO_DUP_SORT, DUPSORT_TABLES},
     Cursor, CursorDupSort, DupSort, MutableCursor, MutableCursorDupSort, Table,
 };
-use anyhow::bail;
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use mdbx::{
@@ -21,7 +21,11 @@ where
 {
     let mut out = HashMap::new();
     for (table, _) in TABLE_MAP.iter() {
-        let st = tx.open_db(Some(table))?.stat()?;
+        let st = tx
+            .open_db(Some(table))
+            .with_context(|| format!("failed to open table: {}", table))?
+            .stat()
+            .with_context(|| format!("failed to get stats for table: {}", table))?;
 
         out.insert(
             *table,
@@ -38,15 +42,41 @@ pub struct Environment<E: EnvironmentKind> {
 }
 
 impl<E: EnvironmentKind> Environment<E> {
-    pub fn open(
+    fn open(
         mut b: mdbx::EnvironmentBuilder<E>,
         path: &Path,
         chart: &HashMap<&'static str, bool>,
+        ro: bool,
     ) -> anyhow::Result<Self> {
-        b.set_max_dbs(crate::tables::TABLE_MAP.len());
-        let env = b.open(path)?;
+        b.set_max_dbs(chart.len());
+        if ro {
+            b.set_flags(mdbx::EnvironmentFlags {
+                mode: mdbx::Mode::ReadOnly,
+                ..Default::default()
+            });
+        }
 
-        let tx = env.begin_rw_txn()?;
+        Ok(Self {
+            inner: b.open(path).context("failed to open database")?,
+        })
+    }
+
+    pub fn open_ro(
+        b: mdbx::EnvironmentBuilder<E>,
+        path: &Path,
+        chart: &HashMap<&'static str, bool>,
+    ) -> anyhow::Result<Self> {
+        Self::open(b, path, chart, true)
+    }
+
+    pub fn open_rw(
+        b: mdbx::EnvironmentBuilder<E>,
+        path: &Path,
+        chart: &HashMap<&'static str, bool>,
+    ) -> anyhow::Result<Self> {
+        let s = Self::open(b, path, chart, false)?;
+
+        let tx = s.inner.begin_rw_txn()?;
         for (&db, &is_dup_sort) in chart {
             tx.create_db(
                 Some(db),
@@ -59,7 +89,7 @@ impl<E: EnvironmentKind> Environment<E> {
         }
         tx.commit()?;
 
-        Ok(Self { inner: env })
+        Ok(s)
     }
 }
 
