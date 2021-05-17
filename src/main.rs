@@ -13,6 +13,9 @@ pub enum Opt {
         /// Chain data path
         #[structopt(parse(from_os_str))]
         chaindata: PathBuf,
+        /// Whether to print CSV
+        #[structopt(long)]
+        csv: bool,
     },
 }
 
@@ -21,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
 
     match opt {
-        Opt::DbStats { chaindata } => {
+        Opt::DbStats { chaindata, csv } => {
             let env = akula::Environment::open_ro(
                 mdbx::Environment::new(),
                 &chaindata,
@@ -31,13 +34,26 @@ async fn main() -> anyhow::Result<()> {
                 .into_iter()
                 .collect::<Vec<_>>();
             sizes.sort_by_key(|(_, size)| *size);
-            for (table, size) in &sizes {
-                println!("{} - {}", table, bytesize::ByteSize::b(*size));
+
+            let mut out = Vec::new();
+            if csv {
+                out.push("Table,Size".to_string());
+                for (table, size) in &sizes {
+                    out.push(format!("{},{}", table, size));
+                }
+            } else {
+                for (table, size) in &sizes {
+                    out.push(format!("{} - {}", table, bytesize::ByteSize::b(*size)));
+                }
+                out.push(format!(
+                    "TOTAL: {}",
+                    bytesize::ByteSize::b(sizes.into_iter().map(|(_, size)| size).sum())
+                ));
             }
-            println!(
-                "TOTAL: {}",
-                bytesize::ByteSize::b(sizes.into_iter().map(|(_, size)| size).sum())
-            );
+
+            for line in out {
+                println!("{}", line);
+            }
         }
     }
 
