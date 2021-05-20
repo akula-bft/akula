@@ -9,14 +9,14 @@ use ethereum_types::Address;
 use futures_core::stream::LocalBoxStream;
 
 #[async_trait(?Send)]
-pub trait KV {
+pub trait KV: 'static {
     type Tx<'db>: Transaction<'db>;
 
     async fn begin(&self, flags: u8) -> anyhow::Result<Self::Tx<'_>>;
 }
 
 #[async_trait(?Send)]
-pub trait MutableKV {
+pub trait MutableKV: 'static {
     type MutableTx<'db>: MutableTransaction<'db>;
 
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>>;

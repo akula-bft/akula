@@ -1,5 +1,5 @@
-use akula::table_sizes;
-use std::path::PathBuf;
+use akula::{stagedsync, table_sizes};
+use std::{future::ready, path::PathBuf, sync::Arc};
 use structopt::StructOpt;
 
 #[derive(StructOpt)]
@@ -8,6 +8,11 @@ use structopt::StructOpt;
     about = "Ethereum client based on turbo-geth architecture"
 )]
 pub enum Opt {
+    /// Run Akula core
+    Core {
+        #[structopt(long)]
+        sentry_addr: String,
+    },
     /// Print database statistics
     DbStats {
         /// Chain data path
@@ -24,6 +29,21 @@ async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
 
     match opt {
+        Opt::Core { sentry_addr } => {
+            let mut db = akula::new_mem_database()?;
+
+            struct HelloStage;
+            struct EthereumStage;
+            struct WorldStage;
+
+            let mut staged_sync = stagedsync::StagedSync::new(|| ready(()));
+            // staged_sync.push(HelloStage);
+            // staged_sync.push(EthereumStage);
+            // staged_sync.push(WorldStage);
+
+            // stagedsync::StagedSync::new(vec![], vec![]);
+            staged_sync.run(&db);
+        }
         Opt::DbStats { chaindata, csv } => {
             let env = akula::Environment::open_ro(
                 mdbx::Environment::new(),
