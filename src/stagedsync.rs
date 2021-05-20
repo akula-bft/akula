@@ -59,10 +59,11 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
             let mut previous_stage = None;
             for (stage_index, stage) in self.stages.iter().enumerate() {
                 let mut restarted = false;
-                loop {
-                    let stage_id = stage.id();
-                    let logger = StageLogger::new(stage_index, num_stages, stage_id);
 
+                let stage_id = stage.id();
+                let logger = StageLogger::new(stage_index, num_stages, stage_id);
+
+                let done_progress = loop {
                     let stage_progress = stage_id.get_progress(&tx).await?;
 
                     if !restarted {
@@ -86,11 +87,13 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                     if exec_output.done {
                         logger.info("DONE");
-                        break;
+                        break exec_output.stage_progress;
                     }
 
                     restarted = true
-                }
+                };
+
+                previous_stage = Some((stage_id, done_progress))
             }
 
             tx.commit().await?;
