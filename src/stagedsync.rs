@@ -6,7 +6,10 @@ pub mod unwind;
 
 use std::sync::Arc;
 
-use self::stage::{Stage, StageInput, StageLogger};
+use self::{
+    stage::{Stage, StageInput, StageLogger, UnwindInput},
+    unwind::UnwindState,
+};
 use crate::{
     kv::traits::{MutableKV, KV},
     MutableTransaction, SyncStage,
@@ -53,52 +56,80 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
     pub async fn run(&self, db: &'db DB) -> anyhow::Result<!> {
         let num_stages = self.stages.len();
-        loop {
+
+        let mut unwind_to = None;
+        'run_loop: loop {
             let mut tx = db.begin_mutable().await?;
 
-            let mut previous_stage = None;
-            for (stage_index, stage) in self.stages.iter().enumerate() {
-                let mut restarted = false;
+            if let Some(to) = &mut unwind_to {
+                for (stage_index, stage) in self.stages.iter().rev().enumerate() {
+                    let stage_id = stage.id();
+                    let logger = StageLogger::new(stage_index, num_stages, stage_id);
 
-                let stage_id = stage.id();
-                let logger = StageLogger::new(stage_index, num_stages, stage_id);
+                    logger.info("Unwinding");
 
-                let done_progress = loop {
-                    let stage_progress = stage_id.get_progress(&tx).await?;
+                    stage
+                        .unwind(&mut tx, UnwindInput { unwind_to: *to })
+                        .await?;
 
-                    if !restarted {
-                        logger.info("RUNNING");
-                    }
-                    let exec_output = stage
-                        .execute(
-                            &mut tx,
-                            StageInput {
-                                restarted,
-                                previous_stage,
+                    logger.info("Unwinding complete");
+                }
+
+                unwind_to = None;
+                tx.commit().await?;
+            } else {
+                let mut previous_stage = None;
+                for (stage_index, stage) in self.stages.iter().enumerate() {
+                    let mut restarted = false;
+
+                    let stage_id = stage.id();
+                    let logger = StageLogger::new(stage_index, num_stages, stage_id);
+
+                    let done_progress = loop {
+                        let stage_progress = stage_id.get_progress(&tx).await?;
+
+                        if !restarted {
+                            logger.info("RUNNING");
+                        }
+                        let exec_output = stage
+                            .execute(
+                                &mut tx,
+                                StageInput {
+                                    restarted,
+                                    previous_stage,
+                                    stage_progress,
+                                    logger,
+                                },
+                            )
+                            .await?;
+
+                        match exec_output {
+                            stage::ExecOutput::Unwind { unwind_to: to } => {
+                                unwind_to = Some(to);
+                                continue 'run_loop;
+                            }
+                            stage::ExecOutput::Progress {
                                 stage_progress,
-                                logger,
-                            },
-                        )
-                        .await?;
+                                done,
+                            } => {
+                                stage_id.save_progress(&tx, stage_progress).await?;
 
-                    stage_id
-                        .save_progress(&tx, exec_output.stage_progress)
-                        .await?;
+                                if done {
+                                    logger.info("DONE");
+                                    break stage_progress;
+                                }
 
-                    if exec_output.done {
-                        logger.info("DONE");
-                        break exec_output.stage_progress;
-                    }
+                                restarted = true
+                            }
+                        }
+                    };
 
-                    restarted = true
-                };
+                    previous_stage = Some((stage_id, done_progress))
+                }
+                tx.commit().await?;
 
-                previous_stage = Some((stage_id, done_progress))
+                self.sync_activator.wait().await;
             }
-
-            tx.commit().await?;
-
-            self.sync_activator.wait().await;
         }
     }
 }

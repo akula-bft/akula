@@ -6,10 +6,9 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use tracing::*;
 
-pub struct ExecOutput {
-    pub stage_progress: u64,
-    pub done: bool,
-    pub unwind_to: Option<u64>,
+pub enum ExecOutput {
+    Unwind { unwind_to: u64 },
+    Progress { stage_progress: u64, done: bool },
 }
 
 // pub struct Stage<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> {
@@ -48,7 +47,7 @@ pub trait Stage<'db, RwTx: MutableTransaction<'db>> {
     where
         'db: 'tx;
     /// Called when the stage should be unwound. The unwind logic should be there.
-    async fn unwind<'tx>(&self, tx: &'tx mut RwTx, input: UnwindState) -> anyhow::Result<()>
+    async fn unwind<'tx>(&self, tx: &'tx mut RwTx, input: UnwindInput) -> anyhow::Result<()>
     where
         'db: 'tx;
 }
@@ -111,4 +110,9 @@ pub struct StageInput {
     pub previous_stage: Option<(SyncStage, u64)>,
     pub stage_progress: Option<u64>,
     pub logger: StageLogger,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct UnwindInput {
+    pub unwind_to: u64,
 }
