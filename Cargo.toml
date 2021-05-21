@@ -17,6 +17,7 @@ byte-unit = "4"
 bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }
 bytesize = "1"
 clap = "2"
+console-subscriber = { git = "https://github.com/tokio-rs/console" }
 const_format = "0.2"
 ethereum = "0.7"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", default-features = false, features = ["remotekv"] }
@@ -41,6 +42,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tonic = { version = "0.4", default-features = false, features = ["codegen", "prost", "transport"] }
 tracing = "0.1"
+tracing-futures = "0.2"
+tracing-subscriber = "0.2"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }

@@ -6,7 +6,7 @@ use self::stage::{Stage, StageInput, StageLogger, UnwindInput};
 use crate::{kv::traits::MutableKV, MutableTransaction};
 use async_trait::async_trait;
 use futures_core::Future;
-use tracing::info;
+use tracing::*;
 
 #[async_trait]
 pub trait SyncActivator: 'static {
@@ -69,6 +69,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
             } else {
                 let mut previous_stage = None;
                 let mut timings = vec![];
+                info!("Starting staged sync");
                 for (stage_index, stage) in self.stages.iter().enumerate() {
                     let mut restarted = false;
 

@@ -31,7 +31,9 @@ where
         let past_progress = input.stage_progress.unwrap_or(0);
         let target = past_progress + 100;
         for block in past_progress..target {
-            input.logger.info(format!("Downloading header {}", block));
+            input
+                .logger
+                .info(format!("(mock) Downloading header {}", block));
 
             let dur = Duration::from_millis(rand::thread_rng().gen_range(50..500));
             sleep(dur).await;
