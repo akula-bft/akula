@@ -55,30 +55,30 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     let stage_id = stage.id();
 
                     let res: anyhow::Result<()> = async {
-                        if let Some(stage_progress) = stage_id.get_progress(&tx).await? {
-                            if stage_progress > to {
-                                info!("RUNNING");
+                        let stage_progress = stage_id.get_progress(&tx).await?.unwrap_or(0);
 
-                                stage
-                                    .unwind(
-                                        &mut tx,
-                                        UnwindInput {
-                                            stage_progress,
-                                            unwind_to: to,
-                                        },
-                                    )
-                                    .await?;
+                        if stage_progress > to {
+                            info!("RUNNING");
 
-                                info!("DONE");
-                            } else {
-                                info!(
-                                    unwind_point = to,
-                                    progress = stage_progress,
-                                    "Unwind point too far for stage"
-                                );
-                            }
+                            stage
+                                .unwind(
+                                    &mut tx,
+                                    UnwindInput {
+                                        stage_progress,
+                                        unwind_to: to,
+                                    },
+                                )
+                                .await?;
+
+                            stage_id.save_progress(&tx, to).await?;
+
+                            info!("DONE");
                         } else {
-                            info!("Stage never run, skipping");
+                            debug!(
+                                unwind_point = to,
+                                progress = stage_progress,
+                                "Unwind point too far for stage"
+                            );
                         }
 
                         Ok(())
