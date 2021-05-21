@@ -39,5 +39,6 @@ pub struct StageInput {
 
 #[derive(Clone, Copy, Debug)]
 pub struct UnwindInput {
+    pub stage_progress: u64,
     pub unwind_to: u64,
 }

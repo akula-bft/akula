@@ -50,25 +50,43 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
         'run_loop: loop {
             let mut tx = db.begin_mutable().await?;
 
-            if let Some(to) = &mut unwind_to {
+            if let Some(to) = unwind_to.take() {
                 for (stage_index, stage) in self.stages.iter().rev().enumerate() {
                     let stage_id = stage.id();
 
                     let res: anyhow::Result<()> = async {
-                        info!("RUNNING");
+                        if let Some(stage_progress) = stage_id.get_progress(&tx).await? {
+                            if stage_progress > to {
+                                info!("RUNNING");
 
-                        stage
-                            .unwind(&mut tx, UnwindInput { unwind_to: *to })
-                            .await?;
+                                stage
+                                    .unwind(
+                                        &mut tx,
+                                        UnwindInput {
+                                            stage_progress,
+                                            unwind_to: to,
+                                        },
+                                    )
+                                    .await?;
 
-                        info!("DONE");
+                                info!("DONE");
+                            } else {
+                                info!(
+                                    unwind_point = to,
+                                    progress = stage_progress,
+                                    "Unwind point too far for stage"
+                                );
+                            }
+                        } else {
+                            info!("Stage never run, skipping");
+                        }
 
                         Ok(())
                     }
                     .instrument(span!(
                         Level::INFO,
                         "",
-                        "Unwinding {}/{} {}",
+                        " Unwinding {}/{} {} ",
                         stage_index + 1,
                         num_stages,
                         AsRef::<str>::as_ref(&stage_id)
@@ -78,7 +96,6 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     res?;
                 }
 
-                unwind_to = None;
                 tx.commit().await?;
             } else {
                 let mut previous_stage = None;
@@ -104,9 +121,14 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                             let output = stage.execute(tx, input).await?;
 
-                            if let ExecOutput::Progress { done, .. } = &output {
-                                if *done {
-                                    info!("DONE");
+                            match &output {
+                                ExecOutput::Progress { done, .. } => {
+                                    if *done {
+                                        info!("DONE");
+                                    }
+                                }
+                                ExecOutput::Unwind { unwind_to } => {
+                                    info!(to = unwind_to, "Unwind requested");
                                 }
                             }
 
@@ -133,10 +155,6 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                         .await?;
 
                         match exec_output {
-                            stage::ExecOutput::Unwind { unwind_to: to } => {
-                                unwind_to = Some(to);
-                                continue 'run_loop;
-                            }
                             stage::ExecOutput::Progress {
                                 stage_progress,
                                 done,
@@ -148,6 +166,10 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                 }
 
                                 restarted = true
+                            }
+                            stage::ExecOutput::Unwind { unwind_to: to } => {
+                                unwind_to = Some(to);
+                                continue 'run_loop;
                             }
                         }
                     };
