@@ -1,22 +1,10 @@
-use akula::{
-    stagedsync::{self},
-    table_sizes,
-};
-use std::{path::PathBuf, time::Duration};
+use akula::table_sizes;
+use std::path::PathBuf;
 use structopt::StructOpt;
-use tokio::time::sleep;
 
 #[derive(StructOpt)]
-#[structopt(
-    name = "Akula",
-    about = "Ethereum client based on turbo-geth architecture"
-)]
+#[structopt(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
 pub enum Opt {
-    /// Run Akula core
-    Core {
-        #[structopt(long)]
-        sentry_addr: String,
-    },
     /// Print database statistics
     DbStats {
         /// Chain data path
@@ -33,20 +21,6 @@ async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
 
     match opt {
-        Opt::Core { sentry_addr } => {
-            let _ = sentry_addr;
-            let db = akula::new_mem_database()?;
-
-            let mut staged_sync = stagedsync::StagedSync::new(|| async move {
-                sleep(Duration::from_millis(6000)).await;
-            });
-            staged_sync.push(akula::stages::HeaderDownload);
-            // staged_sync.push(akula::stages::BlockHashes);
-            // staged_sync.push(akula::stages::ExecutionStage);
-
-            // stagedsync::StagedSync::new(vec![], vec![]);
-            staged_sync.run(&db).await?;
-        }
         Opt::DbStats { chaindata, csv } => {
             let env = akula::Environment::open_ro(
                 mdbx::Environment::new(),

@@ -5,6 +5,7 @@ authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
 edition = "2018"
 description = "Ethereum client based on turbo-geth client architecture"
 license = "Apache-2.0"
+default-run = "akula"
 
 [dependencies]
 anyhow = "1"
@@ -44,3 +45,11 @@ tracing = "0.1"
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 tokio = { version = "1", features = ["full"] }
+
+[[bin]]
+path = "bin/akula.rs"
+name = "akula"
+
+[[bin]]
+path = "bin/akula-toolbox.rs"
+name = "akula-toolbox"
