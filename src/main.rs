@@ -1,6 +1,10 @@
-use akula::{stagedsync, table_sizes};
-use std::{future::ready, path::PathBuf, sync::Arc};
+use akula::{
+    stagedsync::{self},
+    table_sizes,
+};
+use std::{path::PathBuf, time::Duration};
 use structopt::StructOpt;
+use tokio::time::sleep;
 
 #[derive(StructOpt)]
 #[structopt(
@@ -30,19 +34,18 @@ async fn main() -> anyhow::Result<()> {
 
     match opt {
         Opt::Core { sentry_addr } => {
-            let mut db = akula::new_mem_database()?;
+            let _ = sentry_addr;
+            let db = akula::new_mem_database()?;
 
-            struct HelloStage;
-            struct EthereumStage;
-            struct WorldStage;
-
-            let mut staged_sync = stagedsync::StagedSync::new(|| ready(()));
-            // staged_sync.push(HelloStage);
-            // staged_sync.push(EthereumStage);
-            // staged_sync.push(WorldStage);
+            let mut staged_sync = stagedsync::StagedSync::new(|| async move {
+                sleep(Duration::from_millis(6000)).await;
+            });
+            staged_sync.push(akula::stages::HeaderDownload);
+            // staged_sync.push(akula::stages::BlockHashes);
+            // staged_sync.push(akula::stages::ExecutionStage);
 
             // stagedsync::StagedSync::new(vec![], vec![]);
-            staged_sync.run(&db);
+            staged_sync.run(&db).await?;
         }
         Opt::DbStats { chaindata, csv } => {
             let env = akula::Environment::open_ro(

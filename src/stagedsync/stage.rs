@@ -1,7 +1,7 @@
-use std::{fmt::Display, marker::PhantomData, pin::Pin};
+use std::fmt::Display;
 
-use super::unwind::UnwindState;
-use crate::{MutableTransaction, SyncStage};
+use super::stages::SyncStage;
+use crate::MutableTransaction;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use tracing::*;
@@ -11,27 +11,7 @@ pub enum ExecOutput {
     Progress { stage_progress: u64, done: bool },
 }
 
-// pub struct Stage<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> {
-//     pub id: SyncStage,
-//     pub description: &'static str,
-//     pub is_disabled: bool,
-//     pub disabled_description: Option<&'static str>,
-//     pub execute: Box<
-//         dyn Fn(
-//                 &'tx mut RwTx,
-//                 StageInput,
-//             )
-//                 -> Pin<Box<dyn Future<Output = anyhow::Result<ExecOutput>> + Send + 'tx>>
-//             + Send
-//             + Sync
-//             + 'static,
-//     >,
-//     pub unwind:
-//         Box<dyn Fn(&'tx mut RwTx, &'tx UnwindState) -> anyhow::Result<()> + Send + Sync + 'static>,
-//     _marker: PhantomData<(&'tx RwTx, &'db ())>,
-// }
-
-#[async_trait]
+#[async_trait(?Send)]
 #[auto_impl(&, Box, Arc)]
 pub trait Stage<'db, RwTx: MutableTransaction<'db>> {
     /// ID of the sync stage. Should not be empty and should be unique. It is recommended to prefix it with reverse domain to avoid clashes (`com.example.my-stage`).
@@ -70,7 +50,7 @@ impl StageLogger {
 
     fn msg<T: Display>(&self, msg: T) -> String {
         format!(
-            "[{}/{} {}] {}",
+            "[ {}/{} {} ] {}",
             self.stage_index + 1,
             self.num_stages,
             self.stage,

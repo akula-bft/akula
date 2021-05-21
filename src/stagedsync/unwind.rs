@@ -1,4 +1,5 @@
-use crate::{MutableTransaction, SyncStage, Transaction};
+use super::stages::SyncStage;
+use crate::{MutableTransaction, Transaction};
 use async_trait::async_trait;
 
 #[async_trait]

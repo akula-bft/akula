@@ -1,23 +1,12 @@
 pub mod stage;
-pub mod stage_factory;
 pub mod stages;
-pub mod state;
 pub mod unwind;
 
-use std::sync::Arc;
-
-use self::{
-    stage::{Stage, StageInput, StageLogger, UnwindInput},
-    unwind::UnwindState,
-};
-use crate::{
-    kv::traits::{MutableKV, KV},
-    MutableTransaction, SyncStage,
-};
+use self::stage::{Stage, StageInput, StageLogger, UnwindInput};
+use crate::{kv::traits::MutableKV, MutableTransaction};
 use async_trait::async_trait;
 use futures_core::Future;
-
-// use self::stage_factory::StageFactory;
+use tracing::info;
 
 #[async_trait]
 pub trait SyncActivator: 'static {
@@ -79,12 +68,14 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                 tx.commit().await?;
             } else {
                 let mut previous_stage = None;
+                let mut timings = vec![];
                 for (stage_index, stage) in self.stages.iter().enumerate() {
                     let mut restarted = false;
 
                     let stage_id = stage.id();
                     let logger = StageLogger::new(stage_index, num_stages, stage_id);
 
+                    let start_time = std::time::Instant::now();
                     let done_progress = loop {
                         let stage_progress = stage_id.get_progress(&tx).await?;
 
@@ -123,10 +114,18 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             }
                         }
                     };
+                    timings.push((stage_id, std::time::Instant::now() - start_time));
 
                     previous_stage = Some((stage_id, done_progress))
                 }
                 tx.commit().await?;
+
+                let t = timings
+                    .into_iter()
+                    .fold(String::new(), |acc, (stage_id, time)| {
+                        format!("{} {}={}ms", acc, stage_id, time.as_millis())
+                    });
+                info!("Staged sync complete.{}", t);
 
                 self.sync_activator.wait().await;
             }

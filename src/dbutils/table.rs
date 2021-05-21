@@ -1,5 +1,4 @@
 use core::fmt::Debug;
-use std::fmt::Display;
 
 pub trait Table: Debug + 'static {
     const DB_NAME: &'static str;
@@ -130,40 +129,4 @@ pub mod tables {
         v.insert(PlainState::DB_NAME, AutoDupSort { from: 60, to: 28 });
         v
     });
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct SyncStage(&'static str);
-
-pub const HEADERS: SyncStage = SyncStage("Headers");
-pub const BLOCK_HASHES: SyncStage = SyncStage("BlockHashes");
-pub const BODIES: SyncStage = SyncStage("Bodies");
-pub const SENDERS: SyncStage = SyncStage("Senders");
-pub const EXECUTION: SyncStage = SyncStage("Execution");
-pub const INTERMEDIATE_HASHES: SyncStage = SyncStage("IntermediateHashes");
-pub const HASH_STATE: SyncStage = SyncStage("HashState");
-pub const ACCOUNT_HISTORY_INDEX: SyncStage = SyncStage("AccountHistoryIndex");
-pub const STORAGE_HISTORY_INDEX: SyncStage = SyncStage("StorageHistoryIndex");
-pub const LOG_INDEX: SyncStage = SyncStage("LogIndex");
-pub const CALL_TRACES: SyncStage = SyncStage("CallTraces");
-pub const TX_LOOKUP: SyncStage = SyncStage("TxLookup");
-pub const TX_POOL: SyncStage = SyncStage("TxPool");
-pub const FINISH: SyncStage = SyncStage("Finish");
-
-impl AsRef<str> for SyncStage {
-    fn as_ref(&self) -> &str {
-        self.0
-    }
-}
-
-impl AsRef<[u8]> for SyncStage {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-}
-
-impl Display for SyncStage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
 }

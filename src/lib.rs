@@ -21,11 +21,12 @@ mod dbutils;
 mod kv;
 mod models;
 pub mod stagedsync;
+pub mod stages;
 mod state;
 pub mod txdb;
 
 pub use changeset::ChangeSet;
-pub use dbutils::{tables, DupSort, SyncStage, Table};
+pub use dbutils::{tables, DupSort, Table};
 pub use kv::{
     mdbx::*,
     new_mem_database,
@@ -34,4 +35,5 @@ pub use kv::{
         Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
     },
 };
+pub use stagedsync::stages::SyncStage;
 pub use state::*;
