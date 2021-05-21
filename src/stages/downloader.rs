@@ -7,7 +7,9 @@ use crate::{
 use async_trait::async_trait;
 use rand::Rng;
 use tokio::time::sleep;
+use tracing::*;
 
+#[derive(Debug)]
 pub struct HeaderDownload;
 
 #[async_trait(?Send)]
@@ -29,11 +31,10 @@ where
     {
         let _ = tx;
         let past_progress = input.stage_progress.unwrap_or(0);
+        info!("Processing headers");
         let target = past_progress + 100;
         for block in past_progress..target {
-            input
-                .logger
-                .info(format!("(mock) Downloading header {}", block));
+            info!(block = block, "(mock) Downloading header");
 
             let dur = Duration::from_millis(rand::thread_rng().gen_range(50..500));
             sleep(dur).await;

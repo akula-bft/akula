@@ -2,8 +2,8 @@ pub mod stage;
 pub mod stages;
 pub mod unwind;
 
-use self::stage::{Stage, StageInput, StageLogger, UnwindInput};
-use crate::{kv::traits::MutableKV, MutableTransaction};
+use self::stage::{Stage, StageInput, UnwindInput};
+use crate::{kv::traits::MutableKV, stagedsync::stage::ExecOutput, MutableTransaction};
 use async_trait::async_trait;
 use futures_core::Future;
 use tracing::*;
@@ -53,15 +53,29 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
             if let Some(to) = &mut unwind_to {
                 for (stage_index, stage) in self.stages.iter().rev().enumerate() {
                     let stage_id = stage.id();
-                    let logger = StageLogger::new(stage_index, num_stages, stage_id);
 
-                    logger.info("Unwinding");
+                    let res: anyhow::Result<()> = async {
+                        info!("RUNNING");
 
-                    stage
-                        .unwind(&mut tx, UnwindInput { unwind_to: *to })
-                        .await?;
+                        stage
+                            .unwind(&mut tx, UnwindInput { unwind_to: *to })
+                            .await?;
 
-                    logger.info("Unwinding complete");
+                        info!("DONE");
+
+                        Ok(())
+                    }
+                    .instrument(span!(
+                        Level::INFO,
+                        "",
+                        "Unwinding {}/{} {}",
+                        stage_index + 1,
+                        num_stages,
+                        AsRef::<str>::as_ref(&stage_id)
+                    ))
+                    .await;
+
+                    res?;
                 }
 
                 unwind_to = None;
@@ -74,26 +88,49 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     let mut restarted = false;
 
                     let stage_id = stage.id();
-                    let logger = StageLogger::new(stage_index, num_stages, stage_id);
 
                     let start_time = std::time::Instant::now();
                     let done_progress = loop {
                         let stage_progress = stage_id.get_progress(&tx).await?;
 
-                        if !restarted {
-                            logger.info("RUNNING");
+                        async fn run_stage<'db, Tx: MutableTransaction<'db>>(
+                            stage: &dyn Stage<'db, Tx>,
+                            tx: &mut Tx,
+                            input: StageInput,
+                        ) -> anyhow::Result<ExecOutput> {
+                            if !input.restarted {
+                                info!("RUNNING");
+                            }
+
+                            let output = stage.execute(tx, input).await?;
+
+                            if let ExecOutput::Progress { done, .. } = &output {
+                                if *done {
+                                    info!("DONE");
+                                }
+                            }
+
+                            Ok(output)
                         }
-                        let exec_output = stage
-                            .execute(
-                                &mut tx,
-                                StageInput {
-                                    restarted,
-                                    previous_stage,
-                                    stage_progress,
-                                    logger,
-                                },
-                            )
-                            .await?;
+
+                        let exec_output = run_stage(
+                            stage,
+                            &mut tx,
+                            StageInput {
+                                restarted,
+                                previous_stage,
+                                stage_progress,
+                            },
+                        )
+                        .instrument(span!(
+                            Level::INFO,
+                            "",
+                            " {}/{} {} ",
+                            stage_index + 1,
+                            num_stages,
+                            AsRef::<str>::as_ref(&stage.id())
+                        ))
+                        .await?;
 
                         match exec_output {
                             stage::ExecOutput::Unwind { unwind_to: to } => {
@@ -107,7 +144,6 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                 stage_id.save_progress(&tx, stage_progress).await?;
 
                                 if done {
-                                    logger.info("DONE");
                                     break stage_progress;
                                 }
 
