@@ -33,12 +33,13 @@ where
         let past_progress = input.stage_progress.unwrap_or(0);
         info!("Processing headers");
         let target = past_progress + 100;
-        for block in past_progress..target {
-            info!(block = block, "(mock) Downloading header");
+        for block in past_progress..=target {
+            info!(block = block, "(mock) Downloading");
 
-            let dur = Duration::from_millis(rand::thread_rng().gen_range(50..500));
+            let dur = Duration::from_millis(rand::thread_rng().gen_range(0..500));
             sleep(dur).await;
         }
+        info!(highest = target, "Processed");
         Ok(ExecOutput::Progress {
             stage_progress: target,
             done: true,
