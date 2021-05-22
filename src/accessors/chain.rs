@@ -1,7 +1,7 @@
-use crate::{common, dbutils::*, models::*, tables, txdb, Transaction};
+use crate::{common, dbutils::*, kv::tables, models::*, txdb, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
-use ethereum::Header;
+use ethereum::Header as HeaderType;
 use ethereum_types::{H256, U256};
 use tokio::pin;
 use tokio_stream::StreamExt;
@@ -22,7 +22,7 @@ pub mod canonical_hash {
             hex::encode(&key)
         );
 
-        if let Some(b) = tx.get::<tables::HeaderCanonical>(&key).await? {
+        if let Some(b) = tx.get(&tables::CanonicalHeader, &key).await? {
             match b.len() {
                 common::HASH_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
@@ -43,7 +43,7 @@ pub mod header_number {
         trace!("Reading block number for hash {:?}", hash);
 
         if let Some(b) = tx
-            .get::<tables::HeaderNumber>(&hash.to_fixed_bytes())
+            .get(&tables::HeaderNumber, &hash.to_fixed_bytes())
             .await?
         {
             match b.len() {
@@ -65,10 +65,10 @@ pub mod header {
         tx: &'tx Tx,
         hash: H256,
         number: u64,
-    ) -> anyhow::Result<Option<Header>> {
+    ) -> anyhow::Result<Option<HeaderType>> {
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        if let Some(b) = tx.get::<tables::Headers>(&header_key(number, hash)).await? {
+        if let Some(b) = tx.get(&tables::Header, &header_key(number, hash)).await? {
             return Ok(Some(rlp::decode(&b)?));
         }
 
@@ -93,7 +93,7 @@ pub mod tx {
         Ok(if amount > 0 {
             let mut out = Vec::with_capacity(amount as usize);
 
-            let mut cursor = tx.cursor::<tables::EthTx>().await?;
+            let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
 
             let start_key = base_tx_id.to_be_bytes();
             let walker = txdb::walk(&mut cursor, &start_key, 0);
@@ -128,7 +128,7 @@ pub mod storage_body {
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get::<tables::BlockBody>(&header_key(number, hash))
+            .get(&tables::BlockBody, &header_key(number, hash))
             .await?
         {
             return Ok(Some(b));
@@ -169,7 +169,7 @@ pub mod td {
         trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get::<tables::HeaderTD>(&header_key(number, hash))
+            .get(&tables::HeadersTotalDifficulty, &header_key(number, hash))
             .await?
         {
             trace!("Reading TD RLP: {}", hex::encode(&b));

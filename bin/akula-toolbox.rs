@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
             let env = akula::Environment::open_ro(
                 mdbx::Environment::new(),
                 &chaindata,
-                &akula::tables::TABLE_MAP,
+                &akula::kv::tables::TABLE_MAP,
             )?;
             let mut sizes = table_sizes(&env.begin_ro_txn()?)?
                 .into_iter()

@@ -1,0 +1,12 @@
+[package]
+name = "akula-table-defs"
+version = "0.1.0"
+authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
+edition = "2018"
+description = "Table definitions for Akula Ethereum client"
+license = "Apache-2.0"
+
+[dependencies]
+once_cell = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.5"

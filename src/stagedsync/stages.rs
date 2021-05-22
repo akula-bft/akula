@@ -1,53 +1,53 @@
-use std::fmt::Display;
-
-use crate::{common, dbutils::*, tables, MutableTransaction, Transaction};
+use crate::{common, kv::*, MutableTransaction, Transaction};
 use anyhow::Context;
 use arrayref::array_ref;
+use std::fmt::Display;
 use tracing::*;
 
 #[derive(Clone, Copy, Debug)]
-pub struct SyncStage(pub &'static str);
+pub struct StageId(pub &'static str);
 
-pub const HEADERS: SyncStage = SyncStage("Headers");
-pub const BLOCK_HASHES: SyncStage = SyncStage("BlockHashes");
-pub const BODIES: SyncStage = SyncStage("Bodies");
-pub const SENDERS: SyncStage = SyncStage("Senders");
-pub const EXECUTION: SyncStage = SyncStage("Execution");
-pub const INTERMEDIATE_HASHES: SyncStage = SyncStage("IntermediateHashes");
-pub const HASH_STATE: SyncStage = SyncStage("HashState");
-pub const ACCOUNT_HISTORY_INDEX: SyncStage = SyncStage("AccountHistoryIndex");
-pub const STORAGE_HISTORY_INDEX: SyncStage = SyncStage("StorageHistoryIndex");
-pub const LOG_INDEX: SyncStage = SyncStage("LogIndex");
-pub const CALL_TRACES: SyncStage = SyncStage("CallTraces");
-pub const TX_LOOKUP: SyncStage = SyncStage("TxLookup");
-pub const TX_POOL: SyncStage = SyncStage("TxPool");
-pub const FINISH: SyncStage = SyncStage("Finish");
+pub const HEADERS: StageId = StageId("Headers");
+pub const BLOCK_HASHES: StageId = StageId("BlockHashes");
+pub const BODIES: StageId = StageId("Bodies");
+pub const SENDERS: StageId = StageId("Senders");
+pub const EXECUTION: StageId = StageId("Execution");
+pub const INTERMEDIATE_HASHES: StageId = StageId("IntermediateHashes");
+pub const HASH_STATE: StageId = StageId("HashState");
+pub const ACCOUNT_HISTORY_INDEX: StageId = StageId("AccountHistoryIndex");
+pub const STORAGE_HISTORY_INDEX: StageId = StageId("StorageHistoryIndex");
+pub const LOG_INDEX: StageId = StageId("LogIndex");
+pub const CALL_TRACES: StageId = StageId("CallTraces");
+pub const TX_LOOKUP: StageId = StageId("TxLookup");
+pub const TX_POOL: StageId = StageId("TxPool");
+pub const FINISH: StageId = StageId("Finish");
 
-impl AsRef<str> for SyncStage {
+impl AsRef<str> for StageId {
     fn as_ref(&self) -> &str {
         self.0
     }
 }
 
-impl AsRef<[u8]> for SyncStage {
+impl AsRef<[u8]> for StageId {
     fn as_ref(&self) -> &[u8] {
         self.0.as_bytes()
     }
 }
 
-impl Display for SyncStage {
+impl Display for StageId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl SyncStage {
+impl StageId {
     #[instrument]
     async fn get<'db, Tx: Transaction<'db>, T: Table>(
         &self,
         tx: &Tx,
+        table: &T,
     ) -> anyhow::Result<Option<u64>> {
-        if let Some(b) = tx.get::<T>(self.as_ref()).await? {
+        if let Some(b) = tx.get(table, self.as_ref()).await? {
             return Ok(Some(u64::from_be_bytes(*array_ref![
                 b.get(0..common::BLOCK_NUMBER_LENGTH)
                     .context("failed to read block number from bytes")?,
@@ -63,9 +63,10 @@ impl SyncStage {
     async fn save<'db, RwTx: MutableTransaction<'db>, T: Table>(
         &self,
         tx: &RwTx,
+        table: &T,
         block: u64,
     ) -> anyhow::Result<()> {
-        tx.set::<T>(self.as_ref(), &block.to_be_bytes()).await
+        tx.set(table, self.as_ref(), &block.to_be_bytes()).await
     }
 
     #[instrument]
@@ -73,7 +74,7 @@ impl SyncStage {
         &self,
         tx: &Tx,
     ) -> anyhow::Result<Option<u64>> {
-        self.get::<Tx, tables::SyncStageProgress>(tx).await
+        self.get(tx, &tables::SyncStage).await
     }
 
     #[instrument]
@@ -82,8 +83,7 @@ impl SyncStage {
         tx: &RwTx,
         block: u64,
     ) -> anyhow::Result<()> {
-        self.save::<RwTx, tables::SyncStageProgress>(tx, block)
-            .await
+        self.save(tx, &tables::SyncStage, block).await
     }
 
     #[instrument]
@@ -91,7 +91,7 @@ impl SyncStage {
         &self,
         tx: &Tx,
     ) -> anyhow::Result<Option<u64>> {
-        self.get::<Tx, tables::SyncStageUnwind>(tx).await
+        self.get(tx, &tables::SyncStageUnwind).await
     }
 
     #[instrument]
@@ -100,6 +100,6 @@ impl SyncStage {
         tx: &RwTx,
         block: u64,
     ) -> anyhow::Result<()> {
-        self.save::<RwTx, tables::SyncStageUnwind>(tx, block).await
+        self.save(tx, &tables::SyncStageUnwind, block).await
     }
 }

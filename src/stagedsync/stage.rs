@@ -1,4 +1,4 @@
-use super::stages::SyncStage;
+use super::stages::StageId;
 use crate::MutableTransaction;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
@@ -15,11 +15,11 @@ pub enum ExecOutput {
     },
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 #[auto_impl(&, Box, Arc)]
-pub trait Stage<'db, RwTx: MutableTransaction<'db>>: Debug {
+pub trait Stage<'db, RwTx: MutableTransaction<'db>>: Send + Sync + Debug {
     /// ID of the sync stage. Should not be empty and should be unique. It is recommended to prefix it with reverse domain to avoid clashes (`com.example.my-stage`).
-    fn id(&self) -> SyncStage;
+    fn id(&self) -> StageId;
     /// Description of the stage.
     fn description(&self) -> &'static str;
     /// Called when the stage is executed. The main logic of the stage should be here.
@@ -39,7 +39,7 @@ pub trait Stage<'db, RwTx: MutableTransaction<'db>>: Debug {
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
     pub restarted: bool,
-    pub previous_stage: Option<(SyncStage, u64)>,
+    pub previous_stage: Option<(StageId, u64)>,
     pub stage_progress: Option<u64>,
 }
 

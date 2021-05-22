@@ -1,11 +1,11 @@
-use crate::{common, CursorDupSort, *};
+use crate::{common, kv::*, CursorDupSort, *};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::{collections::BTreeSet, fmt::Debug};
 
-mod account;
-mod storage;
+pub mod account;
+pub mod storage;
 
 pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
 
@@ -34,7 +34,7 @@ impl<'tx, Key: ChangeKey> Change<'tx, Key> {
 
 pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait ChangeSetTable: DupSort {
     const TEMPLATE: &'static str;
 
