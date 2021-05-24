@@ -113,16 +113,21 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                         let stage_progress = stage_id.get_progress(&t).await?;
 
-                        async fn run_stage<'db, Tx: MutableTransaction<'db>>(
-                            stage: &dyn Stage<'db, Tx>,
-                            tx: &mut Tx,
-                            input: StageInput,
-                        ) -> anyhow::Result<ExecOutput> {
-                            if !input.restarted {
+                        let exec_output: anyhow::Result<_> = async {
+                            if !restarted {
                                 info!("RUNNING");
                             }
 
-                            let output = stage.execute(tx, input).await?;
+                            let output = stage
+                                .execute(
+                                    &mut t,
+                                    StageInput {
+                                        restarted,
+                                        previous_stage,
+                                        stage_progress,
+                                    },
+                                )
+                                .await?;
 
                             match &output {
                                 ExecOutput::Progress { done, .. } => {
@@ -137,16 +142,6 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                             Ok(output)
                         }
-
-                        let exec_output = run_stage(
-                            stage,
-                            &mut t,
-                            StageInput {
-                                restarted,
-                                previous_stage,
-                                stage_progress,
-                            },
-                        )
                         .instrument(span!(
                             Level::INFO,
                             "",
@@ -155,9 +150,9 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             num_stages,
                             AsRef::<str>::as_ref(&stage.id())
                         ))
-                        .await?;
+                        .await;
 
-                        match exec_output {
+                        match exec_output? {
                             stage::ExecOutput::Progress {
                                 stage_progress,
                                 done,
