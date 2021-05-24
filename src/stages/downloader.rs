@@ -32,17 +32,34 @@ where
         let _ = tx;
         let past_progress = input.stage_progress.unwrap_or(0);
         info!("Processing headers");
+
         let target = past_progress + 100;
+
+        let commit_block =
+            rand::random::<bool>().then(|| past_progress + rand::thread_rng().gen_range(0..target));
+
+        let mut processed = past_progress;
+        let mut must_commit = false;
         for block in past_progress..=target {
             info!(block = block, "(mock) Downloading");
+
+            processed += 1;
+
+            if let Some(commit_block) = commit_block {
+                if block == commit_block {
+                    must_commit = true;
+                    break;
+                }
+            }
 
             let dur = Duration::from_millis(rand::thread_rng().gen_range(0..500));
             sleep(dur).await;
         }
         info!(highest = target, "Processed");
         Ok(ExecOutput::Progress {
-            stage_progress: target,
-            done: true,
+            stage_progress: processed,
+            done: !must_commit,
+            must_commit,
         })
     }
 

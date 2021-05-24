@@ -48,9 +48,10 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
         let mut unwind_to = None;
         'run_loop: loop {
-            let mut tx = db.begin_mutable().await?;
+            let mut tx = Some(db.begin_mutable().await?);
 
             if let Some(to) = unwind_to.take() {
+                let mut tx = tx.unwrap();
                 for (stage_index, stage) in self.stages.iter().rev().enumerate() {
                     let stage_id = stage.id();
 
@@ -108,7 +109,9 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                     let start_time = std::time::Instant::now();
                     let done_progress = loop {
-                        let stage_progress = stage_id.get_progress(&tx).await?;
+                        let mut t = tx.take().unwrap();
+
+                        let stage_progress = stage_id.get_progress(&t).await?;
 
                         async fn run_stage<'db, Tx: MutableTransaction<'db>>(
                             stage: &dyn Stage<'db, Tx>,
@@ -137,7 +140,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                         let exec_output = run_stage(
                             stage,
-                            &mut tx,
+                            &mut t,
                             StageInput {
                                 restarted,
                                 previous_stage,
@@ -158,8 +161,17 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             stage::ExecOutput::Progress {
                                 stage_progress,
                                 done,
+                                must_commit,
                             } => {
-                                stage_id.save_progress(&tx, stage_progress).await?;
+                                stage_id.save_progress(&t, stage_progress).await?;
+
+                                if must_commit {
+                                    t.commit().await?;
+                                    tx = Some(db.begin_mutable().await?);
+                                } else {
+                                    // Return tx object back
+                                    tx = Some(t);
+                                }
 
                                 if done {
                                     break stage_progress;
@@ -177,7 +189,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                     previous_stage = Some((stage_id, done_progress))
                 }
-                tx.commit().await?;
+                tx.unwrap().commit().await?;
 
                 let t = timings
                     .into_iter()

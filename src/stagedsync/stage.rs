@@ -5,8 +5,14 @@ use auto_impl::auto_impl;
 use std::fmt::Debug;
 
 pub enum ExecOutput {
-    Unwind { unwind_to: u64 },
-    Progress { stage_progress: u64, done: bool },
+    Unwind {
+        unwind_to: u64,
+    },
+    Progress {
+        stage_progress: u64,
+        done: bool,
+        must_commit: bool,
+    },
 }
 
 #[async_trait(?Send)]
