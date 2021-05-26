@@ -61,5 +61,9 @@ path = "bin/akula.rs"
 name = "akula"
 
 [[bin]]
+path = "bin/akula-rpc.rs"
+name = "akula-rpc"
+
+[[bin]]
 path = "bin/akula-toolbox.rs"
 name = "akula-toolbox"
