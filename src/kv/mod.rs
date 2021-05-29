@@ -1,5 +1,6 @@
 pub mod mdbx;
 pub mod remote;
+pub mod server;
 pub mod traits;
 
 use ::mdbx::{Geometry, WriteMap};
