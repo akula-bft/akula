@@ -50,9 +50,9 @@ pub trait StateWriter {
         &mut self,
         address: common::Address,
         incarnation: common::Incarnation,
-        key: Option<common::Hash>,
-        original: Option<common::Value>,
-        value: Option<common::Value>,
+        key: common::Hash,
+        original: common::Value,
+        value: common::Value,
     ) -> anyhow::Result<()>;
     async fn create_contract(&mut self, address: common::Address) -> anyhow::Result<()>;
 }
@@ -95,9 +95,9 @@ impl StateWriter for Noop {
         &mut self,
         _: common::Address,
         _: common::Incarnation,
-        _: Option<common::Hash>,
-        _: Option<common::Value>,
-        _: Option<common::Value>,
+        _: common::Hash,
+        _: common::Value,
+        _: common::Value,
     ) -> anyhow::Result<()> {
         Ok(())
     }
