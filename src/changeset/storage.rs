@@ -8,9 +8,20 @@ impl ChangeSetTable for tables::StorageChangeSet {
     const TEMPLATE: &'static str = "st-ind-";
 
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
+    type IndexChunkKey =
+        [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::StorageHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
+    fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey {
+        let mut v = [0; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::BLOCK_NUMBER_LENGTH];
+        v[..common::ADDRESS_LENGTH].copy_from_slice(&key[..common::ADDRESS_LENGTH]);
+        v[common::ADDRESS_LENGTH..common::ADDRESS_LENGTH + common::HASH_LENGTH]
+            .copy_from_slice(&key[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..]);
+        v[common::ADDRESS_LENGTH + common::HASH_LENGTH..]
+            .copy_from_slice(&block_number.to_be_bytes());
+        v
+    }
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,

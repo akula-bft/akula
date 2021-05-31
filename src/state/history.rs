@@ -25,7 +25,7 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let key = plain_generate_composite_storage_key(address, incarnation, key);
-    if let Some(v) = find_storage_by_history(tx, &key, timestamp).await? {
+    if let Some(v) = find_storage_by_history(tx, key, timestamp).await? {
         return Ok(Some(v));
     }
 
@@ -39,7 +39,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
-        .seek(&index_chunk_key(key.as_fixed_bytes(), timestamp))
+        .seek(&tables::AccountChangeSet::index_chunk_key(key, timestamp))
         .await?
     {
         if k.starts_with(key.as_fixed_bytes()) {
@@ -96,11 +96,14 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    key: &PlainCompositeStorageKey,
+    key: PlainCompositeStorageKey,
     timestamp: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::StorageHistory).await?;
-    if let Some((k, v)) = ch.seek(&index_chunk_key(key, timestamp)).await? {
+    if let Some((k, v)) = ch
+        .seek(&tables::StorageChangeSet::index_chunk_key(key, timestamp))
+        .await?
+    {
         if k[..common::ADDRESS_LENGTH] != key[..common::ADDRESS_LENGTH]
             || k[common::ADDRESS_LENGTH..common::ADDRESS_LENGTH + common::HASH_LENGTH]
                 != key[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..]
@@ -115,7 +118,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
             if let Some(change_set_block) = change_set_block {
                 let data = {
                     let mut c = tx.cursor_dup_sort(&tables::StorageChangeSet).await?;
-                    storage::find_with_incarnation(&mut c, change_set_block, key).await?
+                    storage::find_with_incarnation(&mut c, change_set_block, &key).await?
                 };
 
                 if let Some(data) = data {

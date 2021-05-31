@@ -39,9 +39,11 @@ pub trait ChangeSetTable: DupSort {
     const TEMPLATE: &'static str;
 
     type Key: Eq + Ord + AsRef<[u8]>;
+    type IndexChunkKey: Eq + Ord + AsRef<[u8]>;
     type IndexTable: Table;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
+    fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey;
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,

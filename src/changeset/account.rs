@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 pub use super::*;
 
 #[async_trait]
@@ -5,9 +7,16 @@ impl ChangeSetTable for tables::AccountChangeSet {
     const TEMPLATE: &'static str = "acc-ind-";
 
     type Key = common::Address;
+    type IndexChunkKey = [u8; size_of::<Self::Key>() + common::BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::AccountHistory;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
+    fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey {
+        let mut v = Self::IndexChunkKey::default();
+        v[..key.as_ref().len()].copy_from_slice(key.as_ref());
+        v[key.as_ref().len()..].copy_from_slice(&block_number.to_be_bytes());
+        v
+    }
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
