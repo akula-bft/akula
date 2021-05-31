@@ -20,17 +20,17 @@ impl HistoryKind for AccountHistory {
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
-        key: &Self::Key,
+        needle: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
         let k = dbutils::encode_block_number(block_number);
-        if let Some(v) = cursor.seek_both_range(&k, key.as_bytes()).await? {
-            let (_, k, v) = Self::decode(k.to_vec().into(), v);
+        if let Some(v) = cursor.seek_both_range(&k, needle.as_bytes()).await? {
+            let (_, Change { key, value }) = Self::decode(k.to_vec().into(), v);
 
-            if k == *key {
-                return Ok(Some(v));
+            if key == *needle {
+                return Ok(Some(value));
             }
         }
 
@@ -52,13 +52,13 @@ impl HistoryKind for AccountHistory {
         })
     }
 
-    fn decode<'tx>(db_key: Bytes<'tx>, db_value: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
+    fn decode<'tx>(db_key: Bytes<'tx>, db_value: Bytes<'tx>) -> (u64, Change<'tx, Self::Key>) {
         let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
 
         let mut k = db_value;
-        let v = k.split_off(common::ADDRESS_LENGTH);
+        let value = k.split_off(common::ADDRESS_LENGTH);
 
-        (block_n, common::Address::from_slice(&k), v)
+        (block_n, Change::new(common::Address::from_slice(&k), value))
     }
 }
 
@@ -89,9 +89,9 @@ mod tests {
         let mut ch2 = AccountChangeSet::new();
 
         for (k, v) in AccountHistory::encode(1, &ch) {
-            let (_, k, v) = AccountHistory::decode(k, v);
+            let (_, change) = AccountHistory::decode(k, v);
 
-            ch2.insert(Change::new(k, v));
+            ch2.insert(change);
         }
 
         assert_eq!(ch, ch2);

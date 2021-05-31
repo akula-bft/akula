@@ -51,7 +51,7 @@ pub trait HistoryKind {
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: u64,
-        k: &Self::Key,
+        needle: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>;
@@ -61,5 +61,5 @@ pub trait HistoryKind {
         changes: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs>;
     /// Decode `Change` from DB keys and values
-    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>);
+    fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Change<'tx, Self::Key>);
 }

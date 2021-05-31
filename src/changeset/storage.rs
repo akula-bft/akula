@@ -47,24 +47,22 @@ impl HistoryKind for StorageHistory {
         s: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs> {
         s.iter().map(move |cs| {
-            let cs_key = cs.key.as_ref();
+            const KEY_PART: usize = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
 
-            let key_part = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
-
-            let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + key_part];
+            let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + KEY_PART];
             new_k[..common::BLOCK_NUMBER_LENGTH]
                 .copy_from_slice(&dbutils::encode_block_number(block_number));
-            new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs_key[..key_part]);
+            new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs.key[..KEY_PART]);
 
             let mut new_v = vec![0; common::HASH_LENGTH + cs.value.len()];
-            new_v[..common::HASH_LENGTH].copy_from_slice(&cs_key[key_part..]);
+            new_v[..common::HASH_LENGTH].copy_from_slice(&cs.key[KEY_PART..]);
             new_v[common::HASH_LENGTH..].copy_from_slice(&cs.value[..]);
 
             (new_k.into(), new_v.into())
         })
     }
 
-    fn decode<'tx>(db_key: Bytes<'tx>, mut db_value: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>) {
+    fn decode<'tx>(db_key: Bytes<'tx>, mut db_value: Bytes<'tx>) -> (u64, Change<'tx, Self::Key>) {
         let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
 
         let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
@@ -75,7 +73,7 @@ impl HistoryKind for StorageHistory {
 
         let v = db_value.split_off(common::HASH_LENGTH);
 
-        (block_n, k, v)
+        (block_n, Change::new(k, v))
     }
 }
 
@@ -133,14 +131,14 @@ where
             .unwrap();
         let mut b = c.seek(&*seek).await?;
         while let Some((k, v)) = b {
-            let (_, k1, v1) = StorageHistory::decode(k, v);
-            if !k1.starts_with(address_to_find.as_bytes()) {
+            let (_, change) = StorageHistory::decode(k, v);
+            if !change.key.starts_with(address_to_find.as_bytes()) {
                 break;
             }
 
-            let st_hash = &k1[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..];
+            let st_hash = &change.key[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..];
             if st_hash == key_bytes_to_find {
-                return Ok(Some(v1));
+                return Ok(Some(change.value));
             }
 
             b = c.next().await?
@@ -161,9 +159,9 @@ where
 
     if let Some(v) = c.seek_both_range(&seek, key_bytes_to_find).await? {
         if v.starts_with(key_bytes_to_find) {
-            let (_, _, v) = StorageHistory::decode(seek.into(), v);
+            let (_, change) = StorageHistory::decode(seek.into(), v);
 
-            return Ok(Some(v));
+            return Ok(Some(change.value));
         }
     }
 
@@ -248,8 +246,8 @@ mod tests {
             let mut ch2 = StorageChangeSet::new();
 
             for (k, v) in StorageHistory::encode(0, &ch) {
-                let (_, k, v) = StorageHistory::decode(k, v);
-                ch2.insert(Change::new(k, v));
+                let (_, change) = StorageHistory::decode(k, v);
+                ch2.insert(change);
             }
 
             assert_eq!(ch, ch2)
@@ -281,12 +279,12 @@ mod tests {
                 }
             }
 
-            for ((_, k, v), change) in StorageHistory::encode(0, &ch)
+            for ((_, transformed), original) in StorageHistory::encode(0, &ch)
                 .map(|(k, v)| StorageHistory::decode(k, v))
                 .zip(&ch)
             {
-                assert_eq!(k, change.key);
-                assert_eq!(v, change.value);
+                assert_eq!(transformed.key, original.key);
+                assert_eq!(transformed.value, original.value);
             }
         };
 
