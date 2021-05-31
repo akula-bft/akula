@@ -3,14 +3,15 @@ use crate::{common, CursorDupSort};
 use bytes::Bytes;
 use std::io::Write;
 
-#[async_trait]
-impl ChangeSetTable for tables::StorageChangeSet {
-    const TEMPLATE: &'static str = "st-ind-";
+pub struct StorageHistory;
 
+#[async_trait]
+impl HistoryKind for StorageHistory {
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
     type IndexChunkKey =
         [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::StorageHistory;
+    type ChangeSetTable = tables::StorageChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
     fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey {
@@ -28,8 +29,7 @@ impl ChangeSetTable for tables::StorageChangeSet {
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, Self>,
-        Self: Sized,
+        C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
         do_search_2(
             cursor,
@@ -132,7 +132,7 @@ where
             .unwrap();
         let mut b = c.seek(&*seek).await?;
         while let Some((k, v)) = b {
-            let (_, k1, v1) = tables::StorageChangeSet::decode(k, v);
+            let (_, k1, v1) = StorageHistory::decode(k, v);
             if !k1.starts_with(address_to_find.as_bytes()) {
                 break;
             }
@@ -160,7 +160,7 @@ where
 
     if let Some(v) = c.seek_both_range(&seek, key_bytes_to_find).await? {
         if v.starts_with(key_bytes_to_find) {
-            let (_, _, v) = tables::StorageChangeSet::decode(seek.into(), v);
+            let (_, _, v) = StorageHistory::decode(seek.into(), v);
 
             return Ok(Some(v));
         }
@@ -246,8 +246,8 @@ mod tests {
 
             let mut ch2 = ChangeSet::new();
 
-            for (k, v) in tables::StorageChangeSet::encode(0, &ch) {
-                let (_, k, v) = tables::StorageChangeSet::decode(k, v);
+            for (k, v) in StorageHistory::encode(0, &ch) {
+                let (_, k, v) = StorageHistory::decode(k, v);
                 ch2.insert(Change::new(k, v));
             }
 
@@ -280,8 +280,8 @@ mod tests {
                 }
             }
 
-            for ((_, k, v), change) in tables::StorageChangeSet::encode(0, &ch)
-                .map(|(k, v)| tables::StorageChangeSet::decode(k, v))
+            for ((_, k, v), change) in StorageHistory::encode(0, &ch)
+                .map(|(k, v)| StorageHistory::decode(k, v))
                 .zip(&ch)
             {
                 assert_eq!(k, change.key);
@@ -323,7 +323,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            for (k, v) in tables::StorageChangeSet::encode(1, &ch) {
+            for (k, v) in StorageHistory::encode(1, &ch) {
                 c.put(&k, &v).await.unwrap()
             }
 
@@ -382,7 +382,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            for (k, v) in tables::StorageChangeSet::encode(1, &ch) {
+            for (k, v) in StorageHistory::encode(1, &ch) {
                 c.put(&k, &v).await.unwrap()
             }
 
@@ -510,7 +510,7 @@ mod tests {
             .mutable_cursor_dupsort(&tables::StorageChangeSet)
             .await
             .unwrap();
-        for (k, v) in tables::StorageChangeSet::encode(1, &ch) {
+        for (k, v) in StorageHistory::encode(1, &ch) {
             c.put(&k, &v).await.unwrap()
         }
 

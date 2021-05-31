@@ -1,14 +1,13 @@
+use super::*;
 use std::mem::size_of;
-
-pub use super::*;
+pub struct AccountHistory;
 
 #[async_trait]
-impl ChangeSetTable for tables::AccountChangeSet {
-    const TEMPLATE: &'static str = "acc-ind-";
-
+impl HistoryKind for AccountHistory {
     type Key = common::Address;
     type IndexChunkKey = [u8; size_of::<Self::Key>() + common::BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::AccountHistory;
+    type ChangeSetTable = tables::AccountChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
     fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey {
@@ -23,8 +22,7 @@ impl ChangeSetTable for tables::AccountChangeSet {
         key: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, Self>,
-        Self: Sized,
+        C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
         let k = dbutils::encode_block_number(block_number);
         if let Some(v) = cursor.seek_both_range(&k, key.as_bytes()).await? {
@@ -70,8 +68,6 @@ mod tests {
 
     #[test]
     fn account_encoding() {
-        type Table = tables::AccountChangeSet;
-
         let mut ch = ChangeSet::default();
 
         for (i, val) in vec![
@@ -91,8 +87,8 @@ mod tests {
 
         let mut ch2 = ChangeSet::default();
 
-        for (k, v) in Table::encode(1, &ch) {
-            let (_, k, v) = Table::decode(k, v);
+        for (k, v) in AccountHistory::encode(1, &ch) {
+            let (_, k, v) = AccountHistory::decode(k, v);
 
             ch2.insert(Change::new(k, v));
         }

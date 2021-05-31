@@ -35,9 +35,8 @@ impl<'tx, Key: ChangeKey> Change<'tx, Key> {
 pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
 
 #[async_trait]
-pub trait ChangeSetTable: DupSort {
-    const TEMPLATE: &'static str;
-
+pub trait HistoryKind {
+    type ChangeSetTable: DupSort;
     type Key: Eq + Ord + AsRef<[u8]>;
     type IndexChunkKey: Eq + Ord + AsRef<[u8]>;
     type IndexTable: Table;
@@ -50,8 +49,7 @@ pub trait ChangeSetTable: DupSort {
         k: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
-        C: CursorDupSort<'tx, Self>,
-        Self: Sized;
+        C: CursorDupSort<'tx, Self::ChangeSetTable>;
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
         s: &'cs ChangeSet<'tx, Self::Key>,

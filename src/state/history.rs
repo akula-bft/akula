@@ -1,4 +1,11 @@
-use crate::{changeset::*, common, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
+use crate::{
+    changeset::{account::AccountHistory, storage::StorageHistory, *},
+    common, dbutils,
+    dbutils::*,
+    kv::*,
+    models::*,
+    Cursor, Transaction,
+};
 use arrayref::array_ref;
 use bytes::Bytes;
 use common::{Hash, Incarnation};
@@ -39,7 +46,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
-        .seek(&tables::AccountChangeSet::index_chunk_key(key, timestamp))
+        .seek(&AccountHistory::index_chunk_key(key, timestamp))
         .await?
     {
         if k.starts_with(key.as_fixed_bytes()) {
@@ -51,7 +58,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                 if let Some(change_set_block) = change_set_block {
                     let data = {
                         let mut c = tx.cursor_dup_sort(&tables::AccountChangeSet).await?;
-                        tables::AccountChangeSet::find(&mut c, change_set_block, &key).await?
+                        AccountHistory::find(&mut c, change_set_block, &key).await?
                     };
 
                     if let Some(data) = data {
@@ -101,7 +108,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::StorageHistory).await?;
     if let Some((k, v)) = ch
-        .seek(&tables::StorageChangeSet::index_chunk_key(key, timestamp))
+        .seek(&StorageHistory::index_chunk_key(key, timestamp))
         .await?
     {
         if k[..common::ADDRESS_LENGTH] != key[..common::ADDRESS_LENGTH]
