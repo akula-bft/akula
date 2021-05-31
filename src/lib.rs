@@ -3,7 +3,6 @@
     destructuring_assignment,
     generic_associated_types,
     never_type,
-    trait_alias,
     min_type_alias_impl_trait
 )]
 #![recursion_limit = "256"]

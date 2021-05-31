@@ -4,6 +4,7 @@ use bytes::Bytes;
 use std::io::Write;
 
 pub struct StorageHistory;
+pub type StorageChangeSet<'tx> = ChangeSet<'tx, StorageHistory>;
 
 #[async_trait]
 impl HistoryKind for StorageHistory {
@@ -43,7 +44,7 @@ impl HistoryKind for StorageHistory {
 
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
-        s: &'cs ChangeSet<'tx, Self::Key>,
+        s: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs> {
         s.iter().map(move |cs| {
             let cs_key = cs.key.as_ref();
@@ -233,7 +234,7 @@ mod tests {
         value_generator: impl Fn(usize) -> Bytes<'static>,
     ) {
         let f = move |num_of_elements, num_of_keys| {
-            let mut ch = ChangeSet::new();
+            let mut ch = StorageChangeSet::new();
 
             for i in 0..num_of_elements {
                 let inc = (incarnation_generator)();
@@ -244,7 +245,7 @@ mod tests {
                 }
             }
 
-            let mut ch2 = ChangeSet::new();
+            let mut ch2 = StorageChangeSet::new();
 
             for (k, v) in StorageHistory::encode(0, &ch) {
                 let (_, k, v) = StorageHistory::decode(k, v);
@@ -270,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn encoding_storage_new_without_not_default_incarnation_walk() {
         let f = |num_of_elements, num_of_keys| {
-            let mut ch = ChangeSet::new();
+            let mut ch = StorageChangeSet::new();
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
@@ -308,7 +309,7 @@ mod tests {
 
         let tx = &tx;
         let f = |num_of_elements, num_of_keys| async move {
-            let mut ch = ChangeSet::new();
+            let mut ch = StorageChangeSet::new();
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
@@ -367,7 +368,7 @@ mod tests {
 
         let tx = &tx;
         let f = |num_of_elements, num_of_keys| async move {
-            let mut ch = ChangeSet::new();
+            let mut ch = StorageChangeSet::new();
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {

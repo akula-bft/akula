@@ -1,6 +1,7 @@
 use super::*;
 use std::mem::size_of;
 pub struct AccountHistory;
+pub type AccountChangeSet<'tx> = ChangeSet<'tx, AccountHistory>;
 
 #[async_trait]
 impl HistoryKind for AccountHistory {
@@ -38,7 +39,7 @@ impl HistoryKind for AccountHistory {
 
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
-        s: &'cs ChangeSet<'tx, Self::Key>,
+        s: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs> {
         let k = dbutils::encode_block_number(block_number);
 
@@ -68,7 +69,7 @@ mod tests {
 
     #[test]
     fn account_encoding() {
-        let mut ch = ChangeSet::default();
+        let mut ch = ChangeSet::<AccountHistory>::default();
 
         for (i, val) in vec![
             "f7f6db1eb17c6d582078e0ffdd0c".into(),
@@ -85,7 +86,7 @@ mod tests {
             ch.insert(Change::new(address, val));
         }
 
-        let mut ch2 = ChangeSet::default();
+        let mut ch2 = AccountChangeSet::new();
 
         for (k, v) in AccountHistory::encode(1, &ch) {
             let (_, k, v) = AccountHistory::decode(k, v);

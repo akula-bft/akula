@@ -7,9 +7,14 @@ use std::{collections::BTreeSet, fmt::Debug};
 pub mod account;
 pub mod storage;
 
-pub trait EncodedStream<'tx, 'cs> = Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + 'cs;
+pub trait EncodedStream<'tx, 'cs>: Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + Send + 'cs {}
+impl<'tx: 'cs, 'cs, T> EncodedStream<'tx, 'cs> for T where
+    T: Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + Send + 'cs
+{
+}
 
-pub trait ChangeKey = Eq + Ord + AsRef<[u8]>;
+pub trait ChangeKey: Eq + Ord + AsRef<[u8]> {}
+impl<T> ChangeKey for T where T: Eq + Ord + AsRef<[u8]> {}
 
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Change<'tx, Key: ChangeKey> {
@@ -32,12 +37,12 @@ impl<'tx, Key: ChangeKey> Change<'tx, Key> {
     }
 }
 
-pub type ChangeSet<'tx, Key> = BTreeSet<Change<'tx, Key>>;
+pub type ChangeSet<'tx, K> = BTreeSet<Change<'tx, <K as HistoryKind>::Key>>;
 
 #[async_trait]
 pub trait HistoryKind {
     type ChangeSetTable: DupSort;
-    type Key: Eq + Ord + AsRef<[u8]>;
+    type Key: Eq + Ord + AsRef<[u8]> + Sync;
     type IndexChunkKey: Eq + Ord + AsRef<[u8]>;
     type IndexTable: Table;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
@@ -50,9 +55,11 @@ pub trait HistoryKind {
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>;
+    /// Encode changes into DB keys and values
     fn encode<'cs, 'tx: 'cs>(
         block_number: u64,
-        s: &'cs ChangeSet<'tx, Self::Key>,
+        changes: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs>;
+    /// Decode `Change` from DB keys and values
     fn decode<'tx>(k: Bytes<'tx>, v: Bytes<'tx>) -> (u64, Self::Key, Bytes<'tx>);
 }

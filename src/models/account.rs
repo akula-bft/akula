@@ -3,6 +3,7 @@ use anyhow::bail;
 use ethereum_types::{H256, U256};
 use hex_literal::hex;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Account {
     pub initialised: bool,
     pub nonce: u64,
