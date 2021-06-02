@@ -30,6 +30,7 @@ hex-literal = "0.3"
 maplit = "1"
 mdbx = { git = "https://github.com/vorot93/mdbx-rs" }
 once_cell = "1"
+pin-utils = "0.1"
 rand = "0.8"
 rlp = "0.5"
 rlp-derive = "0.1"

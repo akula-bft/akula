@@ -14,6 +14,7 @@
 
 pub mod accessors;
 pub mod adapter;
+mod bitmapdb;
 mod changeset;
 mod common;
 mod dbutils;

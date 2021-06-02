@@ -28,7 +28,7 @@ fn main() {
         let table_name = format_ident!("{}", t);
         f.write_all(
             quote! {
-                #[derive(Clone, Copy, Debug)]
+                #[derive(Clone, Copy, Debug, Default)]
                 pub struct #table_name;
 
                 impl Table for #table_name {

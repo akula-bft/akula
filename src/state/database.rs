@@ -1,18 +1,19 @@
-use std::{
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
-};
-
 use crate::{
+    bitmapdb,
     changeset::{account::AccountHistory, storage::StorageHistory, Change, HistoryKind},
     common, dbutils,
     kv::tables,
     models::Account,
     ChangeSet, MutableCursorDupSort, MutableTransaction,
 };
+use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
 use static_bytes::BytesMut;
+use std::{
+    collections::{HashMap, HashSet},
+    marker::PhantomData,
+};
 
 #[async_trait]
 pub trait StateReader {
@@ -250,6 +251,32 @@ async fn push_changes<'tx, K: HistoryKind, C: MutableCursorDupSort<'tx, K::Chang
     Ok(())
 }
 
+async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>(
+    tx: &'tx Tx,
+    block_number: u64,
+    changes: ChangeSet<'tx, K>,
+) -> anyhow::Result<()> {
+    let mut buf = vec![];
+    for change in changes {
+        let k = dbutils::composite_key_without_incarnation::<K>(&change.key);
+
+        let mut index = bitmapdb::get_64(tx, &K::IndexTable::default(), &k, 0, u64::MAX)
+            .await
+            .context("failed to find chunk")?;
+
+        index.push(block_number);
+
+        for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys(&k)
+        {
+            buf.clear();
+            chunk.serialize_into(&mut buf)?;
+            tx.set(&K::IndexTable::default(), &chunk_key, &buf).await?;
+        }
+    }
+
+    Ok(())
+}
+
 #[async_trait]
 impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
     for ChangeSetWriter<'db, 'tx, Tx>
@@ -305,7 +332,12 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
     }
 
     async fn write_history(&mut self) -> anyhow::Result<()> {
-        todo!()
+        write_index::<AccountHistory, _>(self.tx, self.block_number, self.get_account_changes())
+            .await?;
+        write_index::<StorageHistory, _>(self.tx, self.block_number, self.get_storage_changes())
+            .await?;
+
+        Ok(())
     }
 }
 

@@ -40,11 +40,11 @@ impl<'tx, Key: ChangeKey> Change<'tx, Key> {
 pub type ChangeSet<'tx, K> = BTreeSet<Change<'tx, <K as HistoryKind>::Key>>;
 
 #[async_trait]
-pub trait HistoryKind {
+pub trait HistoryKind: Send {
     type ChangeSetTable: DupSort;
     type Key: Eq + Ord + AsRef<[u8]> + Sync;
     type IndexChunkKey: Eq + Ord + AsRef<[u8]>;
-    type IndexTable: Table;
+    type IndexTable: Table + Default;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
     fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey;
