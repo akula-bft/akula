@@ -348,7 +348,7 @@ impl Account {
         } else {
             let mut acc = self.clone();
             if omit_hashes {
-                acc.root = common::EMPTY_ROOT;
+                acc.root = None;
             }
 
             let data_len = acc.encoding_length_for_storage();

@@ -73,7 +73,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
             //restore codehash
             if let Some(mut acc) = Account::decode_for_storage(&*data)? {
-                if acc.incarnation > 0 && acc.is_empty_code_hash() {
+                if acc.incarnation > 0 && acc.code_hash.is_none() {
                     if let Some(code_hash) = tx
                         .get(
                             &tables::PlainCodeHash,
@@ -84,7 +84,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                         )
                         .await?
                     {
-                        acc.code_hash = H256(*array_ref![&*code_hash, 0, 32]);
+                        acc.code_hash = Some(H256(*array_ref![&*code_hash, 0, 32]));
                     }
 
                     let mut data = vec![0; acc.encoding_length_for_storage()];

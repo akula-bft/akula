@@ -29,6 +29,7 @@ hex = "0.4"
 hex-literal = "0.3"
 maplit = "1"
 mdbx = { git = "https://github.com/vorot93/mdbx-rs" }
+modular-bitfield = "0.11"
 once_cell = "1"
 pin-utils = "0.1"
 rand = "0.8"
