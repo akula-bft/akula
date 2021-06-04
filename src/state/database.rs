@@ -4,9 +4,10 @@ use crate::{
     common, dbutils,
     kv::tables,
     models::Account,
-    ChangeSet, MutableCursorDupSort, MutableTransaction,
+    ChangeSet, MutableCursor, MutableCursorDupSort, MutableTransaction,
 };
 use anyhow::Context;
+use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
 use static_bytes::BytesMut;
@@ -16,27 +17,30 @@ use std::{
 };
 
 #[async_trait]
-pub trait StateReader {
+pub trait StateReader<'storage> {
     async fn read_account_data(&self, address: common::Address) -> anyhow::Result<Option<Account>>;
     async fn read_account_storage(
         &self,
         address: common::Address,
         incarnation: common::Incarnation,
-        key: Option<common::Hash>,
-    ) -> anyhow::Result<Option<&[u8]>>;
+        key: common::Hash,
+    ) -> anyhow::Result<Option<Bytes<'storage>>>;
     async fn read_account_code(
         &self,
         address: common::Address,
         incarnation: common::Incarnation,
         code_hash: common::Hash,
-    ) -> anyhow::Result<Option<&[u8]>>;
+    ) -> anyhow::Result<Option<Bytes<'storage>>>;
     async fn read_account_code_size(
         &self,
         address: common::Address,
         incarnation: common::Incarnation,
         code_hash: common::Hash,
-    ) -> anyhow::Result<Option<&[u8]>>;
-    async fn read_account_incarnation(address: common::Address) -> anyhow::Result<Option<u64>>;
+    ) -> anyhow::Result<usize>;
+    async fn read_account_incarnation(
+        &self,
+        address: common::Address,
+    ) -> anyhow::Result<Option<u64>>;
 }
 
 #[async_trait]
@@ -260,7 +264,7 @@ async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>
     for change in changes {
         let k = dbutils::composite_key_without_incarnation::<K>(&change.key);
 
-        let mut index = bitmapdb::get_64(tx, &K::IndexTable::default(), &k, 0, u64::MAX)
+        let mut index = bitmapdb::get(tx, &K::IndexTable::default(), &k, 0, u64::MAX)
             .await
             .context("failed to find chunk")?;
 
@@ -361,6 +365,204 @@ impl Account {
 
 pub struct PlainStateWriter<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
     tx: &'tx Tx,
-    changeset_writer: Option<ChangeSetWriter<'db, 'tx, Tx>>,
+    csw: ChangeSetWriter<'db, 'tx, Tx>,
     _marker: PhantomData<&'db ()>,
+}
+
+impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> PlainStateWriter<'db, 'tx, Tx> {
+    pub fn new(tx: &'tx Tx, block_number: u64) -> Self {
+        Self {
+            tx,
+            csw: ChangeSetWriter::new(tx, block_number),
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWriter<'db, 'tx, Tx> {
+    async fn update_account_data(
+        &mut self,
+        address: common::Address,
+        original: &Account,
+        account: &Account,
+    ) -> anyhow::Result<()> {
+        self.csw
+            .update_account_data(address, original, account)
+            .await?;
+
+        let mut value = Vec::with_capacity(account.encoding_length_for_storage());
+        account.encode_for_storage(&mut value);
+
+        self.tx
+            .set(&tables::PlainState, address.as_bytes(), &value)
+            .await
+    }
+
+    async fn update_account_code(
+        &mut self,
+        address: common::Address,
+        incarnation: common::Incarnation,
+        code_hash: common::Hash,
+        code: &[u8],
+    ) -> anyhow::Result<()> {
+        self.csw
+            .update_account_code(address, incarnation, code_hash, code)
+            .await?;
+
+        self.tx
+            .set(&tables::Code, code_hash.as_bytes(), code)
+            .await?;
+        self.tx
+            .set(
+                &tables::PlainCodeHash,
+                &dbutils::plain_generate_storage_prefix(address, incarnation),
+                code_hash.as_bytes(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn delete_account(
+        &mut self,
+        address: common::Address,
+        original: &Account,
+    ) -> anyhow::Result<()> {
+        self.csw.delete_account(address, original).await?;
+
+        self.tx
+            .mutable_cursor(&tables::PlainState)
+            .await?
+            .delete(address.as_bytes(), &[])
+            .await?;
+        if original.incarnation > 0 {
+            self.tx
+                .set(
+                    &tables::IncarnationMap,
+                    address.as_bytes(),
+                    &original.incarnation.to_be_bytes(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn write_account_storage(
+        &mut self,
+        address: common::Address,
+        incarnation: common::Incarnation,
+        key: common::Hash,
+        original: common::Value,
+        value: common::Value,
+    ) -> anyhow::Result<()> {
+        self.csw
+            .write_account_storage(address, incarnation, key, original, value)
+            .await?;
+
+        if original == value {
+            return Ok(());
+        }
+
+        let composite_key =
+            dbutils::plain_generate_composite_storage_key(address, incarnation, key);
+
+        let mut c = self.tx.mutable_cursor(&tables::PlainState).await?;
+        if value.is_zero() {
+            c.delete(&composite_key, &[]).await?;
+        } else {
+            c.put(&composite_key, &<[u8; 32]>::from(value)).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn create_contract(&mut self, address: common::Address) -> anyhow::Result<()> {
+        self.csw.create_contract(address).await
+    }
+}
+
+#[async_trait]
+impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
+    for PlainStateWriter<'db, 'tx, Tx>
+{
+    async fn write_changesets(&mut self) -> anyhow::Result<()> {
+        self.csw.write_changesets().await
+    }
+
+    async fn write_history(&mut self) -> anyhow::Result<()> {
+        self.csw.write_history().await
+    }
+}
+
+pub struct PlainStateReader<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
+    tx: &'tx Tx,
+    _marker: PhantomData<&'db ()>,
+}
+
+impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> PlainStateReader<'db, 'tx, Tx> {
+    pub fn new(tx: &'tx Tx) -> Self {
+        Self {
+            tx,
+            _marker: PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateReader<'tx>
+    for PlainStateReader<'db, 'tx, Tx>
+{
+    async fn read_account_data(&self, address: common::Address) -> anyhow::Result<Option<Account>> {
+        if let Some(encoded) = self.tx.get(&tables::PlainState, address.as_bytes()).await? {
+            return Account::decode_for_storage(&*encoded);
+        }
+
+        Ok(None)
+    }
+
+    async fn read_account_storage(
+        &self,
+        address: common::Address,
+        incarnation: common::Incarnation,
+        key: common::Hash,
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
+        let composite_key =
+            dbutils::plain_generate_composite_storage_key(address, incarnation, key);
+        self.tx.get(&tables::PlainState, &composite_key).await
+    }
+
+    async fn read_account_code(
+        &self,
+        _: common::Address,
+        _: common::Incarnation,
+        code_hash: common::Hash,
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
+        self.tx.get(&tables::PlainState, code_hash.as_bytes()).await
+    }
+
+    async fn read_account_code_size(
+        &self,
+        address: common::Address,
+        incarnation: common::Incarnation,
+        code_hash: common::Hash,
+    ) -> anyhow::Result<usize> {
+        Ok(self
+            .read_account_code(address, incarnation, code_hash)
+            .await?
+            .map(|code| code.len())
+            .unwrap_or(0))
+    }
+
+    async fn read_account_incarnation(
+        &self,
+        address: common::Address,
+    ) -> anyhow::Result<Option<u64>> {
+        Ok(self
+            .tx
+            .get(&tables::IncarnationMap, address.as_bytes())
+            .await?
+            .map(|b| u64::from_be_bytes(*array_ref!(&*b, 0, 8))))
+    }
 }

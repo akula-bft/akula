@@ -87,11 +87,11 @@ pub fn generate_storage_prefix(
 
 /// address hash + incarnation prefix (for plain state)
 pub fn plain_generate_storage_prefix(
-    address: &[u8],
+    address: common::Address,
     incarnation: common::Incarnation,
 ) -> PlainStoragePrefix {
     let mut prefix = PlainStoragePrefix::default();
-    prefix[..common::ADDRESS_LENGTH].copy_from_slice(address);
+    prefix[..common::ADDRESS_LENGTH].copy_from_slice(address.as_bytes());
     prefix[common::ADDRESS_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
     prefix
 }

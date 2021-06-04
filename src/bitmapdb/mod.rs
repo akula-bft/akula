@@ -9,7 +9,7 @@ use tokio_stream::StreamExt;
 // Size beyond which we get MDBX overflow pages: 4096 / 2 - (key_size + 8)
 pub const CHUNK_LIMIT: usize = 1950;
 
-pub async fn get_64<'db, Tx, T>(
+pub async fn get<'db, Tx, T>(
     tx: &Tx,
     table: &T,
     key: &[u8],
@@ -56,7 +56,7 @@ where
     Ok(out.unwrap_or_default())
 }
 
-fn cut_left_64(bm: &mut RoaringTreemap, size_limit: usize) -> Option<RoaringTreemap> {
+fn cut_left(bm: &mut RoaringTreemap, size_limit: usize) -> Option<RoaringTreemap> {
     if bm.is_empty() {
         return None;
     }
@@ -68,22 +68,27 @@ fn cut_left_64(bm: &mut RoaringTreemap, size_limit: usize) -> Option<RoaringTree
         return Some(v);
     }
 
-    let from = bm.min().unwrap();
-    let min_max = bm.max().unwrap() - bm.min().unwrap();
-
     let mut v = RoaringTreemap::new();
 
     let mut it = bm.iter().peekable();
+
+    let mut min_n = None;
     while let Some(n) = it.peek() {
         v.push(*n);
         if v.serialized_size() > size_limit {
             v.remove(*n);
+            min_n = Some(*n);
             break;
         }
         it.next();
     }
 
-    Some(v)
+    if let Some(n) = min_n {
+        bm.remove_range(0..n);
+        Some(v)
+    } else {
+        Some(std::mem::replace(bm, RoaringTreemap::new()))
+    }
 }
 
 pub struct Chunks {
@@ -95,7 +100,7 @@ impl Iterator for Chunks {
     type Item = RoaringTreemap;
 
     fn next(&mut self) -> Option<Self::Item> {
-        cut_left_64(&mut self.bm, self.size_limit)
+        cut_left(&mut self.bm, self.size_limit)
     }
 }
 
@@ -104,7 +109,7 @@ impl Chunks {
         Self { bm, size_limit }
     }
 
-    pub fn with_keys<'a>(self, k: &'a [u8]) -> ChunkWithKeys<'a> {
+    pub fn with_keys(self, k: &[u8]) -> ChunkWithKeys<'_> {
         ChunkWithKeys {
             inner: self.peekable(),
             k,
@@ -122,12 +127,12 @@ impl<'a> Iterator for ChunkWithKeys<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|chunk| {
-            let mut chunk_key = self
+            let chunk_key = self
                 .k
                 .iter()
                 .chain(
                     &if self.inner.peek().is_none() {
-                        u64::MAX ^ 0
+                        u64::MAX
                     } else {
                         chunk.max().unwrap()
                     }
@@ -138,5 +143,48 @@ impl<'a> Iterator for ChunkWithKeys<'a> {
 
             (chunk_key, chunk)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cut_left() {
+        for &n in &[1024, 2048] {
+            let mut bm = RoaringTreemap::new();
+
+            for j in (0..10_000).filter(|j| j % 20 == 0) {
+                bm.append(j..j + 10);
+            }
+
+            while !bm.is_empty() {
+                let lft = super::cut_left(&mut bm, n).unwrap();
+                let lft_size = lft.serialized_size();
+                if !bm.is_empty() {
+                    assert!(lft_size > n - 256 && lft_size < n + 256);
+                } else {
+                    assert!(lft.serialized_size() > 0);
+                    assert!(lft_size < n + 256);
+                }
+            }
+        }
+
+        const N: usize = 2048;
+        {
+            let mut bm = RoaringTreemap::new();
+            bm.push(1);
+            let lft = super::cut_left(&mut bm, N).unwrap();
+            assert!(lft.serialized_size() > 0);
+            assert_eq!(lft.len(), 1);
+            assert_eq!(bm.len(), 0);
+        }
+
+        {
+            let mut bm = RoaringTreemap::new();
+            assert_eq!(super::cut_left(&mut bm, N), None);
+            assert_eq!(bm.len(), 0);
+        }
     }
 }

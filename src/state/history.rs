@@ -29,10 +29,10 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     address: Address,
     incarnation: Incarnation,
     key: Hash,
-    timestamp: u64,
+    block_number: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let key = plain_generate_composite_storage_key(address, incarnation, key);
-    if let Some(v) = find_storage_by_history(tx, key, timestamp).await? {
+    if let Some(v) = find_storage_by_history(tx, key, block_number).await? {
         return Ok(Some(v));
     }
 
@@ -41,24 +41,24 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    key: common::Address,
-    timestamp: u64,
+    address: common::Address,
+    block_number: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
-        .seek(&AccountHistory::index_chunk_key(key, timestamp))
+        .seek(&AccountHistory::index_chunk_key(address, block_number))
         .await?
     {
-        if k.starts_with(key.as_fixed_bytes()) {
+        if k.starts_with(address.as_fixed_bytes()) {
             let change_set_block = RoaringTreemap::deserialize_from(&*v)?
                 .into_iter()
-                .find(|n| *n >= timestamp);
+                .find(|n| *n >= block_number);
 
             let data = {
                 if let Some(change_set_block) = change_set_block {
                     let data = {
                         let mut c = tx.cursor_dup_sort(&tables::AccountChangeSet).await?;
-                        AccountHistory::find(&mut c, change_set_block, &key).await?
+                        AccountHistory::find(&mut c, change_set_block, &address).await?
                     };
 
                     if let Some(data) = data {
@@ -77,10 +77,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                     if let Some(code_hash) = tx
                         .get(
                             &tables::PlainCodeHash,
-                            &dbutils::plain_generate_storage_prefix(
-                                key.as_fixed_bytes(),
-                                acc.incarnation,
-                            ),
+                            &dbutils::plain_generate_storage_prefix(address, acc.incarnation),
                         )
                         .await?
                     {
