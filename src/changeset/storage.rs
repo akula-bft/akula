@@ -91,7 +91,11 @@ where
         common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
         &k[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH
             ..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH],
-        u64::from_be_bytes(*array_ref!(&k[common::ADDRESS_LENGTH..], 0, 8)),
+        u64::from_be_bytes(*array_ref!(
+            &k[common::ADDRESS_LENGTH..],
+            0,
+            common::INCARNATION_LENGTH
+        )),
     )
     .await
 }

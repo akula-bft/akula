@@ -20,9 +20,10 @@ where
     let mut out = HashMap::new();
     for table in tables::TABLE_MAP.keys() {
         let st = tx
-            .open_db(Some(table))
-            .with_context(|| format!("failed to open table: {}", table))?
-            .stat()
+            .db_stat(
+                &tx.open_db(Some(table))
+                    .with_context(|| format!("failed to open table: {}", table))?,
+            )
             .with_context(|| format!("failed to get stats for table: {}", table))?;
 
         out.insert(
@@ -132,7 +133,7 @@ where
         T: Table,
     {
         Ok(MdbxCursor {
-            inner: self.open_db(Some(table.db_name().as_ref()))?.cursor()?,
+            inner: Self::cursor(self, &self.open_db(Some(table.db_name().as_ref()))?)?,
             t: table.db_name(),
         })
     }
@@ -142,11 +143,15 @@ where
         'env: 'tx,
         T: DupSort,
     {
-        self.cursor(table).await
+        traits::Transaction::cursor(self, table).await
     }
 
     async fn get<'s, T: Table>(&'s self, table: &T, k: &[u8]) -> anyhow::Result<Option<Bytes<'s>>> {
-        Ok(self.open_db(Some(table.db_name().as_ref()))?.get(k)?)
+        Ok(Self::get(
+            self,
+            &self.open_db(Some(table.db_name().as_ref()))?,
+            k,
+        )?)
     }
 }
 
@@ -163,10 +168,7 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         'env: 'tx,
         T: Table,
     {
-        Ok(MdbxCursor {
-            inner: self.open_db(Some(table.db_name().as_ref()))?.cursor()?,
-            t: table.db_name(),
-        })
+        traits::Transaction::cursor(self, table).await
     }
 
     async fn mutable_cursor_dupsort<'tx, T>(
@@ -188,9 +190,13 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         {
             return MutableCursor::<T>::put(&mut self.mutable_cursor(table).await?, k, v).await;
         }
-        Ok(self
-            .open_db(Some(table.db_name().as_ref()))?
-            .put(k, v, WriteFlags::UPSERT)?)
+        Ok(Self::put(
+            self,
+            &self.open_db(Some(table.db_name().as_ref()))?,
+            k,
+            v,
+            WriteFlags::UPSERT,
+        )?)
     }
 
     async fn commit(self) -> anyhow::Result<()> {
