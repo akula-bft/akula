@@ -35,6 +35,7 @@ fn bytes_to_u64(buf: &[u8]) -> u64 {
     u64::from_le_bytes(decoded)
 }
 
+#[allow(dead_code)]
 #[bitfield]
 #[derive(Clone, Copy, Debug, Default)]
 struct AccountStorageFlags {

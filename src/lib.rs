@@ -25,7 +25,7 @@ pub mod stages;
 mod state;
 pub mod txdb;
 
-pub use changeset::ChangeSet;
+pub use changeset::*;
 pub use kv::{
     mdbx::*,
     new_mem_database,

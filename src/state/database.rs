@@ -1,6 +1,6 @@
 use crate::{
     bitmapdb,
-    changeset::{account::AccountHistory, storage::StorageHistory, Change, HistoryKind},
+    changeset::{AccountHistory, Change, HistoryKind, StorageHistory},
     common, dbutils,
     kv::tables,
     models::Account,
@@ -189,10 +189,10 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
 
     async fn update_account_code(
         &mut self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        code_hash: common::Hash,
-        code: &[u8],
+        _: common::Address,
+        _: common::Incarnation,
+        _: common::Hash,
+        _: &[u8],
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -232,27 +232,9 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
         Ok(())
     }
 
-    async fn create_contract(&mut self, address: common::Address) -> anyhow::Result<()> {
+    async fn create_contract(&mut self, _: common::Address) -> anyhow::Result<()> {
         Ok(())
     }
-}
-async fn push_changes<'tx, K: HistoryKind, C: MutableCursorDupSort<'tx, K::ChangeSetTable>>(
-    mut cur: C,
-    block_number: u64,
-    changes: &ChangeSet<'tx, K>,
-) -> anyhow::Result<()> {
-    let mut prev_k = None;
-    for (k, v) in K::encode(block_number, changes) {
-        if prev_k.map(|prev_k| k == prev_k).unwrap_or(false) {
-            cur.append_dup(&*k, &*v).await?;
-        } else {
-            cur.append(&*k, &*v).await?;
-        }
-
-        prev_k = Some(k);
-    }
-
-    Ok(())
 }
 
 async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>(

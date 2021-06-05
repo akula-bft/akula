@@ -1,11 +1,4 @@
-use crate::{
-    changeset::{account::AccountHistory, storage::StorageHistory, *},
-    common, dbutils,
-    dbutils::*,
-    kv::*,
-    models::*,
-    Cursor, Transaction,
-};
+use crate::{changeset::*, common, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
 use arrayref::array_ref;
 use bytes::Bytes;
 use common::{Hash, Incarnation};
@@ -122,7 +115,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
             if let Some(change_set_block) = change_set_block {
                 let data = {
                     let mut c = tx.cursor_dup_sort(&tables::StorageChangeSet).await?;
-                    storage::find_with_incarnation(&mut c, change_set_block, &key).await?
+                    find_storage_with_incarnation(&mut c, change_set_block, &key).await?
                 };
 
                 if let Some(data) = data {

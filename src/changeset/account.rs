@@ -1,7 +1,5 @@
 use super::*;
 use std::mem::size_of;
-pub struct AccountHistory;
-pub type AccountChangeSet<'tx> = ChangeSet<'tx, AccountHistory>;
 
 #[async_trait]
 impl HistoryKind for AccountHistory {

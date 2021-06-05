@@ -4,8 +4,15 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use std::{collections::BTreeSet, fmt::Debug};
 
-pub mod account;
-pub mod storage;
+mod account;
+mod storage;
+
+pub struct AccountHistory;
+pub struct StorageHistory;
+
+pub type AccountChangeSet<'tx> = ChangeSet<'tx, AccountHistory>;
+pub type StorageChangeSet<'tx> = ChangeSet<'tx, StorageHistory>;
+pub use storage::find_with_incarnation as find_storage_with_incarnation;
 
 pub trait EncodedStream<'tx, 'cs>: Iterator<Item = (Bytes<'tx>, Bytes<'tx>)> + Send + 'cs {}
 impl<'tx: 'cs, 'cs, T> EncodedStream<'tx, 'cs> for T where

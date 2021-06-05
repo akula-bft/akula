@@ -3,9 +3,6 @@ use crate::{common, CursorDupSort};
 use bytes::Bytes;
 use std::io::Write;
 
-pub struct StorageHistory;
-pub type StorageChangeSet<'tx> = ChangeSet<'tx, StorageHistory>;
-
 #[async_trait]
 impl HistoryKind for StorageHistory {
     type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
