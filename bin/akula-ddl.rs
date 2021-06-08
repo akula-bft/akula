@@ -1,4 +1,11 @@
-use akula::downloader::{chain_config, opts::Opts, sentry_client, sentry_client::SentryClient};
+use akula::downloader::{
+    block_id, chain_config, messages,
+    opts::Opts,
+    sentry_client,
+    sentry_client::{PeerFilter, SentryClient},
+    sentry_client_impl::SentryClientImpl,
+};
+
 use tracing_subscriber::EnvFilter;
 
 async fn run() -> anyhow::Result<()> {
@@ -16,8 +23,20 @@ async fn run() -> anyhow::Result<()> {
         chain_fork_config: chain_config,
         max_block: 0,
     };
-    let mut sentry = SentryClient::new(opts.sentry_api_addr).await?;
+    let mut sentry = SentryClientImpl::new(opts.sentry_api_addr).await?;
     sentry.set_status(status).await?;
+
+    let message = messages::GetBlockHeadersMessage {
+        request_id: 0,
+        start_block: block_id::BlockId::Number(0),
+        limit: 0,
+        skip: 0,
+        reverse: false,
+    };
+    sentry
+        .send_message(Box::new(message), PeerFilter::All)
+        .await?;
+
     Ok(())
 }
 
