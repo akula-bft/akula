@@ -7,6 +7,7 @@
 )]
 #![recursion_limit = "256"]
 #![allow(
+    dead_code,
     incomplete_features,
     clippy::mutable_key_type,
     clippy::unused_io_amount
