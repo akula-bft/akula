@@ -1,14 +1,7 @@
-use super::chain_config::ChainConfig;
-use crate::downloader::sentry_address::SentryAddress;
-use ethereum_interfaces::{
-    self,
-    sentry::{sentry_client, Forks, SetStatusReply, StatusData},
-};
-use tracing::*;
-
-pub struct SentryClient {
-    client: sentry_client::SentryClient<tonic::transport::channel::Channel>,
-}
+use crate::downloader::chain_config::ChainConfig;
+use async_trait::async_trait;
+use ethereum_types;
+use rlp;
 
 pub struct Status {
     pub total_difficulty: ethereum_types::U256,
@@ -17,32 +10,50 @@ pub struct Status {
     pub max_block: u64,
 }
 
-impl SentryClient {
-    pub async fn new(addr: SentryAddress) -> anyhow::Result<Self> {
-        info!("SentryClient connecting to {}...", addr.addr);
-        let client = sentry_client::SentryClient::connect(addr.addr).await?;
-        Ok(SentryClient { client })
-    }
+pub enum PeerFilter {
+    MinBlock(u64),
+    PeerId(ethereum_types::H512),
+    Random(u64 /* max peers */),
+    All,
+}
 
-    pub async fn set_status(&mut self, status: Status) -> anyhow::Result<()> {
-        let fork_data = Forks {
-            genesis: Some(status.chain_fork_config.genesis_block_hash.into()),
-            forks: status.chain_fork_config.fork_block_numbers,
-        };
+#[derive(Debug)]
+pub enum EthMessageId {
+    Status = 0,
+    NewBlockHashes = 1,
+    Transactions = 2,
+    GetBlockHeaders = 3,
+    BlockHeaders = 4,
+    GetBlockBodies = 5,
+    BlockBodies = 6,
+    NewBlock = 7,
+    NewPooledTransactionHashes = 8,
+    GetPooledTransactions = 9,
+    PooledTransactions = 10,
+    GetNodeData = 13,
+    NodeData = 14,
+    GetReceipts = 15,
+    Receipts = 16,
+}
 
-        let status_data = StatusData {
-            network_id: u64::from(status.chain_fork_config.id.0),
-            total_difficulty: Some(ethereum_interfaces::types::H256::from(
-                status.total_difficulty,
-            )),
-            best_hash: Some(ethereum_interfaces::types::H256::from(status.best_hash)),
-            fork_data: Some(fork_data),
-            max_block: status.max_block,
-        };
-        let request = tonic::Request::new(status_data);
-        let response = self.client.set_status(request).await?;
-        let reply: SetStatusReply = response.into_inner();
-        debug!("SentryClient set_status replied with: {:?}", reply);
-        Ok(())
-    }
+pub trait Identifiable {
+    fn id(&self) -> EthMessageId;
+}
+
+pub trait Message: Identifiable + Send + rlp::Encodable {}
+
+#[async_trait]
+pub trait SentryClient {
+    async fn set_status(&mut self, status: Status) -> anyhow::Result<()>;
+
+    //async fn penalize_peer(&mut self) -> anyhow::Result<()>;
+    //async fn peer_min_block(&mut self) -> anyhow::Result<()>;
+
+    async fn send_message(
+        &mut self,
+        message: Box<dyn Message>,
+        peer_filter: PeerFilter,
+    ) -> anyhow::Result<()>;
+
+    //async fn receive_messages(&mut self) -> anyhow::Result<stream<Message>>;
 }
