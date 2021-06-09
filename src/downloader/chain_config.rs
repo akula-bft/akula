@@ -1,11 +1,12 @@
+use super::chain_id::ChainId;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 pub struct ChainsConfig(pub HashMap<String, ChainConfig>);
 
-#[derive(Hash, Deserialize)]
+#[derive(Deserialize)]
 pub struct ChainConfig {
-    pub id: u32,
+    pub id: ChainId,
     pub genesis: ethereum_types::H256,
     pub fork_blocks: Vec<u64>,
 }

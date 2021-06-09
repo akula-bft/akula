@@ -1,6 +1,5 @@
-use crate::downloader::{
-    chain_fork_config::ChainForkConfig, chain_id::ChainId, sentry_address::SentryAddress,
-};
+use super::chain_config::ChainConfig;
+use crate::downloader::sentry_address::SentryAddress;
 use ethereum_interfaces::{
     self,
     sentry::{sentry_client, Forks, SetStatusReply, StatusData},
@@ -12,10 +11,9 @@ pub struct SentryClient {
 }
 
 pub struct Status {
-    pub chain_id: ChainId,
     pub total_difficulty: ethereum_types::U256,
     pub best_hash: ethereum_types::H256,
-    pub chain_fork_config: ChainForkConfig,
+    pub chain_fork_config: ChainConfig,
     pub max_block: u64,
 }
 
@@ -28,19 +26,12 @@ impl SentryClient {
 
     pub async fn set_status(&mut self, status: Status) -> anyhow::Result<()> {
         let fork_data = Forks {
-            genesis: Some(ethereum_interfaces::types::H256::from(
-                status.chain_fork_config.genesis_block_hash,
-            )),
-            forks: status
-                .chain_fork_config
-                .fork_block_numbers
-                .iter()
-                .cloned()
-                .collect::<Vec<u64>>(),
+            genesis: Some(status.chain_fork_config.genesis.into()),
+            forks: status.chain_fork_config.fork_blocks.to_vec(),
         };
 
         let status_data = StatusData {
-            network_id: u64::from(status.chain_id.0),
+            network_id: u64::from(status.chain_fork_config.id.0),
             total_difficulty: Some(ethereum_interfaces::types::H256::from(
                 status.total_difficulty,
             )),

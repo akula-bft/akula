@@ -1,5 +1,4 @@
 pub mod chain_config;
-pub mod chain_fork_config;
 pub mod chain_id;
 pub mod opts;
 pub mod sentry_address;
