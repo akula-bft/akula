@@ -1,5 +1,4 @@
 use crate::downloader::sentry_address::SentryAddress;
-
 use anyhow::anyhow;
 use structopt::StructOpt;
 

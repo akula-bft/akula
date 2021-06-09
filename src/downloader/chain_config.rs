@@ -1,8 +1,5 @@
-use anyhow;
-use ethereum_types;
 use serde::Deserialize;
 use std::collections::HashMap;
-use toml;
 
 pub struct ChainsConfig(pub HashMap<String, ChainConfig>);
 

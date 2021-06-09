@@ -1,5 +1,4 @@
 use crate::downloader::chain_config::ChainConfig;
-use anyhow;
 
 pub struct ChainId(pub u32);
 

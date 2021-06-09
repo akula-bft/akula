@@ -1,5 +1,4 @@
 use crate::downloader::chain_config::ChainConfig;
-use anyhow;
 use ethereum_types::H256;
 use std::collections::BTreeSet;
 
