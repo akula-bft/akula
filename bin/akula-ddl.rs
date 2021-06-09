@@ -11,8 +11,8 @@ async fn run() -> anyhow::Result<()> {
     let opts = Opts::new(chain_names.as_slice())?;
     let chain_config = chains_config.0.remove(&opts.chain_name).unwrap();
     let status = sentry_client::Status {
-        total_difficulty: ethereum_types::U256::from([0; 32]),
-        best_hash: ethereum_types::H256::from([0; 32]),
+        total_difficulty: ethereum_types::U256::zero(),
+        best_hash: ethereum_types::H256::zero(),
         chain_fork_config: chain_config,
         max_block: 0,
     };
