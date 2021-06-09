@@ -1,5 +1,8 @@
 use crate::downloader::chain_config::ChainConfig;
+use serde::Deserialize;
 
+#[derive(Deserialize)]
+#[serde(transparent)]
 pub struct ChainId(pub u32);
 
 impl ChainId {
