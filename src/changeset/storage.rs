@@ -65,7 +65,7 @@ impl HistoryKind for StorageHistory {
         let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
         let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
 
-        k[..db_key.len()].copy_from_slice(&db_key);
+        k[..db_key.len()].copy_from_slice(db_key);
         k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
 
         let v = db_value.split_off(common::HASH_LENGTH);

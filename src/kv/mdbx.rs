@@ -303,7 +303,7 @@ where
             .get(&self.t.as_ref())
             .and_then(|dup| dup.as_ref())
         {
-            return seek_autodupsort(&mut self.inner, &info, key);
+            return seek_autodupsort(&mut self.inner, info, key);
         }
 
         Ok(if key.is_empty() {
@@ -487,7 +487,7 @@ where
             .get(&self.t.clone().as_ref())
             .and_then(|dup| dup.as_ref())
         {
-            return put_autodupsort(self, &info, key, value);
+            return put_autodupsort(self, info, key, value);
         }
 
         Ok(self.inner.put(key, value, WriteFlags::default())?)
@@ -502,7 +502,7 @@ where
             .get(&self.t.clone().as_ref())
             .and_then(|dup| dup.as_ref())
         {
-            return delete_autodupsort(self, &info, key);
+            return delete_autodupsort(self, info, key);
         }
 
         if tables::DUP_SORT_TABLES.contains_key(&self.t.as_ref()) {
