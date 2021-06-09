@@ -1,8 +1,8 @@
-use crate::{common, dbutils::*, kv::tables, models::*, txdb, Transaction};
+use crate::{common, dbutils::*, kv::tables, kv::traits::MutableCursor, models::*, txdb, MutableTransaction, Transaction};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use ethereum::Header as HeaderType;
-use ethereum_types::{H256, U256};
+use ethereum_types::{Address, H256, U256};
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -28,8 +28,22 @@ pub mod canonical_hash {
                 other => bail!("invalid length: {}", other),
             }
         }
-
         Ok(None)
+    }
+
+    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
+        tx: &'tx RwTx,
+        block_num: u64,
+        hash: H256,
+    ) -> anyhow::Result<()> {
+        let key = encode_block_number(block_num);
+
+        trace!("Writing canonical hash of {}", block_num);
+
+        let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
+        cursor.put(&key, hash.as_bytes()).await.unwrap();
+
+        Ok(())
     }
 }
 
@@ -113,6 +127,76 @@ pub mod tx {
             vec![]
         })
     }
+
+    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
+        tx: &'tx RwTx,
+        base_tx_id: u64,
+        txs: &[ethereum::Transaction],
+    ) -> anyhow::Result<()> {
+        let mut cursor = tx.mutable_cursor(&tables::BlockTransaction).await.unwrap();
+        for (i, eth_tx) in txs.iter().enumerate() {
+            let key = (base_tx_id + i as u64).to_be_bytes();
+            let data = rlp::encode(eth_tx);
+            cursor.put(&key, &data).await.unwrap();
+        }
+        Ok(())
+    }
+}
+
+pub mod tx_sender {
+    use bytes::Bytes;
+
+    use super::*;
+
+    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+        tx: &'tx Tx,
+        base_tx_id: u64,
+        amount: u32,
+    ) -> anyhow::Result<Vec<Address>> {
+        trace!(
+            "Reading {} transaction senders starting from {}",
+            amount,
+            base_tx_id
+        );
+
+        Ok(if amount > 0 {
+            let mut out = Vec::with_capacity(amount as usize);
+
+            let mut cursor = tx.cursor(&tables::TxSender).await?;
+
+            let start_key = base_tx_id.to_be_bytes();
+            let walker = txdb::walk(&mut cursor, &start_key, 0);
+
+            pin!(walker);
+
+            while let Some((_, address_bytes)) = walker.try_next().await? {
+                out.push(Address::from_slice(&*address_bytes));
+
+                if out.len() >= amount as usize {
+                    break;
+                }
+            }
+
+            out
+        } else {
+            vec![]
+        })
+
+    }
+
+    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
+        tx: &'tx RwTx,
+        base_tx_id: u64,
+        senders: &[Address],
+    ) -> anyhow::Result<()> {
+        let mut cursor = tx.mutable_cursor(&tables::TxSender).await.unwrap();
+        for (i, sender) in senders.iter().enumerate() {
+            let key = (base_tx_id + i as u64).to_be_bytes();
+            let data = Bytes::from(sender.to_fixed_bytes().to_vec());
+            cursor.put(&key, &data).await.unwrap();
+        }
+        Ok(())
+    }
 }
 
 pub mod storage_body {
@@ -155,6 +239,18 @@ pub mod storage_body {
         number: u64,
     ) -> anyhow::Result<bool> {
         Ok(read_raw(tx, hash, number).await?.is_some())
+    }
+
+    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
+        tx: &'tx RwTx,
+        hash: H256,
+        number: u64,
+        body: &BodyForStorage,
+    ) -> anyhow::Result<()> {
+        let data = rlp::encode(body);
+        let mut cursor = tx.mutable_cursor(&tables::BlockBody).await.unwrap();
+        cursor.put(&header_key(number, hash), &data).await.unwrap();
+        Ok(())
     }
 }
 
