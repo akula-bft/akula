@@ -1,19 +1,32 @@
 use crate::downloader::{sentry_address::SentryAddress, sentry_client::*};
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
+use futures_core::Stream;
 use rlp;
 use static_bytes;
+use std::convert::TryFrom;
+use tokio_stream::StreamExt;
 use tracing::*;
+
+pub type MessageDecoder =
+    fn(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Result<Box<dyn Message>>;
 
 pub struct SentryClientImpl {
     client: grpc_sentry::sentry_client::SentryClient<tonic::transport::channel::Channel>,
+    message_decoder: &'static MessageDecoder,
 }
 
 impl SentryClientImpl {
-    pub async fn new(addr: SentryAddress) -> anyhow::Result<Self> {
+    pub async fn new(
+        addr: SentryAddress,
+        message_decoder: &'static MessageDecoder,
+    ) -> anyhow::Result<Self> {
         info!("SentryClient connecting to {}...", addr.addr);
         let client = grpc_sentry::sentry_client::SentryClient::connect(addr.addr).await?;
-        Ok(SentryClientImpl { client })
+        Ok(SentryClientImpl {
+            client,
+            message_decoder,
+        })
     }
 }
 
@@ -93,6 +106,40 @@ impl SentryClient for SentryClientImpl {
         );
         return Ok(());
     }
+
+    async fn receive_messages(
+        &mut self,
+    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin>> {
+        let ids_request = grpc_sentry::MessagesRequest { ids: Vec::new() };
+        let request = tonic::Request::new(ids_request);
+        let response = self.client.messages(request).await?;
+        let tonic_stream: tonic::codec::Streaming<grpc_sentry::InboundMessage> =
+            response.into_inner();
+        debug!("SentryClient receive_messages subscribed to incoming messages");
+
+        let message_decoder: &'static MessageDecoder = self.message_decoder;
+        let stream = tonic_stream.map(move |result: Result<grpc_sentry::InboundMessage, tonic::Status>| -> anyhow::Result<MessageFromPeer> {
+            match result {
+                Ok(inbound_message) => {
+                    let grpc_message_id = grpc_sentry::MessageId::from_i32(inbound_message.id)
+                        .ok_or_else(|| anyhow::anyhow!("SentryClient receive_messages stream got an invalid MessageId {}", inbound_message.id))?;
+                    let message_id = EthMessageId::try_from(grpc_message_id)?;
+                    let grpc_peer_id: Option<grpc_types::H512> = inbound_message.peer_id;
+                    let peer_id: Option<ethereum_types::H512> = grpc_peer_id.map(ethereum_types::H512::from);
+                    let message_bytes: static_bytes::Bytes = inbound_message.data;
+                    let message = message_decoder(message_id, message_bytes.as_ref())?;
+                    let message_from_peer = MessageFromPeer {
+                        message,
+                        from_peer_id: peer_id,
+                    };
+                    debug!("SentryClient receive_messages received a message {:?} from {:?}", message_from_peer.message.id(), message_from_peer.from_peer_id);
+                    Ok(message_from_peer)
+                },
+                Err(status) => Err(anyhow::anyhow!(status))
+            }
+        });
+        Ok(Box::new(stream))
+    }
 }
 
 impl From<EthMessageId> for grpc_sentry::MessageId {
@@ -115,6 +162,35 @@ impl From<EthMessageId> for grpc_sentry::MessageId {
             EthMessageId::NodeData => grpc_sentry::MessageId::NodeData66,
             EthMessageId::GetReceipts => grpc_sentry::MessageId::GetReceipts66,
             EthMessageId::Receipts => grpc_sentry::MessageId::Receipts66,
+        }
+    }
+}
+
+impl TryFrom<grpc_sentry::MessageId> for EthMessageId {
+    type Error = anyhow::Error;
+
+    fn try_from(id: grpc_sentry::MessageId) -> anyhow::Result<Self> {
+        match id {
+            grpc_sentry::MessageId::Status66 => Ok(EthMessageId::Status),
+            grpc_sentry::MessageId::NewBlockHashes66 => Ok(EthMessageId::NewBlockHashes),
+            grpc_sentry::MessageId::Transactions66 => Ok(EthMessageId::Transactions),
+            grpc_sentry::MessageId::GetBlockHeaders66 => Ok(EthMessageId::GetBlockHeaders),
+            grpc_sentry::MessageId::BlockHeaders66 => Ok(EthMessageId::BlockHeaders),
+            grpc_sentry::MessageId::GetBlockBodies66 => Ok(EthMessageId::GetBlockBodies),
+            grpc_sentry::MessageId::BlockBodies66 => Ok(EthMessageId::BlockBodies),
+            grpc_sentry::MessageId::NewBlock66 => Ok(EthMessageId::NewBlock),
+            grpc_sentry::MessageId::NewPooledTransactionHashes66 => {
+                Ok(EthMessageId::NewPooledTransactionHashes)
+            }
+            grpc_sentry::MessageId::GetPooledTransactions66 => {
+                Ok(EthMessageId::GetPooledTransactions)
+            }
+            grpc_sentry::MessageId::PooledTransactions66 => Ok(EthMessageId::PooledTransactions),
+            grpc_sentry::MessageId::GetNodeData66 => Ok(EthMessageId::GetNodeData),
+            grpc_sentry::MessageId::NodeData66 => Ok(EthMessageId::NodeData),
+            grpc_sentry::MessageId::GetReceipts66 => Ok(EthMessageId::GetReceipts),
+            grpc_sentry::MessageId::Receipts66 => Ok(EthMessageId::Receipts),
+            _ => Err(anyhow::anyhow!("unsupported MessageId '{:?}'", id)),
         }
     }
 }

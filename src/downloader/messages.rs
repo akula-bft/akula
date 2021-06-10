@@ -2,7 +2,7 @@ use crate::downloader::{block_id::BlockId, sentry_client};
 use rlp_derive;
 use sentry_client::EthMessageId;
 
-#[derive(rlp_derive::RlpEncodable)]
+#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable)]
 pub struct GetBlockHeadersMessage {
     pub request_id: u64,
     pub start_block: BlockId,
