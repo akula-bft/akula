@@ -276,3 +276,76 @@ pub mod td {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    use crate::kv::{new_mem_database, traits::MutableKV};
+
+    #[tokio::test]
+    async fn accessors() {
+        let tx1 = ethereum::Transaction {
+            nonce: 1.into(),
+            gas_price: 20_000.into(),
+            gas_limit: 3_000_000.into(),
+            action: ethereum::TransactionAction::Create,
+            value: 0.into(),
+            input: vec![],
+            signature: ethereum::TransactionSignature::new(
+                27,
+                H256::repeat_byte(2),
+                H256::repeat_byte(3),
+            ).unwrap(),
+        };
+        let tx2 = ethereum::Transaction {
+            nonce: 2.into(),
+            gas_price: 30_000.into(),
+            gas_limit: 1_000_000.into(),
+            action: ethereum::TransactionAction::Create,
+            value: 10.into(),
+            input: vec![],
+            signature: ethereum::TransactionSignature::new(
+                28,
+                H256::repeat_byte(6),
+                H256::repeat_byte(9),
+            ).unwrap(),
+        };
+        let txs = [tx1, tx2];
+
+        let sender1 = Address::random();
+        let sender2 = Address::random();
+        let senders = [sender1, sender2];
+
+        let block1_hash = H256::random();
+        let body = BodyForStorage {
+            base_tx_id: 1,
+            tx_amount: 2,
+            uncles: vec![],
+        };
+
+        let db = new_mem_database().unwrap();
+        let rwtx = db.begin_mutable().await.unwrap();
+        let rwtx = &rwtx;
+
+        storage_body::write(rwtx, block1_hash, 1, &body).await.unwrap();
+        canonical_hash::write(rwtx, 1, block1_hash).await.unwrap();
+        tx::write(rwtx, 1, &txs).await.unwrap();
+        tx_sender::write(rwtx, 1, &senders).await.unwrap();
+
+        let recovered_body = storage_body::read(rwtx, block1_hash, 1)
+            .await
+            .unwrap()
+            .expect("Could not recover storage body.");
+        let recovered_hash = canonical_hash::read(rwtx, 1)
+            .await
+            .unwrap()
+            .expect("Could not recover block hash");
+        let recovered_txs = tx::read(rwtx, 1, 2).await.unwrap();
+        let recovered_senders = tx_sender::read(rwtx, 1, 2).await.unwrap();
+
+        assert_eq!(body, recovered_body);
+        assert_eq!(block1_hash, recovered_hash);
+        assert_eq!(txs, *recovered_txs);
+        assert_eq!(senders, *recovered_senders);
+    }
+}
