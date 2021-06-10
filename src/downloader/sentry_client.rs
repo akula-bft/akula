@@ -1,6 +1,7 @@
 use crate::downloader::chain_config::ChainConfig;
 use async_trait::async_trait;
 use ethereum_types;
+use futures_core::Stream;
 use rlp;
 
 pub struct Status {
@@ -42,6 +43,11 @@ pub trait Identifiable {
 
 pub trait Message: Identifiable + Send + rlp::Encodable {}
 
+pub struct MessageFromPeer {
+    pub message: Box<dyn Message>,
+    pub from_peer_id: Option<ethereum_types::H512>,
+}
+
 #[async_trait]
 pub trait SentryClient {
     async fn set_status(&mut self, status: Status) -> anyhow::Result<()>;
@@ -55,5 +61,7 @@ pub trait SentryClient {
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()>;
 
-    //async fn receive_messages(&mut self) -> anyhow::Result<stream<Message>>;
+    async fn receive_messages(
+        &mut self,
+    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin>>;
 }
