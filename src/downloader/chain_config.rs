@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 pub struct ChainsConfig(pub HashMap<String, ChainConfig>);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ChainConfig {
     pub id: ChainId,
     pub genesis: ethereum_types::H256,

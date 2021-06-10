@@ -2,14 +2,14 @@ use akula::downloader::{chain_config, opts::Opts, sentry_client, sentry_client::
 use tracing_subscriber::EnvFilter;
 
 async fn run() -> anyhow::Result<()> {
-    let mut chains_config = chain_config::ChainsConfig::new()?;
+    let chains_config = chain_config::ChainsConfig::new()?;
     let chain_names = chains_config
         .0
         .keys()
         .map(|k| k.as_str())
         .collect::<Vec<&str>>();
     let opts = Opts::new(chain_names.as_slice())?;
-    let chain_config = chains_config.0.remove(&opts.chain_name).unwrap();
+    let chain_config = chains_config.0[&opts.chain_name].clone();
     let status = sentry_client::Status {
         total_difficulty: ethereum_types::U256::zero(),
         best_hash: ethereum_types::H256::zero(),
