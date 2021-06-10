@@ -7,8 +7,10 @@ pub struct ChainsConfig(pub HashMap<String, ChainConfig>);
 #[derive(Deserialize, Clone)]
 pub struct ChainConfig {
     pub id: ChainId,
-    pub genesis: ethereum_types::H256,
-    pub fork_blocks: Vec<u64>,
+    #[serde(rename = "genesis")]
+    pub genesis_block_hash: ethereum_types::H256,
+    #[serde(rename = "fork_blocks")]
+    pub fork_block_numbers: Vec<u64>,
 }
 
 impl ChainsConfig {

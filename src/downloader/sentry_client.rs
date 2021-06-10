@@ -26,8 +26,8 @@ impl SentryClient {
 
     pub async fn set_status(&mut self, status: Status) -> anyhow::Result<()> {
         let fork_data = Forks {
-            genesis: Some(status.chain_fork_config.genesis.into()),
-            forks: status.chain_fork_config.fork_blocks.to_vec(),
+            genesis: Some(status.chain_fork_config.genesis_block_hash.into()),
+            forks: status.chain_fork_config.fork_block_numbers,
         };
 
         let status_data = StatusData {
