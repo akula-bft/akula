@@ -19,6 +19,7 @@ mod bitmapdb;
 mod changeset;
 mod common;
 mod dbutils;
+pub mod downloader;
 pub mod kv;
 mod models;
 pub mod stagedsync;
