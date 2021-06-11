@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use std::fmt::Debug;
 
+#[derive(Debug, PartialEq)]
 pub enum ExecOutput {
     Unwind {
         unwind_to: u64,
