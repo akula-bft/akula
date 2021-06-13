@@ -37,7 +37,7 @@ where
 }
 
 pub struct Environment<E: EnvironmentKind> {
-    inner: ::mdbx::GenericEnvironment<E>,
+    inner: ::mdbx::Environment<E>,
 }
 
 impl<E: EnvironmentKind> Environment<E> {
@@ -93,7 +93,7 @@ impl<E: EnvironmentKind> Environment<E> {
 }
 
 impl<E: EnvironmentKind> Deref for Environment<E> {
-    type Target = ::mdbx::GenericEnvironment<E>;
+    type Target = ::mdbx::Environment<E>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -216,8 +216,8 @@ fn seek_autodupsort<'txn, K: TransactionKind>(
         if let Some((mut k, mut v)) = c.first()? {
             if k.len() == to {
                 let mut k2 = Vec::with_capacity(k.len() + from - to);
-                k2[..k.len()].copy_from_slice(&k[..]);
-                k2[k.len()..].copy_from_slice(&v[..from - to]);
+                k2.extend_from_slice(&k[..]);
+                k2.extend_from_slice(&v[..from - to]);
                 v.advance(from - to);
                 k = k2.into();
             }
@@ -230,34 +230,39 @@ fn seek_autodupsort<'txn, K: TransactionKind>(
     let seek1;
     let mut seek2 = None;
     if seek.len() > to {
-        let s2;
-        (seek1, s2) = seek.split_at(to);
-        seek2 = Some(s2);
+        seek1 = &seek[..to];
+        seek2 = Some(&seek[to..]);
     } else {
         seek1 = seek;
     }
-    if let Some((mut k, mut v)) = c.set_range(seek1)? {
-        if let Some(seek2) = seek2 {
-            if seek1 == k {
-                if let Some(mut v2) = c.get_both_range(seek1, seek2)? {
-                    if k.len() == to {
-                        let mut k2 = Vec::with_capacity(k.len() + from - to);
-                        k2[..k.len()].copy_from_slice(&k[..]);
-                        k2[k.len()..].copy_from_slice(&v[..from - to]);
-                        v2.advance(from - to);
-                        v = v2;
-                        k = k2.into()
-                    }
-                } else {
-                    return Ok(c.next()?);
-                }
+
+    let (mut k, mut v) = match c.set_range(seek1)? {
+        Some(out) => out,
+        None => return Ok(None),
+    };
+
+    if let Some(seek2) = seek2 {
+        if seek1 == k {
+            if let Some(out) = c.get_both_range(seek1, seek2)? {
+                v = out;
+            } else {
+                (k, v) = match c.next()? {
+                    Some(out) => out,
+                    None => return Ok(None),
+                };
             }
         }
-
-        return Ok(Some((k, v)));
     }
 
-    Ok(None)
+    if k.len() == to {
+        let mut k2 = Vec::with_capacity(k.len() + from - to);
+        k2.extend_from_slice(&k);
+        k2.extend_from_slice(&v[..from - to]);
+        v.advance(from - to);
+        k = k2.into();
+    }
+
+    Ok(Some((k, v)))
 }
 
 fn auto_dup_sort_from_db<'txn>(

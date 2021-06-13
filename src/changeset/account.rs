@@ -1,10 +1,9 @@
 use super::*;
-use std::mem::size_of;
 
 #[async_trait]
 impl HistoryKind for AccountHistory {
     type Key = common::Address;
-    type IndexChunkKey = [u8; size_of::<Self::Key>() + common::BLOCK_NUMBER_LENGTH];
+    type IndexChunkKey = [u8; common::ADDRESS_LENGTH + common::BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::AccountHistory;
     type ChangeSetTable = tables::AccountChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;

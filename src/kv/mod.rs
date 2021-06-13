@@ -61,7 +61,7 @@ impl traits::MutableKV for MemoryKv {
 
 pub fn new_mem_database() -> anyhow::Result<impl traits::MutableKV> {
     let tmpdir = tempfile::tempdir()?;
-    let mut builder = ::mdbx::GenericEnvironment::<WriteMap>::new();
+    let mut builder = ::mdbx::Environment::<WriteMap>::new();
     builder.set_max_dbs(tables::TABLE_MAP.len());
     builder.set_geometry(Geometry {
         size: Some(0..n_mb_bytes!(64) as usize),

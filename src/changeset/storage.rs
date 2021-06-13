@@ -183,7 +183,7 @@ mod tests {
     const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
 
     const fn default_incarnation() -> common::Incarnation {
-        1
+        DEFAULT_INCARNATION
     }
 
     fn random_incarnation() -> common::Incarnation {

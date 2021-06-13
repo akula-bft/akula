@@ -106,3 +106,45 @@ pub fn plain_parse_storage_prefix(prefix: &[u8]) -> (common::Address, u64) {
         )),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hex_literal::hex;
+
+    #[test]
+    fn plain_storage_prefix() {
+        let expected_addr = hex!("5A0b54D5dc17e0AadC383d2db43B0a0D3E029c4c").into();
+        let expected_incarnation = 999_000_999_u64;
+
+        let prefix = plain_generate_storage_prefix(expected_addr, expected_incarnation);
+
+        let (addr, incarnation) = plain_parse_storage_prefix(&prefix);
+
+        assert_eq!(expected_addr, addr, "address should be extracted");
+        assert_eq!(
+            expected_incarnation, incarnation,
+            "incarnation should be extracted"
+        );
+    }
+
+    #[test]
+    fn plain_composite_storage_key() {
+        let expected_addr = hex!("5A0b54D5dc17e0AadC383d2db43B0a0D3E029c4c").into();
+        let expected_incarnation = 999_000_999_u64;
+        let expected_key =
+            hex!("58833f949125129fb8c6c93d2c6003c5bab7c0b116d695f4ca137b1debf4e472").into();
+
+        let composite_key =
+            plain_generate_composite_storage_key(expected_addr, expected_incarnation, expected_key);
+
+        let (addr, incarnation, key) = plain_parse_composite_storage_key(&composite_key);
+
+        assert_eq!(expected_addr, addr, "address should be extracted");
+        assert_eq!(
+            expected_incarnation, incarnation,
+            "incarnation should be extracted"
+        );
+        assert_eq!(expected_key, key, "key should be extracted");
+    }
+}

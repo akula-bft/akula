@@ -10,7 +10,6 @@ use anyhow::Context;
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
-use static_bytes::BytesMut;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
@@ -334,13 +333,11 @@ impl Account {
         } else {
             let mut acc = self.clone();
             if omit_hashes {
+                acc.code_hash = None;
                 acc.root = None;
             }
 
-            let data_len = acc.encoding_length_for_storage();
-            let mut original_data = BytesMut::with_capacity(data_len);
-            acc.encode_for_storage(&mut original_data);
-            original_data.freeze().into()
+            acc.encode_for_storage().into()
         }
     }
 }
@@ -373,8 +370,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .update_account_data(address, original, account)
             .await?;
 
-        let mut value = Vec::with_capacity(account.encoding_length_for_storage());
-        account.encode_for_storage(&mut value);
+        let value = account.encode_for_storage();
 
         self.tx
             .set(&tables::PlainState, address.as_bytes(), &value)
@@ -454,7 +450,8 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         if value.is_zero() {
             c.delete(&composite_key, &[]).await?;
         } else {
-            c.put(&composite_key, &<[u8; 32]>::from(value)).await?;
+            c.put(&composite_key, &common::value_to_bytes(value))
+                .await?;
         }
 
         Ok(())

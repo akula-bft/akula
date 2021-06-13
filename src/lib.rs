@@ -18,6 +18,7 @@ pub mod adapter;
 mod bitmapdb;
 mod changeset;
 mod common;
+mod crypto;
 mod dbutils;
 pub mod downloader;
 pub mod kv;
@@ -29,7 +30,7 @@ pub mod txdb;
 
 pub use changeset::*;
 pub use kv::{
-    mdbx::*,
+    mdbx::{table_sizes as mdbx_table_sizes, Environment as MdbxEnvironment},
     new_mem_database,
     remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
     traits::{

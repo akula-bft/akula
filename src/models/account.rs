@@ -3,6 +3,8 @@ use ethereum_types::{H256, U256};
 use modular_bitfield::prelude::*;
 use static_bytes::Buf;
 
+use crate::common;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
     pub initialised: bool,
@@ -90,7 +92,9 @@ impl Account {
         written
     }
 
-    pub fn encode_for_storage(&self, buffer: &mut [u8]) {
+    pub fn encode_for_storage(&self) -> Vec<u8> {
+        let mut buffer = vec![0; self.encoding_length_for_storage()];
+
         let mut field_set = AccountStorageFlags::default(); // start with first bit set to 0
         let mut pos = 1;
         if self.nonce > 0 {
@@ -101,7 +105,8 @@ impl Account {
         // Encoding balance
         if !self.balance.is_zero() {
             field_set.set_balance(true);
-            pos += 1 + Self::write_compact(&<[u8; 32]>::from(self.balance), &mut buffer[pos..]);
+            pos +=
+                1 + Self::write_compact(&common::value_to_bytes(self.balance), &mut buffer[pos..]);
         }
 
         if self.incarnation > 0 {
@@ -116,7 +121,10 @@ impl Account {
             buffer[pos + 1..pos + 33].copy_from_slice(code_hash.as_bytes());
         }
 
-        buffer[0] = field_set.into_bytes()[0];
+        let fs = field_set.into_bytes()[0];
+        buffer[0] = fs;
+
+        buffer
     }
 
     pub fn decode_for_storage(mut enc: &[u8]) -> anyhow::Result<Option<Self>> {
@@ -175,8 +183,7 @@ mod tests {
     use hex_literal::hex;
 
     fn run_test_storage(original: Account, expected_encoded: &[u8]) {
-        let mut encoded_account = vec![0; original.encoding_length_for_storage()];
-        original.encode_for_storage(&mut encoded_account);
+        let encoded_account = original.encode_for_storage();
 
         assert_eq!(encoded_account, expected_encoded);
 
