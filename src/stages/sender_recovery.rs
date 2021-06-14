@@ -5,14 +5,33 @@ use crate::{
     StageId,
 };
 use async_trait::async_trait;
-use ethereum::Transaction;
+use ethereum::{Transaction, TransactionMessage};
 use ethereum_types::Address;
+use secp256k1::{
+    recovery::{RecoverableSignature, RecoveryId},
+    Message, PublicKey, SECP256K1,
+};
+use sha3::{Keccak256, Digest};
 
 #[derive(Debug)]
 pub struct SenderRecovery;
 
-fn recover_sender(tx: &Transaction) -> Address {
-    Address::random() // TODO
+fn recover_sender(tx: &Transaction) -> anyhow::Result<Address> {
+    let mut sig = [0u8; 64];
+    sig[..32].copy_from_slice(tx.signature.r().as_bytes());
+    sig[32..].copy_from_slice(tx.signature.s().as_bytes());
+
+    let rec = RecoveryId::from_i32(tx.signature.standard_v() as i32).unwrap();
+
+    let public = &SECP256K1.recover(
+        &Message::from_slice(
+            TransactionMessage::from(tx.clone()).hash().as_bytes()
+        )?,
+        &RecoverableSignature::from_compact(&sig, rec)?,
+    )?;
+
+    let address_slice = &Keccak256::digest(&public.serialize_uncompressed()[1..])[12..];
+    Ok(Address::from_slice(address_slice))
 }
 
 async fn process_block<RwTx>(tx: &mut RwTx, height: u64) -> anyhow::Result<()>
@@ -25,7 +44,7 @@ where
 
     let mut senders = vec![];
     for tx in &txs {
-        senders.push(recover_sender(&tx));
+        senders.push(recover_sender(&tx).unwrap());
     }
 
     chain::tx_sender::write(tx, body.base_tx_id, &senders)
