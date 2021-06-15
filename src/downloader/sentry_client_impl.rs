@@ -2,8 +2,6 @@ use crate::downloader::{message_decoder, sentry_address::SentryAddress, sentry_c
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
-use rlp;
-use static_bytes;
 use std::convert::TryFrom;
 use tokio_stream::StreamExt;
 use tracing::*;

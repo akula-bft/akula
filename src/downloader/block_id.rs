@@ -1,5 +1,4 @@
 use ethereum_types::H256;
-use rlp;
 
 pub enum BlockId {
     Hash(H256),

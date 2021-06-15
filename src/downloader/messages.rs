@@ -1,5 +1,4 @@
 use crate::downloader::{block_id::BlockId, sentry_client};
-use rlp_derive;
 use sentry_client::EthMessageId;
 
 #[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable)]

@@ -1,8 +1,6 @@
 use crate::downloader::chain_config::ChainConfig;
 use async_trait::async_trait;
-use ethereum_types;
 use futures_core::Stream;
-use rlp;
 
 pub struct Status {
     pub total_difficulty: ethereum_types::U256,
