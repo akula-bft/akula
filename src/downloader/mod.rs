@@ -6,5 +6,4 @@ pub mod messages;
 pub mod opts;
 pub mod sentry_address;
 pub mod sentry_client;
-pub mod sentry_client_factory;
-mod sentry_client_impl;
+pub mod sentry_client_impl;

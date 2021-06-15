@@ -1,4 +1,4 @@
-use crate::downloader::{sentry_address::SentryAddress, sentry_client::*};
+use crate::downloader::{message_decoder, sentry_address::SentryAddress, sentry_client::*};
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
@@ -8,25 +8,15 @@ use std::convert::TryFrom;
 use tokio_stream::StreamExt;
 use tracing::*;
 
-pub type MessageDecoder =
-    fn(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Result<Box<dyn Message>>;
-
 pub struct SentryClientImpl {
     client: grpc_sentry::sentry_client::SentryClient<tonic::transport::channel::Channel>,
-    message_decoder: &'static MessageDecoder,
 }
 
 impl SentryClientImpl {
-    pub async fn new(
-        addr: SentryAddress,
-        message_decoder: &'static MessageDecoder,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(addr: SentryAddress) -> anyhow::Result<Self> {
         info!("SentryClient connecting to {}...", addr.addr);
         let client = grpc_sentry::sentry_client::SentryClient::connect(addr.addr).await?;
-        Ok(SentryClientImpl {
-            client,
-            message_decoder,
-        })
+        Ok(SentryClientImpl { client })
     }
 }
 
@@ -117,8 +107,7 @@ impl SentryClient for SentryClientImpl {
             response.into_inner();
         debug!("SentryClient receive_messages subscribed to incoming messages");
 
-        let message_decoder: &'static MessageDecoder = self.message_decoder;
-        let stream = tonic_stream.map(move |result: Result<grpc_sentry::InboundMessage, tonic::Status>| -> anyhow::Result<MessageFromPeer> {
+        let stream = tonic_stream.map(|result: Result<grpc_sentry::InboundMessage, tonic::Status>| -> anyhow::Result<MessageFromPeer> {
             match result {
                 Ok(inbound_message) => {
                     let grpc_message_id = grpc_sentry::MessageId::from_i32(inbound_message.id)
@@ -127,7 +116,7 @@ impl SentryClient for SentryClientImpl {
                     let grpc_peer_id: Option<grpc_types::H512> = inbound_message.peer_id;
                     let peer_id: Option<ethereum_types::H512> = grpc_peer_id.map(ethereum_types::H512::from);
                     let message_bytes: static_bytes::Bytes = inbound_message.data;
-                    let message = message_decoder(message_id, message_bytes.as_ref())?;
+                    let message = message_decoder::decode_rlp_message(message_id, message_bytes.as_ref())?;
                     let message_from_peer = MessageFromPeer {
                         message,
                         from_peer_id: peer_id,
