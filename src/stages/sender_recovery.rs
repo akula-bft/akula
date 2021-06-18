@@ -8,7 +8,7 @@ use ethereum::{Transaction, TransactionMessage};
 use ethereum_types::Address;
 use secp256k1::{
     recovery::{RecoverableSignature, RecoveryId},
-    Message, PublicKey, SECP256K1,
+    Message, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
 use std::cmp;
@@ -46,7 +46,7 @@ where
 
     let mut senders = vec![];
     for tx in &txs {
-        senders.push(recover_sender(&tx)?);
+        senders.push(recover_sender(tx)?);
     }
 
     chain::tx_sender::write(tx, body.base_tx_id, &senders).await
@@ -101,7 +101,7 @@ where
         })
     }
 
-    async fn unwind<'tx>(&self, tx: &'tx mut RwTx, input: UnwindInput) -> anyhow::Result<()>
+    async fn unwind<'tx>(&self, _tx: &'tx mut RwTx, _input: UnwindInput) -> anyhow::Result<()>
     where
         'db: 'tx,
     {
