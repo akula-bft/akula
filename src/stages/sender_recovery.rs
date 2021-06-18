@@ -1,3 +1,4 @@
+use std::cmp;
 use crate::{
     accessors::chain,
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
@@ -15,6 +16,8 @@ use sha3::{Keccak256, Digest};
 
 #[derive(Debug)]
 pub struct SenderRecovery;
+
+const BUFFER_SIZE: u64 = 5000;
 
 fn recover_sender(tx: &Transaction) -> anyhow::Result<Address> {
     let mut sig = [0u8; 64];
@@ -72,7 +75,8 @@ where
         'db: 'tx,
     {
         let from_height = input.stage_progress.unwrap_or(0);
-        let to_height = if let Some((_, height)) = input.previous_stage { height } else { 0 };
+        let max_height = if let Some((_, height)) = input.previous_stage { height } else { 0 };
+        let to_height = cmp::min(max_height, from_height + BUFFER_SIZE);
 
         for height in from_height..=to_height {
             process_block(tx, height).await?
