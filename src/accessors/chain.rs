@@ -133,12 +133,20 @@ pub mod tx {
         base_tx_id: u64,
         txs: &[ethereum::Transaction],
     ) -> anyhow::Result<()> {
+        trace!(
+            "Writing {} transactions starting from {}",
+            txs.len(),
+            base_tx_id
+        );
+
         let mut cursor = tx.mutable_cursor(&tables::BlockTransaction).await.unwrap();
+
         for (i, eth_tx) in txs.iter().enumerate() {
             let key = (base_tx_id + i as u64).to_be_bytes();
             let data = rlp::encode(eth_tx);
             cursor.put(&key, &data).await.unwrap();
         }
+
         Ok(())
     }
 }
@@ -189,12 +197,20 @@ pub mod tx_sender {
         base_tx_id: u64,
         senders: &[Address],
     ) -> anyhow::Result<()> {
+        trace!(
+            "Writing {} transaction senders starting from {}",
+            senders.len(),
+            base_tx_id
+        );
+
         let mut cursor = tx.mutable_cursor(&tables::TxSender).await.unwrap();
+
         for (i, sender) in senders.iter().enumerate() {
             let key = (base_tx_id + i as u64).to_be_bytes();
             let data = Bytes::from(sender.to_fixed_bytes().to_vec());
             cursor.put(&key, &data).await.unwrap();
         }
+
         Ok(())
     }
 }
@@ -247,9 +263,12 @@ pub mod storage_body {
         number: u64,
         body: &BodyForStorage,
     ) -> anyhow::Result<()> {
+        trace!("Writing storage body for block {}/{:?}", number, hash);
+
         let data = rlp::encode(body);
         let mut cursor = tx.mutable_cursor(&tables::BlockBody).await.unwrap();
         cursor.put(&header_key(number, hash), &data).await.unwrap();
+
         Ok(())
     }
 }
@@ -262,7 +281,7 @@ pub mod td {
         hash: H256,
         number: u64,
     ) -> anyhow::Result<Option<U256>> {
-        trace!("Reading totatl difficulty at block {}/{:?}", number, hash);
+        trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) = tx
             .get(&tables::HeadersTotalDifficulty, &header_key(number, hash))
