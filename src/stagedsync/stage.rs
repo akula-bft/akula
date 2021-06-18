@@ -2,8 +2,8 @@ use super::stages::StageId;
 use crate::MutableTransaction;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
-use thiserror::Error;
 use std::fmt::Debug;
+use thiserror::Error;
 
 #[derive(Debug, PartialEq)]
 pub enum ExecOutput {
