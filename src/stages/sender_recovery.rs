@@ -13,9 +13,7 @@ use secp256k1::{
     Message, PublicKey, SECP256K1,
 };
 use sha3::{Keccak256, Digest};
-
-#[derive(Debug)]
-pub struct SenderRecovery;
+use tracing::error;
 
 const BUFFER_SIZE: u64 = 5000;
 
@@ -57,6 +55,9 @@ where
     chain::tx_sender::write(tx, body.base_tx_id, &senders).await
 }
 
+#[derive(Debug)]
+pub struct SenderRecovery;
+
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for SenderRecovery
 where
@@ -85,6 +86,11 @@ where
         let mut height = from_height;
         while height < to_height {
             if let Err(e) = process_block(tx, height + 1).await {
+                error!(
+                    "Failed to recover senders for block {}: {}",
+                    height + 1,
+                    e.to_string(),
+                );
                 break;
             }
             height += 1;
