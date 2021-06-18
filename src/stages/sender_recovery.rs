@@ -1,7 +1,7 @@
 use std::cmp;
 use crate::{
     accessors::chain,
-    stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
+    stagedsync::stage::{ExecOutput, Stage, StageInput, SyncError, UnwindInput},
     MutableTransaction,
     StageId,
 };
@@ -24,7 +24,7 @@ fn recover_sender(tx: &Transaction) -> anyhow::Result<Address> {
     sig[..32].copy_from_slice(tx.signature.r().as_bytes());
     sig[32..].copy_from_slice(tx.signature.s().as_bytes());
 
-    let rec = RecoveryId::from_i32(tx.signature.standard_v() as i32).unwrap();
+    let rec = RecoveryId::from_i32(tx.signature.standard_v() as i32)?;
 
     let public = &SECP256K1.recover(
         &Message::from_slice(
@@ -41,13 +41,17 @@ async fn process_block<'tx, RwTx>(tx: &mut RwTx, height: u64) -> anyhow::Result<
 where
     RwTx: MutableTransaction<'tx>,
 {
-    let hash = chain::canonical_hash::read(tx, height).await?.unwrap();
-    let body = chain::storage_body::read(tx, hash, height).await?.unwrap();
+    let hash = chain::canonical_hash::read(tx, height)
+        .await?
+        .ok_or(SyncError::HashNotFound(height))?;
+    let body = chain::storage_body::read(tx, hash, height)
+        .await?
+        .ok_or(SyncError::BlockBodyNotFound(height))?;
     let txs = chain::tx::read(tx, body.base_tx_id, body.tx_amount).await?;
 
     let mut senders = vec![];
     for tx in &txs {
-        senders.push(recover_sender(&tx).unwrap());
+        senders.push(recover_sender(&tx)?);
     }
 
     chain::tx_sender::write(tx, body.base_tx_id, &senders).await
