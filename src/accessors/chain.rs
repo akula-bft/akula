@@ -1,4 +1,10 @@
-use crate::{common, dbutils::*, kv::tables, kv::traits::MutableCursor, models::*, txdb, MutableTransaction, Transaction};
+use crate::{
+    common,
+    dbutils::*,
+    kv::{tables, traits::MutableCursor},
+    models::*,
+    txdb, MutableTransaction, Transaction,
+};
 use anyhow::{bail, Context};
 use arrayref::array_ref;
 use ethereum::Header as HeaderType;
@@ -189,7 +195,6 @@ pub mod tx_sender {
         } else {
             vec![]
         })
-
     }
 
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
@@ -297,7 +302,7 @@ pub mod td {
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
     use crate::kv::{new_mem_database, traits::MutableKV};
 
@@ -314,7 +319,8 @@ mod tests{
                 27,
                 H256::repeat_byte(2),
                 H256::repeat_byte(3),
-            ).unwrap(),
+            )
+            .unwrap(),
         };
         let tx2 = ethereum::Transaction {
             nonce: 2.into(),
@@ -327,7 +333,8 @@ mod tests{
                 28,
                 H256::repeat_byte(6),
                 H256::repeat_byte(9),
-            ).unwrap(),
+            )
+            .unwrap(),
         };
         let txs = [tx1, tx2];
 
@@ -346,7 +353,9 @@ mod tests{
         let rwtx = db.begin_mutable().await.unwrap();
         let rwtx = &rwtx;
 
-        storage_body::write(rwtx, block1_hash, 1, &body).await.unwrap();
+        storage_body::write(rwtx, block1_hash, 1, &body)
+            .await
+            .unwrap();
         canonical_hash::write(rwtx, 1, block1_hash).await.unwrap();
         tx::write(rwtx, 1, &txs).await.unwrap();
         tx_sender::write(rwtx, 1, &senders).await.unwrap();
