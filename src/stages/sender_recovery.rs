@@ -82,13 +82,17 @@ where
         let max_height = if let Some((_, height)) = input.previous_stage { height } else { 0 };
         let to_height = cmp::min(max_height, from_height + BUFFER_SIZE);
 
-        for height in from_height..=to_height {
-            process_block(tx, height).await?
+        let mut height = from_height;
+        while height < to_height {
+            if let Err(e) = process_block(tx, height + 1).await {
+                break;
+            }
+            height += 1;
         }
 
-        let made_progress = to_height > from_height;
+        let made_progress = height > from_height;
         Ok(ExecOutput::Progress {
-            stage_progress: to_height,
+            stage_progress: height,
             done: !made_progress,
             must_commit: made_progress,
         })
@@ -254,7 +258,7 @@ mod tests {
         let stage_input = StageInput {
             restarted: false,
             previous_stage: Some((StageId("BodyDownload"), 3)),
-            stage_progress: Some(1),
+            stage_progress: Some(0),
         };
 
         let output: ExecOutput = stage.execute(&mut tx, stage_input).await.unwrap();
