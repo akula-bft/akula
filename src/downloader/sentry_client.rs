@@ -1,4 +1,4 @@
-use crate::downloader::chain_config::ChainConfig;
+use crate::downloader::{chain_config::ChainConfig, messages::Message};
 use async_trait::async_trait;
 use futures_core::Stream;
 
@@ -16,33 +16,8 @@ pub enum PeerFilter {
     All,
 }
 
-#[derive(Debug)]
-pub enum EthMessageId {
-    Status = 0,
-    NewBlockHashes = 1,
-    Transactions = 2,
-    GetBlockHeaders = 3,
-    BlockHeaders = 4,
-    GetBlockBodies = 5,
-    BlockBodies = 6,
-    NewBlock = 7,
-    NewPooledTransactionHashes = 8,
-    GetPooledTransactions = 9,
-    PooledTransactions = 10,
-    GetNodeData = 13,
-    NodeData = 14,
-    GetReceipts = 15,
-    Receipts = 16,
-}
-
-pub trait Identifiable {
-    fn id(&self) -> EthMessageId;
-}
-
-pub trait Message: Identifiable + Send + rlp::Encodable {}
-
 pub struct MessageFromPeer {
-    pub message: Box<dyn Message>,
+    pub message: Message,
     pub from_peer_id: Option<ethereum_types::H512>,
 }
 
@@ -55,7 +30,7 @@ pub trait SentryClient {
 
     async fn send_message(
         &mut self,
-        message: Box<dyn Message>,
+        message: Message,
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()>;
 

@@ -1,4 +1,6 @@
-use crate::downloader::{message_decoder, sentry_address::SentryAddress, sentry_client::*};
+use crate::downloader::{
+    message_decoder, messages::*, sentry_address::SentryAddress, sentry_client::*,
+};
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
@@ -42,11 +44,12 @@ impl SentryClient for SentryClientImpl {
 
     async fn send_message(
         &mut self,
-        message: Box<dyn Message>,
+        message: Message,
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()> {
+        let message_id = EthMessageId::from(message);
         let message_data = grpc_sentry::OutboundMessageData {
-            id: grpc_sentry::MessageId::from(message.id()) as i32,
+            id: grpc_sentry::MessageId::from(message_id) as i32,
             data: rlp::encode(&message).into(),
         };
 
@@ -88,7 +91,7 @@ impl SentryClient for SentryClientImpl {
         let sent_peers: grpc_sentry::SentPeers = response.into_inner();
         debug!(
             "SentryClient send_message sent {:?} to: {:?}",
-            message.id(),
+            EthMessageId::from(message),
             sent_peers
         );
         return Ok(());
@@ -118,7 +121,9 @@ impl SentryClient for SentryClientImpl {
                         message,
                         from_peer_id: peer_id,
                     };
-                    debug!("SentryClient receive_messages received a message {:?} from {:?}", message_from_peer.message.id(), message_from_peer.from_peer_id);
+                    debug!("SentryClient receive_messages received a message {:?} from {:?}",
+                        EthMessageId::from(message_from_peer.message),
+                        message_from_peer.from_peer_id);
                     Ok(message_from_peer)
                 },
                 Err(status) => Err(anyhow::anyhow!(status))

@@ -29,16 +29,14 @@ async fn run() -> anyhow::Result<()> {
     let mut sentry = SentryClientImpl::new(opts.sentry_api_addr).await?;
     sentry.set_status(status).await?;
 
-    let message = messages::GetBlockHeadersMessage {
+    let message = messages::Message::GetBlockHeaders(messages::GetBlockHeadersMessage {
         request_id: 0,
         start_block: block_id::BlockId::Number(0),
         limit: 0,
         skip: 0,
         reverse: false,
-    };
-    sentry
-        .send_message(Box::new(message), PeerFilter::All)
-        .await?;
+    });
+    sentry.send_message(message, PeerFilter::All).await?;
 
     let mut stream = sentry.receive_messages().await?;
     while let Some(message_result) = stream.next().await {

@@ -1,7 +1,25 @@
-use crate::downloader::{block_id::BlockId, sentry_client};
-use sentry_client::EthMessageId;
+use crate::downloader::block_id::BlockId;
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable)]
+#[derive(Debug)]
+pub enum EthMessageId {
+    Status = 0,
+    NewBlockHashes = 1,
+    Transactions = 2,
+    GetBlockHeaders = 3,
+    BlockHeaders = 4,
+    GetBlockBodies = 5,
+    BlockBodies = 6,
+    NewBlock = 7,
+    NewPooledTransactionHashes = 8,
+    GetPooledTransactions = 9,
+    PooledTransactions = 10,
+    GetNodeData = 13,
+    NodeData = 14,
+    GetReceipts = 15,
+    Receipts = 16,
+}
+
+#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy)]
 pub struct GetBlockHeadersMessage {
     pub request_id: u64,
     pub start_block: BlockId,
@@ -10,15 +28,15 @@ pub struct GetBlockHeadersMessage {
     pub reverse: bool,
 }
 
-macro_rules! message_id_impl {
-    ($id:ident, $message_type:ident) => {
-        impl sentry_client::Identifiable for $message_type {
-            fn id(&self) -> EthMessageId {
-                EthMessageId::$id
-            }
-        }
-        impl sentry_client::Message for $message_type {}
-    };
+#[derive(Clone, Copy)]
+pub enum Message {
+    GetBlockHeaders(GetBlockHeadersMessage),
 }
 
-message_id_impl!(GetBlockHeaders, GetBlockHeadersMessage);
+impl From<Message> for EthMessageId {
+    fn from(message: Message) -> Self {
+        match message {
+            Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,
+        }
+    }
+}
