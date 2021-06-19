@@ -45,10 +45,9 @@ impl SentryClient for SentryClientImpl {
         message: Box<dyn Message>,
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()> {
-        let message_bytes: static_bytes::BytesMut = rlp::encode(&message);
         let message_data = grpc_sentry::OutboundMessageData {
             id: grpc_sentry::MessageId::from(message.id()) as i32,
-            data: static_bytes::Bytes::from(message_bytes),
+            data: rlp::encode(&message).into(),
         };
 
         let response = match peer_filter {
