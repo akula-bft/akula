@@ -82,9 +82,9 @@ where
 
         let mut height = from_height;
         while height < to_height {
-            process_block(tx, height + 1).await.with_context(|| {
-                format!("Failed to recover senders for block {}", height + 1)
-            })?;
+            process_block(tx, height + 1)
+                .await
+                .with_context(|| format!("Failed to recover senders for block {}", height + 1))?;
             height += 1;
         }
 
