@@ -202,7 +202,7 @@ pub mod tx_sender {
 
         for (i, sender) in senders.iter().enumerate() {
             let key = (base_tx_id + i as u64).to_be_bytes();
-            let data = Bytes::from(sender.to_fixed_bytes().to_vec());
+            let data = sender.to_fixed_bytes();
             cursor.put(&key, &data).await.unwrap();
         }
 
