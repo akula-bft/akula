@@ -50,11 +50,3 @@ pub struct UnwindInput {
     pub stage_progress: u64,
     pub unwind_to: u64,
 }
-
-#[derive(Error, Debug)]
-pub enum SyncError {
-    #[error("Canonical hash for block {0} not found")]
-    HashNotFound(u64),
-    #[error("Block body for block {0} not found")]
-    BlockBodyNotFound(u64),
-}

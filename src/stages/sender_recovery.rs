@@ -14,6 +14,14 @@ use sha3::{Digest, Keccak256};
 use std::cmp;
 use tracing::error;
 
+#[derive(Error, Debug)]
+pub enum SenderRecoveryError {
+    #[error("Canonical hash for block {0} not found")]
+    HashNotFound(u64),
+    #[error("Block body for block {0} not found")]
+    BlockBodyNotFound(u64),
+}
+
 const BUFFER_SIZE: u64 = 5000;
 
 fn recover_sender(tx: &Transaction) -> anyhow::Result<Address> {
@@ -38,10 +46,10 @@ where
 {
     let hash = chain::canonical_hash::read(tx, height)
         .await?
-        .ok_or(SyncError::HashNotFound(height))?;
+        .ok_or(SenderRecoveryError::HashNotFound(height))?;
     let body = chain::storage_body::read(tx, hash, height)
         .await?
-        .ok_or(SyncError::BlockBodyNotFound(height))?;
+        .ok_or(SenderRecoveryError::BlockBodyNotFound(height))?;
     let txs = chain::tx::read(tx, body.base_tx_id, body.tx_amount).await?;
 
     let mut senders = vec![];
