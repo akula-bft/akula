@@ -159,8 +159,6 @@ pub mod tx {
 }
 
 pub mod tx_sender {
-    use bytes::Bytes;
-
     use super::*;
 
     pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -180,7 +178,7 @@ pub mod tx_sender {
             let start_key = base_tx_id.to_be_bytes();
             txdb::walk(&mut cursor, &start_key, 0)
                 .take(amount as usize)
-                .map(|(_, address_bytes)| Address::from_slice(&*address_bytes))
+                .map(|res| res.map(|(_, address_bytes)| Address::from_slice(&*address_bytes)))
                 .collect::<anyhow::Result<Vec<_>>>()
                 .await?
         } else {
