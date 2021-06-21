@@ -1,5 +1,8 @@
-use std::cmp;
-
+use crate::{
+    accessors::chain,
+    stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
+    MutableTransaction, StageId,
+};
 use anyhow::Context;
 use async_trait::async_trait;
 use ethereum::{Transaction, TransactionMessage};
@@ -9,14 +12,9 @@ use secp256k1::{
     Message, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
+use std::cmp;
 use thiserror::Error;
 use tracing::error;
-
-use crate::{
-    accessors::chain,
-    stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
-    MutableTransaction, StageId,
-};
 
 #[derive(Error, Debug)]
 pub enum SenderRecoveryError {
@@ -118,13 +116,11 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::{kv::traits::MutableKV, models::BodyForStorage, new_mem_database};
     use ethereum::{TransactionAction, TransactionSignature};
     use ethereum_types::{H160, H256};
     use hex_literal::hex;
-
-    use crate::{kv::traits::MutableKV, models::BodyForStorage, new_mem_database};
-
-    use super::*;
 
     #[tokio::test]
     async fn recover_senders() {
