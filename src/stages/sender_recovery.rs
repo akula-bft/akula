@@ -291,13 +291,10 @@ mod tests {
         );
 
         let senders1 = chain::tx_sender::read(&tx, block1.base_tx_id, block1.tx_amount);
-        assert_eq!(senders1.await.unwrap(), [sender1.clone(), sender1.clone()]);
+        assert_eq!(senders1.await.unwrap(), [sender1, sender1]);
 
         let senders2 = chain::tx_sender::read(&tx, block2.base_tx_id, block2.tx_amount);
-        assert_eq!(
-            senders2.await.unwrap(),
-            [sender1.clone(), sender2.clone(), sender2.clone()]
-        );
+        assert_eq!(senders2.await.unwrap(), [sender1, sender2, sender2]);
 
         let senders3 = chain::tx_sender::read(&tx, block3.base_tx_id, block3.tx_amount);
         assert!(senders3.await.unwrap().is_empty());
