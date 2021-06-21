@@ -174,24 +174,14 @@ pub mod tx_sender {
         );
 
         Ok(if amount > 0 {
-            let mut out = Vec::with_capacity(amount as usize);
-
             let mut cursor = tx.cursor(&tables::TxSender).await?;
 
             let start_key = base_tx_id.to_be_bytes();
-            let walker = txdb::walk(&mut cursor, &start_key, 0);
-
-            pin!(walker);
-
-            while let Some((_, address_bytes)) = walker.try_next().await? {
-                out.push(Address::from_slice(&*address_bytes));
-
-                if out.len() >= amount as usize {
-                    break;
-                }
-            }
-
-            out
+            txdb::walk(&mut cursor, &start_key, 0)
+                .take(amount as usize)
+                .map(|(_, address_bytes)| Address::from_slice(&*address_bytes))
+                .collect::<anyhow::Result<Vec<_>>>()
+                .await?
         } else {
             vec![]
         })
