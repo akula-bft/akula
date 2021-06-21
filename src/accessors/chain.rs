@@ -34,6 +34,7 @@ pub mod canonical_hash {
                 other => bail!("invalid length: {}", other),
             }
         }
+
         Ok(None)
     }
 
