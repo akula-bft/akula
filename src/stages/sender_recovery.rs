@@ -32,9 +32,9 @@ fn recover_sender(tx: &Transaction) -> anyhow::Result<Address> {
     Ok(Address::from_slice(address_slice))
 }
 
-async fn process_block<'tx, RwTx>(tx: &mut RwTx, height: u64) -> anyhow::Result<()>
+async fn process_block<'db: 'tx, 'tx, RwTx>(tx: &'tx mut RwTx, height: u64) -> anyhow::Result<()>
 where
-    RwTx: MutableTransaction<'tx>,
+    RwTx: MutableTransaction<'db>,
 {
     let hash = chain::canonical_hash::read(tx, height)
         .await?
