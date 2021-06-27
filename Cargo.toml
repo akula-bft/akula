@@ -46,7 +46,7 @@ structopt = "0.3"
 tempfile = "3"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 toml = "0.5"
 tonic = { version = "0.4", default-features = false, features = ["codegen", "prost", "transport"] }
 tracing = "0.1"
