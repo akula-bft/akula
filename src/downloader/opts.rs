@@ -20,8 +20,11 @@ pub struct Opts {
 }
 
 impl Opts {
-    pub fn new(chain_names: &[&str]) -> anyhow::Result<Self> {
-        let instance: Opts = Opts::from_args();
+    pub fn new(args_opt: Option<Vec<String>>, chain_names: &[&str]) -> anyhow::Result<Self> {
+        let instance: Opts = match args_opt {
+            Some(args) => Opts::from_iter_safe(args)?,
+            None => Opts::from_args_safe()?,
+        };
 
         if !chain_names.contains(&instance.chain_name.as_str()) {
             return Err(anyhow!("unknown chain '{}'", instance.chain_name));
