@@ -49,9 +49,8 @@ impl Downloader {
 
         let mut stream = sentry.receive_messages().await?;
         while let Some(message_result) = stream.next().await {
-            match message_result {
-                Ok(_) => (),
-                Err(error) => error!("receive message error {}", error),
+            if let Err(error) = message_result {
+                error!("receive message error {}", error);
             }
         }
 
