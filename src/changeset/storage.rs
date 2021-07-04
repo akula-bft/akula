@@ -169,7 +169,7 @@ where
     Ok(None)
 }
 
-#[cfg(test)]
+#[cfg(test_storage)]
 mod tests {
     use super::*;
     use crate::{
