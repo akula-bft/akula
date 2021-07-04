@@ -22,6 +22,8 @@ fork_blocks = [
     4939394, # Petersburg
     6485846, # Istanbul
     7117117, # Muir Glacier
+    9812189, # Berlin
+    10499401,# London
 ]
 
 [rinkeby]
