@@ -49,11 +49,18 @@ impl Downloader {
 
         let mut stream = sentry.receive_messages().await?;
         while let Some(message_result) = stream.next().await {
-            if let Err(error) = message_result {
-                error!("receive message error {}", error);
+            match message_result {
+                Ok(message_from_peer) => self.handle_incoming_message(&message_from_peer.message),
+                Err(error) => {
+                    error!("receive message error {}", error);
+                }
             }
         }
 
         Ok(())
+    }
+
+    fn handle_incoming_message(&self, message: &messages::Message) {
+        tracing::info!("incoming message: {:?}", message.eth_id());
     }
 }

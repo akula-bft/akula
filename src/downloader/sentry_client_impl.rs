@@ -47,7 +47,7 @@ impl SentryClient for SentryClientImpl {
         message: Message,
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()> {
-        let message_id = EthMessageId::from(message);
+        let message_id = message.eth_id();
         let message_data = grpc_sentry::OutboundMessageData {
             id: grpc_sentry::MessageId::from(message_id) as i32,
             data: rlp::encode(&message).into(),
@@ -91,7 +91,7 @@ impl SentryClient for SentryClientImpl {
         let sent_peers: grpc_sentry::SentPeers = response.into_inner();
         debug!(
             "SentryClient send_message sent {:?} to: {:?}",
-            EthMessageId::from(message),
+            message.eth_id(),
             sent_peers
         );
         return Ok(());
@@ -122,7 +122,7 @@ impl SentryClient for SentryClientImpl {
                         from_peer_id: peer_id,
                     };
                     debug!("SentryClient receive_messages received a message {:?} from {:?}",
-                        EthMessageId::from(message_from_peer.message),
+                        message_from_peer.message.eth_id(),
                         message_from_peer.from_peer_id);
                     Ok(message_from_peer)
                 },
