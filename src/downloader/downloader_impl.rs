@@ -61,6 +61,6 @@ impl Downloader {
     }
 
     fn handle_incoming_message(&self, message: &messages::Message) {
-        tracing::info!("incoming message: {:?}", messages::message_eth_id(message));
+        tracing::info!("incoming message: {:?}", message.eth_id());
     }
 }

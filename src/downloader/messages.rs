@@ -43,9 +43,11 @@ pub enum Message {
     NewBlockHashes(NewBlockHashesMessage),
 }
 
-pub fn message_eth_id(message: &Message) -> EthMessageId {
-    match message {
-        Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,
-        Message::NewBlockHashes(_) => EthMessageId::NewBlockHashes,
+impl Message {
+    pub fn eth_id(self: &Message) -> EthMessageId {
+        match self {
+            Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,
+            Message::NewBlockHashes(_) => EthMessageId::NewBlockHashes,
+        }
     }
 }
