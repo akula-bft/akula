@@ -5,6 +5,9 @@ pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Res
         EthMessageId::GetBlockHeaders => {
             Message::GetBlockHeaders(rlp::decode::<GetBlockHeadersMessage>(message_bytes)?)
         }
+        EthMessageId::BlockHeaders => {
+            Message::BlockHeaders(rlp::decode::<BlockHeadersMessage>(message_bytes)?)
+        }
         EthMessageId::NewBlockHashes => {
             Message::NewBlockHashes(rlp::decode::<NewBlockHashesMessage>(message_bytes)?)
         }
@@ -20,6 +23,7 @@ impl rlp::Encodable for Message {
     fn rlp_append(&self, stream: &mut rlp::RlpStream) {
         match self {
             Message::GetBlockHeaders(message) => message.rlp_append(stream),
+            Message::BlockHeaders(message) => message.rlp_append(stream),
             Message::NewBlockHashes(message) => message.rlp_append(stream),
             Message::NewPooledTransactionHashes(message) => message.rlp_append(stream),
         }

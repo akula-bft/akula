@@ -1,4 +1,5 @@
 use crate::downloader::block_id::BlockId;
+use ethereum::Header as HeaderType;
 use ethereum_types::H256;
 
 #[derive(Debug)]
@@ -29,6 +30,12 @@ pub struct GetBlockHeadersMessage {
     pub reverse: bool,
 }
 
+#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone)]
+pub struct BlockHeadersMessage {
+    pub request_id: u64,
+    pub headers: Vec<HeaderType>,
+}
+
 #[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy)]
 pub struct BlockHashAndNumber(pub H256, pub u64);
 
@@ -45,6 +52,7 @@ pub struct NewPooledTransactionHashesMessage {
 #[derive(Clone)]
 pub enum Message {
     GetBlockHeaders(GetBlockHeadersMessage),
+    BlockHeaders(BlockHeadersMessage),
     NewBlockHashes(NewBlockHashesMessage),
     NewPooledTransactionHashes(NewPooledTransactionHashesMessage),
 }
@@ -53,6 +61,7 @@ impl Message {
     pub fn eth_id(self: &Message) -> EthMessageId {
         match self {
             Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,
+            Message::BlockHeaders(_) => EthMessageId::BlockHeaders,
             Message::NewBlockHashes(_) => EthMessageId::NewBlockHashes,
             Message::NewPooledTransactionHashes(_) => EthMessageId::NewPooledTransactionHashes,
         }
