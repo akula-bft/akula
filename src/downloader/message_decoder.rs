@@ -8,6 +8,9 @@ pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Res
         EthMessageId::NewBlockHashes => {
             Message::NewBlockHashes(rlp::decode::<NewBlockHashesMessage>(message_bytes)?)
         }
+        EthMessageId::NewPooledTransactionHashes => Message::NewPooledTransactionHashes(
+            rlp::decode::<NewPooledTransactionHashesMessage>(message_bytes)?,
+        ),
         _ => anyhow::bail!("decode_rlp_message: unsupported message {:?}", id),
     };
     Ok(message)
@@ -18,6 +21,7 @@ impl rlp::Encodable for Message {
         match self {
             Message::GetBlockHeaders(message) => message.rlp_append(stream),
             Message::NewBlockHashes(message) => message.rlp_append(stream),
+            Message::NewPooledTransactionHashes(message) => message.rlp_append(stream),
         }
     }
 }

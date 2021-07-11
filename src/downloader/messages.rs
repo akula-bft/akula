@@ -37,10 +37,16 @@ pub struct NewBlockHashesMessage {
     pub ids: Vec<BlockHashAndNumber>,
 }
 
+#[derive(rlp_derive::RlpEncodableWrapper, rlp_derive::RlpDecodableWrapper, Clone)]
+pub struct NewPooledTransactionHashesMessage {
+    pub ids: Vec<H256>,
+}
+
 #[derive(Clone)]
 pub enum Message {
     GetBlockHeaders(GetBlockHeadersMessage),
     NewBlockHashes(NewBlockHashesMessage),
+    NewPooledTransactionHashes(NewPooledTransactionHashesMessage),
 }
 
 impl Message {
@@ -48,6 +54,7 @@ impl Message {
         match self {
             Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,
             Message::NewBlockHashes(_) => EthMessageId::NewBlockHashes,
+            Message::NewPooledTransactionHashes(_) => EthMessageId::NewPooledTransactionHashes,
         }
     }
 }
