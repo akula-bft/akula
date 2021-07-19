@@ -18,7 +18,7 @@ fn walk_continue<K: AsRef<[u8]>>(
                     == (start_key.as_ref()[fixed_bytes as usize - 1] & mask))
 }
 
-pub fn walk<'cur, 'tx: 'cur, T, C>(
+pub fn walk<'tx: 'cur, 'cur, T, C>(
     c: &'cur mut C,
     start_key: &'cur [u8],
     fixed_bits: u64,
@@ -43,4 +43,39 @@ where
             }
         }
     }
+}
+
+/// Like `walk`, but satisfies borrowck where it complains
+pub async fn get_n<'tx: 'cur, 'cur, T, C>(
+    c: &'cur mut C,
+    start_key: &'cur [u8],
+    fixed_bits: u64,
+    n: usize,
+) -> anyhow::Result<Vec<(Bytes<'tx>, Bytes<'tx>)>>
+where
+    T: Table,
+    C: Cursor<'tx, T>,
+{
+    let mut out = Vec::with_capacity(n);
+
+    let (fixed_bytes, mask) = bytes_mask(fixed_bits);
+
+    if let Some((mut k, mut v)) = c.seek(start_key).await? {
+        while walk_continue(&k, fixed_bytes, fixed_bits, &start_key, mask) {
+            if out.len() == n {
+                break;
+            }
+
+            out.push((k, v));
+
+            match c.next().await? {
+                Some((k1, v1)) => {
+                    (k, v) = (k1, v1);
+                }
+                None => break,
+            }
+        }
+    }
+
+    Ok(out)
 }

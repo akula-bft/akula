@@ -1,6 +1,7 @@
 #![feature(
     bool_to_option,
     destructuring_assignment,
+    entry_insert,
     generic_associated_types,
     never_type,
     type_alias_impl_trait
@@ -16,18 +17,21 @@
 pub mod accessors;
 pub mod adapter;
 mod bitmapdb;
+pub mod chain;
 mod changeset;
 mod common;
 mod crypto;
 mod dbutils;
 pub mod downloader;
 pub mod etl;
+pub mod execution;
 pub mod kv;
 mod models;
 pub mod stagedsync;
 pub mod stages;
 mod state;
 pub mod txdb;
+pub(crate) mod util;
 
 pub use changeset::*;
 pub use kv::{

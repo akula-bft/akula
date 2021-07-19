@@ -1,6 +1,9 @@
-use crate::downloader::block_id::BlockId;
-use ethereum::{Block as BlockType, Header as HeaderType, TransactionV2};
+use crate::{
+    downloader::block_id::BlockId,
+    models::{Block as BlockType, BlockHeader as HeaderType},
+};
 use ethereum_types::H256;
+use rlp_derive::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum EthMessageId {
@@ -21,26 +24,24 @@ pub enum EthMessageId {
     Receipts = 16,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, Copy, PartialEq, Debug)]
 pub struct BlockHashAndNumber {
     pub hash: H256,
     pub number: u64,
 }
 
-#[derive(
-    rlp_derive::RlpEncodableWrapper, rlp_derive::RlpDecodableWrapper, Clone, PartialEq, Debug,
-)]
+#[derive(RlpEncodableWrapper, RlpDecodableWrapper, Clone, PartialEq, Debug)]
 pub struct NewBlockHashesMessage {
     pub ids: Vec<BlockHashAndNumber>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, Copy, PartialEq, Debug)]
 pub struct GetBlockHeadersMessage {
     pub request_id: u64,
     pub params: GetBlockHeadersMessageParams,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, Copy, PartialEq, Debug)]
 pub struct GetBlockHeadersMessageParams {
     pub start_block: BlockId,
     pub limit: u64,
@@ -48,21 +49,19 @@ pub struct GetBlockHeadersMessageParams {
     pub reverse: u8,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct BlockHeadersMessage {
     pub request_id: u64,
     pub headers: Vec<HeaderType>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct NewBlockMessage {
-    pub block: Box<BlockType<TransactionV2>>,
+    pub block: Box<BlockType>,
     pub total_difficulty: u64,
 }
 
-#[derive(
-    rlp_derive::RlpEncodableWrapper, rlp_derive::RlpDecodableWrapper, Clone, PartialEq, Debug,
-)]
+#[derive(RlpEncodableWrapper, RlpDecodableWrapper, Clone, PartialEq, Debug)]
 pub struct NewPooledTransactionHashesMessage {
     pub ids: Vec<H256>,
 }
