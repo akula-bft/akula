@@ -46,7 +46,7 @@ impl SentryClient for SentryClientImpl {
         &mut self,
         message: Message,
         peer_filter: PeerFilter,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<u32> {
         let message_id = message.eth_id();
         let message_data = grpc_sentry::OutboundMessageData {
             id: grpc_sentry::MessageId::from(message_id) as i32,
@@ -94,13 +94,20 @@ impl SentryClient for SentryClientImpl {
             message.eth_id(),
             sent_peers
         );
-        return Ok(());
+        let sent_peers_count = sent_peers.peers.len() as u32;
+        return Ok(sent_peers_count);
     }
 
     async fn receive_messages(
         &mut self,
-    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin>> {
-        let ids_request = grpc_sentry::MessagesRequest { ids: Vec::new() };
+        filter_ids: &[EthMessageId],
+    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin + Send>>
+    {
+        let grpc_ids = filter_ids
+            .iter()
+            .map(|id| grpc_sentry::MessageId::from(*id) as i32)
+            .collect::<Vec<_>>();
+        let ids_request = grpc_sentry::MessagesRequest { ids: grpc_ids };
         let request = tonic::Request::new(ids_request);
         let response = self.client.messages(request).await?;
         let tonic_stream: tonic::codec::Streaming<grpc_sentry::InboundMessage> =
