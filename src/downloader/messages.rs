@@ -2,7 +2,7 @@ use crate::downloader::block_id::BlockId;
 use ethereum::{Block as BlockType, Header as HeaderType};
 use ethereum_types::H256;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum EthMessageId {
     Status = 0,
     NewBlockHashes = 1,

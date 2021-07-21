@@ -112,6 +112,7 @@ impl SentryClient for SentryClientImpl {
         let response = self.client.messages(request).await?;
         let tonic_stream: tonic::codec::Streaming<grpc_sentry::InboundMessage> =
             response.into_inner();
+        let tonic_stream = tonic_stream_fuse_on_error(tonic_stream);
         debug!("SentryClient receive_messages subscribed to incoming messages");
 
         let stream = tonic_stream.map(|result: Result<grpc_sentry::InboundMessage, tonic::Status>| -> anyhow::Result<MessageFromPeer> {
@@ -133,11 +134,36 @@ impl SentryClient for SentryClientImpl {
                         message_from_peer.from_peer_id);
                     Ok(message_from_peer)
                 },
-                Err(status) => Err(anyhow::anyhow!(status))
+                Err(status) => {
+                    if status.message().ends_with("broken pipe") {
+                        Err(anyhow::Error::new(std::io::Error::new(std::io::ErrorKind::BrokenPipe, status)))
+                    } else {
+                        Err(anyhow::Error::new(status))
+                    }
+                }
             }
         });
         Ok(Box::new(stream))
     }
+}
+
+fn tonic_stream_fuse_on_error<T: 'static + Send>(
+    mut tonic_stream: tonic::codec::Streaming<T>,
+) -> Box<dyn Stream<Item = Result<T, tonic::Status>> + Unpin + Send> {
+    let stream = async_stream::stream! {
+        while let Some(result) = tonic_stream.next().await {
+            match result {
+                Ok(item) => {
+                    yield Ok(item);
+                },
+                Err(status) => {
+                    yield Err(status);
+                    break;
+                },
+            }
+        }
+    };
+    Box::new(Box::pin(stream))
 }
 
 impl From<EthMessageId> for grpc_sentry::MessageId {
