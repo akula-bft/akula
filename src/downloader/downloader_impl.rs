@@ -52,8 +52,15 @@ impl Downloader {
         let mut sentry_reactor = SentryClientReactor::new(sentry_client);
         sentry_reactor.start();
 
+        let mut ui_system = crate::downloader::ui_system::UISystem::new();
+        ui_system.start();
+
         let header_slices = Arc::new(HeaderSlices::new(50 << 20 /* 50 Mb */));
         let sentry = Arc::new(RwLock::new(sentry_reactor));
+
+        let header_slices_view =
+            crate::downloader::headers::HeaderSlicesView::new(Arc::clone(&header_slices));
+        ui_system.set_view(Some(Box::new(header_slices_view)));
 
         // Downloading happens with several stages where
         // each of the stages processes blocks in one status,
@@ -129,6 +136,8 @@ impl Downloader {
 
             header_slices.notify_status_watchers();
         }
+
+        ui_system.stop().await?;
 
         {
             let mut sentry_reactor = sentry.write();
