@@ -1,18 +1,19 @@
 use super::data_provider::*;
-// use crate::{common, kv::*, CursorDupSort, *};
-use crate::{kv::Table, MutableTransaction, MutableCursor};
+use crate::{kv::Table, MutableCursor};
 use std::collections::BinaryHeap;
 use std::cmp::Reverse;
 
-struct Collector {
+pub struct Collector {
     buffer_size:     usize,
     data_providers:  Vec<DataProvider>,
     buffer_capacity: usize,
     buffer:          Vec<Entry>,
 }
 
+pub const OPTIMAL_BUFFER_CAPACITY: usize = 512000000; // 512 Megabytes
+
 impl Collector {
-    fn new(buffer_capacity: usize) -> Collector {
+    pub fn new(buffer_capacity: usize) -> Collector {
         Collector {
             buffer_size: 0,
             buffer_capacity: buffer_capacity,
@@ -21,7 +22,7 @@ impl Collector {
         }
     }
 
-    fn collect(&mut self, entry: Entry) {
+    pub fn collect(&mut self, entry: Entry) {
         self.buffer_size += entry.key.len() + entry.value.len();
         self.buffer.push(entry);
         if self.buffer_size > self.buffer_capacity {
@@ -33,23 +34,21 @@ impl Collector {
         }
     }
 
-    async fn load<'db: 'tx, 'tx, Tx, T, F>(
+    pub async fn load<'tx, T, C>(
         &mut self,
-        tx: &'tx mut Tx,
-        table: &T,
-        load_function: Option<F>) -> anyhow::Result<()>
+        cursor: &mut C,
+        load_function: Option<fn(&mut C, Vec<u8>, Vec<u8>)>,
+    ) -> anyhow::Result<()>
     where 
         T: Table,
-        Tx: MutableTransaction<'db>,
-        F: Fn(&mut <Tx as MutableTransaction<'db>>::MutableCursor<'tx, T>, Vec<u8>, Vec<u8>),
+        C: MutableCursor<'tx, T>
     {
-        let mut cursor = tx.mutable_cursor(table).await?;
         // If only one data provider is found, then we we can write directly from memory to db without reading any files
         if self.data_providers.len() == 0 {
             self.buffer.sort();
             for entry in self.buffer.iter() {
                 if let Some(f) = &load_function {
-                    (f)(&mut cursor, entry.key.to_vec(), entry.value.to_vec());
+                    (f)(cursor, entry.key.to_vec(), entry.value.to_vec());
                 } else {
                     cursor.put(entry.key.as_slice(), entry.value.as_slice()).await?;
                 }
@@ -80,7 +79,7 @@ impl Collector {
         while heap.len() > 0 {
             let entry = heap.pop().unwrap().0;
             if let Some(f) = &load_function {
-                (f)(&mut cursor, entry.key.to_vec(), entry.value.to_vec());
+                (f)(cursor, entry.key.to_vec(), entry.value.to_vec());
             } else {
                 cursor.put(entry.key.as_slice(), entry.value.as_slice()).await?;
             }
