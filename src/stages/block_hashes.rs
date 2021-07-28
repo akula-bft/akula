@@ -1,12 +1,16 @@
 use crate::{
+    etl::{
+        collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
+        data_provider::Entry,
+    },
+    kv::tables,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
-    MutableTransaction, StageId, etl::collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
-    etl::data_provider::Entry, kv::tables, txdb,
+    txdb, MutableTransaction, StageId,
 };
-use tokio::pin;
 use async_trait::async_trait;
-use tracing::*;
+use tokio::pin;
 use tokio_stream::StreamExt;
+use tracing::*;
 
 #[derive(Debug)]
 pub struct BlockHashes;
@@ -41,10 +45,10 @@ where
 
         while let Some((block_key, _)) = walker.try_next().await? {
             // BlockBody Key is block_number + hash, so we just separate and collect
-            collector.collect(Entry{
-                key:   block_key[8..].to_vec(),
+            collector.collect(Entry {
+                key: block_key[8..].to_vec(),
                 value: block_key[..8].to_vec(),
-                id:    0 // Irrelevant here, could be anything
+                id: 0, // Irrelevant here, could be anything
             });
         }
         collector.load(&mut blockhashes_cursor, None).await?;
