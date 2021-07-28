@@ -1,7 +1,7 @@
 use std::fs::File;
 use anyhow;
 use std::io::{Write};
-use std::cmp::{Ord, Ordering};
+use std::cmp::Ord;
 use tempfile::tempfile;
 use std::io::SeekFrom;
 use std::io::prelude::*;
@@ -11,7 +11,7 @@ pub trait Provider {
     fn to_next(&mut self) -> anyhow::Result<(Vec<u8>, Vec<u8>)>;
 }
 
-#[derive(Eq, Clone)]
+#[derive(Eq, Clone, PartialEq, PartialOrd, Ord)]
 pub struct Entry {
     pub key:   Vec<u8>,
     pub value: Vec<u8>,
@@ -44,14 +44,12 @@ impl Provider  for DataProvider {
         let mut buffer_key_length = [0; 8];
         let mut buffer_value_length = [0; 8];
 
-        let mut bytes_read = self.file.read(&mut buffer_key_length[..])?;
         // EOF reached
-        if bytes_read == 0 {
+        if self.file.read(&mut buffer_key_length[..])? == 0 {
             return Ok((Vec::new(), Vec::new()));
         }
-        bytes_read = self.file.read(&mut buffer_value_length[..])?;
         // EOF reached
-        if bytes_read == 0 {
+        if self.file.read(&mut buffer_value_length[..])? == 0 {
             return Ok((Vec::new(), Vec::new()));
         }
 
@@ -59,40 +57,16 @@ impl Provider  for DataProvider {
         let value_length = usize::from_be_bytes(buffer_value_length);
         let mut key = vec![0; key_length];
         let mut value = vec![0; value_length];
-        bytes_read = self.file.read(&mut key[..])?;
 
         // EOF reached
-        if bytes_read == 0 {
+        if self.file.read(&mut key[..])? == 0 {
             return Ok((Vec::new(), Vec::new()));
         }
     
-        bytes_read = self.file.read(&mut value[..])?;
         // EOF reached
-        if bytes_read == 0 {
+        if self.file.read(&mut value[..])? == 0 {
             return Ok((Vec::new(), Vec::new()));
         }
         Ok((key, value))
-    }
-}
-
-impl<'kv> Ord for Entry {
-    fn cmp(&self, other: &Self) -> Ordering {
-        let key_cmp = self.key.cmp(&other.key);
-        if key_cmp == Ordering::Equal {
-            return self.value.cmp(&other.value);
-        }
-        return key_cmp;
-    }
-}
-
-impl<'kv> PartialOrd for Entry {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl<'kv> PartialEq for Entry {
-    fn eq(&self, other: &Self) -> bool {
-        self.key.cmp(&other.key) == Ordering::Equal && self.value.cmp(&other.value) == Ordering::Equal
     }
 }

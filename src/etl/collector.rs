@@ -27,7 +27,7 @@ impl Collector {
         self.buffer.push(entry);
         if self.buffer_size > self.buffer_capacity {
             self.buffer_size = 0;
-            self.buffer.sort();
+            self.buffer.sort_unstable();
             let current_id = self.data_providers.len();
             self.data_providers.push(DataProvider::new(self.buffer.clone(), current_id).unwrap());
             self.buffer.clear();
@@ -44,9 +44,9 @@ impl Collector {
         C: MutableCursor<'tx, T>
     {
         // If only one data provider is found, then we we can write directly from memory to db without reading any files
-        if self.data_providers.len() == 0 {
-            self.buffer.sort();
-            for entry in self.buffer.iter() {
+        if self.data_providers.is_empty() {
+            self.buffer.sort_unstable();
+            for entry in &self.buffer {
                 if let Some(f) = &load_function {
                     (f)(cursor, entry.key.to_vec(), entry.value.to_vec());
                 } else {
@@ -58,7 +58,7 @@ impl Collector {
         }
         // Flush buffer one more time
         if self.buffer_size != 0 {
-            self.buffer.sort();
+            self.buffer.sort_unstable();
             let current_id = self.data_providers.len();
             self.data_providers.push(DataProvider::new(self.buffer.clone(), current_id).unwrap());
             self.buffer.clear();
@@ -76,8 +76,8 @@ impl Collector {
             }));
         }
 
-        while heap.len() > 0 {
-            let entry = heap.pop().unwrap().0;
+        while let Some(e) = heap.pop() {
+            let entry = e.0;
             if let Some(f) = &load_function {
                 (f)(cursor, entry.key.to_vec(), entry.value.to_vec());
             } else {
