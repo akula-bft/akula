@@ -5,7 +5,7 @@ use crate::downloader::{
 use futures_core::Stream;
 use futures_util::TryStreamExt;
 use parking_lot::RwLock;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc};
 use strum::IntoEnumIterator;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -17,7 +17,7 @@ use tokio_stream::{
 };
 
 pub struct SentryClientReactor {
-    send_message_sender: mpsc::UnboundedSender<SendMessageCommand>,
+    send_message_sender: mpsc::Sender<SendMessageCommand>,
     receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
     event_loop: Option<SentryClientReactorEventLoop>,
     event_loop_handle: Option<JoinHandle<()>>,
@@ -26,7 +26,7 @@ pub struct SentryClientReactor {
 
 struct SentryClientReactorEventLoop {
     sentry: Box<dyn SentryClient>,
-    send_message_receiver: mpsc::UnboundedReceiver<SendMessageCommand>,
+    send_message_receiver: mpsc::Receiver<SendMessageCommand>,
     receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
     stop_signal_receiver: mpsc::Receiver<()>,
 }
@@ -37,10 +37,24 @@ struct SendMessageCommand {
     peer_filter: PeerFilter,
 }
 
+#[derive(Debug)]
+pub enum SendMessageError {
+    SendQueueFull,
+    ReactorStopped,
+}
+
+impl fmt::Display for SendMessageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for SendMessageError {}
+
 impl SentryClientReactor {
     pub fn new(sentry: Box<dyn SentryClient>) -> Self {
         let (send_message_sender, send_message_receiver) =
-            mpsc::unbounded_channel::<SendMessageCommand>();
+            mpsc::channel::<SendMessageCommand>(1024);
 
         let mut receive_messages_senders =
             HashMap::<EthMessageId, broadcast::Sender<Message>>::new();
@@ -99,9 +113,16 @@ impl SentryClientReactor {
             message,
             peer_filter,
         };
-        self.send_message_sender
-            .send(command)
-            .map_err(anyhow::Error::new)
+        let result = self.send_message_sender.try_send(command);
+        match result {
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                Err(anyhow::Error::new(SendMessageError::SendQueueFull))
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(anyhow::Error::new(SendMessageError::ReactorStopped))
+            }
+            Ok(_) => Ok(()),
+        }
     }
 
     pub fn receive_messages(
