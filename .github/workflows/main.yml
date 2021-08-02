@@ -21,7 +21,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly
+          toolchain: nightly-2021-08-01
           override: true
           components: rustfmt, clippy
 
@@ -38,12 +38,12 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: hack
-          args: check --all --ignore-private --each-feature --no-dev-deps
+          args: check --workspace --ignore-private --each-feature --no-dev-deps
 
       - uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --all --all-targets --all-features
+          args: --workspace --all-targets --all-features
 
       - uses: actions-rs/cargo@v1
         with:
@@ -52,4 +52,4 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: --workspace --all-targets -- -D warnings

@@ -7,6 +7,7 @@ fn make_downloader() -> Downloader {
     let args = Vec::<String>::new();
     let opts = Opts::new(Some(args), chains_config.chain_names().as_slice()).unwrap();
     let downloader = Downloader::new(opts, chains_config);
+    let _ = downloader;
     downloader
 }
 
