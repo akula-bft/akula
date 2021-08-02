@@ -25,7 +25,7 @@ mod tests {
     fn generate_address() {
         assert_eq!(
             pubkey_to_address(&secp256k1::PublicKey::from_secret_key(
-                &SECP256K1,
+                SECP256K1,
                 &secp256k1::SecretKey::from_slice(&hex!(
                     "17bc08619f3b717b022728e84f5f39c3f2b3e2ad00cfecbb689e4c1f7965da5f"
                 ))
