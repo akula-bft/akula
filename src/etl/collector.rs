@@ -101,3 +101,89 @@ impl Collector {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{distributions::Uniform, Rng}; // 0.6.5
+    use std::u64;
+    use crate::kv::{
+        tables,
+        new_mem_database,
+        traits::{
+            Transaction,
+            MutableKV,
+            MutableTransaction,
+        }
+    };
+    
+    macro_rules! wait {
+        ($e:expr) => {
+            tokio_test::block_on($e)
+        };
+    }
+
+    #[test]
+    fn collect_all_at_once() {
+        let mut rng = rand::thread_rng();
+        let range = Uniform::new(0, u64::MAX);
+        // generate random entries
+        let mut entries: Vec<Entry> = (0..10000).map(|_| Entry{
+            key: rng.sample(&range).to_be_bytes().to_vec(),
+            value: rng.sample(&range).to_be_bytes().to_vec(),
+            id: 0
+        }).collect();
+        let db = new_mem_database().unwrap();
+        let tx = wait!(db.begin_mutable()).unwrap();
+        let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+
+        for entry in entries.clone() {
+            collector.collect(entry);
+        }
+        // Any cursor is fine
+        let mut cursor = wait!(tx.mutable_cursor(&tables::HeaderNumber)).unwrap();
+        wait!(collector.load(&mut cursor, None)).unwrap();
+
+        // We sort the entries and compare them to what is in db
+        entries.sort_unstable();
+
+        for entry in entries {
+            if let Some(expected_value) = wait!(tx.get(&tables::HeaderNumber, entry.key.as_slice())).unwrap()
+            {
+                assert_eq!(entry.value, expected_value);
+            }
+        }
+    }
+
+    #[test]
+    fn collect_chunks() {
+        let mut rng = rand::thread_rng();
+        let range = Uniform::new(0, u64::MAX);
+        // generate random entries
+        let mut entries: Vec<Entry> = (0..10000).map(|_| Entry{
+            key: rng.sample(&range).to_be_bytes().to_vec(),
+            value: rng.sample(&range).to_be_bytes().to_vec(),
+            id: 0
+        }).collect();
+        let db = new_mem_database().unwrap();
+        let tx = wait!(db.begin_mutable()).unwrap();
+        let mut collector = Collector::new(1000);
+
+        for entry in entries.clone() {
+            collector.collect(entry);
+        }
+        // Any cursor is fine
+        let mut cursor = wait!(tx.mutable_cursor(&tables::HeaderNumber)).unwrap();
+        wait!(collector.load(&mut cursor, None)).unwrap();
+
+        // We sort the entries and compare them to what is in db
+        entries.sort_unstable();
+
+        for entry in entries {
+            if let Some(expected_value) = wait!(tx.get(&tables::HeaderNumber, entry.key.as_slice())).unwrap()
+            {
+                assert_eq!(entry.value, expected_value);
+            }
+        }
+    }
+}

@@ -29,6 +29,7 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", featu
 ethereum-types = "0.12"
 futures-core = "0.3"
 hex = "0.4"
+tokio-test = "0.4.2"
 hex-literal = "0.3"
 http = "0.2"
 maplit = "1"
