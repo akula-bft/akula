@@ -4,6 +4,7 @@ use crate::downloader::{
 };
 use async_trait::async_trait;
 use futures_core::Stream;
+use std::pin::Pin;
 
 pub struct Status {
     pub total_difficulty: ethereum_types::U256,
@@ -42,5 +43,5 @@ pub trait SentryClient: Send {
     async fn receive_messages(
         &mut self,
         filter_ids: &[EthMessageId],
-    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin + Send>>;
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Send>>>;
 }

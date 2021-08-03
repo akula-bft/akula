@@ -4,7 +4,7 @@ use crate::downloader::{
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, pin::Pin};
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -101,8 +101,7 @@ impl SentryClient for SentryClientImpl {
     async fn receive_messages(
         &mut self,
         filter_ids: &[EthMessageId],
-    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin + Send>>
-    {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Send>>> {
         let grpc_ids = filter_ids
             .iter()
             .map(|id| grpc_sentry::MessageId::from(*id) as i32)
@@ -143,13 +142,13 @@ impl SentryClient for SentryClientImpl {
                 }
             }
         });
-        Ok(Box::new(stream))
+        Ok(Box::pin(stream))
     }
 }
 
 fn tonic_stream_fuse_on_error<T: 'static + Send>(
     mut tonic_stream: tonic::codec::Streaming<T>,
-) -> Box<dyn Stream<Item = Result<T, tonic::Status>> + Unpin + Send> {
+) -> Pin<Box<dyn Stream<Item = Result<T, tonic::Status>> + Send>> {
     let stream = async_stream::stream! {
         while let Some(result) = tonic_stream.next().await {
             match result {
@@ -163,7 +162,7 @@ fn tonic_stream_fuse_on_error<T: 'static + Send>(
             }
         }
     };
-    Box::new(Box::pin(stream))
+    Box::pin(stream)
 }
 
 impl From<EthMessageId> for grpc_sentry::MessageId {

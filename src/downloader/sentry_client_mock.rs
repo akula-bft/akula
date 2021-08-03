@@ -3,7 +3,7 @@ use crate::downloader::{
     sentry_client::{MessageFromPeer, PeerFilter, SentryClient, Status},
 };
 use futures_core::Stream;
-use std::collections::HashSet;
+use std::{collections::HashSet, pin::Pin};
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers, StreamExt};
 
@@ -44,8 +44,7 @@ impl SentryClient for SentryClientMock {
     async fn receive_messages(
         &mut self,
         filter_ids: &[EthMessageId],
-    ) -> anyhow::Result<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Unpin + Send>>
-    {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Send>>> {
         let filter_ids_set = filter_ids
             .iter()
             .cloned()
@@ -59,7 +58,7 @@ impl SentryClient for SentryClientMock {
                 })
                 .map(Ok);
 
-            Ok(Box::new(Box::pin(stream)))
+            Ok(Box::pin(stream))
         } else {
             anyhow::bail!("SentryClientMock::receive_messages supports only one receiver")
         }

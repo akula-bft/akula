@@ -6,7 +6,7 @@ use anyhow::bail;
 use futures_core::Stream;
 use futures_util::TryStreamExt;
 use parking_lot::RwLock;
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::Arc};
 use strum::IntoEnumIterator;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -115,7 +115,7 @@ impl SentryClientReactor {
     pub fn receive_messages(
         &self,
         filter_id: EthMessageId,
-    ) -> anyhow::Result<Box<dyn Stream<Item = Message> + Unpin + Send>> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = Message> + Unpin + Send>>> {
         let receiver: broadcast::Receiver<Message>;
         {
             // release the lock on receive_messages_senders after getting a new receiver
@@ -139,7 +139,7 @@ impl SentryClientReactor {
             // ignore errors (logged above)
             .filter_map(|result| result.ok());
 
-        Ok(Box::new(Box::pin(stream)))
+        Ok(Box::pin(stream))
     }
 }
 
