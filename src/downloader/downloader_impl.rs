@@ -17,10 +17,10 @@ pub struct Downloader {
 }
 
 impl Downloader {
-    pub fn new(opts: Opts, chains_config: ChainsConfig) -> Downloader {
+    pub fn new(opts: Opts, chains_config: ChainsConfig) -> Self {
         let chain_config = chains_config.0[&opts.chain_name].clone();
 
-        Downloader { opts, chain_config }
+        Self { opts, chain_config }
     }
 
     pub async fn run(
