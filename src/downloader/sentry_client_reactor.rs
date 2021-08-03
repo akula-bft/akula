@@ -116,16 +116,14 @@ impl SentryClientReactor {
         &self,
         filter_id: EthMessageId,
     ) -> anyhow::Result<Pin<Box<dyn Stream<Item = Message> + Unpin + Send>>> {
-        let receiver: broadcast::Receiver<Message>;
-        {
-            // release the lock on receive_messages_senders after getting a new receiver
-            let senders = self.receive_messages_senders.read();
-            let sender = senders.get(&filter_id).ok_or_else(|| {
+        let receiver = self
+            .receive_messages_senders
+            .read()
+            .get(&filter_id)
+            .ok_or_else(|| {
                 anyhow::anyhow!("SentryClientReactor unexpected filter_id {:?}", filter_id)
-            })?;
-
-            receiver = sender.subscribe();
-        }
+            })?
+            .subscribe();
 
         let stream = BroadcastStream::new(receiver)
             .map_err(|error| match error {
@@ -207,10 +205,7 @@ impl SentryClientReactorEventLoop {
         }
 
         // drop shared senders so that existing receive_messages streams end
-        {
-            let mut senders = self.receive_messages_senders.write();
-            senders.clear();
-        }
+        self.receive_messages_senders.write().clear();
 
         info!("SentryClientReactor stopped");
         Ok(())
