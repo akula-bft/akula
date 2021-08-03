@@ -2,6 +2,7 @@ use crate::downloader::{
     messages::{EthMessageId, Message},
     sentry_client::*,
 };
+use anyhow::bail;
 use futures_core::Stream;
 use futures_util::TryStreamExt;
 use parking_lot::RwLock;
@@ -37,20 +38,6 @@ struct SendMessageCommand {
     message: Message,
     peer_filter: PeerFilter,
 }
-
-#[derive(Debug)]
-pub enum SendMessageError {
-    SendQueueFull,
-    ReactorStopped,
-}
-
-impl fmt::Display for SendMessageError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl std::error::Error for SendMessageError {}
 
 impl SentryClientReactor {
     pub fn new(sentry: Box<dyn SentryClient>) -> Self {
@@ -109,21 +96,20 @@ impl SentryClientReactor {
         }
     }
 
-    pub fn send_message(&self, message: Message, peer_filter: PeerFilter) -> anyhow::Result<()> {
+    pub async fn send_message(
+        &self,
+        message: Message,
+        peer_filter: PeerFilter,
+    ) -> anyhow::Result<()> {
         let command = SendMessageCommand {
             message,
             peer_filter,
         };
-        let result = self.send_message_sender.try_send(command);
-        match result {
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                Err(anyhow::Error::new(SendMessageError::SendQueueFull))
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                Err(anyhow::Error::new(SendMessageError::ReactorStopped))
-            }
-            Ok(_) => Ok(()),
+        if self.send_message_sender.send(command).await.is_err() {
+            bail!("Reactor stopped");
         }
+
+        Ok(())
     }
 
     pub fn receive_messages(

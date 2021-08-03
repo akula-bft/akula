@@ -53,7 +53,7 @@ impl Downloader {
                 reverse: 0,
             },
         });
-        sentry.send_message(message, PeerFilter::All)?;
+        sentry.send_message(message, PeerFilter::All).await?;
 
         let mut stream = sentry.receive_messages(EthMessageId::BlockHeaders)?;
         while let Some(message) = stream.next().await {
