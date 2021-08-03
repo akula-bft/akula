@@ -15,6 +15,7 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
 };
+use tracing::*;
 
 pub struct SentryClientReactor {
     send_message_sender: mpsc::Sender<SendMessageCommand>,
@@ -87,7 +88,7 @@ impl SentryClientReactor {
         let handle = tokio::spawn(async move {
             let result = event_loop.run().await;
             if let Err(error) = result {
-                tracing::error!("SentryClientReactor loop died: {:?}", error);
+                error!("SentryClientReactor loop died: {:?}", error);
             }
         });
         self.event_loop_handle = Some(handle);
@@ -104,7 +105,7 @@ impl SentryClientReactor {
     fn send_stop_signal(&self) {
         let result = self.stop_signal_sender.try_send(());
         if result.is_err() {
-            tracing::warn!("SentryClientReactor stop signal already sent or the loop died itself");
+            warn!("SentryClientReactor stop signal already sent or the loop died itself");
         }
     }
 
@@ -143,7 +144,7 @@ impl SentryClientReactor {
         let stream = BroadcastStream::new(receiver)
             .map_err(|error| match error {
                 BroadcastStreamRecvError::Lagged(skipped_count) => {
-                    tracing::warn!(
+                    warn!(
                         "SentryClientReactor receiver lagged too far behind, skipping {} messages",
                         skipped_count
                     );
@@ -175,10 +176,10 @@ impl SentryClientReactorEventLoop {
                     let send_result = self.sentry.send_message(command.message, command.peer_filter).await;
                     match send_result {
                         Ok(sent_peers_count) => {
-                            tracing::debug!("SentryClientReactor.EventLoop sent message to {:?} peers", sent_peers_count);
+                            debug!("SentryClientReactor.EventLoop sent message to {:?} peers", sent_peers_count);
                         }
                         Err(error) => {
-                            tracing::error!("SentryClientReactor.EventLoop sentry.send_message error: {}", error);
+                            error!("SentryClientReactor.EventLoop sentry.send_message error: {}", error);
                         }
                     }
                 }
@@ -186,26 +187,26 @@ impl SentryClientReactorEventLoop {
                     match message_result {
                         Some(Ok(message_from_peer)) => {
                             let id = message_from_peer.message.eth_id();
-                            tracing::debug!("SentryClientReactor.EventLoop incoming message: {:?}", id);
+                            debug!("SentryClientReactor.EventLoop incoming message: {:?}", id);
 
                             let senders = self.receive_messages_senders.read();
                             let sender = senders.get(&id)
                                 .ok_or_else(|| anyhow::anyhow!("SentryClientReactor.EventLoop unexpected message id {:?}", id))?;
                             let send_result = sender.send(message_from_peer.message);
                             if send_result.is_err() {
-                                tracing::debug!("SentryClientReactor.EventLoop no subscribers for message {:?}, dropping", id);
+                                debug!("SentryClientReactor.EventLoop no subscribers for message {:?}, dropping", id);
                             }
                         }
                         Some(Err(error)) => {
-                            tracing::error!("SentryClientReactor.EventLoop receive message error: {}", error);
+                            error!("SentryClientReactor.EventLoop receive message error: {}", error);
                             if let Some(io_error) = error.downcast_ref::<std::io::Error>() {
                                 if io_error.kind() == std::io::ErrorKind::BrokenPipe {
-                                    tracing::info!("SentryClientReactor.EventLoop TODO: need to reconnect in_stream");
+                                    info!("SentryClientReactor.EventLoop TODO: need to reconnect in_stream");
                                 }
                             }
                         },
                         None => {
-                            tracing::debug!("SentryClientReactor.EventLoop receive_messages stream ended");
+                            debug!("SentryClientReactor.EventLoop receive_messages stream ended");
                             break;
                         }
                     }
@@ -225,7 +226,7 @@ impl SentryClientReactorEventLoop {
             senders.clear();
         }
 
-        tracing::info!("SentryClientReactor stopped");
+        info!("SentryClientReactor stopped");
         Ok(())
     }
 }

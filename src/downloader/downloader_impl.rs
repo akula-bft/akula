@@ -9,6 +9,7 @@ use crate::downloader::{
     sentry_client_reactor::SentryClientReactor,
 };
 use tokio_stream::StreamExt;
+use tracing::*;
 
 pub struct Downloader {
     opts: Opts,
@@ -56,7 +57,7 @@ impl Downloader {
 
         let mut stream = sentry.receive_messages(EthMessageId::BlockHeaders)?;
         while let Some(message) = stream.next().await {
-            tracing::info!("incoming message: {:?}", message.eth_id());
+            info!("incoming message: {:?}", message.eth_id());
         }
 
         sentry.stop().await?;
