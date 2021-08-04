@@ -150,7 +150,7 @@ pub mod tx {
 
         for (i, eth_tx) in txs.iter().enumerate() {
             let key = (base_tx_id + i as u64).to_be_bytes();
-            let data = rlp::encode(eth_tx);
+            let data = rlp::encode(eth_tx).freeze();
             cursor.put(&key, &data).await.unwrap();
         }
 
@@ -297,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn accessors() {
-        let tx1 = ethereum::Transaction {
+        let tx1 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 1.into(),
             gas_price: 20_000.into(),
             gas_limit: 3_000_000.into(),
@@ -310,8 +310,8 @@ mod tests {
                 H256::repeat_byte(3),
             )
             .unwrap(),
-        };
-        let tx2 = ethereum::Transaction {
+        });
+        let tx2 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 2.into(),
             gas_price: 30_000.into(),
             gas_limit: 1_000_000.into(),
@@ -324,7 +324,7 @@ mod tests {
                 H256::repeat_byte(9),
             )
             .unwrap(),
-        };
+        });
         let txs = [tx1, tx2];
 
         let sender1 = Address::random();

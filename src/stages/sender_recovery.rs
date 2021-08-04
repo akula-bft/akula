@@ -28,10 +28,21 @@ const BUFFER_SIZE: u64 = 5000;
 
 fn recover_sender(tx: &Transaction) -> anyhow::Result<Address> {
     let mut sig = [0u8; 64];
-    sig[..32].copy_from_slice(tx.signature.r().as_bytes());
-    sig[32..].copy_from_slice(tx.signature.s().as_bytes());
 
-    let rec = RecoveryId::from_i32(tx.signature.standard_v() as i32)?;
+    let (r, s, v) = match tx {
+        Transaction::V0(tx) => (
+            tx.signature.r(),
+            tx.signature.s(),
+            tx.signature.standard_v(),
+        ),
+        Transaction::V1(tx) => (&tx.r, &tx.s, tx.odd_y_parity as u8),
+        Transaction::V2(tx) => (&tx.r, &tx.s, tx.odd_y_parity as u8),
+    };
+
+    sig[..32].copy_from_slice(r.as_bytes());
+    sig[32..].copy_from_slice(s.as_bytes());
+
+    let rec = RecoveryId::from_i32(v as i32)?;
 
     let public = &SECP256K1.recover(
         &Message::from_slice(TransactionMessage::from(tx.clone()).hash().as_bytes())?,
@@ -139,7 +150,7 @@ mod tests {
             uncles: vec![],
         };
 
-        let tx1_1 = Transaction {
+        let tx1_1 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 1.into(),
             gas_limit: 21_000.into(),
             gas_price: 1_000_000.into(),
@@ -156,9 +167,9 @@ mod tests {
                 )),
             )
             .unwrap(),
-        };
+        });
 
-        let tx1_2 = Transaction {
+        let tx1_2 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 2.into(),
             gas_limit: 21_000.into(),
             gas_price: 1_000_000.into(),
@@ -175,7 +186,7 @@ mod tests {
                 )),
             )
             .unwrap(),
-        };
+        });
 
         let block2 = BodyForStorage {
             base_tx_id: 3,
@@ -183,7 +194,7 @@ mod tests {
             uncles: vec![],
         };
 
-        let tx2_1 = Transaction {
+        let tx2_1 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 3.into(),
             gas_limit: 21_000.into(),
             gas_price: 1_000_000.into(),
@@ -200,9 +211,9 @@ mod tests {
                 )),
             )
             .unwrap(),
-        };
+        });
 
-        let tx2_2 = Transaction {
+        let tx2_2 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 6.into(),
             gas_limit: 21_000.into(),
             gas_price: 1_000_000.into(),
@@ -219,9 +230,9 @@ mod tests {
                 )),
             )
             .unwrap(),
-        };
+        });
 
-        let tx2_3 = Transaction {
+        let tx2_3 = ethereum::Transaction::V0(ethereum::TransactionV0 {
             nonce: 2.into(),
             gas_limit: 21_000.into(),
             gas_price: 1_000_000.into(),
@@ -238,7 +249,7 @@ mod tests {
                 )),
             )
             .unwrap(),
-        };
+        });
 
         let block3 = BodyForStorage {
             base_tx_id: 6,
