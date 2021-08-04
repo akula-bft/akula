@@ -90,8 +90,7 @@ impl SentryClientReactor {
     }
 
     fn send_stop_signal(&self) {
-        let result = self.stop_signal_sender.try_send(());
-        if result.is_err() {
+        if self.stop_signal_sender.try_send(()).is_err() {
             warn!("SentryClientReactor stop signal already sent or the loop died itself");
         }
     }
@@ -173,11 +172,11 @@ impl SentryClientReactorEventLoop {
                             let id = message_from_peer.message.eth_id();
                             debug!("SentryClientReactor.EventLoop incoming message: {:?}", id);
 
-                            let senders = self.receive_messages_senders.read();
-                            let sender = senders.get(&id)
-                                .ok_or_else(|| anyhow::anyhow!("SentryClientReactor.EventLoop unexpected message id {:?}", id))?;
-                            let send_result = sender.send(message_from_peer.message);
-                            if send_result.is_err() {
+                            if self.receive_messages_senders
+                                .read()
+                                .get(&id)
+                                .ok_or_else(|| anyhow::anyhow!("SentryClientReactor.EventLoop unexpected message id {:?}", id))?
+                                .send(message_from_peer.message).is_err() {
                                 debug!("SentryClientReactor.EventLoop no subscribers for message {:?}, dropping", id);
                             }
                         }
