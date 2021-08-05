@@ -39,10 +39,7 @@ impl Provider for DataProvider {
         }
         // Reset position at 0 byte
         file.seek(SeekFrom::Start(0))?;
-        Ok(DataProvider {
-            file,
-            id,
-        })
+        Ok(DataProvider { file, id })
     }
 
     #[allow(clippy::wrong_self_convention)]

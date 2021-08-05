@@ -1,8 +1,7 @@
-use akula::mdbx_table_sizes;
+use akula::{mdbx_table_sizes, stagedsync};
 use std::path::PathBuf;
 use structopt::StructOpt;
-use akula::stagedsync;
- 
+
 #[derive(StructOpt)]
 #[structopt(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
 pub enum Opt {
@@ -23,7 +22,7 @@ pub enum Opt {
     },
 }
 
-async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()>  {
+async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()> {
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &chaindata,
@@ -35,8 +34,7 @@ async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()>  {
     staged_sync.run(&env).await?;
 }
 
-
-async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()>  {
+async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()> {
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &chaindata,
@@ -75,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
 
     match opt {
         Opt::DbStats { chaindata, csv } => table_sizes(chaindata, csv).await?,
-        Opt::Blockhashes {chaindata} => blockhashes(chaindata).await?
+        Opt::Blockhashes { chaindata } => blockhashes(chaindata).await?,
     }
 
     Ok(())
