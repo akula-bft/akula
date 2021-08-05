@@ -13,7 +13,7 @@ use tokio::sync::{
     Mutex as AsyncMutex,
 };
 use tokio_stream::StreamExt;
-use tonic::{body::BoxBody, client::GrpcService, codegen::HttpBody, Streaming};
+use tonic::{body::BoxBody, client::GrpcService, codegen::Body, Streaming};
 use tracing::*;
 
 /// Remote transaction type via gRPC interface.
@@ -186,8 +186,8 @@ impl RemoteTransaction {
     pub async fn open<C>(mut client: KvClient<C>) -> anyhow::Result<Self>
     where
         C: GrpcService<BoxBody>,
-        <C as GrpcService<BoxBody>>::ResponseBody: 'static,
-        <<C as GrpcService<BoxBody>>::ResponseBody as HttpBody>::Error:
+        <C as GrpcService<BoxBody>>::ResponseBody: Send + Sync + 'static,
+        <<C as GrpcService<BoxBody>>::ResponseBody as Body>::Error:
             Into<Box<(dyn std::error::Error + Send + Sync + 'static)>> + Send,
     {
         trace!("Opening transaction");
