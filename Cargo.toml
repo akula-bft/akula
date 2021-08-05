@@ -83,3 +83,7 @@ name = "akula-rpc"
 [[bin]]
 path = "bin/akula-toolbox.rs"
 name = "akula-toolbox"
+
+[[bin]]
+path = "bin/blockhashes_stage.rs"
+name = "blockhashes_stage"

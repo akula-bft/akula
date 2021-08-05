@@ -21,6 +21,7 @@ mod common;
 mod crypto;
 mod dbutils;
 pub mod downloader;
+pub mod etl;
 pub mod kv;
 mod models;
 pub mod stagedsync;
