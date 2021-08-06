@@ -21,7 +21,7 @@ bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
 const_format = "0.2"
-ethereum = { git = "https://github.com/rust-blockchain/ethereum", branch = "vorot93/tx-rlp" }
+ethereum = { git = "https://github.com/rust-blockchain/ethereum" }
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",
     "sentry",
