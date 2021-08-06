@@ -35,8 +35,12 @@ impl rlp::Encodable for Message {
 #[cfg(test)]
 mod tests {
     use crate::downloader::{
+        block_id::BlockId,
         message_decoder::decode_rlp_message,
-        messages::{BlockHashAndNumber, EthMessageId, Message, NewBlockHashesMessage},
+        messages::{
+            BlockHashAndNumber, EthMessageId, GetBlockHeadersMessage, GetBlockHeadersMessageParams,
+            Message, NewBlockHashesMessage,
+        },
     };
     use ethereum_types::H256;
     use hex_literal::hex;
@@ -60,6 +64,56 @@ mod tests {
                     )),
                     number: 10567341,
                 },],
+            })
+        );
+    }
+
+    #[test]
+    fn decode_get_block_headers() {
+        let expected_bytes = hex!("ca820457c682270f050580");
+        let result = decode_rlp_message(EthMessageId::GetBlockHeaders, &expected_bytes);
+        let some_message = result.unwrap();
+
+        let bytes = rlp::encode(&some_message);
+        assert_eq!(&*bytes, expected_bytes);
+
+        assert_eq!(
+            some_message,
+            Message::GetBlockHeaders(GetBlockHeadersMessage {
+                request_id: 1111,
+                params: GetBlockHeadersMessageParams {
+                    start_block: BlockId::Number(9999),
+                    limit: 5,
+                    skip: 5,
+                    reverse: 0,
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn decode_get_block_headers_hash() {
+        let expected_bytes = hex!(
+            "e8820457e4a000000000000000000000000000000000000000000000000000000000deadc0de050601"
+        );
+        let result = decode_rlp_message(EthMessageId::GetBlockHeaders, &expected_bytes);
+        let some_message = result.unwrap();
+
+        let bytes = rlp::encode(&some_message);
+        assert_eq!(&*bytes, expected_bytes);
+
+        assert_eq!(
+            some_message,
+            Message::GetBlockHeaders(GetBlockHeadersMessage {
+                request_id: 1111,
+                params: GetBlockHeadersMessageParams {
+                    start_block: BlockId::Hash(H256(hex!(
+                        "00000000000000000000000000000000000000000000000000000000deadc0de"
+                    ))),
+                    limit: 5,
+                    skip: 6,
+                    reverse: 1,
+                },
             })
         );
     }

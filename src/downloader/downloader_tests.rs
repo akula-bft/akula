@@ -11,8 +11,16 @@ fn make_downloader() -> Downloader {
     downloader
 }
 
+fn setup_logging() {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+}
+
 #[tokio::test]
 async fn noop() {
+    setup_logging();
+
     let sentry = SentryClientMock::new();
 
     let downloader = make_downloader();

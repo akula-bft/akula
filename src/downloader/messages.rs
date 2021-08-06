@@ -2,7 +2,7 @@ use crate::downloader::block_id::BlockId;
 use ethereum::{Block as BlockType, Header as HeaderType};
 use ethereum_types::H256;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum EthMessageId {
     Status = 0,
     NewBlockHashes = 1,
@@ -37,10 +37,15 @@ pub struct NewBlockHashesMessage {
 #[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy, PartialEq, Debug)]
 pub struct GetBlockHeadersMessage {
     pub request_id: u64,
+    pub params: GetBlockHeadersMessageParams,
+}
+
+#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, Copy, PartialEq, Debug)]
+pub struct GetBlockHeadersMessageParams {
     pub start_block: BlockId,
     pub limit: u64,
     pub skip: u64,
-    pub reverse: bool,
+    pub reverse: u8,
 }
 
 #[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
