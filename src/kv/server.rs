@@ -3,7 +3,7 @@ use crate::{kv::CustomTable, Cursor, CursorDupSort, Transaction};
 use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum_interfaces::{
-    remotekv::{Op, Pair, StateChange},
+    remotekv::{Op, Pair, StateChange, StateChangeRequest},
     types::VersionReply,
 };
 use futures_core::Stream;
@@ -20,7 +20,7 @@ pub struct KvServer<DB: KV + Send + Sync> {
 impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvServer<DB> {
     type TxStream =
         Pin<Box<dyn Stream<Item = Result<Pair, tonic::Status>> + Send + Sync + 'static>>;
-    type ReceiveStateChangesStream = tokio_stream::Pending<Result<StateChange, tonic::Status>>;
+    type StateChangesStream = tokio_stream::Pending<Result<StateChange, tonic::Status>>;
 
     async fn version(
         &self,
@@ -177,10 +177,10 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
         )))
     }
 
-    async fn receive_state_changes(
+    async fn state_changes(
         &self,
-        request: tonic::Request<()>,
-    ) -> Result<Response<Self::ReceiveStateChangesStream>, tonic::Status> {
+        request: tonic::Request<StateChangeRequest>,
+    ) -> Result<Response<Self::StateChangesStream>, tonic::Status> {
         let _ = request;
         Ok(Response::new(tokio_stream::pending()))
     }
