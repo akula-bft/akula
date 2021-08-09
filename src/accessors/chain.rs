@@ -104,7 +104,7 @@ pub mod tx {
         tx: &'tx Tx,
         base_tx_id: u64,
         amount: u32,
-    ) -> anyhow::Result<Vec<ethereum::Transaction>> {
+    ) -> anyhow::Result<Vec<ethereum::TransactionV2>> {
         trace!(
             "Reading {} transactions starting from {}",
             amount,
@@ -138,7 +138,7 @@ pub mod tx {
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
         tx: &'tx RwTx,
         base_tx_id: u64,
-        txs: &[ethereum::Transaction],
+        txs: &[ethereum::TransactionV2],
     ) -> anyhow::Result<()> {
         trace!(
             "Writing {} transactions starting from {}",
@@ -297,7 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn accessors() {
-        let tx1 = ethereum::Transaction::V0(ethereum::TransactionV0 {
+        let tx1 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
             nonce: 1.into(),
             gas_price: 20_000.into(),
             gas_limit: 3_000_000.into(),
@@ -311,7 +311,7 @@ mod tests {
             )
             .unwrap(),
         });
-        let tx2 = ethereum::Transaction::V0(ethereum::TransactionV0 {
+        let tx2 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
             nonce: 2.into(),
             gas_price: 30_000.into(),
             gas_limit: 1_000_000.into(),

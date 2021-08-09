@@ -1,5 +1,5 @@
 use crate::downloader::block_id::BlockId;
-use ethereum::{Block as BlockType, Header as HeaderType};
+use ethereum::{Block as BlockType, Header as HeaderType, TransactionV2};
 use ethereum_types::H256;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, strum::EnumIter)]
@@ -56,7 +56,7 @@ pub struct BlockHeadersMessage {
 
 #[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
 pub struct NewBlockMessage {
-    pub block: Box<BlockType>,
+    pub block: Box<BlockType<TransactionV2>>,
     pub total_difficulty: u64,
 }
 
