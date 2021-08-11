@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
-use ethereum_types::{H160, H256, U64};
-use serde::{Deserialize, de};
+use ethereum_types::{H160, H256, U256, U64};
+use serde::{de, Deserialize};
 
 type NodeUrl = String;
 
@@ -15,7 +15,7 @@ struct ChainSpec {
     params: Params,
     genesis: Genesis,
     precompiles: HashMap<String, HashMap<String, Precompiles>>,
-    balances: HashMap<H160, String>,
+    balances: HashMap<H160, U256>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -363,7 +363,6 @@ mod tests {
                         epoch: 30_000,
                         genesis: EngineGenesis {
                             vanity: hex!("52657370656374206d7920617574686f7269746168207e452e436172746d616e").into() , 
-                        
                         signers:
                             vec![
                                 hex!("42eb768f2244c8811c63729a21a3569731535f06").into(),
@@ -373,8 +372,8 @@ mod tests {
                         }
                     }
                 },
-                hardforks: HardForks { 
-                    eip140: 0xfcc25.into(), 
+                hardforks: HardForks {
+                    eip140: 0xfcc25.into(),
                     eip145: 0x37db77.into(),
                     eip150: 0x2.into(), eip155: 0x3.into(), eip160: 0x0.into(), eip161abc: 0x0.into(), eip161d: 0x0.into(), eip211: 0xfcc25.into(), eip214: 0xfcc25.into(), eip658: 0xfcc25.into(), eip1014: 0x37db77.into(), eip1052: 0x37db77.into(), eip1283: 0x37db77.into(), eip1283_disable: 0x41efd2.into(), eip1283_reenable: 0x52efd1.into(), eip1344: 0x52efd1.into(), eip1706: 0x52efd1.into(), eip1884: 0x52efd1.into(), eip2028: 0x52efd1.into(), max_code_size: 0x0.into() },
                     params: Params { account_start_nonce: 0x0.into(), chain_id: 0x4.into(), gas_limit_bound_divisor: 0x400.into(), max_code_size: 0x6000.into(), maximum_extra_data_size: 0xffff.into(), min_gas_limit: 0x1388.into(), network_id: 0x4.into() },
@@ -386,7 +385,6 @@ mod tests {
                     (hex!("0000000000000000000000000000000000000000").into(), "0x1".into()),
                     (hex!("31b98d14007bdee637298086988a0bbd31184523").into(), "0x200000000000000000000000000000000000000000000000000000000000000".into())
                     ].into_iter().collect(),
-                    
             },
             chain_spec,
         );
