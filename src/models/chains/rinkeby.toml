@@ -1,0 +1,86 @@
+name = "Rinkeby"
+data_dir = "rinkeby"
+
+bootnodes = [
+    "enode://a24ac7c5484ef4ed0c5eb2d36620ba4e4aa13b8c84684e1b4aab0cebea2ae45cb4d375b77eab56516d34bfbd3c1a833fc51296ff084b770b94fb9028c4d25ccf@52.169.42.101:30303",
+    "enode://343149e4feefa15d882d9fe4ac7d88f885bd05ebb735e547f12e12080a9fa07c8014ca6fd7f373123488102fe5e34111f8509cf0b7de3f5b44339c9f25e87cb8@52.3.158.184:30303",
+    "enode://b6b28890b006743680c52e64e0d16db57f28124885595fa03a562be1d2bf0f3a1da297d56b13da25fb992888fd556d4c1a27b1f39d531bde7de1921c90061cc6@159.89.28.211:30303",
+]
+
+[engine]
+name = "clique"
+[engine.params]
+period = 15
+epoch = 30000
+[engine.params.genesis]
+vanity = "0x52657370656374206d7920617574686f7269746168207e452e436172746d616e"
+signers = [
+    "0x42eb768f2244c8811c63729a21a3569731535f06",
+    "0x7ffc57839b00206d1ad20c69a1981b489f772031",
+    "0xb279182d99e65703f0076e4812653aab85fca0f0",
+]
+
+[hardforks]
+eip140 = "0xfcc25"
+eip145 = "0x37db77"
+eip150 = "0x2"
+eip155 = "0x3"
+eip160 = "0x0"
+eip161abc = "0x0"
+eip161d = "0x0"
+eip211 = "0xfcc25"
+eip214 = "0xfcc25"
+eip658 = "0xfcc25"
+eip1014 = "0x37db77"
+eip1052 = "0x37db77"
+eip1283 = "0x37db77"
+eip1283_disable = "0x41efd2"
+eip1283_reenable = "0x52efd1"
+eip1344 = "0x52efd1"
+eip1706 = "0x52efd1"
+eip1884 = "0x52efd1"
+eip2028 = "0x52efd1"
+max_code_size = "0x0"
+
+[params]
+account_start_nonce = "0x0"
+chain_id = "0x4"
+gas_limit_bound_divisor = "0x400"
+max_code_size = "0x6000"
+maximum_extra_data_size = "0xffff"
+min_gas_limit = "0x1388"
+network_id = "0x4"
+
+[genesis]
+gas_limit = "0x47b760"
+timestamp = "0x58ee40ba"
+
+[precompiles.0x0.0x0000000000000000000000000000000000000001]
+name = "ecrecover"
+pricing = { formula = "linear", params = { base = 3000, word = 0 } }
+
+# EIP 1108 transition at block 5_435_345 (0x52efd1)
+[precompiles.0xfcc25.0x0000000000000000000000000000000000000005]
+name = "modexp"
+pricing = { formula = "modexp", params = { divisor = 20 } }
+
+[precompiles.0xfcc25.0x0000000000000000000000000000000000000006]
+name = "alt_bn128_add"
+pricing = { formula = "alt_bn128_const_operations", params = { price = 500 } }
+
+[precompiles.0xfcc25.0x0000000000000000000000000000000000000008]
+name = "alt_bn128_pairing"
+pricing = { formula = "alt_bn128_pairing", params = { base = 100000, pair = 80000 } }
+
+# EIP 1108 transition at block 5_435_345 (0x52efd1)        
+[precompiles.0x52efd1.0x0000000000000000000000000000000000000008]
+name = "alt_bn128_pairing"
+pricing = { formula = "alt_bn128_pairing", params = { base = 45000, pair = 34000 } }
+
+[precompiles.0x52efd1.0x0000000000000000000000000000000000000009]
+name = "blake2_f"
+pricing = { formula = "blake2_f", params = { gas_per_round = 1 } }
+
+[balances]
+"0x0000000000000000000000000000000000000000" = "0x1"
+"0x31b98d14007bdee637298086988a0bbd31184523" = "0x200000000000000000000000000000000000000000000000000000000000000"
