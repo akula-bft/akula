@@ -47,3 +47,4 @@ LastBlock = {}
 Migration = {}
 Sequence = {}
 LastHeader = {}
+TxLookup = {}
