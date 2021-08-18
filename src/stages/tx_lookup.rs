@@ -45,7 +45,7 @@ where
         pin!(walker);
 
         while let Some((block_key, ref body)) = walker.try_next().await? {
-            let (block_number, block_hash) = (&block_key[0..8], &block_key[8..]);
+            let block_number = &block_key[..8];
 
             let body = rlp::decode::<BodyForStorage>(body)?;
             for ref uncle in body.uncles {
@@ -53,7 +53,7 @@ where
                 let hashed_tx_data = hash_data(bytes.as_ref());
                 collector.collect(Entry {
                     key: hashed_tx_data.as_bytes().to_vec(),
-                    value: [block_number, block_hash].concat(),
+                    value: block_number.to_vec(),
                     id: 0, // ?
                 });
             }
