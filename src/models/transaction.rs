@@ -24,6 +24,18 @@ pub enum TxType {
     EIP1559 = 2,
 }
 
+impl TryFrom<u8> for TxType {
+    type Error = DecoderError;
+    fn try_from(orig: u8) -> Result<Self, Self::Error> {
+        match orig {
+            0 => Ok(TxType::Legacy),
+            1 => Ok(TxType::EIP2930),
+            2 => Ok(TxType::EIP1559),
+            _ => Err(DecoderError::Custom("Invalid tx type")),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub enum TransactionAction {
     Call(Address),
