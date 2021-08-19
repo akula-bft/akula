@@ -7,9 +7,11 @@ use crate::{
     kv::tables,
     models::BodyForStorage,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
-    txdb, MutableTransaction, StageId,
+    txdb, Cursor, MutableTransaction, StageId,
 };
+use anyhow::anyhow;
 use async_trait::async_trait;
+use ethereum_types::U64;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -30,32 +32,60 @@ where
         "Generating TransactionHash => BlockNumber Mapping"
     }
 
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &self,
+        tx: &'tx mut RwTx,
+        _input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
-        let past_progress = input.stage_progress.unwrap_or(0);
-
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
         let mut tx_hash_cursor = tx.mutable_cursor(&tables::TxLookup).await?;
 
-        let start_key = past_progress.to_be_bytes();
+        let mut block_txs_cursor = tx.cursor(&tables::BlockTransaction).await?;
+
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = txdb::walk(&mut bodies_cursor, &start_key, 0);
-        pin!(walker);
 
-        while let Some((block_key, ref body)) = walker.try_next().await? {
-            let block_number = &block_key[..8];
+        let mut start_block_number = [0; 8];
+        let (_, last_processed_block_number) = tx
+            .mutable_cursor(&tables::TxLookup)
+            .await?
+            .last()
+            .await?
+            .ok_or_else(|| anyhow!("TxLookup is empty"))?;
 
-            let body = rlp::decode::<BodyForStorage>(body)?;
-            for ref uncle in body.uncles {
-                let bytes = rlp::encode(uncle);
-                let hashed_tx_data = hash_data(bytes.as_ref());
+        (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
+            .to_big_endian(&mut start_block_number);
+
+        let walker_block_body = txdb::walk(&mut bodies_cursor, &start_block_number, 0);
+        pin!(walker_block_body);
+
+        while let Some((block_body_key, ref block_body_value)) =
+            walker_block_body.try_next().await?
+        {
+            let block_number = &block_body_key[..8];
+            let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
+            let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
+            let tx_base_id_as_bytes = tx_base_id.to_be_bytes();
+
+            let walker_block_txs = txdb::walk(&mut block_txs_cursor, &tx_base_id_as_bytes, 0);
+            pin!(walker_block_txs);
+
+            let mut num_txs = 1;
+
+            while let Some((_tx_key, ref tx_value)) = walker_block_txs.try_next().await? {
+                if num_txs > tx_count {
+                    break;
+                }
+
+                let hashed_tx_data = hash_data(tx_value);
                 collector.collect(Entry {
                     key: hashed_tx_data.as_bytes().to_vec(),
                     value: block_number.to_vec(),
                     id: 0, // ?
                 });
+                num_txs += 1;
             }
         }
 
