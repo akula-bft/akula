@@ -25,11 +25,11 @@ pub struct CallResult {
     pub output_data: Bytes<'static>,
 }
 
-struct Evm<'storage, 'r, 'state, 'h, 'c, 't, B>
+struct Evm<'r, 'state, 'h, 'c, 't, B>
 where
-    B: State<'storage>,
+    B: State,
 {
-    state: &'state mut IntraBlockState<'storage, 'r, B>,
+    state: &'state mut IntraBlockState<'r, B>,
     header: &'h PartialHeader,
     revision: Revision,
     chain_config: &'c ChainConfig,
@@ -37,8 +37,8 @@ where
     address_stack: Vec<Address>,
 }
 
-pub async fn execute<'storage, 'r, B: State<'storage>>(
-    state: &mut IntraBlockState<'storage, 'r, B>,
+pub async fn execute<B: State>(
+    state: &mut IntraBlockState<'_, B>,
     header: &PartialHeader,
     chain_config: &ChainConfig,
     txn: &TransactionWithSender,
@@ -85,9 +85,9 @@ pub async fn execute<'storage, 'r, B: State<'storage>>(
     })
 }
 
-impl<'storage, 'r, 'state, 'h, 'c, 't, B> Evm<'storage, 'r, 'state, 'h, 'c, 't, B>
+impl<'r, 'state, 'h, 'c, 't, B> Evm<'r, 'state, 'h, 'c, 't, B>
 where
-    B: State<'storage>,
+    B: State,
 {
     #[async_recursion]
     async fn create(&mut self, message: CreateMessage) -> anyhow::Result<Output> {
@@ -171,7 +171,7 @@ where
             } else if res.gas_left >= 0 && res.gas_left as u64 >= code_deploy_gas {
                 res.gas_left -= code_deploy_gas as i64;
                 self.state
-                    .set_code(contract_addr, res.output_data.clone().into())
+                    .set_code(contract_addr, res.output_data.clone())
                     .await?;
             } else if self.revision >= Revision::Homestead {
                 res.status_code = StatusCode::OutOfGas;
@@ -443,11 +443,7 @@ where
 
                     let mut buffer = vec![0; max_size];
 
-                    let code = self
-                        .state
-                        .get_code(address)
-                        .await?
-                        .unwrap_or_else(bytes::Bytes::new);
+                    let code = self.state.get_code(address).await?.unwrap_or_default();
 
                     let mut copied = 0;
                     if offset < code.len() {
@@ -613,8 +609,8 @@ mod tests {
     use crate::{chain::config::MAINNET_CONFIG, util::test_util::run_test, InMemoryState};
     use hex_literal::hex;
 
-    async fn execute<'storage, 'r, B: State<'storage>>(
-        state: &mut IntraBlockState<'storage, 'r, B>,
+    async fn execute<B: State>(
+        state: &mut IntraBlockState<'_, B>,
         header: &PartialHeader,
         txn: &TransactionWithSender,
         gas: u64,

@@ -1,13 +1,13 @@
 use crate::{IntraBlockState, State};
 use ethereum_types::*;
 
-pub async fn transfer_balances<'storage, 'r, R>(
-    state: &mut IntraBlockState<'storage, 'r, R>,
+pub async fn transfer_balances<R>(
+    state: &mut IntraBlockState<'_, R>,
     beneficiary: Address,
     drain: impl Iterator<Item = Address>,
 ) -> anyhow::Result<()>
 where
-    R: State<'storage>,
+    R: State,
 {
     for address in drain {
         let b = state.get_balance(address).await?;

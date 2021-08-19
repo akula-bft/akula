@@ -2,7 +2,7 @@ use crate::{kv::tables::VariableVec, models::*, util::*};
 use anyhow::bail;
 use arrayvec::ArrayVec;
 use bytes::Bytes;
-use educe::Educe;
+use educe::*;
 use ethereum_types::*;
 use modular_bitfield::prelude::*;
 use rlp_derive::*;

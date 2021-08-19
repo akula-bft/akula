@@ -45,9 +45,9 @@ pub enum Delta {
 }
 
 impl Delta {
-    pub fn revert<'storage, 'r, R>(self, state: &mut IntraBlockState<'storage, 'r, R>)
+    pub fn revert<R>(self, state: &mut IntraBlockState<'_, R>)
     where
-        R: State<'storage>,
+        R: State,
     {
         match self {
             Delta::Create { address } => {

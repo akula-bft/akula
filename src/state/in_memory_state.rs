@@ -1,7 +1,7 @@
 use crate::{crypto::*, models::*, util::*, State};
 use async_trait::async_trait;
-use bytes::Bytes;
 use ethereum_types::*;
+use static_bytes::Bytes;
 use std::{collections::HashMap, convert::TryInto};
 
 // address -> initial value
@@ -16,7 +16,7 @@ pub struct InMemoryState {
     accounts: HashMap<Address, Account>,
 
     // hash -> code
-    code: HashMap<H256, Bytes<'static>>,
+    code: HashMap<H256, Bytes>,
     prev_incarnations: HashMap<Address, Incarnation>,
 
     // address -> incarnation -> location -> value
@@ -65,7 +65,7 @@ impl InMemoryState {
 }
 
 #[async_trait]
-impl State<'static> for InMemoryState {
+impl State for InMemoryState {
     async fn number_of_accounts(&self) -> anyhow::Result<u64> {
         Ok(self.accounts.len().try_into()?)
     }
@@ -90,12 +90,8 @@ impl State<'static> for InMemoryState {
         Ok(self.accounts.get(&address).cloned())
     }
 
-    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes<'static>> {
-        Ok(self
-            .code
-            .get(&code_hash)
-            .cloned()
-            .unwrap_or_else(Bytes::new))
+    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
+        Ok(self.code.get(&code_hash).cloned().unwrap_or_default())
     }
 
     async fn read_storage(
@@ -281,7 +277,7 @@ impl State<'static> for InMemoryState {
         Ok(())
     }
 
-    async fn insert_receipts(&mut self, _: BlockNumber, _: &[Receipt]) -> anyhow::Result<()> {
+    async fn insert_receipts(&mut self, _: BlockNumber, _: Vec<Receipt>) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -324,7 +320,7 @@ impl State<'static> for InMemoryState {
         _: Address,
         _: Incarnation,
         code_hash: H256,
-        code: Bytes<'static>,
+        code: Bytes,
     ) -> anyhow::Result<()> {
         // Don't overwrite already existing code so that views of it
         // that were previously returned by read_code() are still valid.

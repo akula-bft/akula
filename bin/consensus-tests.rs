@@ -416,10 +416,7 @@ enum Status {
 }
 
 #[instrument]
-async fn init_pre_state<'storage, S: State<'storage>>(
-    pre: &HashMap<Address, AccountState>,
-    state: &mut S,
-) {
+async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &mut S) {
     for (address, j) in pre {
         let mut account = Account {
             balance: j.balance,
@@ -436,7 +433,7 @@ async fn init_pre_state<'storage, S: State<'storage>>(
                     *address,
                     account.incarnation,
                     account.code_hash,
-                    j.code.clone(),
+                    j.code.clone().into(),
                 )
                 .await
                 .unwrap();
@@ -474,13 +471,13 @@ struct BlockCommon {
 }
 
 #[instrument(skip(block_common, blockchain))]
-async fn run_block<'storage: 'state, 'state, S, C>(
+async fn run_block<'state, S, C>(
     consensus: &C,
     block_common: &BlockCommon,
-    blockchain: &mut Blockchain<'storage, 'state, S>,
+    blockchain: &mut Blockchain<'state, S>,
 ) -> anyhow::Result<()>
 where
-    S: State<'storage>,
+    S: State,
     C: Consensus,
 {
     let block = rlp::decode::<Block>(&block_common.rlp)?;
@@ -497,7 +494,7 @@ where
 }
 
 #[instrument]
-async fn post_check<'storage, S: State<'storage>>(
+async fn post_check<S: State>(
     state: &S,
     expected: &HashMap<Address, AccountState>,
 ) -> anyhow::Result<()> {

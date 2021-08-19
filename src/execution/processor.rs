@@ -17,11 +17,11 @@ use evmodin::{Revision, StatusCode};
 use std::cmp::min;
 use TransactionAction;
 
-pub struct ExecutionProcessor<'storage, 'r, 'h, 'b, 'c, S>
+pub struct ExecutionProcessor<'r, 'h, 'b, 'c, S>
 where
-    S: State<'storage>,
+    S: State,
 {
-    state: IntraBlockState<'storage, 'r, S>,
+    state: IntraBlockState<'r, S>,
     header: &'h PartialHeader,
     block: &'b BlockBodyWithSenders,
     revision: Revision,
@@ -29,9 +29,9 @@ where
     cumulative_gas_used: u64,
 }
 
-impl<'storage, 'r, 'h, 'b, 'c, S> ExecutionProcessor<'storage, 'r, 'h, 'b, 'c, S>
+impl<'r, 'h, 'b, 'c, S> ExecutionProcessor<'r, 'h, 'b, 'c, S>
 where
-    S: State<'storage>,
+    S: State,
 {
     pub fn new(
         state: &'r mut S,
@@ -54,11 +54,11 @@ where
         self.header.gas_limit - self.cumulative_gas_used
     }
 
-    pub(crate) fn state(&mut self) -> &mut IntraBlockState<'storage, 'r, S> {
+    pub(crate) fn state(&mut self) -> &mut IntraBlockState<'r, S> {
         &mut self.state
     }
 
-    pub(crate) fn into_state(self) -> IntraBlockState<'storage, 'r, S> {
+    pub(crate) fn into_state(self) -> IntraBlockState<'r, S> {
         self.state
     }
 

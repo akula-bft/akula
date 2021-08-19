@@ -1,11 +1,11 @@
 use crate::models::*;
 use async_trait::async_trait;
-use bytes::Bytes;
 use ethereum_types::{Address, H256, U256};
+use static_bytes::Bytes;
 use std::fmt::Debug;
 
 #[async_trait]
-pub trait State<'storage>: Debug + Send + Sync {
+pub trait State: Debug + Send + Sync {
     async fn number_of_accounts(&self) -> anyhow::Result<u64>;
     async fn storage_size(&self, address: Address, incarnation: Incarnation)
         -> anyhow::Result<u64>;
@@ -14,7 +14,7 @@ pub trait State<'storage>: Debug + Send + Sync {
 
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>>;
 
-    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes<'storage>>;
+    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes>;
 
     async fn read_storage(
         &self,
@@ -69,7 +69,7 @@ pub trait State<'storage>: Debug + Send + Sync {
     async fn insert_receipts(
         &mut self,
         block_number: BlockNumber,
-        receipts: &[Receipt],
+        receipts: Vec<Receipt>,
     ) -> anyhow::Result<()>;
 
     /// State changes
@@ -91,7 +91,7 @@ pub trait State<'storage>: Debug + Send + Sync {
         address: Address,
         incarnation: Incarnation,
         code_hash: H256,
-        code: Bytes<'storage>,
+        code: Bytes,
     ) -> anyhow::Result<()>;
 
     async fn update_storage(

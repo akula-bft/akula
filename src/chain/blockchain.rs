@@ -8,29 +8,28 @@ use crate::{
 use anyhow::Context;
 use async_recursion::async_recursion;
 use ethereum_types::*;
-use std::{collections::HashMap, convert::TryFrom, marker::PhantomData};
+use std::{collections::HashMap, convert::TryFrom};
 
 #[derive(Debug)]
-pub struct Blockchain<'storage: 'state, 'state, S>
+pub struct Blockchain<'state, S>
 where
-    S: State<'storage>,
+    S: State,
 {
     state: &'state mut S,
     config: ChainConfig,
     bad_blocks: HashMap<H256, ValidationError>,
     receipts: Vec<Receipt>,
-    _marker: PhantomData<&'storage ()>,
 }
 
-impl<'storage: 'state, 'state, S> Blockchain<'storage, 'state, S>
+impl<'state, S> Blockchain<'state, S>
 where
-    S: State<'storage>,
+    S: State,
 {
     pub async fn new(
         state: &'state mut S,
         config: ChainConfig,
         genesis_block: Block,
-    ) -> anyhow::Result<Blockchain<'storage, 'state, S>> {
+    ) -> anyhow::Result<Blockchain<'state, S>> {
         let hash = genesis_block.header.hash();
         let number = genesis_block.header.number;
         state.insert_block(genesis_block, hash).await?;
@@ -41,7 +40,6 @@ where
             config,
             bad_blocks: Default::default(),
             receipts: Default::default(),
-            _marker: PhantomData,
         })
     }
 

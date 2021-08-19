@@ -1,3 +1,4 @@
+mod buffer;
 mod database;
 mod delta;
 mod history;
@@ -7,5 +8,6 @@ mod intra_block_state;
 mod object;
 
 pub use self::{
-    database::*, history::*, in_memory_state::*, interface::*, intra_block_state::*, object::*,
+    buffer::*, database::*, history::*, in_memory_state::*, interface::*, intra_block_state::*,
+    object::*,
 };
