@@ -64,7 +64,12 @@ where
         while let Some((block_body_key, ref block_body_value)) =
             walker_block_body.try_next().await?
         {
-            let block_number = &block_body_key[..8];
+            let block_number = block_body_key[..8]
+                .iter()
+                .cloned()
+                // remove trailing zeros
+                .skip_while(|x| *x == 0)
+                .collect::<Vec<_>>();
             let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
             let tx_base_id_as_bytes = tx_base_id.to_be_bytes();
@@ -82,7 +87,7 @@ where
                 let hashed_tx_data = hash_data(tx_value);
                 collector.collect(Entry {
                     key: hashed_tx_data.as_bytes().to_vec(),
-                    value: block_number.to_vec(),
+                    value: block_number.clone(),
                     id: 0, // ?
                 });
                 num_txs += 1;
