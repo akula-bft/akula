@@ -290,6 +290,25 @@ pub mod td {
     }
 }
 
+pub mod tl {
+    use super::*;
+
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
+        tx: &'tx Tx,
+        tx_hash: H256,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        trace!("Reading Block number for a tx_hash {:?}", tx_hash);
+
+        if let Some(b) = tx.get(&tables::TxLookup, tx_hash.as_bytes()).await? {
+            trace!("Reading TL RLP: {}", hex::encode(&b));
+
+            return Ok(Some(rlp::decode(&b)?));
+        }
+
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
