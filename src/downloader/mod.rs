@@ -12,6 +12,10 @@ mod sentry_client_mock;
 
 #[cfg(test)]
 mod downloader_tests;
+mod headers;
 mod sentry_client_reactor;
+
+mod ui_system;
+mod ui_view;
 
 pub use self::downloader_impl::Downloader;

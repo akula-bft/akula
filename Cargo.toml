@@ -21,6 +21,7 @@ bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetim
 bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
+crossterm = { version = "0.20", optional = true }
 derive_more = "0.99"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",

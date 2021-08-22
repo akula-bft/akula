@@ -6,7 +6,7 @@ use anyhow::bail;
 use futures_core::Stream;
 use futures_util::TryStreamExt;
 use parking_lot::RwLock;
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{collections::HashMap, fmt, pin::Pin, sync::Arc};
 use strum::IntoEnumIterator;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -38,6 +38,20 @@ struct SendMessageCommand {
     message: Message,
     peer_filter: PeerFilter,
 }
+
+#[derive(Debug)]
+pub enum SendMessageError {
+    SendQueueFull,
+    ReactorStopped,
+}
+
+impl fmt::Display for SendMessageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for SendMessageError {}
 
 impl SentryClientReactor {
     pub fn new(sentry: Box<dyn SentryClient>) -> Self {
@@ -111,10 +125,31 @@ impl SentryClientReactor {
         Ok(())
     }
 
+    pub fn try_send_message(
+        &self,
+        message: Message,
+        peer_filter: PeerFilter,
+    ) -> anyhow::Result<()> {
+        let command = SendMessageCommand {
+            message,
+            peer_filter,
+        };
+        let result = self.send_message_sender.try_send(command);
+        match result {
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                Err(anyhow::Error::new(SendMessageError::SendQueueFull))
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(anyhow::Error::new(SendMessageError::ReactorStopped))
+            }
+            Ok(_) => Ok(()),
+        }
+    }
+
     pub fn receive_messages(
         &self,
         filter_id: EthMessageId,
-    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = Message> + Unpin + Send>>> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = Message> + Send>>> {
         let receiver = self
             .receive_messages_senders
             .read()
