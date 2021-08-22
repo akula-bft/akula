@@ -3,20 +3,20 @@ use crate::{
     dbutils::*,
     kv::{tables, traits::MutableCursor},
     models::*,
-    txdb, MutableTransaction, Transaction,
+    txdb, MutableTransaction, Transaction as ReadTransaction,
 };
 use anyhow::{bail, Context};
 use arrayref::array_ref;
-use ethereum::Header as HeaderType;
 use ethereum_types::{Address, H256, U256};
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
+use BlockHeader as HeaderType;
 
 pub mod canonical_hash {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         block_num: u64,
     ) -> anyhow::Result<Option<H256>> {
@@ -57,7 +57,7 @@ pub mod canonical_hash {
 pub mod header_number {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
     ) -> anyhow::Result<Option<u64>> {
@@ -82,7 +82,7 @@ pub mod header_number {
 pub mod header {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -100,11 +100,11 @@ pub mod header {
 pub mod tx {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         base_tx_id: u64,
         amount: u32,
-    ) -> anyhow::Result<Vec<ethereum::TransactionV2>> {
+    ) -> anyhow::Result<Vec<Transaction>> {
         trace!(
             "Reading {} transactions starting from {}",
             amount,
@@ -138,7 +138,7 @@ pub mod tx {
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
         tx: &'tx RwTx,
         base_tx_id: u64,
-        txs: &[ethereum::TransactionV2],
+        txs: &[Transaction],
     ) -> anyhow::Result<()> {
         trace!(
             "Writing {} transactions starting from {}",
@@ -161,7 +161,7 @@ pub mod tx {
 pub mod tx_sender {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         base_tx_id: u64,
         amount: u32,
@@ -176,11 +176,11 @@ pub mod tx_sender {
             let mut cursor = tx.cursor(&tables::TxSender).await?;
 
             let start_key = base_tx_id.to_be_bytes();
-            txdb::walk(&mut cursor, &start_key, 0)
-                .take(amount as usize)
-                .map(|res| res.map(|(_, address_bytes)| Address::from_slice(&*address_bytes)))
-                .collect::<anyhow::Result<Vec<_>>>()
+            txdb::get_n(&mut cursor, &start_key, 0, amount as usize)
                 .await?
+                .into_iter()
+                .map(|(_, address_bytes)| Address::from_slice(&*address_bytes))
+                .collect()
         } else {
             vec![]
         })
@@ -214,7 +214,7 @@ pub mod storage_body {
 
     use super::*;
 
-    async fn read_raw<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    async fn read_raw<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -231,7 +231,7 @@ pub mod storage_body {
         Ok(None)
     }
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -243,7 +243,7 @@ pub mod storage_body {
         Ok(None)
     }
 
-    pub async fn has<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn has<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -270,7 +270,7 @@ pub mod storage_body {
 pub mod td {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: Transaction<'db>>(
+    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: u64,
@@ -294,37 +294,36 @@ pub mod td {
 mod tests {
     use super::*;
     use crate::kv::{new_mem_database, traits::MutableKV};
+    use bytes::Bytes;
 
     #[tokio::test]
     async fn accessors() {
-        let tx1 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 1.into(),
-            gas_price: 20_000.into(),
-            gas_limit: 3_000_000.into(),
-            action: ethereum::TransactionAction::Create,
-            value: 0.into(),
-            input: vec![],
-            signature: ethereum::TransactionSignature::new(
-                27,
-                H256::repeat_byte(2),
-                H256::repeat_byte(3),
-            )
-            .unwrap(),
-        });
-        let tx2 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 2.into(),
-            gas_price: 30_000.into(),
-            gas_limit: 1_000_000.into(),
-            action: ethereum::TransactionAction::Create,
-            value: 10.into(),
-            input: vec![],
-            signature: ethereum::TransactionSignature::new(
-                28,
-                H256::repeat_byte(6),
-                H256::repeat_byte(9),
-            )
-            .unwrap(),
-        });
+        let tx1 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: None,
+                nonce: 1,
+                gas_price: 20_000.into(),
+                gas_limit: 3_000_000,
+                action: TransactionAction::Create,
+                value: 0.into(),
+                input: Bytes::new(),
+            },
+            signature: TransactionSignature::new(false, H256::repeat_byte(2), H256::repeat_byte(3))
+                .unwrap(),
+        };
+        let tx2 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: None,
+                nonce: 2,
+                gas_price: 30_000.into(),
+                gas_limit: 1_000_000,
+                action: TransactionAction::Create,
+                value: 10.into(),
+                input: Bytes::new(),
+            },
+            signature: TransactionSignature::new(true, H256::repeat_byte(6), H256::repeat_byte(9))
+                .unwrap(),
+        };
         let txs = [tx1, tx2];
 
         let sender1 = Address::random();

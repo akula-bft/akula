@@ -5,15 +5,6 @@ use crate::{
 };
 use anyhow::Context;
 use async_trait::async_trait;
-use ethereum::{
-    EIP1559TransactionMessage, EIP2930TransactionMessage, LegacyTransactionMessage, TransactionV2,
-};
-use ethereum_types::Address;
-use secp256k1::{
-    recovery::{RecoverableSignature, RecoveryId},
-    Message, SECP256K1,
-};
-use sha3::{Digest, Keccak256};
 use std::cmp;
 use thiserror::Error;
 use tracing::error;
@@ -27,40 +18,6 @@ pub enum SenderRecoveryError {
 }
 
 const BUFFER_SIZE: u64 = 5000;
-
-fn recover_sender(tx: &TransactionV2) -> anyhow::Result<Address> {
-    let mut sig = [0u8; 64];
-
-    let (r, s, v) = match tx {
-        TransactionV2::Legacy(tx) => (
-            tx.signature.r(),
-            tx.signature.s(),
-            tx.signature.standard_v(),
-        ),
-        TransactionV2::EIP2930(tx) => (&tx.r, &tx.s, tx.odd_y_parity as u8),
-        TransactionV2::EIP1559(tx) => (&tx.r, &tx.s, tx.odd_y_parity as u8),
-    };
-
-    sig[..32].copy_from_slice(r.as_bytes());
-    sig[32..].copy_from_slice(s.as_bytes());
-
-    let rec = RecoveryId::from_i32(v as i32)?;
-
-    let public = &SECP256K1.recover(
-        &Message::from_slice(
-            match tx {
-                TransactionV2::Legacy(tx) => LegacyTransactionMessage::from(tx.clone()).hash(),
-                TransactionV2::EIP2930(tx) => EIP2930TransactionMessage::from(tx.clone()).hash(),
-                TransactionV2::EIP1559(tx) => EIP1559TransactionMessage::from(tx.clone()).hash(),
-            }
-            .as_bytes(),
-        )?,
-        &RecoverableSignature::from_compact(&sig, rec)?,
-    )?;
-
-    let address_slice = &Keccak256::digest(&public.serialize_uncompressed()[1..])[12..];
-    Ok(Address::from_slice(address_slice))
-}
 
 async fn process_block<'db: 'tx, 'tx, RwTx>(tx: &'tx mut RwTx, height: u64) -> anyhow::Result<()>
 where
@@ -76,7 +33,7 @@ where
 
     let mut senders = vec![];
     for tx in &txs {
-        senders.push(recover_sender(tx)?);
+        senders.push(tx.recover_sender()?);
     }
 
     chain::tx_sender::write(tx, body.base_tx_id, &senders).await
@@ -137,9 +94,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{kv::traits::MutableKV, models::BodyForStorage, new_mem_database};
-    use ethereum::{TransactionAction, TransactionSignature};
-    use ethereum_types::{H160, H256};
+    use crate::{kv::traits::MutableKV, models::*, new_mem_database};
+    use bytes::Bytes;
+    use ethereum_types::*;
     use hex_literal::hex;
 
     #[tokio::test]
@@ -159,15 +116,18 @@ mod tests {
             uncles: vec![],
         };
 
-        let tx1_1 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 1.into(),
-            gas_limit: 21_000.into(),
-            gas_price: 1_000_000.into(),
-            action: TransactionAction::Call(recipient1),
-            value: 1.into(),
-            input: vec![],
+        let tx1_1 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: Some(1),
+                nonce: 1,
+                gas_price: 1_000_000.into(),
+                gas_limit: 21_000,
+                action: TransactionAction::Call(recipient1),
+                value: 1.into(),
+                input: Bytes::new(),
+            },
             signature: TransactionSignature::new(
-                0x25,
+                false,
                 H256::from(hex!(
                     "11d244ae19e3bb96d1bb864aa761d48e957984a154329f0de757cd105f9c7ac4"
                 )),
@@ -176,17 +136,20 @@ mod tests {
                 )),
             )
             .unwrap(),
-        });
+        };
 
-        let tx1_2 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 2.into(),
-            gas_limit: 21_000.into(),
-            gas_price: 1_000_000.into(),
-            action: TransactionAction::Call(recipient1),
-            value: 0x100.into(),
-            input: vec![],
+        let tx1_2 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: Some(1),
+                nonce: 2,
+                gas_price: 1_000_000.into(),
+                gas_limit: 21_000,
+                action: TransactionAction::Call(recipient1),
+                value: 0x100.into(),
+                input: Bytes::new(),
+            },
             signature: TransactionSignature::new(
-                0x26,
+                true,
                 H256::from(hex!(
                     "9e8c555909921d359bfb0c2734841c87691eb257cb5f0597ac47501abd8ba0de"
                 )),
@@ -195,7 +158,7 @@ mod tests {
                 )),
             )
             .unwrap(),
-        });
+        };
 
         let block2 = BodyForStorage {
             base_tx_id: 3,
@@ -203,15 +166,18 @@ mod tests {
             uncles: vec![],
         };
 
-        let tx2_1 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 3.into(),
-            gas_limit: 21_000.into(),
-            gas_price: 1_000_000.into(),
-            action: TransactionAction::Call(recipient1),
-            value: 0x10000.into(),
-            input: vec![],
+        let tx2_1 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: Some(1),
+                nonce: 3,
+                gas_price: 1_000_000.into(),
+                gas_limit: 21_000,
+                action: TransactionAction::Call(recipient1),
+                value: 0x10000.into(),
+                input: Bytes::new(),
+            },
             signature: TransactionSignature::new(
-                0x26,
+                true,
                 H256::from(hex!(
                     "2450fdbf8fbc1dee15022bfa7392eb15f04277782343258e185972b5b2b8bf79"
                 )),
@@ -220,17 +186,20 @@ mod tests {
                 )),
             )
             .unwrap(),
-        });
+        };
 
-        let tx2_2 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 6.into(),
-            gas_limit: 21_000.into(),
-            gas_price: 1_000_000.into(),
-            action: TransactionAction::Call(recipient1),
-            value: 0x10.into(),
-            input: vec![],
+        let tx2_2 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: Some(1),
+                nonce: 6,
+                gas_price: 1_000_000.into(),
+                gas_limit: 21_000,
+                action: TransactionAction::Call(recipient1),
+                value: 0x10.into(),
+                input: Bytes::new(),
+            },
             signature: TransactionSignature::new(
-                0x25,
+                false,
                 H256::from(hex!(
                     "ac0222c1258eada1f828729186b723eaf3dd7f535c5de7271ea02470cbb1029f"
                 )),
@@ -239,17 +208,20 @@ mod tests {
                 )),
             )
             .unwrap(),
-        });
+        };
 
-        let tx2_3 = ethereum::TransactionV2::Legacy(ethereum::LegacyTransaction {
-            nonce: 2.into(),
-            gas_limit: 21_000.into(),
-            gas_price: 1_000_000.into(),
-            action: TransactionAction::Call(recipient2),
-            value: 2.into(),
-            input: vec![],
+        let tx2_3 = Transaction {
+            message: TransactionMessage::Legacy {
+                chain_id: Some(1),
+                nonce: 2,
+                gas_price: 1_000_000.into(),
+                gas_limit: 21_000,
+                action: TransactionAction::Call(recipient2),
+                value: 2.into(),
+                input: Bytes::new(),
+            },
             signature: TransactionSignature::new(
-                0x26,
+                true,
                 H256::from(hex!(
                     "e41df92d64612590f72cae9e8895cd34ce0a545109f060879add106336bb5055"
                 )),
@@ -258,7 +230,7 @@ mod tests {
                 )),
             )
             .unwrap(),
-        });
+        };
 
         let block3 = BodyForStorage {
             base_tx_id: 6,

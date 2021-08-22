@@ -11,6 +11,7 @@ default-run = "akula"
 akula-table-defs = { path = "src/kv/table-defs" }
 anyhow = "1"
 arrayref = "0.3"
+async-recursion = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "0.4"
@@ -20,15 +21,17 @@ bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetim
 bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
-const_format = "0.2"
-ethereum = { git = "https://github.com/rust-blockchain/ethereum" }
+derive_more = "0.99"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",
     "sentry",
 ] }
 ethereum-types = "0.12"
+evmodin = { git = "https://github.com/vorot93/evmodin" }
 futures-core = "0.3"
 futures-util = "0.3"
+hash-db = "0.15"
+hash256-std-hasher = "0.15"
 hex = "0.4"
 hex-literal = "0.3"
 http = "0.2"
@@ -62,6 +65,7 @@ tonic = { version = "0.5", default-features = false, features = [
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = "0.2"
+triehash = "0.8"
 
 [build-dependencies]
 akula-table-defs = { path = "src/kv/table-defs" }

@@ -3,26 +3,22 @@ use ethereum_types::{H256, U256};
 use modular_bitfield::prelude::*;
 use static_bytes::Buf;
 
-use crate::common;
+use crate::common::{self, EMPTY_HASH};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
-    pub initialised: bool,
     pub nonce: u64,
     pub balance: U256,
-    pub root: Option<H256>,      // merkle root of the storage trie
-    pub code_hash: Option<H256>, // hash of the bytecode
+    pub code_hash: H256, // hash of the bytecode
     pub incarnation: u64,
 }
 
 impl Default for Account {
     fn default() -> Self {
         Self {
-            initialised: true,
             nonce: 0,
             balance: U256::zero(),
-            root: None,
-            code_hash: None,
+            code_hash: EMPTY_HASH,
             incarnation: 0,
         }
     }
@@ -60,7 +56,7 @@ impl Account {
             struct_length += 1 + Self::u64_compact_len(self.nonce);
         }
 
-        if self.code_hash.is_some() {
+        if self.code_hash != EMPTY_HASH {
             struct_length += 33 // 32-byte array + 1 byte for length
         }
 
@@ -92,7 +88,7 @@ impl Account {
         written
     }
 
-    pub fn encode_for_storage(&self) -> Vec<u8> {
+    pub fn encode_for_storage(&self, omit_code_hash: bool) -> Vec<u8> {
         let mut buffer = vec![0; self.encoding_length_for_storage()];
 
         let mut field_set = AccountStorageFlags::default(); // start with first bit set to 0
@@ -115,10 +111,10 @@ impl Account {
         }
 
         // Encoding code hash
-        if let Some(code_hash) = self.code_hash {
+        if self.code_hash != EMPTY_HASH && !omit_code_hash {
             field_set.set_code_hash(true);
             buffer[pos] = 32;
-            buffer[pos + 1..pos + 33].copy_from_slice(code_hash.as_bytes());
+            buffer[pos + 1..pos + 33].copy_from_slice(self.code_hash.as_bytes());
         }
 
         let fs = field_set.into_bytes()[0];
@@ -168,7 +164,7 @@ impl Account {
                 )
             }
 
-            a.code_hash = Some(H256::from_slice(&enc[..decode_length]));
+            a.code_hash = H256::from_slice(&enc[..decode_length]);
             enc.advance(decode_length);
         }
 
@@ -183,15 +179,13 @@ mod tests {
     use hex_literal::hex;
 
     fn run_test_storage(original: Account, expected_encoded: &[u8]) {
-        let encoded_account = original.encode_for_storage();
+        let encoded_account = original.encode_for_storage(false);
 
         assert_eq!(encoded_account, expected_encoded);
 
-        let mut decoded = Account::decode_for_storage(&encoded_account)
+        let decoded = Account::decode_for_storage(&encoded_account)
             .unwrap()
             .unwrap();
-
-        decoded.root = original.root;
 
         assert_eq!(original, decoded);
     }
@@ -200,11 +194,9 @@ mod tests {
     fn empty() {
         run_test_storage(
             Account {
-                initialised: true,
                 nonce: 100,
                 balance: U256::zero(),
-                root: None,
-                code_hash: None,
+                code_hash: EMPTY_HASH,
                 incarnation: 5,
             },
             &hex!("0501640105"),
@@ -215,13 +207,9 @@ mod tests {
     fn with_code() {
         run_test_storage(
             Account {
-                initialised: true,
                 nonce: 2,
                 balance: 1000.into(),
-                root: Some(H256(hex!(
-                    "0000000000000000000000000000000000000000000000000000000000000021"
-                ))),
-                code_hash: Some(common::hash_data(&[1, 2, 3])),
+                code_hash: common::hash_data(&[1, 2, 3]),
                 incarnation: 4,
             },
             &hex!("0f01020203e8010420f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"),
@@ -231,13 +219,9 @@ mod tests {
     #[test]
     fn with_code_with_storage_size_hack() {
         run_test_storage(Account {
-            initialised: true,
             nonce: 2,
             balance: 1000.into(),
-            root: Some(H256(hex!(
-                "0000000000000000000000000000000000000000000000000000000000000021"
-            ))),
-            code_hash: Some(common::hash_data(&[1, 2, 3])),
+            code_hash: common::hash_data(&[1, 2, 3]),
             incarnation: 5,
         }, &hex!("0f01020203e8010520f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"))
     }
@@ -246,11 +230,9 @@ mod tests {
     fn without_code() {
         run_test_storage(
             Account {
-                initialised: true,
                 nonce: 2,
                 balance: 1000.into(),
-                root: None,
-                code_hash: None,
+                code_hash: EMPTY_HASH,
                 incarnation: 5,
             },
             &hex!("0701020203e80105"),
@@ -261,15 +243,11 @@ mod tests {
     fn with_empty_balance_non_nil_contract_and_not_zero_incarnation() {
         run_test_storage(
             Account {
-                initialised: true,
                 nonce: 0,
                 balance: 0.into(),
-                root: Some(H256(hex!(
+                code_hash: H256(hex!(
                     "0000000000000000000000000000000000000000000000000000000000000123"
-                ))),
-                code_hash: Some(H256(hex!(
-                    "0000000000000000000000000000000000000000000000000000000000000123"
-                ))),
+                )),
                 incarnation: 1,
             },
             &hex!("0c0101200000000000000000000000000000000000000000000000000000000000000123"),
@@ -280,11 +258,9 @@ mod tests {
     fn with_empty_balance_and_not_zero_incarnation() {
         run_test_storage(
             Account {
-                initialised: true,
                 nonce: 0,
                 balance: 0.into(),
-                root: None,
-                code_hash: None,
+                code_hash: EMPTY_HASH,
                 incarnation: 1,
             },
             &hex!("040101"),
