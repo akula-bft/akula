@@ -31,11 +31,7 @@ where
         "Generating TransactionHash => BlockNumber Mapping"
     }
 
-    async fn execute<'tx>(
-        &self,
-        tx: &'tx mut RwTx,
-        _input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -96,7 +92,7 @@ where
         collector.load(&mut tx_hash_cursor, None).await?;
         info!("Processed");
         Ok(ExecOutput::Progress {
-            stage_progress: 0, // ?
+            stage_progress: input.previous_stage.map(|(_, stage)| stage).unwrap_or(0), // ?
             done: false,
             must_commit: true,
         })
@@ -302,7 +298,7 @@ mod tests {
         assert_eq!(
             output,
             ExecOutput::Progress {
-                stage_progress: 0,
+                stage_progress: 3,
                 done: false,
                 must_commit: true,
             }
