@@ -121,7 +121,7 @@ mod tests {
     use hex_literal::hex;
 
     #[tokio::test]
-    async fn recover_senders() {
+    async fn tx_lookup_stage_with_data() {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
@@ -316,5 +316,29 @@ mod tests {
                 block_number
             );
         }
+    }
+
+    #[tokio::test]
+    async fn tx_lookup_stage_without_data() {
+        let db = new_mem_database().unwrap();
+        let mut tx = db.begin_mutable().await.unwrap();
+        let stage = TxLookup {};
+
+        let stage_input = StageInput {
+            restarted: false,
+            previous_stage: Some((StageId("BodyDownload"), 3)),
+            stage_progress: Some(0),
+        };
+
+        let output: ExecOutput = stage.execute(&mut tx, stage_input).await.unwrap();
+
+        assert_eq!(
+            output,
+            ExecOutput::Progress {
+                stage_progress: 3,
+                done: false,
+                must_commit: true,
+            }
+        );
     }
 }
