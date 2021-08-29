@@ -1,4 +1,8 @@
-use crate::downloader::headers::header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices};
+use crate::downloader::headers::{
+    header_slices,
+    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    preverified_hashes_config::PreverifiedHashesConfig,
+};
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use std::{cell::RefCell, ops::DerefMut, sync::Arc};
 use tokio::sync::watch;
@@ -7,15 +11,20 @@ use tracing::*;
 /// Checks that block hashes are matching the expected ones and sets Verified status.
 pub struct VerifyStage {
     header_slices: Arc<HeaderSlices>,
+    preverified_hashes: PreverifiedHashesConfig,
     pending_watch: RefCell<watch::Receiver<usize>>,
 }
 
 impl VerifyStage {
-    pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
+    pub fn new(
+        header_slices: Arc<HeaderSlices>,
+        preverified_hashes: PreverifiedHashesConfig,
+    ) -> Self {
         let pending_watch = header_slices.watch_status_changes(HeaderSliceStatus::Downloaded);
 
         Self {
             header_slices,
+            preverified_hashes,
             pending_watch: RefCell::new(pending_watch),
         }
     }
@@ -63,8 +72,62 @@ impl VerifyStage {
         })
     }
 
-    fn verify_slice(&self, _slice: &HeaderSlice) -> bool {
-        // TODO: verify hashes properly
-        rand::random::<u8>() < 224
+    /// The algorithm verifies that the top of the slice matches one of the preverified hashes,
+    /// and that all blocks down to the root of the slice are connected by the parent_hash field.
+    ///
+    /// For example, if we have a HeaderSlice[192...384]
+    /// (with block headers from 192 to 384 inclusive), it verifies that:
+    ///
+    /// hash(slice[384]) == preverified hash(384)
+    /// hash(slice[383]) == slice[384].parent_hash
+    /// hash(slice[382]) == slice[383].parent_hash
+    /// ...
+    /// hash(slice[192]) == slice[193].parent_hash
+    ///
+    /// Thus verifying hashes of all the headers.
+    fn verify_slice(&self, slice: &HeaderSlice) -> bool {
+        if slice.headers.is_none() {
+            return false;
+        }
+        let headers = slice.headers.as_ref().unwrap();
+
+        if headers.is_empty() {
+            return true;
+        }
+
+        let last = headers.last().unwrap();
+        let last_hash = last.hash();
+        let expected_last_hash =
+            self.preverified_hash(slice.start_block_num + headers.len() as u64 - 1);
+        if expected_last_hash.is_none() {
+            return false;
+        }
+        if last_hash != *expected_last_hash.unwrap() {
+            return false;
+        }
+
+        for child_index in (1..headers.len()).rev() {
+            let parent_index = child_index - 1;
+
+            let child = &headers[child_index];
+            let parent = &headers[parent_index];
+
+            let parent_hash = parent.hash();
+            let expected_parent_hash = child.parent_hash;
+            if parent_hash != expected_parent_hash {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn preverified_hash(&self, block_num: u64) -> Option<&ethereum_types::H256> {
+        let preverified_step_size = header_slices::HEADER_SLICE_SIZE as u64;
+        if block_num % preverified_step_size != 0 {
+            return None;
+        }
+        let index = block_num / preverified_step_size;
+        self.preverified_hashes.hashes.get(index as usize)
     }
 }
