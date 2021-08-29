@@ -62,6 +62,17 @@ impl FetchRequestStage {
             self.pending_count()
         );
         self.request_pending()?;
+
+        // in case of SendQueueFull, await for extra capacity
+        if self.pending_count() > 0 {
+            // obtain the sentry lock, and release it before awaiting
+            let capacity_future = {
+                let sentry = self.sentry.read();
+                sentry.reserve_capacity_in_send_queue()
+            };
+            capacity_future.await?;
+        }
+
         debug!("FetchRequestStage: done");
         Ok(())
     }
@@ -80,7 +91,10 @@ impl FetchRequestStage {
                 let result = self.request(request_id, block_num, limit);
                 match result {
                     Err(error) => match error.downcast_ref::<SendMessageError>() {
-                        Some(SendMessageError::SendQueueFull) => return Some(Ok(())),
+                        Some(SendMessageError::SendQueueFull) => {
+                            debug!("FetchRequestStage: request send queue is full");
+                            return Some(Ok(()));
+                        }
                         Some(SendMessageError::ReactorStopped) => return Some(Err(error)),
                         None => return Some(Err(error)),
                     },
