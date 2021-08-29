@@ -3,6 +3,7 @@ use parking_lot::RwLock;
 use std::{
     collections::{HashMap, LinkedList},
     sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    time,
 };
 use strum::IntoEnumIterator;
 use tokio::sync::watch;
@@ -25,6 +26,8 @@ pub struct HeaderSlice {
     pub start_block_num: u64,
     pub status: HeaderSliceStatus,
     pub headers: Option<Vec<Header>>,
+    pub request_time: Option<time::Instant>,
+    pub request_attempt: u16,
 }
 
 struct HeaderSliceStatusWatch {
@@ -61,6 +64,8 @@ impl HeaderSlices {
                 start_block_num: (i * HEADER_SLICE_SIZE) as u64,
                 status: HeaderSliceStatus::Empty,
                 headers: None,
+                request_time: None,
+                request_attempt: 0,
             };
             slices.push_back(RwLock::new(slice));
         }
@@ -99,9 +104,9 @@ impl HeaderSlices {
             .collect::<Vec<HeaderSliceStatus>>()
     }
 
-    pub fn for_each<F>(&self, f: F) -> anyhow::Result<()>
+    pub fn for_each<F>(&self, mut f: F) -> anyhow::Result<()>
     where
-        F: Fn(&RwLock<HeaderSlice>) -> Option<anyhow::Result<()>>,
+        F: FnMut(&RwLock<HeaderSlice>) -> Option<anyhow::Result<()>>,
     {
         for slice_lock in self.slices.read().iter() {
             let result_opt = f(slice_lock);
@@ -151,6 +156,8 @@ impl HeaderSlices {
                 start_block_num: self.max_block_num.load(ATOMIC_ORDERING),
                 status: HeaderSliceStatus::Empty,
                 headers: None,
+                request_time: None,
+                request_attempt: 0,
             };
             slices.push_back(RwLock::new(slice));
             self.max_block_num

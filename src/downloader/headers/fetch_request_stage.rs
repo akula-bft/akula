@@ -13,6 +13,7 @@ use std::{
     cell::{Cell, RefCell},
     ops::DerefMut,
     sync::Arc,
+    time,
 };
 use tokio::sync::watch;
 use tracing::*;
@@ -82,6 +83,7 @@ impl FetchRequestStage {
                     },
                     Ok(_) => {
                         let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
+                        slice.request_time = Some(time::Instant::now());
                         self.header_slices
                             .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Waiting);
                     }
