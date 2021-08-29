@@ -98,7 +98,7 @@ impl VerifyStage {
         let last = headers.last().unwrap();
         let last_hash = last.hash();
         let expected_last_hash =
-            self.preverified_hash(slice.start_block_num + headers.len() as u64 - 1);
+            self.preverified_hash(slice.start_block_num.0 + headers.len() as u64 - 1);
         if expected_last_hash.is_none() {
             return false;
         }
