@@ -250,11 +250,13 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
     ) -> anyhow::Result<()> {
         let obj =
             get_or_create_object(self.db, &mut self.objects, &mut self.journal, address).await?;
-        self.journal.push(Delta::Update {
+
+        let current = obj.current.as_mut().unwrap();
+        self.journal.push(Delta::UpdateBalance {
             address,
-            previous: obj.clone(),
+            previous: current.balance,
         });
-        obj.current.as_mut().unwrap().balance = value.into();
+        current.balance = value.into();
         self.touch(address);
 
         Ok(())
@@ -266,11 +268,13 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
     ) -> anyhow::Result<()> {
         let obj =
             get_or_create_object(self.db, &mut self.objects, &mut self.journal, address).await?;
-        self.journal.push(Delta::Update {
+
+        let current = obj.current.as_mut().unwrap();
+        self.journal.push(Delta::UpdateBalance {
             address,
-            previous: obj.clone(),
+            previous: current.balance,
         });
-        obj.current.as_mut().unwrap().balance += addend.into();
+        current.balance += addend.into();
         self.touch(address);
 
         Ok(())
@@ -282,11 +286,13 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
     ) -> anyhow::Result<()> {
         let obj =
             get_or_create_object(self.db, &mut self.objects, &mut self.journal, address).await?;
-        self.journal.push(Delta::Update {
+
+        let current = obj.current.as_mut().unwrap();
+        self.journal.push(Delta::UpdateBalance {
             address,
-            previous: obj.clone(),
+            previous: current.balance,
         });
-        obj.current.as_mut().unwrap().balance -= subtrahend;
+        current.balance -= subtrahend;
         self.touch(address);
 
         Ok(())
