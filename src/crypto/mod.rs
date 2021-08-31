@@ -1,9 +1,12 @@
-use crate::common;
+use bytes::Bytes;
 use ethereum_types::{Address, H256};
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
+use hex_literal::hex;
 use secp256k1::{PublicKey, SECP256K1};
 use sha3::{Digest, Keccak256};
+
+pub mod blake2;
 
 /// Concrete `Hasher` impl for the Keccak-256 hash
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -16,7 +19,7 @@ impl Hasher for KeccakHasher {
     const LENGTH: usize = 32;
 
     fn hash(x: &[u8]) -> Self::Out {
-        H256::from_slice(Keccak256::digest(x).as_slice())
+        keccak256(x)
     }
 }
 
@@ -30,16 +33,6 @@ where
     triehash::trie_root::<KeccakHasher, _, _, _>(input)
 }
 
-/// Generates a key-hashed (secure) trie root hash for a vector of key-value tuples.
-pub fn sec_trie_root<I, K, V>(input: I) -> H256
-where
-    I: IntoIterator<Item = (K, V)>,
-    K: AsRef<[u8]>,
-    V: AsRef<[u8]>,
-{
-    triehash::sec_trie_root::<KeccakHasher, _, _, _>(input)
-}
-
 /// Generates a trie root hash for a vector of values
 pub fn ordered_trie_root<I, V>(input: I) -> H256
 where
@@ -47,6 +40,38 @@ where
     V: AsRef<[u8]>,
 {
     triehash::ordered_trie_root::<KeccakHasher, I>(input)
+}
+
+pub trait TrieEncode {
+    fn trie_encode(&self) -> Bytes<'static>;
+}
+
+pub fn root_hash<T: TrieEncode>(values: &[T]) -> H256 {
+    ordered_trie_root(values.iter().map(TrieEncode::trie_encode))
+}
+
+pub fn is_valid_signature(r: H256, s: H256, homestead: bool) -> bool {
+    const UPPER: H256 = H256(hex!(
+        "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"
+    ));
+
+    const HALF_N: H256 = H256(hex!(
+        "7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0"
+    ));
+
+    if r.is_zero() || s.is_zero() {
+        return false;
+    }
+
+    if r >= UPPER && s >= UPPER {
+        return false;
+    }
+    // https://eips.ethereum.org/EIPS/eip-2
+    if homestead && s > HALF_N {
+        return false;
+    }
+
+    true
 }
 
 pub fn generate_key() -> secp256k1::SecretKey {
@@ -58,7 +83,11 @@ pub fn to_pubkey(seckey: &secp256k1::SecretKey) -> PublicKey {
 }
 
 pub fn pubkey_to_address(pubkey: &secp256k1::PublicKey) -> Address {
-    Address::from_slice(&common::hash_data(&pubkey.serialize_uncompressed()[1..]).0[12..])
+    Address::from_slice(&keccak256(&pubkey.serialize_uncompressed()[1..]).0[12..])
+}
+
+pub fn keccak256(data: impl AsRef<[u8]>) -> H256 {
+    H256::from_slice(&Keccak256::digest(data.as_ref()))
 }
 
 #[cfg(test)]

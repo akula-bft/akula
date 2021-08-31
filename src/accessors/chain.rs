@@ -1,5 +1,4 @@
 use crate::{
-    common,
     dbutils::*,
     kv::{tables, traits::MutableCursor},
     models::*,
@@ -30,7 +29,7 @@ pub mod canonical_hash {
 
         if let Some(b) = tx.get(&tables::CanonicalHeader, &key).await? {
             match b.len() {
-                common::HASH_LENGTH => return Ok(Some(H256::from_slice(&*b))),
+                KECCAK_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
             }
         }
@@ -68,9 +67,7 @@ pub mod header_number {
             .await?
         {
             match b.len() {
-                common::BLOCK_NUMBER_LENGTH => {
-                    return Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8])))
-                }
+                BLOCK_NUMBER_LENGTH => return Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8]))),
                 other => bail!("invalid length: {}", other),
             }
         }

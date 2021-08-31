@@ -1,4 +1,4 @@
-use crate::common::*;
+use crate::{crypto::*, models::*};
 use ethereum_types::*;
 use rlp_derive::*;
 
@@ -9,17 +9,17 @@ pub fn create_address(caller: Address, nonce: u64) -> Address {
         nonce: u64,
     }
 
-    Address::from_slice(&hash_data(rlp::encode(&V { caller, nonce }))[12..])
+    Address::from_slice(&keccak256(rlp::encode(&V { caller, nonce })).0[12..])
 }
 
 pub fn create2_address(caller: Address, salt: H256, code_hash: H256) -> Address {
-    let mut buf = [0_u8; 1 + ADDRESS_LENGTH + HASH_LENGTH + HASH_LENGTH];
+    let mut buf = [0_u8; 1 + ADDRESS_LENGTH + KECCAK_LENGTH + KECCAK_LENGTH];
     buf[0] = 0xff;
     buf[1..1 + ADDRESS_LENGTH].copy_from_slice(&caller.0);
-    buf[1 + ADDRESS_LENGTH..1 + ADDRESS_LENGTH + HASH_LENGTH].copy_from_slice(&salt.0);
-    buf[1 + ADDRESS_LENGTH + HASH_LENGTH..].copy_from_slice(&code_hash.0);
+    buf[1 + ADDRESS_LENGTH..1 + ADDRESS_LENGTH + KECCAK_LENGTH].copy_from_slice(&salt.0);
+    buf[1 + ADDRESS_LENGTH + KECCAK_LENGTH..].copy_from_slice(&code_hash.0);
 
-    Address::from_slice(&hash_data(buf)[12..])
+    Address::from_slice(&keccak256(&buf).0[12..])
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
+use crate::crypto::*;
 use bytes::Bytes;
 use ethereum_types::*;
 use rlp::*;
-use sha3::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 /// Ethereum block header definition.
@@ -146,7 +146,7 @@ impl BlockHeader {
 
     #[must_use]
     pub fn hash(&self) -> H256 {
-        H256::from_slice(Keccak256::digest(&rlp::encode(self)).as_slice())
+        keccak256(&rlp::encode(self)[..])
     }
 }
 
@@ -186,6 +186,28 @@ impl From<BlockHeader> for PartialHeader {
             mix_hash: header.mix_hash,
             nonce: header.nonce,
             base_fee_per_gas: header.base_fee_per_gas,
+        }
+    }
+}
+
+impl PartialHeader {
+    #[cfg(test)]
+    pub(crate) const fn empty() -> Self {
+        Self {
+            parent_hash: H256::zero(),
+            beneficiary: Address::zero(),
+            state_root: H256::zero(),
+            receipts_root: H256::zero(),
+            logs_bloom: Bloom::zero(),
+            difficulty: U256::zero(),
+            number: 0,
+            gas_limit: 0,
+            gas_used: 0,
+            timestamp: 0,
+            extra_data: Bytes::new(),
+            mix_hash: H256::zero(),
+            nonce: H64::zero(),
+            base_fee_per_gas: None,
         }
     }
 }

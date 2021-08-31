@@ -3,7 +3,7 @@ use evmodin::Revision;
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashSet};
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct DaoConfig {
     pub block_number: u64,
     pub drain: HashSet<Address>,
@@ -11,7 +11,7 @@ pub struct DaoConfig {
 }
 
 #[allow(non_snake_case)]
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {
     pub chain_id: u64,
