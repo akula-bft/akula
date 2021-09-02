@@ -1,4 +1,5 @@
 use crate::{
+    etl::{collector::Collector, data_provider::Entry},
     kv::{
         tables,
         traits::{Cursor, MutableCursor},
@@ -9,7 +10,6 @@ use crate::{
 use ethereum_types::{Address, H256, U256};
 use tokio_stream::StreamExt;
 use tracing::*;
-use BlockHeader as HeaderType;
 
 pub mod canonical_hash {
     use super::*;
@@ -57,7 +57,7 @@ pub mod header {
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<HeaderType>> {
+    ) -> anyhow::Result<Option<BlockHeader>> {
         let number = number.into();
         trace!("Reading header for block {}/{:?}", number, hash);
 
@@ -172,6 +172,14 @@ pub mod tx_sender {
         }
 
         Ok(())
+    }
+
+    pub fn write_to_etl(collector: &mut Collector, base_tx_id: TxIndex, senders: &[Address]) {
+        for (i, sender) in senders.iter().enumerate() {
+            let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
+            let value = sender.to_fixed_bytes().to_vec();
+            collector.collect(Entry { key, value, id: 0 });
+        }
     }
 }
 
