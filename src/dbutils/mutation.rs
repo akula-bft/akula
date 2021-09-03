@@ -8,16 +8,17 @@ use crate::{
 use akula_table_defs::TABLES;
 use anyhow::Result;
 use bytes::Bytes;
+use static_bytes::Bytes as StaticBytes;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     marker::PhantomData,
     sync::Mutex,
 };
 
-type TableName = string::String<static_bytes::Bytes>;
-type SimpleBucket = BTreeMap<Vec<u8>, Option<Vec<u8>>>;
+type TableName = string::String<StaticBytes>;
+type SimpleBucket = BTreeMap<Vec<u8>, Option<StaticBytes>>;
 type SimpleBuffer = HashMap<TableName, SimpleBucket>;
-type DupSortValues = BTreeSet<Vec<u8>>;
+type DupSortValues = BTreeSet<StaticBytes>;
 
 #[derive(Default)]
 struct DupSortChanges {
@@ -39,8 +40,8 @@ fn is_dupsort(table_name: &str) -> bool {
 struct Mutation<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> {
     parent: &'m mut Tx,
     phantom: PhantomData<&'tx i32>,
-    simple_buffer: HashMap<TableName, SimpleBucket>,
-    dupsort_buffer: HashMap<TableName, DupSortBucket>,
+    simple_buffer: Mutex<HashMap<TableName, SimpleBucket>>,
+    dupsort_buffer: Mutex<HashMap<TableName, DupSortBucket>>,
     sequence_increment: Mutex<HashMap<TableName, u64>>,
 }
 
@@ -61,15 +62,15 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
     {
         let table_name = table.db_name();
 
-        if let Some(bucket) = self.simple_buffer.get(&table_name) {
+        if let Some(bucket) = (*self.simple_buffer.lock().unwrap()).get(&table_name) {
             match bucket.get(key) {
-                Some(entry) => Ok(entry.as_ref().map(|v| v.as_slice().into())),
+                Some(value) => Ok(value.as_ref().map(|b| Bytes::from(b.to_vec()))),
                 None => self.parent.get(table, key).await,
             }
-        } else if let Some(bucket) = self.dupsort_buffer.get(&table_name) {
+        } else if let Some(bucket) = (*self.dupsort_buffer.lock().unwrap()).get(&table_name) {
             match bucket.get(key) {
                 Some(entry) => Ok({
-                    let mut first = entry.insert.first().map(|v| Bytes::from(v.clone()));
+                    let mut first = entry.insert.first().map(|b| Bytes::from(b.to_vec()));
 
                     let mut parent_cursor = self.parent.cursor(table).await?;
                     let mut found = parent_cursor.seek_exact(key).await?.map(|p| (true, p.1));
@@ -112,47 +113,53 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
         Ok(parent_value + increment)
     }
 
-    fn get_simple_buffer(&mut self, name: &TableName) -> &mut SimpleBucket {
-        if !self.simple_buffer.contains_key(name) {
-            self.simple_buffer.insert(name.clone(), Default::default());
+    fn init_simple_buffer(&self, name: &TableName) {
+        let mut buffer = self.simple_buffer.lock().unwrap();
+        if !buffer.contains_key(name) {
+            buffer.insert(name.clone(), Default::default());
         }
-        self.simple_buffer.get_mut(name).unwrap()
     }
 
-    fn get_dupsort_buffer(&mut self, name: &TableName) -> &mut DupSortBucket {
-        if !self.dupsort_buffer.contains_key(name) {
-            self.dupsort_buffer.insert(name.clone(), Default::default());
+    fn init_dupsort_changes(&self, name: &TableName, k: &[u8]) {
+        let mut buffer = self.dupsort_buffer.lock().unwrap();
+        if !buffer.contains_key(name) {
+            buffer.insert(name.clone(), Default::default());
         }
-        self.dupsort_buffer.get_mut(name).unwrap()
+        let changes = buffer.get_mut(name).unwrap();
+        if !changes.contains_key(k) {
+            let copied_key: Vec<u8> = (*k).to_vec();
+            changes.insert(copied_key, Default::default());
+        }
     }
 
-    fn get_dupsort_changes(&mut self, name: &TableName, k: &[u8]) -> &mut DupSortChanges {
-        let buffer = self.get_dupsort_buffer(name);
-        if !buffer.contains_key(k) {
-            buffer.insert(k.to_vec(), Default::default());
-        }
-        buffer.get_mut(k).unwrap()
-    }
-
-    async fn set<T>(&mut self, table: &T, k: &[u8], v: &[u8]) -> Result<()>
+    async fn set<T>(&self, table: &T, k: &[u8], v: &[u8]) -> Result<()>
     where
         T: Table,
     {
         let table_name = table.db_name();
 
         if is_dupsort(&table_name) {
-            let changes = self.get_dupsort_changes(&table_name, k);
-            changes.insert.insert(v.to_vec());
+            self.init_dupsort_changes(&table_name, k);
+            let mut buffer = self.dupsort_buffer.lock().unwrap();
+            let changes = buffer.get_mut(&table_name).unwrap().get_mut(k).unwrap();
+            let copied_value: Vec<u8> = (*v).to_vec();
+            changes.insert.insert(StaticBytes::from(copied_value));
             changes.delete.remove(v);
         } else {
-            self.get_simple_buffer(&table_name)
-                .insert(k.to_vec(), Some(v.to_vec()));
+            let copied_value: Vec<u8> = (*v).to_vec();
+            self.init_simple_buffer(&table_name);
+            self.simple_buffer
+                .lock()
+                .unwrap()
+                .get_mut(&table_name)
+                .unwrap()
+                .insert(k.to_vec(), Some(StaticBytes::from(copied_value)));
         }
 
         Ok(())
     }
 
-    async fn delete_key<T>(&mut self, table: &T, k: &[u8]) -> Result<()>
+    async fn delete_key<T>(&self, table: &T, k: &[u8]) -> Result<()>
     where
         T: Table,
     {
@@ -169,33 +176,47 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
                     if !matches_key {
                         break;
                     }
-                    parent_values.insert(parent_value.to_vec());
+                    let copied_value = (*parent_value).to_vec();
+                    parent_values.insert(StaticBytes::from(copied_value));
                     found = parent_cursor.next().await?.map(|p| (p.0 == k, p.1));
                 }
             }
 
-            let changes = self.get_dupsort_changes(&table_name, k);
+            self.init_dupsort_changes(&table_name, k);
+            let mut buffer = self.dupsort_buffer.lock().unwrap();
+            let changes = buffer.get_mut(&table_name).unwrap().get_mut(k).unwrap();
             changes.insert.clear();
             changes.delete = parent_values;
         } else {
-            self.get_simple_buffer(&table_name).insert(k.to_vec(), None);
+            self.init_simple_buffer(&table_name);
+            self.simple_buffer
+                .lock()
+                .unwrap()
+                .get_mut(&table_name)
+                .unwrap()
+                .insert(k.to_vec(), None);
         }
 
         Ok(())
     }
 
-    async fn delete_pair<T>(&mut self, table: &T, k: &[u8], v: &[u8]) -> Result<()>
+    async fn delete_pair<T>(&self, table: &T, k: &[u8], v: &[u8]) -> Result<()>
     where
         T: Table,
     {
         let table_name = table.db_name();
 
         if is_dupsort(&table_name) {
-            let changes = self.get_dupsort_changes(&table_name, k);
+            self.init_dupsort_changes(&table_name, k);
+            let mut buffer = self.dupsort_buffer.lock().unwrap();
+            let changes = buffer.get_mut(&table_name).unwrap().get_mut(k).unwrap();
+            let copied_value = (*v).to_vec();
             changes.insert.remove(v);
-            changes.delete.insert(v.to_vec());
+            changes.delete.insert(StaticBytes::from(copied_value));
         } else {
-            let bucket = self.get_simple_buffer(&table_name);
+            self.init_simple_buffer(&table_name);
+            let mut buffer = self.simple_buffer.lock().unwrap();
+            let bucket = (*buffer).get_mut(&table_name).unwrap();
             if let Some(Some(value)) = bucket.get(k) {
                 if value == v {
                     bucket.insert(k.to_vec(), None);
@@ -207,10 +228,13 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
     }
 
     async fn commit(self) -> anyhow::Result<()> {
-        for (table_name, bucket) in self.simple_buffer {
-            let table = CustomTable { 0: table_name };
+        let simple_buffer = &*self.simple_buffer.lock().unwrap();
+        for (table_name, bucket) in simple_buffer {
+            let table = CustomTable {
+                0: table_name.clone(),
+            };
             let mut cursor = self.parent.mutable_cursor(&table).await?;
-            for (ref key, ref maybe_value) in bucket {
+            for (key, ref maybe_value) in bucket {
                 match maybe_value {
                     Some(ref value) => cursor.put(key, value).await?,
                     None => {
@@ -223,10 +247,13 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
             }
         }
 
-        for (table_name, bucket) in self.dupsort_buffer {
-            let table = CustomTable { 0: table_name };
+        let dupsort_buffer = &*self.dupsort_buffer.lock().unwrap();
+        for (table_name, bucket) in dupsort_buffer {
+            let table = CustomTable {
+                0: table_name.clone(),
+            };
             let mut cursor = self.parent.mutable_cursor(&table).await?;
-            for (ref key, ref changes) in bucket {
+            for (key, changes) in bucket {
                 for value in &changes.delete {
                     cursor.delete(key, value).await?
                 }
@@ -303,7 +330,7 @@ mod tests {
         }
         {
             let ref_tx = &mut tx;
-            let mut mutation = Mutation::new(ref_tx);
+            let mutation = Mutation::new(ref_tx);
             mutation
                 .set(&table, &Bytes::from("a1"), &Bytes::from("aaa"))
                 .await
@@ -380,7 +407,7 @@ mod tests {
         .unwrap();
         {
             let ref_tx = &mut tx;
-            let mut mutation = Mutation::new(ref_tx);
+            let mutation = Mutation::new(ref_tx);
             mutation
                 .set(&table, &Bytes::from("a"), &Bytes::from("y"))
                 .await
@@ -459,7 +486,7 @@ mod tests {
 
         {
             let ref_tx = &mut tx;
-            let mut mutation = Mutation::new(ref_tx);
+            let mutation = Mutation::new(ref_tx);
             assert_eq!(
                 mutation
                     .get(&table, &Bytes::from("a"))
@@ -502,7 +529,7 @@ mod tests {
 
         {
             let ref_tx = &mut tx;
-            let mut mutation = Mutation::new(ref_tx);
+            let mutation = Mutation::new(ref_tx);
             mutation
                 .delete_pair(&table, &Bytes::from("a"), &Bytes::from("z"))
                 .await
@@ -574,5 +601,4 @@ mod tests {
         assert_eq!(tx.read_sequence(&table1).await.unwrap(), 15);
         assert_eq!(tx.read_sequence(&table2).await.unwrap(), 5);
     }
-
 }
