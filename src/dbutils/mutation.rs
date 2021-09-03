@@ -11,6 +11,7 @@ use bytes::Bytes;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     marker::PhantomData,
+    sync::Mutex,
 };
 
 type TableName = string::String<static_bytes::Bytes>;
@@ -40,7 +41,7 @@ struct Mutation<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> {
     phantom: PhantomData<&'tx i32>,
     simple_buffer: HashMap<TableName, SimpleBucket>,
     dupsort_buffer: HashMap<TableName, DupSortBucket>,
-    sequence_increment: HashMap<TableName, u64>,
+    sequence_increment: Mutex<HashMap<TableName, u64>>,
 }
 
 impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
@@ -104,8 +105,9 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
     where
         T: Table,
     {
-        let parent_value = self.parent.read_sequence(table).await?;
-        let increment = self.sequence_increment.get(&table.db_name()).unwrap_or(&0);
+        let sequence_increment = self.sequence_increment.lock().unwrap();
+        let parent_value = self.parent.read_sequence(table).await.unwrap_or(0);
+        let increment = (*sequence_increment).get(&table.db_name()).unwrap_or(&0);
 
         Ok(parent_value + increment)
     }
@@ -234,7 +236,8 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
             }
         }
 
-        for (table_name, increment) in self.sequence_increment {
+        let sequence_increment = self.sequence_increment.into_inner().unwrap();
+        for (table_name, increment) in sequence_increment {
             if increment > 0 {
                 let table = CustomTable { 0: table_name };
                 self.parent.increment_sequence(&table, increment).await?;
@@ -244,22 +247,22 @@ impl<'tx: 'm, 'm, Tx: MutableTransaction<'tx>> Mutation<'tx, 'm, Tx> {
         Ok(())
     }
 
-    async fn increment_sequence<T>(&mut self, table: &T, amount: u64) -> Result<u64>
+    async fn increment_sequence<T>(&self, table: &T, amount: u64) -> Result<u64>
     where
         T: Table,
     {
-        let parent_value = self.parent.read_sequence(table).await?;
+        let mut sequence_increment = self.sequence_increment.lock().unwrap();
         let name = table.db_name();
-        let increment = self.sequence_increment.get(&name).unwrap_or(&0);
-        let current = parent_value + increment;
-        self.sequence_increment.insert(name, current + amount);
-        Ok(current)
+        let increment = *(*sequence_increment).get(&name).unwrap_or(&0);
+        (*sequence_increment).insert(name, increment + amount);
+        Ok(increment)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kv::traits::Transaction;
     use mdbx::{DatabaseFlags, Environment, NoWriteMap, WriteFlags};
     use tempfile::tempdir;
 
@@ -543,4 +546,33 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn test_mutation_sequence() {
+        let dir = tempdir().unwrap();
+        let env = Environment::<NoWriteMap>::new()
+            .set_max_dbs(2)
+            .open(dir.path())
+            .unwrap();
+        let mut tx = env.begin_rw_txn().unwrap();
+        let table1 = CustomTable::from("table1".to_string());
+        let table2 = CustomTable::from("table2".to_string());
+        let _ = tx.create_db(Some("table1"), DatabaseFlags::default());
+        let _ = tx.create_db(Some("table2"), DatabaseFlags::default());
+        tx.increment_sequence(&table1, 10).await.unwrap();
+        {
+            let ref_tx = &mut tx;
+            let mutation = Mutation::new(ref_tx);
+            assert_eq!(mutation.read_sequence(&table1).await.unwrap(), 10);
+            assert_eq!(mutation.read_sequence(&table2).await.unwrap(), 0);
+            mutation.increment_sequence(&table1, 5).await.unwrap();
+            mutation.increment_sequence(&table2, 5).await.unwrap();
+            assert_eq!(mutation.read_sequence(&table1).await.unwrap(), 15);
+            assert_eq!(mutation.read_sequence(&table2).await.unwrap(), 5);
+            mutation.commit().await.unwrap();
+        }
+        assert_eq!(tx.read_sequence(&table1).await.unwrap(), 15);
+        assert_eq!(tx.read_sequence(&table2).await.unwrap(), 5);
+    }
+
 }
