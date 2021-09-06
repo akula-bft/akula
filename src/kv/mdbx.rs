@@ -12,25 +12,31 @@ use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use std::{collections::HashMap, ops::Deref, path::Path, str};
 
-pub fn table_sizes<K, E>(tx: &MdbxTransaction<K, E>) -> anyhow::Result<HashMap<&'static str, u64>>
+pub fn table_sizes<E>(tx: &MdbxTransaction<RO, E>) -> anyhow::Result<HashMap<String, u64>>
 where
-    K: TransactionKind,
     E: EnvironmentKind,
 {
     let mut out = HashMap::new();
-    for table in tables::TABLE_MAP.keys() {
+    let main_db = tx.open_db(None)?;
+    let mut cursor = tx.cursor(&main_db)?;
+    while let Some((table, _)) = cursor.next_nodup()? {
+        let table = String::from_utf8(table.to_vec()).unwrap();
+        let db = tx
+            .open_db(Some(&table))
+            .with_context(|| format!("failed to open table: {}", table))?;
         let st = tx
-            .db_stat(
-                &tx.open_db(Some(table))
-                    .with_context(|| format!("failed to open table: {}", table))?,
-            )
+            .db_stat(&db)
             .with_context(|| format!("failed to get stats for table: {}", table))?;
 
         out.insert(
-            *table,
+            table,
             ((st.leaf_pages() + st.branch_pages() + st.overflow_pages()) * st.page_size() as usize)
                 as u64,
         );
+
+        unsafe {
+            tx.close_db(db)?;
+        }
     }
 
     Ok(out)
@@ -44,10 +50,10 @@ impl<E: EnvironmentKind> Environment<E> {
     fn open(
         mut b: ::mdbx::EnvironmentBuilder<E>,
         path: &Path,
-        chart: &HashMap<&'static str, bool>,
+        max_dbs: usize,
         ro: bool,
     ) -> anyhow::Result<Self> {
-        b.set_max_dbs(chart.len());
+        b.set_max_dbs(max_dbs);
         if ro {
             b.set_flags(::mdbx::EnvironmentFlags {
                 mode: ::mdbx::Mode::ReadOnly,
@@ -63,9 +69,9 @@ impl<E: EnvironmentKind> Environment<E> {
     pub fn open_ro(
         b: ::mdbx::EnvironmentBuilder<E>,
         path: &Path,
-        chart: &HashMap<&'static str, bool>,
+        max_dbs: usize,
     ) -> anyhow::Result<Self> {
-        Self::open(b, path, chart, true)
+        Self::open(b, path, max_dbs, true)
     }
 
     pub fn open_rw(
@@ -73,7 +79,7 @@ impl<E: EnvironmentKind> Environment<E> {
         path: &Path,
         chart: &HashMap<&'static str, bool>,
     ) -> anyhow::Result<Self> {
-        let s = Self::open(b, path, chart, false)?;
+        let s = Self::open(b, path, chart.len(), false)?;
 
         let tx = s.inner.begin_rw_txn()?;
         for (&db, &is_dup_sort) in chart {
