@@ -4,7 +4,7 @@ use crate::downloader::{
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
-use std::{convert::TryFrom, pin::Pin};
+use std::pin::Pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 

@@ -2,7 +2,7 @@
 name = "akula"
 version = "0.1.0"
 authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
-edition = "2018"
+edition = "2021"
 description = "Ethereum client based on turbo-geth client architecture"
 license = "Apache-2.0"
 default-run = "akula"
