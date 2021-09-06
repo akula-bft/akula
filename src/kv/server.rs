@@ -7,7 +7,7 @@ use ethereum_interfaces::{
     types::VersionReply,
 };
 use futures_core::Stream;
-use std::{convert::TryFrom, pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
 use tonic::Response;
