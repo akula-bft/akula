@@ -2,9 +2,13 @@ use crate::models::*;
 use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum_types::{Address, H256, U256};
+use std::fmt::Debug;
 
 #[async_trait]
-pub trait State<'storage>: Send + Sync {
+pub trait State<'storage>: Debug + Send + Sync {
+    async fn number_of_accounts(&self) -> anyhow::Result<u64>;
+    async fn storage_size(&self, address: Address, incarnation: u64) -> anyhow::Result<u64>;
+
     // Readers
 
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>>;

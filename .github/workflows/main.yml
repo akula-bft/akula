@@ -53,3 +53,13 @@ jobs:
         with:
           command: clippy
           args: --workspace --all-targets -- -D warnings
+
+      - uses: actions/checkout@v2
+        with:
+          repository: ethereum/tests
+          submodules: recursive
+          path: ethereum-tests
+          ref: '9.0.5'
+
+      - run: |
+          env RUST_LOG=error cargo run --release --bin consensus-tests -- --tests="./ethereum-tests"

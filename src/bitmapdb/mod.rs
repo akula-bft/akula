@@ -1,9 +1,8 @@
-use std::iter::Peekable;
-
-use crate::{common, kv::Table, txdb, Transaction};
+use crate::{kv::Table, models::*, txdb, Transaction};
 use arrayref::array_ref;
 use pin_utils::pin_mut;
 use roaring::RoaringTreemap;
+use std::iter::Peekable;
 use tokio_stream::StreamExt;
 
 // Size beyond which we get MDBX overflow pages: 4096 / 2 - (key_size + 8)
@@ -44,9 +43,9 @@ where
         }
 
         if u64::from_be_bytes(*array_ref!(
-            k[k.len() - common::BLOCK_NUMBER_LENGTH..],
+            k[k.len() - BLOCK_NUMBER_LENGTH..],
             0,
-            common::BLOCK_NUMBER_LENGTH
+            BLOCK_NUMBER_LENGTH
         )) >= to
         {
             break;

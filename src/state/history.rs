@@ -1,7 +1,7 @@
-use crate::{changeset::*, common::*, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
+use crate::{changeset::*, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
 use arrayref::array_ref;
 use bytes::Bytes;
-use ethereum_types::H256;
+use ethereum_types::*;
 use roaring::RoaringTreemap;
 
 pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -20,7 +20,7 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     incarnation: Incarnation,
-    key: Hash,
+    key: H256,
     block_number: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let key = plain_generate_composite_storage_key(address, incarnation, key);
@@ -100,7 +100,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         .await?
     {
         if k[..ADDRESS_LENGTH] != key[..ADDRESS_LENGTH]
-            || k[ADDRESS_LENGTH..ADDRESS_LENGTH + HASH_LENGTH]
+            || k[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH]
                 != key[ADDRESS_LENGTH + INCARNATION_LENGTH..]
         {
             return Ok(None);
@@ -266,8 +266,8 @@ mod tests {
             .fold(HashMap::new(), |mut accum, res| {
                 let (k, v) = res.unwrap();
                 accum.insert(
-                    Hash::from_slice(&k[ADDRESS_LENGTH + 8..]),
-                    Value::from_big_endian(&v),
+                    H256::from_slice(&k[ADDRESS_LENGTH + 8..]),
+                    U256::from_big_endian(&v),
                 );
                 accum
             })
@@ -278,7 +278,7 @@ mod tests {
             for (&key, &v) in &acc_history_state_storage[i] {
                 assert_eq!(
                     v,
-                    Value::from_big_endian(
+                    U256::from_big_endian(
                         &get_storage_as_of(&tx, address, acc.incarnation, key, 1)
                             .await
                             .unwrap()
@@ -330,8 +330,8 @@ mod tests {
 
         for (i, &address) in addrs.iter().enumerate() {
             for j in 0..num_of_state_keys {
-                let key = Hash::from_slice(&hex::decode(format!("{:0>64}", i * 100 + j)).unwrap());
-                let value = value_to_bytes(Value::from(10 + j as u64)).to_vec().into();
+                let key = H256::from_slice(&hex::decode(format!("{:0>64}", i * 100 + j)).unwrap());
+                let value = value_to_bytes(U256::from(10 + j as u64)).to_vec().into();
 
                 expected_changeset.insert(Change::new(
                     plain_generate_composite_storage_key(address, acc_history[i].incarnation, key),
@@ -354,9 +354,9 @@ mod tests {
     ) -> (
         Vec<Address>,
         Vec<Account>,
-        Vec<HashMap<Hash, Value>>,
+        Vec<HashMap<H256, U256>>,
         Vec<Account>,
-        Vec<HashMap<Hash, Value>>,
+        Vec<HashMap<H256, U256>>,
     ) {
         let mut addrs = vec![];
         let mut acc_state = vec![];
@@ -371,7 +371,7 @@ mod tests {
 
             acc_history[i].balance = 100.into();
             acc_history[i].code_hash =
-                Hash::from_slice(&hex::decode(format!("{:0>64}", 10 + i)).unwrap());
+                H256::from_slice(&hex::decode(format!("{:0>64}", 10 + i)).unwrap());
             // acc_history[i].root = Some(Hash::from_slice(
             //     &hex::decode(format!("{:0>64}", 10 + i)).unwrap(),
             // ));
@@ -384,8 +384,8 @@ mod tests {
             acc_state_storage.push(HashMap::new());
             acc_history_state_storage.push(HashMap::new());
             for j in 0..num_of_state_keys {
-                let key = Hash::from_slice(&hex::decode(format!("{:0>64}", i * 100 + j)).unwrap());
-                let new_value = Value::from(j as usize);
+                let key = H256::from_slice(&hex::decode(format!("{:0>64}", i * 100 + j)).unwrap());
+                let new_value = U256::from(j as usize);
                 if !new_value.is_zero() {
                     // Empty value is not considered to be present
                     acc_state_storage[i].insert(key, new_value);

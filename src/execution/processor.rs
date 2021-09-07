@@ -4,13 +4,14 @@ use crate::{
         dao,
         intrinsic_gas::*,
         protocol_param::{fee, param},
-        validity::ValidationError,
+        validity::{pre_validate_transaction, ValidationError},
     },
     execution::evm,
     models::*,
     state::IntraBlockState,
     State,
 };
+use anyhow::Context;
 use ethereum_types::*;
 use evmodin::{Revision, StatusCode};
 use std::cmp::min;
@@ -21,7 +22,7 @@ where
     S: State<'storage>,
 {
     state: IntraBlockState<'storage, 'r, S>,
-    header: &'h BlockHeader,
+    header: &'h PartialHeader,
     block: &'b BlockBodyWithSenders,
     revision: Revision,
     chain_config: &'c ChainConfig,
@@ -34,7 +35,7 @@ where
 {
     pub fn new(
         state: &'r mut S,
-        header: &'h BlockHeader,
+        header: &'h PartialHeader,
         block: &'b BlockBodyWithSenders,
         chain_config: &'c ChainConfig,
     ) -> Self {
@@ -62,22 +63,32 @@ where
     }
 
     pub async fn validate_transaction(&mut self, tx: &TransactionWithSender) -> anyhow::Result<()> {
+        pre_validate_transaction(
+            tx,
+            self.header.number,
+            self.chain_config,
+            self.header.base_fee_per_gas,
+        )
+        .expect("Tx must have been prevalidated");
+
         let expected_nonce = self.state.get_nonce(tx.sender).await?;
-        if expected_nonce != tx.nonce {
+        if expected_nonce != tx.nonce() {
             return Err(ValidationError::WrongNonce {
+                account: tx.sender,
                 expected: expected_nonce,
-                got: tx.nonce,
+                got: tx.nonce(),
             }
             .into());
         }
 
         // https://github.com/ethereum/EIPs/pull/3594
-        let max_gas_cost = U512::from(tx.gas_limit) * U512::from(tx.max_fee_per_gas);
+        let max_gas_cost = U512::from(tx.gas_limit()) * U512::from(tx.max_fee_per_gas());
         // See YP, Eq (57) in Section 6.2 "Execution"
-        let v0 = max_gas_cost + tx.value;
+        let v0 = max_gas_cost + tx.value();
         let available_balance = U512::from(self.state.get_balance(tx.sender).await?);
         if available_balance < v0 {
             return Err(ValidationError::InsufficientFunds {
+                account: tx.sender,
                 available: available_balance,
                 required: v0,
             }
@@ -85,13 +96,13 @@ where
         }
 
         let available_gas = self.available_gas();
-        if available_gas < tx.gas_limit {
+        if available_gas < tx.gas_limit() {
             // Corresponds to the final condition of Eq (58) in Yellow Paper Section 6.2 "Execution".
             // The sum of the transaction’s gas limit and the gas utilized in this block prior
             // must be no greater than the block’s gas limit.
             return Err(ValidationError::BlockGasLimitExceeded {
                 available: available_gas,
-                required: tx.gas_limit,
+                required: tx.gas_limit(),
             }
             .into());
         }
@@ -112,16 +123,19 @@ where
         let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or_else(U256::zero);
         let effective_gas_price = txn.effective_gas_price(base_fee_per_gas);
         self.state
-            .subtract_from_balance(txn.sender, U256::from(txn.gas_limit) * effective_gas_price)
+            .subtract_from_balance(
+                txn.sender,
+                U256::from(txn.gas_limit()) * effective_gas_price,
+            )
             .await?;
 
-        if let TransactionAction::Call(to) = txn.action {
+        if let TransactionAction::Call(to) = txn.action() {
             self.state.access_account(to);
             // EVM itself increments the nonce for contract creation
-            self.state.set_nonce(txn.sender, txn.nonce + 1).await?;
+            self.state.set_nonce(txn.sender, txn.nonce() + 1).await?;
         }
 
-        for entry in &*txn.access_list {
+        for entry in &*txn.access_list() {
             self.state.access_account(entry.address);
             for &key in &entry.slots {
                 self.state.access_storage(entry.address, key);
@@ -136,11 +150,11 @@ where
             self.header,
             self.chain_config,
             txn,
-            txn.gas_limit - g0 as u64,
+            txn.gas_limit() - g0 as u64,
         )
         .await?;
 
-        let gas_used = txn.gas_limit - self.refund_gas(txn, vm_res.gas_left as u64).await?;
+        let gas_used = txn.gas_limit() - self.refund_gas(txn, vm_res.gas_left as u64).await?;
 
         // award the miner
         let priority_fee_per_gas = txn.priority_fee_per_gas(base_fee_per_gas);
@@ -161,7 +175,7 @@ where
         self.cumulative_gas_used += gas_used;
 
         Ok(Receipt {
-            tx_type: txn.tx_type,
+            tx_type: txn.tx_type(),
             success: vm_res.status_code == StatusCode::Success,
             cumulative_gas_used: self.cumulative_gas_used,
             bloom: logs_bloom(self.state.logs()),
@@ -184,8 +198,10 @@ where
             }
         }
 
-        for txn in &self.block.transactions {
-            self.validate_transaction(txn).await?;
+        for (i, txn) in self.block.transactions.iter().enumerate() {
+            self.validate_transaction(txn)
+                .await
+                .with_context(|| format!("Failed to validate tx #{}", i))?;
             receipts.push(self.execute_transaction(txn).await?);
         }
 
@@ -213,7 +229,6 @@ where
         if rev >= Revision::Byzantium {
             let expected = root_hash(&receipts);
             if expected != self.header.receipts_root {
-                println!("{:?}", receipts);
                 return Err(ValidationError::WrongReceiptsRoot {
                     expected,
                     got: self.header.receipts_root,
@@ -252,7 +267,7 @@ where
         } else {
             param::MAX_REFUND_QUOTIENT_FRONTIER
         };
-        let max_refund = (txn.gas_limit - gas_left) / max_refund_quotient;
+        let max_refund = (txn.gas_limit() - gas_left) / max_refund_quotient;
         refund = min(refund, max_refund);
         gas_left += refund;
 
@@ -268,18 +283,18 @@ where
     pub async fn apply_rewards(&mut self) -> anyhow::Result<()> {
         let block_reward = {
             if self.revision >= Revision::Constantinople {
-                param::BLOCK_REWARD_CONSTANTINOPLE
+                *param::BLOCK_REWARD_CONSTANTINOPLE
             } else if self.revision >= Revision::Byzantium {
-                param::BLOCK_REWARD_BYZANTIUM
+                *param::BLOCK_REWARD_BYZANTIUM
             } else {
-                param::BLOCK_REWARD_FRONTIER
+                *param::BLOCK_REWARD_FRONTIER
             }
         };
 
         let block_number = self.header.number;
         let mut miner_reward = block_reward;
         for ommer in &self.block.ommers {
-            let ommer_reward = ((8 + ommer.number - block_number) * block_reward) >> 3;
+            let ommer_reward = (U256::from(8 + ommer.number - block_number) * block_reward) >> 3;
             self.state
                 .add_to_balance(ommer.beneficiary, ommer_reward)
                 .await?;
@@ -298,30 +313,27 @@ where
 mod tests {
     use super::*;
     use crate::{
-        chain::config::MAINNET_CONFIG,
-        common::{ETHER, GIGA},
-        execution::address::create_address,
-        util::test_util::run_test,
-        InMemoryState,
+        chain::config::MAINNET_CONFIG, execution::address::create_address,
+        util::test_util::run_test, InMemoryState,
     };
     use hex_literal::hex;
 
     #[test]
     fn zero_gas_price() {
         run_test(async {
-            let header = BlockHeader {
+            let header = PartialHeader {
                 number: 2_687_232,
                 gas_limit: 3_303_221,
                 beneficiary: hex!("4bb96091ee9d802ed039c4d1a5f6216f90f81b01").into(),
-                ..BlockHeader::empty()
+                ..PartialHeader::empty()
             };
             let block = Default::default();
 
             // The sender does not exist
             let sender = hex!("004512399a230565b99be5c3b0030a56f3ace68c").into();
 
-            let txn = TransactionWithSender::new(
-                &TransactionMessage::Legacy {
+            let txn = TransactionWithSender {
+                message: TransactionMessage::Legacy {
                     chain_id: None,
                     nonce: 0,
                     gas_price: U256::zero(),
@@ -331,7 +343,7 @@ mod tests {
                     input: hex!("606060").to_vec().into(),
                 },
                 sender,
-            );
+            };
 
             let mut state = InMemoryState::default();
             let mut processor =
@@ -345,11 +357,11 @@ mod tests {
     #[test]
     fn no_refund_on_error() {
         run_test(async {
-            let header = BlockHeader {
+            let header = PartialHeader {
                 number: 10_050_107,
                 gas_limit: 328_646,
                 beneficiary: hex!("5146556427ff689250ed1801a783d12138c3dd5e").into(),
-                ..BlockHeader::empty()
+                ..PartialHeader::empty()
             };
             let block = Default::default();
             let caller = hex!("834e9b529ac9fa63b39a06f8d8c9b0d6791fa5df").into();
@@ -381,24 +393,31 @@ mod tests {
             let mut processor =
                 ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
 
-            let mut txn = TransactionWithSender::new(
-                &TransactionMessage::EIP1559 {
+            let t = |action, input, nonce, gas_limit| TransactionWithSender {
+                message: TransactionMessage::EIP1559 {
                     chain_id: MAINNET_CONFIG.chain_id,
                     nonce,
                     max_priority_fee_per_gas: U256::zero(),
                     max_fee_per_gas: U256::from(59 * GIGA),
-                    gas_limit: 103_858,
-                    action: TransactionAction::Create,
+                    gas_limit,
+                    action,
                     value: U256::zero(),
-                    input: code.to_vec().into(),
+                    input,
                     access_list: Default::default(),
                 },
-                caller,
+                sender: caller,
+            };
+
+            let txn = (t)(
+                TransactionAction::Create,
+                code.to_vec().into(),
+                nonce,
+                103_858,
             );
 
             processor
                 .state()
-                .add_to_balance(caller, ETHER)
+                .add_to_balance(caller, *ETHER)
                 .await
                 .unwrap();
             processor.state().set_nonce(caller, nonce).await.unwrap();
@@ -407,20 +426,20 @@ mod tests {
             assert!(receipt1.success);
 
             // Call the newly created contract
-            txn.nonce = nonce + 1;
-            txn.action = TransactionAction::Call(create_address(caller, nonce));
-
             // It should run SSTORE(0,0) with a potential refund
-            txn.input.clear();
-
             // But then there's not enough gas for the BALANCE operation
-            txn.gas_limit = fee::G_TRANSACTION + 5_020;
+            let txn = (t)(
+                TransactionAction::Call(create_address(caller, nonce)),
+                vec![].into(),
+                nonce + 1,
+                fee::G_TRANSACTION + 5_020,
+            );
 
             let receipt2 = processor.execute_transaction(&txn).await.unwrap();
             assert!(!receipt2.success);
             assert_eq!(
                 receipt2.cumulative_gas_used - receipt1.cumulative_gas_used,
-                txn.gas_limit
+                txn.gas_limit()
             );
         })
     }
@@ -428,11 +447,11 @@ mod tests {
     #[test]
     fn selfdestruct() {
         run_test(async {
-            let header = BlockHeader {
+            let header = PartialHeader {
                 number: 1_487_375,
                 gas_limit: 4_712_388,
                 beneficiary: hex!("61c808d82a3ac53231750dadc13c777b59310bd9").into(),
-                ..BlockHeader::empty()
+                ..PartialHeader::empty()
             };
             let block = Default::default();
             let suicidal_address = hex!("6d20c1c07e56b7098eb8c50ee03ba0f6f498a91d").into();
@@ -490,7 +509,7 @@ mod tests {
 
             processor
                 .state()
-                .add_to_balance(caller_address, ETHER)
+                .add_to_balance(caller_address, *ETHER)
                 .await
                 .unwrap();
             processor
@@ -504,19 +523,25 @@ mod tests {
                 .await
                 .unwrap();
 
-            let mut txn = TransactionWithSender::new(
-                &TransactionMessage::EIP1559 {
+            let t = |action, input, nonce| TransactionWithSender {
+                message: TransactionMessage::EIP1559 {
                     chain_id: MAINNET_CONFIG.chain_id,
-                    nonce: 0,
+                    nonce,
                     max_priority_fee_per_gas: U256::zero(),
                     max_fee_per_gas: U256::from(20 * GIGA),
                     gas_limit: 100_000,
-                    action: TransactionAction::Call(caller_address),
+                    action,
                     value: U256::zero(),
-                    input: H256::from(suicidal_address).0.to_vec().into(),
+                    input,
                     access_list: Default::default(),
                 },
-                caller_address,
+                sender: caller_address,
+            };
+
+            let txn = (t)(
+                TransactionAction::Call(caller_address),
+                H256::from(suicidal_address).0.to_vec().into(),
+                0,
             );
 
             let receipt1 = processor.execute_transaction(&txn).await.unwrap();
@@ -525,9 +550,7 @@ mod tests {
             assert!(!processor.state().exists(suicidal_address).await.unwrap());
 
             // Now the contract is self-destructed, this is a simple value transfer
-            txn.nonce = 1;
-            txn.action = TransactionAction::Call(suicidal_address);
-            txn.input.clear();
+            let txn = (t)(TransactionAction::Call(suicidal_address), vec![].into(), 1);
 
             let receipt2 = processor.execute_transaction(&txn).await.unwrap();
             assert!(receipt2.success);
@@ -553,11 +576,11 @@ mod tests {
     fn out_of_gas_during_account_recreation() {
         run_test(async {
             let block_number = 2_081_788;
-            let header = BlockHeader {
+            let header = PartialHeader {
                 number: block_number,
                 gas_limit: 4_712_388,
                 beneficiary: hex!("a42af2c70d316684e57aefcc6e393fecb1c7e84e").into(),
-                ..BlockHeader::empty()
+                ..PartialHeader::empty()
             };
             let block = Default::default();
             let caller = hex!("c789e5aba05051b1468ac980e30068e19fad8587").into();
@@ -578,25 +601,28 @@ mod tests {
                 .await
                 .unwrap();
 
-            let txn = TransactionWithSender::new(&TransactionMessage::EIP1559 {
-                chain_id: MAINNET_CONFIG.chain_id,
-                nonce,
-                max_priority_fee_per_gas: 0.into(),
-                max_fee_per_gas: U256::from(20 * GIGA),
-                gas_limit: 690_000,
-                action: TransactionAction::Create,
-                value: U256::zero(),
-                access_list: Default::default(),
-                input: hex!(
-                    "6060604052604051610ca3380380610ca3833981016040528080518201919060200150505b60028151101561003357610002565b80600060005090805190602001908280548282559060005260206000209081019282156100a4579160200282015b828111156100a35782518260006101000a81548173ffffffffffffffffffffffffffffffffffffffff0219169083021790555091602001919060010190610061565b5b5090506100eb91906100b1565b808211156100e757600081816101000a81549073ffffffffffffffffffffffffffffffffffffffff0219169055506001016100b1565b5090565b50506000600160006101000a81548160ff021916908302179055505b50610b8d806101166000396000f360606040523615610095576000357c0100000000000000000000000000000000000000000000000000000000900480632079fb9a14610120578063391252151461016257806345550a51146102235780637df73e27146102ac578063979f1976146102da578063a0b7967b14610306578063a68a76cc14610329578063abe3219c14610362578063fc0f392d1461038757610095565b61011e5b600034111561011b577f6e89d517057028190560dd200cf6bf792842861353d1173761dfa362e1c133f03334600036604051808573ffffffffffffffffffffffffffffffffffffffff16815260200184815260200180602001828103825284848281815260200192508082843782019150509550505050505060405180910390a15b5b565b005b6101366004808035906020019091905050610396565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b6102216004808035906020019091908035906020019091908035906020019082018035906020019191908080601f016020809104026020016040519081016040528093929190818152602001838380828437820191505050505050909091908035906020019091908035906020019091908035906020019082018035906020019191908080601f0160208091040260200160405190810160405280939291908181526020018383808284378201915050505050509090919050506103d8565b005b6102806004808035906020019091908035906020019082018035906020019191908080601f01602080910402602001604051908101604052809392919081815260200183838082843782019150505050505090909190505061064b565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b6102c260048080359060200190919050506106fa565b60405180821515815260200191505060405180910390f35b6102f060048080359060200190919050506107a8565b6040518082815260200191505060405180910390f35b6103136004805050610891565b6040518082815260200191505060405180910390f35b6103366004805050610901565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b61036f600480505061093b565b60405180821515815260200191505060405180910390f35b610394600480505061094e565b005b600060005081815481101561000257906000526020600020900160005b9150909054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b600060006103e5336106fa565b15156103f057610002565b600160009054906101000a900460ff1680156104125750610410886106fa565b155b1561041c57610002565b4285101561042957610002565b610432846107a8565b508787878787604051808673ffffffffffffffffffffffffffffffffffffffff166c010000000000000000000000000281526014018581526020018480519060200190808383829060006004602084601f0104600f02600301f15090500183815260200182815260200195505050505050604051809103902091506104b7828461064b565b90506104c2816106fa565b15156104cd57610002565b3373ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16141561050657610002565b8773ffffffffffffffffffffffffffffffffffffffff16600088604051809050600060405180830381858888f19350505050151561054357610002565b7f59bed9ab5d78073465dd642a9e3e76dfdb7d53bcae9d09df7d0b8f5234d5a8063382848b8b8b604051808773ffffffffffffffffffffffffffffffffffffffff1681526020018673ffffffffffffffffffffffffffffffffffffffff168152602001856000191681526020018473ffffffffffffffffffffffffffffffffffffffff168152602001838152602001806020018281038252838181518152602001915080519060200190808383829060006004602084601f0104600f02600301f150905090810190601f16801561062e5780820380516001836020036101000a031916815260200191505b5097505050505050505060405180910390a15b5050505050505050565b60006000600060006041855114151561066357610002565b602085015192506040850151915060ff6041860151169050601b8160ff16101561069057601b8101905080505b60018682858560405180856000191681526020018460ff16815260200183600019168152602001826000191681526020019450505050506020604051808303816000866161da5a03f1156100025750506040518051906020015093506106f1565b50505092915050565b60006000600090505b600060005080549050811015610799578273ffffffffffffffffffffffffffffffffffffffff16600060005082815481101561000257906000526020600020900160005b9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16141561078b57600191506107a2565b5b8080600101915050610703565b600091506107a2565b50919050565b6000600060006107b7336106fa565b15156107c257610002565b60009150600090505b600a8160ff16101561084b578360026000508260ff16600a8110156100025790900160005b505414156107fd57610002565b600260005082600a8110156100025790900160005b505460026000508260ff16600a8110156100025790900160005b5054101561083d578060ff16915081505b5b80806001019150506107cb565b600260005082600a8110156100025790900160005b505484101561086e57610002565b83600260005083600a8110156100025790900160005b50819055505b5050919050565b60006000600060009150600090505b600a8110156108f15781600260005082600a8110156100025790900160005b505411156108e357600260005081600a8110156100025790900160005b5054915081505b5b80806001019150506108a0565b6001820192506108fc565b505090565b600061090c336106fa565b151561091757610002565b6040516101c2806109cb833901809050604051809103906000f09050610938565b90565b600160009054906101000a900460ff1681565b610957336106fa565b151561096257610002565b6001600160006101000a81548160ff021916908302179055507f0909e8f76a4fd3e970f2eaef56c0ee6dfaf8b87c5b8d3f56ffce78e825a9115733604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390a15b5660606040525b33600060006101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908302179055505b6101838061003f6000396000f360606040523615610048576000357c0100000000000000000000000000000000000000000000000000000000900480636b9f96ea146100a6578063ca325469146100b557610048565b6100a45b600060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16600034604051809050600060405180830381858888f19350505050505b565b005b6100b360048050506100ee565b005b6100c2600480505061015d565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b600060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1660003073ffffffffffffffffffffffffffffffffffffffff1631604051809050600060405180830381858888f19350505050505b565b600060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff16815600000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c789e5aba05051b1468ac980e30068e19fad858700000000000000000000000099c426b2a0453e27decaecd93c3722fb0f378fc5"
-                ).to_vec().into(),
-            }, caller);
+            let txn = TransactionWithSender{
+                message: TransactionMessage::EIP1559 {
+                    chain_id: MAINNET_CONFIG.chain_id,
+                    nonce,
+                    max_priority_fee_per_gas: 0.into(),
+                    max_fee_per_gas: U256::from(20 * GIGA),
+                    gas_limit: 690_000,
+                    action: TransactionAction::Create,
+                    value: U256::zero(),
+                    access_list: Default::default(),
+                    input: hex!(
+                        "6060604052604051610ca3380380610ca3833981016040528080518201919060200150505b60028151101561003357610002565b80600060005090805190602001908280548282559060005260206000209081019282156100a4579160200282015b828111156100a35782518260006101000a81548173ffffffffffffffffffffffffffffffffffffffff0219169083021790555091602001919060010190610061565b5b5090506100eb91906100b1565b808211156100e757600081816101000a81549073ffffffffffffffffffffffffffffffffffffffff0219169055506001016100b1565b5090565b50506000600160006101000a81548160ff021916908302179055505b50610b8d806101166000396000f360606040523615610095576000357c0100000000000000000000000000000000000000000000000000000000900480632079fb9a14610120578063391252151461016257806345550a51146102235780637df73e27146102ac578063979f1976146102da578063a0b7967b14610306578063a68a76cc14610329578063abe3219c14610362578063fc0f392d1461038757610095565b61011e5b600034111561011b577f6e89d517057028190560dd200cf6bf792842861353d1173761dfa362e1c133f03334600036604051808573ffffffffffffffffffffffffffffffffffffffff16815260200184815260200180602001828103825284848281815260200192508082843782019150509550505050505060405180910390a15b5b565b005b6101366004808035906020019091905050610396565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b6102216004808035906020019091908035906020019091908035906020019082018035906020019191908080601f016020809104026020016040519081016040528093929190818152602001838380828437820191505050505050909091908035906020019091908035906020019091908035906020019082018035906020019191908080601f0160208091040260200160405190810160405280939291908181526020018383808284378201915050505050509090919050506103d8565b005b6102806004808035906020019091908035906020019082018035906020019191908080601f01602080910402602001604051908101604052809392919081815260200183838082843782019150505050505090909190505061064b565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b6102c260048080359060200190919050506106fa565b60405180821515815260200191505060405180910390f35b6102f060048080359060200190919050506107a8565b6040518082815260200191505060405180910390f35b6103136004805050610891565b6040518082815260200191505060405180910390f35b6103366004805050610901565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b61036f600480505061093b565b60405180821515815260200191505060405180910390f35b610394600480505061094e565b005b600060005081815481101561000257906000526020600020900160005b9150909054906101000a900473ffffffffffffffffffffffffffffffffffffffff1681565b600060006103e5336106fa565b15156103f057610002565b600160009054906101000a900460ff1680156104125750610410886106fa565b155b1561041c57610002565b4285101561042957610002565b610432846107a8565b508787878787604051808673ffffffffffffffffffffffffffffffffffffffff166c010000000000000000000000000281526014018581526020018480519060200190808383829060006004602084601f0104600f02600301f15090500183815260200182815260200195505050505050604051809103902091506104b7828461064b565b90506104c2816106fa565b15156104cd57610002565b3373ffffffffffffffffffffffffffffffffffffffff168173ffffffffffffffffffffffffffffffffffffffff16141561050657610002565b8773ffffffffffffffffffffffffffffffffffffffff16600088604051809050600060405180830381858888f19350505050151561054357610002565b7f59bed9ab5d78073465dd642a9e3e76dfdb7d53bcae9d09df7d0b8f5234d5a8063382848b8b8b604051808773ffffffffffffffffffffffffffffffffffffffff1681526020018673ffffffffffffffffffffffffffffffffffffffff168152602001856000191681526020018473ffffffffffffffffffffffffffffffffffffffff168152602001838152602001806020018281038252838181518152602001915080519060200190808383829060006004602084601f0104600f02600301f150905090810190601f16801561062e5780820380516001836020036101000a031916815260200191505b5097505050505050505060405180910390a15b5050505050505050565b60006000600060006041855114151561066357610002565b602085015192506040850151915060ff6041860151169050601b8160ff16101561069057601b8101905080505b60018682858560405180856000191681526020018460ff16815260200183600019168152602001826000191681526020019450505050506020604051808303816000866161da5a03f1156100025750506040518051906020015093506106f1565b50505092915050565b60006000600090505b600060005080549050811015610799578273ffffffffffffffffffffffffffffffffffffffff16600060005082815481101561000257906000526020600020900160005b9054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16141561078b57600191506107a2565b5b8080600101915050610703565b600091506107a2565b50919050565b6000600060006107b7336106fa565b15156107c257610002565b60009150600090505b600a8160ff16101561084b578360026000508260ff16600a8110156100025790900160005b505414156107fd57610002565b600260005082600a8110156100025790900160005b505460026000508260ff16600a8110156100025790900160005b5054101561083d578060ff16915081505b5b80806001019150506107cb565b600260005082600a8110156100025790900160005b505484101561086e57610002565b83600260005083600a8110156100025790900160005b50819055505b5050919050565b60006000600060009150600090505b600a8110156108f15781600260005082600a8110156100025790900160005b505411156108e357600260005081600a8110156100025790900160005b5054915081505b5b80806001019150506108a0565b6001820192506108fc565b505090565b600061090c336106fa565b151561091757610002565b6040516101c2806109cb833901809050604051809103906000f09050610938565b90565b600160009054906101000a900460ff1681565b610957336106fa565b151561096257610002565b6001600160006101000a81548160ff021916908302179055507f0909e8f76a4fd3e970f2eaef56c0ee6dfaf8b87c5b8d3f56ffce78e825a9115733604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390a15b5660606040525b33600060006101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908302179055505b6101838061003f6000396000f360606040523615610048576000357c0100000000000000000000000000000000000000000000000000000000900480636b9f96ea146100a6578063ca325469146100b557610048565b6100a45b600060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff16600034604051809050600060405180830381858888f19350505050505b565b005b6100b360048050506100ee565b005b6100c2600480505061015d565b604051808273ffffffffffffffffffffffffffffffffffffffff16815260200191505060405180910390f35b600060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff1673ffffffffffffffffffffffffffffffffffffffff1660003073ffffffffffffffffffffffffffffffffffffffff1631604051809050600060405180830381858888f19350505050505b565b600060009054906101000a900473ffffffffffffffffffffffffffffffffffffffff16815600000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000c789e5aba05051b1468ac980e30068e19fad858700000000000000000000000099c426b2a0453e27decaecd93c3722fb0f378fc5"
+                    ).to_vec().into(),
+                },
+                sender: caller,
+            };
 
             let mut processor =
                 ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
             processor
                 .state()
-                .add_to_balance(caller, ETHER)
+                .add_to_balance(caller, *ETHER)
                 .await
                 .unwrap();
 
@@ -619,18 +645,18 @@ mod tests {
     fn empty_suicide_beneficiary() {
         run_test(async {
             let block_number = 2_687_389;
-            let header = BlockHeader {
+            let header = PartialHeader {
                 number: block_number,
                 gas_limit: 4_712_388,
                 beneficiary: hex!("2a65aca4d5fc5b5c859090a6c34d164135398226").into(),
-                ..BlockHeader::empty()
+                ..PartialHeader::empty()
             };
             let block = Default::default();
             let caller = hex!("5ed8cee6b63b1c6afce3ad7c92f4fd7e1b8fad9f").into();
             let suicide_beneficiary = hex!("ee098e6c2a43d9e2c04f08f0c3a87b0ba59079d5").into();
 
-            let txn = TransactionWithSender::new(
-                &TransactionMessage::EIP1559 {
+            let txn = TransactionWithSender {
+                message: TransactionMessage::EIP1559 {
                     chain_id: MAINNET_CONFIG.chain_id,
                     nonce: 0,
                     max_priority_fee_per_gas: U256::zero(),
@@ -643,8 +669,8 @@ mod tests {
                     ).to_vec().into(),
                     access_list: Default::default(),
                 },
-                caller,
-            );
+                sender: caller,
+            };
 
             let mut state = InMemoryState::default();
 
@@ -653,7 +679,7 @@ mod tests {
 
             processor
                 .state()
-                .add_to_balance(caller, ETHER)
+                .add_to_balance(caller, *ETHER)
                 .await
                 .unwrap();
 

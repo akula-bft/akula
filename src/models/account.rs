@@ -1,9 +1,13 @@
+use crate::{models::*, util::*};
 use anyhow::bail;
-use ethereum_types::{H256, U256};
+use bytes::Bytes;
+use educe::Educe;
+use ethereum_types::*;
 use modular_bitfield::prelude::*;
+use rlp_derive::*;
+use serde::*;
 use static_bytes::Buf;
-
-use crate::common::{self, EMPTY_HASH};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Account {
@@ -11,6 +15,14 @@ pub struct Account {
     pub balance: U256,
     pub code_hash: H256, // hash of the bytecode
     pub incarnation: u64,
+}
+
+#[derive(Debug, RlpEncodable, RlpDecodable)]
+pub struct RlpAccount {
+    pub nonce: u64,
+    pub balance: U256,
+    pub storage_root: H256,
+    pub code_hash: H256,
 }
 
 impl Default for Account {
@@ -22,6 +34,17 @@ impl Default for Account {
             incarnation: 0,
         }
     }
+}
+
+#[derive(Deserialize, Educe)]
+#[educe(Debug)]
+pub struct SerializedAccount {
+    pub balance: U256,
+    #[serde(deserialize_with = "deserialize_str_as_bytes")]
+    #[educe(Debug(method = "write_hex_string"))]
+    pub code: Bytes<'static>,
+    pub nonce: U64,
+    pub storage: HashMap<U256, U256>,
 }
 
 fn bytes_to_u64(buf: &[u8]) -> u64 {
@@ -101,8 +124,7 @@ impl Account {
         // Encoding balance
         if !self.balance.is_zero() {
             field_set.set_balance(true);
-            pos +=
-                1 + Self::write_compact(&common::value_to_bytes(self.balance), &mut buffer[pos..]);
+            pos += 1 + Self::write_compact(&value_to_bytes(self.balance), &mut buffer[pos..]);
         }
 
         if self.incarnation > 0 {
@@ -170,12 +192,21 @@ impl Account {
 
         Ok(Some(a))
     }
+
+    pub fn to_rlp(&self, storage_root: H256) -> RlpAccount {
+        RlpAccount {
+            nonce: self.nonce,
+            balance: self.balance,
+            storage_root,
+            code_hash: self.code_hash,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common;
+    use crate::crypto::*;
     use hex_literal::hex;
 
     fn run_test_storage(original: Account, expected_encoded: &[u8]) {
@@ -209,7 +240,7 @@ mod tests {
             Account {
                 nonce: 2,
                 balance: 1000.into(),
-                code_hash: common::hash_data(&[1, 2, 3]),
+                code_hash: keccak256(&[1, 2, 3]),
                 incarnation: 4,
             },
             &hex!("0f01020203e8010420f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"),
@@ -221,7 +252,7 @@ mod tests {
         run_test_storage(Account {
             nonce: 2,
             balance: 1000.into(),
-            code_hash: common::hash_data(&[1, 2, 3]),
+            code_hash: keccak256(&[1, 2, 3]),
             incarnation: 5,
         }, &hex!("0f01020203e8010520f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"))
     }

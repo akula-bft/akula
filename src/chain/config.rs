@@ -139,3 +139,18 @@ pub static MAINNET_CONFIG: Lazy<ChainConfig> = Lazy::new(|| ChainConfig {
     berlin_block: Some(12_244_000),
     london_block: Some(12_965_000),
 });
+
+pub static ROPSTEN_CONFIG: Lazy<ChainConfig> = Lazy::new(|| ChainConfig {
+    chain_id: 3,
+    homestead_block: Some(0),
+    dao_fork: None,
+    tangerine_block: Some(0),
+    spurious_block: Some(10),
+    byzantium_block: Some(1_700_000),
+    constantinople_block: Some(4_230_000),
+    petersburg_block: Some(4_939_394),
+    istanbul_block: Some(6_485_846),
+    muir_glacier_block: Some(7_117_117),
+    berlin_block: Some(9_812_189),
+    london_block: Some(10_499_401),
+});

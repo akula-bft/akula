@@ -1,24 +1,22 @@
 use super::*;
-use crate::{common, CursorDupSort};
+use crate::CursorDupSort;
 use bytes::Bytes;
 use std::io::Write;
 
 #[async_trait]
 impl HistoryKind for StorageHistory {
-    type Key = [u8; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
-    type IndexChunkKey =
-        [u8; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::BLOCK_NUMBER_LENGTH];
+    type Key = [u8; ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH];
+    type IndexChunkKey = [u8; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::StorageHistory;
     type ChangeSetTable = tables::StorageChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
     fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey {
-        let mut v = [0; common::ADDRESS_LENGTH + common::HASH_LENGTH + common::BLOCK_NUMBER_LENGTH];
-        v[..common::ADDRESS_LENGTH].copy_from_slice(&key[..common::ADDRESS_LENGTH]);
-        v[common::ADDRESS_LENGTH..common::ADDRESS_LENGTH + common::HASH_LENGTH]
-            .copy_from_slice(&key[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..]);
-        v[common::ADDRESS_LENGTH + common::HASH_LENGTH..]
-            .copy_from_slice(&block_number.to_be_bytes());
+        let mut v = [0; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
+        v[..ADDRESS_LENGTH].copy_from_slice(&key[..ADDRESS_LENGTH]);
+        v[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH]
+            .copy_from_slice(&key[ADDRESS_LENGTH + INCARNATION_LENGTH..]);
+        v[ADDRESS_LENGTH + KECCAK_LENGTH..].copy_from_slice(&block_number.to_be_bytes());
         v
     }
     async fn find<'tx, C>(
@@ -32,8 +30,8 @@ impl HistoryKind for StorageHistory {
         do_search_2(
             cursor,
             block_number,
-            common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
-            &k[common::ADDRESS_LENGTH..],
+            Address::from_slice(&k[..ADDRESS_LENGTH]),
+            &k[ADDRESS_LENGTH..],
             0,
         )
         .await
@@ -44,31 +42,31 @@ impl HistoryKind for StorageHistory {
         s: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs> {
         s.iter().map(move |cs| {
-            const KEY_PART: usize = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
+            const KEY_PART: usize = ADDRESS_LENGTH + INCARNATION_LENGTH;
 
-            let mut new_k = vec![0; common::BLOCK_NUMBER_LENGTH + KEY_PART];
-            new_k[..common::BLOCK_NUMBER_LENGTH]
+            let mut new_k = vec![0; BLOCK_NUMBER_LENGTH + KEY_PART];
+            new_k[..BLOCK_NUMBER_LENGTH]
                 .copy_from_slice(&dbutils::encode_block_number(block_number));
-            new_k[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs.key[..KEY_PART]);
+            new_k[BLOCK_NUMBER_LENGTH..].copy_from_slice(&cs.key[..KEY_PART]);
 
-            let mut new_v = vec![0; common::HASH_LENGTH + cs.value.len()];
-            new_v[..common::HASH_LENGTH].copy_from_slice(&cs.key[KEY_PART..]);
-            new_v[common::HASH_LENGTH..].copy_from_slice(&cs.value[..]);
+            let mut new_v = vec![0; KECCAK_LENGTH + cs.value.len()];
+            new_v[..KECCAK_LENGTH].copy_from_slice(&cs.key[KEY_PART..]);
+            new_v[KECCAK_LENGTH..].copy_from_slice(&cs.value[..]);
 
             (new_k.into(), new_v.into())
         })
     }
 
     fn decode<'tx>(db_key: Bytes<'tx>, mut db_value: Bytes<'tx>) -> (u64, Change<'tx, Self::Key>) {
-        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, BLOCK_NUMBER_LENGTH));
 
-        let mut k = [0; common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH];
-        let db_key = &db_key[common::BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
+        let mut k = [0; ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH];
+        let db_key = &db_key[BLOCK_NUMBER_LENGTH..]; // remove block_n bytes
 
         k[..db_key.len()].copy_from_slice(db_key);
-        k[db_key.len()..].copy_from_slice(&db_value[..common::HASH_LENGTH]);
+        k[db_key.len()..].copy_from_slice(&db_value[..KECCAK_LENGTH]);
 
-        let v = db_value.split_off(common::HASH_LENGTH);
+        let v = db_value.split_off(KECCAK_LENGTH);
 
         (block_n, Change::new(k, v))
     }
@@ -85,14 +83,10 @@ where
     do_search_2(
         c,
         block_number,
-        common::Address::from_slice(&k[..common::ADDRESS_LENGTH]),
-        &k[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH
-            ..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH],
-        u64::from_be_bytes(*array_ref!(
-            &k[common::ADDRESS_LENGTH..],
-            0,
-            common::INCARNATION_LENGTH
-        )),
+        Address::from_slice(&k[..ADDRESS_LENGTH]),
+        &k[ADDRESS_LENGTH + INCARNATION_LENGTH
+            ..ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH],
+        u64::from_be_bytes(*array_ref!(&k[ADDRESS_LENGTH..], 0, INCARNATION_LENGTH)),
     )
     .await
 }
@@ -101,7 +95,7 @@ where
 pub async fn find_without_incarnation<'tx, C>(
     c: &mut C,
     block_number: u64,
-    address_to_find: common::Address,
+    address_to_find: Address,
     key_to_find: &[u8],
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
@@ -113,7 +107,7 @@ where
 pub async fn do_search_2<'tx, C>(
     c: &mut C,
     block_number: u64,
-    address_to_find: common::Address,
+    address_to_find: Address,
     key_bytes_to_find: &[u8],
     incarnation: u64,
 ) -> anyhow::Result<Option<Bytes<'tx>>>
@@ -121,7 +115,7 @@ where
     C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
     if incarnation == 0 {
-        let mut seek = vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH];
+        let mut seek = vec![0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH];
         seek[..]
             .as_mut()
             .write(&block_number.to_be_bytes())
@@ -137,7 +131,7 @@ where
                 break;
             }
 
-            let st_hash = &change.key[common::ADDRESS_LENGTH + common::INCARNATION_LENGTH..];
+            let st_hash = &change.key[ADDRESS_LENGTH + INCARNATION_LENGTH..];
             if st_hash == key_bytes_to_find {
                 return Ok(Some(change.value));
             }
@@ -148,15 +142,13 @@ where
         return Ok(None);
     }
 
-    let mut seek =
-        vec![0; common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH + common::INCARNATION_LENGTH];
-    seek[..common::BLOCK_NUMBER_LENGTH].copy_from_slice(&block_number.to_be_bytes());
-    seek[common::BLOCK_NUMBER_LENGTH..]
+    let mut seek = vec![0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH];
+    seek[..BLOCK_NUMBER_LENGTH].copy_from_slice(&block_number.to_be_bytes());
+    seek[BLOCK_NUMBER_LENGTH..]
         .as_mut()
         .write(address_to_find.as_bytes())
         .unwrap();
-    seek[common::BLOCK_NUMBER_LENGTH + common::ADDRESS_LENGTH..]
-        .copy_from_slice(&incarnation.to_be_bytes());
+    seek[BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
 
     if let Some(v) = c.seek_both_range(&seek, key_bytes_to_find).await? {
         if v.starts_with(key_bytes_to_find) {
@@ -173,28 +165,18 @@ where
 mod tests {
     use super::*;
     use crate::{
+        crypto::*,
         dbutils,
         kv::traits::{MutableCursor, MutableKV, MutableTransaction},
     };
-    use ethereum_types::Address;
-    use futures_core::Future;
+    use ethereum_types::{Address, H256};
     use hex_literal::hex;
+    use std::future::Future;
 
     const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
 
-    const fn default_incarnation() -> common::Incarnation {
-        DEFAULT_INCARNATION
-    }
-
-    fn random_incarnation() -> common::Incarnation {
-        rand::random()
-    }
-
     fn hash_value_generator(j: usize) -> Bytes<'static> {
-        common::hash_data(format!("val{}", j).as_bytes())
-            .as_bytes()
-            .to_vec()
-            .into()
+        keccak256(format!("val{}", j).as_bytes()).0.to_vec().into()
     }
 
     fn empty_value_generator(_: usize) -> Bytes<'static> {
@@ -204,32 +186,32 @@ mod tests {
     fn get_test_data_at_index(
         i: usize,
         j: usize,
-        inc: common::Incarnation,
+        inc: Incarnation,
     ) -> dbutils::PlainCompositeStorageKey {
         let address = format!("0xBe828AD8B538D1D691891F6c725dEdc5989abB{:02x}", i)
             .parse()
             .unwrap();
-        let key = common::hash_data(format!("key{}", j).as_bytes());
+        let key = keccak256(format!("key{}", j));
         dbutils::plain_generate_composite_storage_key(address, inc, key)
     }
 
     #[test]
     fn encoding_storage_new_with_random_incarnation() {
-        do_test_encoding_storage_new(random_incarnation, hash_value_generator)
+        do_test_encoding_storage_new(rand::random, hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation() {
-        do_test_encoding_storage_new(default_incarnation, hash_value_generator)
+        do_test_encoding_storage_new(|| DEFAULT_INCARNATION, hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation_and_empty_value() {
-        do_test_encoding_storage_new(default_incarnation, empty_value_generator)
+        do_test_encoding_storage_new(|| DEFAULT_INCARNATION, empty_value_generator)
     }
 
     fn do_test_encoding_storage_new(
-        incarnation_generator: impl Fn() -> common::Incarnation,
+        incarnation_generator: impl Fn() -> Incarnation,
         value_generator: impl Fn(usize) -> Bytes<'static>,
     ) {
         let f = move |num_of_elements, num_of_keys| {
@@ -274,7 +256,7 @@ mod tests {
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, default_incarnation());
+                    let key = get_test_data_at_index(i, j, DEFAULT_INCARNATION);
                     let val = hash_value_generator(j);
                     ch.insert(Change::new(key, val));
                 }
@@ -312,7 +294,7 @@ mod tests {
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, default_incarnation());
+                    let key = get_test_data_at_index(i, j, DEFAULT_INCARNATION);
                     let val = hash_value_generator(j);
                     ch.insert(Change::new(key, val));
                 }
@@ -371,7 +353,7 @@ mod tests {
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, default_incarnation());
+                    let key = get_test_data_at_index(i, j, DEFAULT_INCARNATION);
                     let val = hash_value_generator(j);
                     ch.insert(Change::new(key, val));
                 }
@@ -447,25 +429,25 @@ mod tests {
         let contract_c = Address::from(hex!("1cbdd8336800dc3fe27daf5fb5188f0502ac1fc7"));
         let contract_d = Address::from(hex!("d88eba4c93123372a9f67215f80477bc3644e6ab"));
 
-        let key1 = common::Hash::from(hex!(
+        let key1 = H256::from(hex!(
             "a4e69cebbf4f8f3a1c6e493a6983d8a5879d22057a7c73b00e105d7c7e21efbc"
         ));
-        let key2 = common::Hash::from(hex!(
+        let key2 = H256::from(hex!(
             "0bece5a88f7b038f806dbef77c0b462506e4b566c5be7dd44e8e2fc7b1f6a99c"
         ));
-        let key3 = common::Hash::from(hex!(
+        let key3 = H256::from(hex!(
             "0000000000000000000000000000000000000000000000000000000000000001"
         ));
-        let key4 = common::Hash::from(hex!(
+        let key4 = H256::from(hex!(
             "4fdf6c1878d2469b49684effe69db8689d88a4f1695055538501ff197bc9e30e"
         ));
-        let key5 = common::Hash::from(hex!(
+        let key5 = H256::from(hex!(
             "aa2703c3ae5d0024b2c3ab77e5200bb2a8eb39a140fad01e89a495d73760297c"
         ));
-        let key6 = common::Hash::from(hex!(
+        let key6 = H256::from(hex!(
             "000000000000000000000000000000000000000000000000000000000000df77"
         ));
-        let key7 = common::Hash::from(hex!(
+        let key7 = H256::from(hex!(
             "0000000000000000000000000000000000000000000000000000000000000000"
         ));
 

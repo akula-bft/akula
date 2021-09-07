@@ -1,4 +1,4 @@
-use crate::{common, kv::*, CursorDupSort, *};
+use crate::{kv::*, models::*, CursorDupSort, *};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -7,7 +7,7 @@ use std::{collections::BTreeSet, fmt::Debug};
 mod account;
 mod storage;
 
-pub const DEFAULT_INCARNATION: common::Incarnation = 1;
+pub const DEFAULT_INCARNATION: Incarnation = 1;
 
 pub struct AccountHistory;
 pub struct StorageHistory;

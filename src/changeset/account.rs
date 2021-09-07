@@ -2,8 +2,8 @@ use super::*;
 
 #[async_trait]
 impl HistoryKind for AccountHistory {
-    type Key = common::Address;
-    type IndexChunkKey = [u8; common::ADDRESS_LENGTH + common::BLOCK_NUMBER_LENGTH];
+    type Key = Address;
+    type IndexChunkKey = [u8; ADDRESS_LENGTH + BLOCK_NUMBER_LENGTH];
     type IndexTable = tables::AccountHistory;
     type ChangeSetTable = tables::AccountChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
@@ -50,12 +50,12 @@ impl HistoryKind for AccountHistory {
     }
 
     fn decode<'tx>(db_key: Bytes<'tx>, db_value: Bytes<'tx>) -> (u64, Change<'tx, Self::Key>) {
-        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, common::BLOCK_NUMBER_LENGTH));
+        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, BLOCK_NUMBER_LENGTH));
 
         let mut k = db_value;
-        let value = k.split_off(common::ADDRESS_LENGTH);
+        let value = k.split_off(ADDRESS_LENGTH);
 
-        (block_n, Change::new(common::Address::from_slice(&k), value))
+        (block_n, Change::new(Address::from_slice(&k), value))
     }
 }
 

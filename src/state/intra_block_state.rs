@@ -1,8 +1,5 @@
 use super::{delta::*, object::*, *};
-use crate::{
-    common::{self, EMPTY_HASH},
-    models::*,
-};
+use crate::{crypto::*, models::*};
 use bytes::Bytes;
 use ethereum_types::*;
 use evmodin::host::AccessStatus;
@@ -376,7 +373,7 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
             address,
             previous: obj.clone(),
         });
-        obj.current.as_mut().unwrap().code_hash = common::hash_data(&code);
+        obj.current.as_mut().unwrap().code_hash = keccak256(&code);
 
         // Don't overwrite already existing code so that views of it
         // that were previously returned by get_code() are still valid.

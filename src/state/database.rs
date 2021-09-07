@@ -1,9 +1,9 @@
 use crate::{
     bitmapdb,
     changeset::{AccountHistory, Change, HistoryKind, StorageHistory},
-    common, dbutils,
+    dbutils,
     kv::tables,
-    models::Account,
+    models::*,
     ChangeSet, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
 };
 use anyhow::Context;
@@ -11,6 +11,7 @@ use arrayref::array_ref;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
+use ethereum_types::*;
 use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
@@ -19,60 +20,53 @@ use std::{
 #[async_trait]
 #[auto_impl(&)]
 pub trait StateReader<'storage> {
-    async fn read_account_data(&self, address: common::Address) -> anyhow::Result<Option<Account>>;
+    async fn read_account_data(&self, address: Address) -> anyhow::Result<Option<Account>>;
     async fn read_account_storage(
         &self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        key: common::Hash,
+        address: Address,
+        incarnation: Incarnation,
+        key: H256,
     ) -> anyhow::Result<Option<Bytes<'storage>>>;
     async fn read_account_code(
         &self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        code_hash: common::Hash,
+        address: Address,
+        incarnation: Incarnation,
+        code_hash: H256,
     ) -> anyhow::Result<Option<Bytes<'storage>>>;
     async fn read_account_code_size(
         &self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        code_hash: common::Hash,
+        address: Address,
+        incarnation: Incarnation,
+        code_hash: H256,
     ) -> anyhow::Result<usize>;
-    async fn read_previous_incarnation(
-        &self,
-        address: common::Address,
-    ) -> anyhow::Result<Option<u64>>;
+    async fn read_previous_incarnation(&self, address: Address) -> anyhow::Result<Option<u64>>;
 }
 
 #[async_trait]
 pub trait StateWriter {
     async fn update_account_data(
         &mut self,
-        address: common::Address,
+        address: Address,
         original: &Account,
         account: &Account,
     ) -> anyhow::Result<()>;
     async fn update_account_code(
         &mut self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        code_hash: common::Hash,
+        address: Address,
+        incarnation: Incarnation,
+        code_hash: H256,
         code: &[u8],
     ) -> anyhow::Result<()>;
-    async fn delete_account(
-        &mut self,
-        address: common::Address,
-        original: &Account,
-    ) -> anyhow::Result<()>;
+    async fn delete_account(&mut self, address: Address, original: &Account) -> anyhow::Result<()>;
     async fn write_account_storage(
         &mut self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        key: common::Hash,
-        original: common::Value,
-        value: common::Value,
+        address: Address,
+        incarnation: Incarnation,
+        key: H256,
+        original: U256,
+        value: U256,
     ) -> anyhow::Result<()>;
-    async fn create_contract(&mut self, address: common::Address) -> anyhow::Result<()>;
+    async fn create_contract(&mut self, address: Address) -> anyhow::Result<()>;
 }
 
 #[async_trait]
@@ -88,7 +82,7 @@ pub struct Noop;
 impl StateWriter for Noop {
     async fn update_account_data(
         &mut self,
-        _: common::Address,
+        _: Address,
         _: &Account,
         _: &Account,
     ) -> anyhow::Result<()> {
@@ -97,30 +91,30 @@ impl StateWriter for Noop {
 
     async fn update_account_code(
         &mut self,
-        _: common::Address,
-        _: common::Incarnation,
-        _: common::Hash,
+        _: Address,
+        _: Incarnation,
+        _: H256,
         _: &[u8],
     ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn delete_account(&mut self, _: common::Address, _: &Account) -> anyhow::Result<()> {
+    async fn delete_account(&mut self, _: Address, _: &Account) -> anyhow::Result<()> {
         Ok(())
     }
 
     async fn write_account_storage(
         &mut self,
-        _: common::Address,
-        _: common::Incarnation,
-        _: common::Hash,
-        _: common::Value,
-        _: common::Value,
+        _: Address,
+        _: Incarnation,
+        _: H256,
+        _: U256,
+        _: U256,
     ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn create_contract(&mut self, _: common::Address) -> anyhow::Result<()> {
+    async fn create_contract(&mut self, _: Address) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -139,7 +133,7 @@ impl WriterWithChangesets for Noop {
 pub struct ChangeSetWriter<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
     tx: &'tx Tx,
     account_changes: HashMap<<AccountHistory as HistoryKind>::Key, Bytes<'static>>,
-    storage_changed: HashSet<common::Address>,
+    storage_changed: HashSet<Address>,
     storage_changes: HashMap<<StorageHistory as HistoryKind>::Key, Bytes<'static>>,
     block_number: u64,
     _marker: PhantomData<&'db ()>,
@@ -176,7 +170,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> ChangeSetWriter<'db, 'tx, Tx> {
 impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter<'db, 'tx, Tx> {
     async fn update_account_data(
         &mut self,
-        address: common::Address,
+        address: Address,
         original: &Account,
         account: &Account,
     ) -> anyhow::Result<()> {
@@ -190,19 +184,15 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
 
     async fn update_account_code(
         &mut self,
-        _: common::Address,
-        _: common::Incarnation,
-        _: common::Hash,
+        _: Address,
+        _: Incarnation,
+        _: H256,
         _: &[u8],
     ) -> anyhow::Result<()> {
         Ok(())
     }
 
-    async fn delete_account(
-        &mut self,
-        address: common::Address,
-        original: &Account,
-    ) -> anyhow::Result<()> {
+    async fn delete_account(&mut self, address: Address, original: &Account) -> anyhow::Result<()> {
         self.account_changes
             .insert(address, original.encode_for_storage(false).into());
 
@@ -211,11 +201,11 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
 
     async fn write_account_storage(
         &mut self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        key: common::Hash,
-        original: common::Value,
-        value: common::Value,
+        address: Address,
+        incarnation: Incarnation,
+        key: H256,
+        original: U256,
+        value: U256,
     ) -> anyhow::Result<()> {
         if original == value {
             return Ok(());
@@ -233,7 +223,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
         Ok(())
     }
 
-    async fn create_contract(&mut self, _: common::Address) -> anyhow::Result<()> {
+    async fn create_contract(&mut self, _: Address) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -354,7 +344,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> PlainStateWriter<'db, 'tx, Tx> 
 impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWriter<'db, 'tx, Tx> {
     async fn update_account_data(
         &mut self,
-        address: common::Address,
+        address: Address,
         original: &Account,
         account: &Account,
     ) -> anyhow::Result<()> {
@@ -371,9 +361,9 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
 
     async fn update_account_code(
         &mut self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        code_hash: common::Hash,
+        address: Address,
+        incarnation: Incarnation,
+        code_hash: H256,
         code: &[u8],
     ) -> anyhow::Result<()> {
         self.csw
@@ -394,11 +384,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         Ok(())
     }
 
-    async fn delete_account(
-        &mut self,
-        address: common::Address,
-        original: &Account,
-    ) -> anyhow::Result<()> {
+    async fn delete_account(&mut self, address: Address, original: &Account) -> anyhow::Result<()> {
         self.csw.delete_account(address, original).await?;
 
         self.tx
@@ -421,11 +407,11 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
 
     async fn write_account_storage(
         &mut self,
-        address: common::Address,
-        incarnation: common::Incarnation,
-        key: common::Hash,
-        original: common::Value,
-        value: common::Value,
+        address: Address,
+        incarnation: Incarnation,
+        key: H256,
+        original: U256,
+        value: U256,
     ) -> anyhow::Result<()> {
         self.csw
             .write_account_storage(address, incarnation, key, original, value)
@@ -442,14 +428,13 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         if value.is_zero() {
             c.delete(&composite_key, &[]).await?;
         } else {
-            c.put(&composite_key, &common::value_to_bytes(value))
-                .await?;
+            c.put(&composite_key, &value_to_bytes(value)).await?;
         }
 
         Ok(())
     }
 
-    async fn create_contract(&mut self, address: common::Address) -> anyhow::Result<()> {
+    async fn create_contract(&mut self, address: Address) -> anyhow::Result<()> {
         self.csw.create_contract(address).await
     }
 }
@@ -469,7 +454,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
 
 pub async fn read_account_data<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    address: common::Address,
+    address: Address,
 ) -> anyhow::Result<Option<Account>> {
     if let Some(encoded) = tx.get(&tables::PlainState, address.as_bytes()).await? {
         return Account::decode_for_storage(&*encoded);
@@ -480,9 +465,9 @@ pub async fn read_account_data<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 pub async fn read_account_storage<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    address: common::Address,
-    incarnation: common::Incarnation,
-    key: common::Hash,
+    address: Address,
+    incarnation: Incarnation,
+    key: H256,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let composite_key = dbutils::plain_generate_composite_storage_key(address, incarnation, key);
     tx.get(&tables::PlainState, &composite_key).await
@@ -490,18 +475,18 @@ pub async fn read_account_storage<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    _: common::Address,
-    _: common::Incarnation,
-    code_hash: common::Hash,
+    _: Address,
+    _: Incarnation,
+    code_hash: H256,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     tx.get(&tables::PlainState, code_hash.as_bytes()).await
 }
 
 pub async fn read_account_code_size<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    address: common::Address,
-    incarnation: common::Incarnation,
-    code_hash: common::Hash,
+    address: Address,
+    incarnation: Incarnation,
+    code_hash: H256,
 ) -> anyhow::Result<usize> {
     Ok(read_account_code(tx, address, incarnation, code_hash)
         .await?
@@ -511,7 +496,7 @@ pub async fn read_account_code_size<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 pub async fn read_previous_incarnation<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    address: common::Address,
+    address: Address,
 ) -> anyhow::Result<Option<u64>> {
     Ok(tx
         .get(&tables::IncarnationMap, address.as_bytes())

@@ -1,16 +1,16 @@
 #![allow(dead_code)]
-use crate::common;
+use crate::models::*;
 use arrayref::array_ref;
 use ethereum_types::H256;
 use std::io::Write;
 
-pub const HEADER_KEY_LEN: usize = common::BLOCK_NUMBER_LENGTH + common::HASH_LENGTH;
+pub const HEADER_KEY_LEN: usize = BLOCK_NUMBER_LENGTH + KECCAK_LENGTH;
 
-pub const COMPOSITE_STORAGE_KEY_LENGTH: usize = STORAGE_PREFIX_LENGTH + common::HASH_LENGTH;
+pub const COMPOSITE_STORAGE_KEY_LENGTH: usize = STORAGE_PREFIX_LENGTH + KECCAK_LENGTH;
 pub const PLAIN_COMPOSITE_STORAGE_KEY_LENGTH: usize =
-    common::ADDRESS_LENGTH + common::INCARNATION_LENGTH + common::HASH_LENGTH;
-pub const STORAGE_PREFIX_LENGTH: usize = common::HASH_LENGTH + common::INCARNATION_LENGTH;
-pub const PLAIN_STORAGE_PREFIX_LENGTH: usize = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
+    ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH;
+pub const STORAGE_PREFIX_LENGTH: usize = KECCAK_LENGTH + INCARNATION_LENGTH;
+pub const PLAIN_STORAGE_PREFIX_LENGTH: usize = ADDRESS_LENGTH + INCARNATION_LENGTH;
 
 pub type HeaderKey = [u8; HEADER_KEY_LEN];
 
@@ -25,8 +25,8 @@ pub const encode_block_number: fn(u64) -> [u8; 8] = u64::to_be_bytes;
 pub fn header_key(number: u64, hash: H256) -> HeaderKey {
     let mut v: HeaderKey = [0; HEADER_KEY_LEN];
 
-    v[..common::BLOCK_NUMBER_LENGTH].copy_from_slice(&encode_block_number(number));
-    v[common::BLOCK_NUMBER_LENGTH..].copy_from_slice(&hash.to_fixed_bytes());
+    v[..BLOCK_NUMBER_LENGTH].copy_from_slice(&encode_block_number(number));
+    v[BLOCK_NUMBER_LENGTH..].copy_from_slice(&hash.to_fixed_bytes());
 
     v
 }
@@ -34,9 +34,9 @@ pub fn header_key(number: u64, hash: H256) -> HeaderKey {
 /// AddrHash + incarnation + KeyHash
 /// For contract storage
 pub fn generate_composite_storage_key(
-    address_hash: common::Hash,
-    incarnation: common::Incarnation,
-    seckey: common::Hash,
+    address_hash: H256,
+    incarnation: Incarnation,
+    seckey: H256,
 ) -> CompositeStorageKey {
     let mut composite_key = [0; COMPOSITE_STORAGE_KEY_LENGTH];
     composite_key[..STORAGE_PREFIX_LENGTH]
@@ -48,9 +48,9 @@ pub fn generate_composite_storage_key(
 /// AddrHash + incarnation + KeyHash
 /// For contract storage (for plain state)
 pub fn plain_generate_composite_storage_key(
-    address: common::Address,
-    incarnation: common::Incarnation,
-    key: common::Hash,
+    address: Address,
+    incarnation: Incarnation,
+    key: H256,
 ) -> PlainCompositeStorageKey {
     let mut composite_key = [0; PLAIN_COMPOSITE_STORAGE_KEY_LENGTH];
     let mut w = composite_key.as_mut();
@@ -63,44 +63,41 @@ pub fn plain_generate_composite_storage_key(
 
 pub fn plain_parse_composite_storage_key(
     composite_key: &PlainCompositeStorageKey,
-) -> (common::Address, common::Incarnation, common::Hash) {
-    const PREFIX_LEN: usize = common::ADDRESS_LENGTH + common::INCARNATION_LENGTH;
+) -> (Address, Incarnation, H256) {
+    const PREFIX_LEN: usize = ADDRESS_LENGTH + INCARNATION_LENGTH;
 
     let (addr, inc) = plain_parse_storage_prefix(&composite_key[..PREFIX_LEN]);
     (
         addr,
         inc,
-        common::Hash::from_slice(&composite_key[PREFIX_LEN..PREFIX_LEN + common::HASH_LENGTH]),
+        H256::from_slice(&composite_key[PREFIX_LEN..PREFIX_LEN + KECCAK_LENGTH]),
     )
 }
 
 /// address hash + incarnation prefix
-pub fn generate_storage_prefix(
-    address_hash: common::Hash,
-    incarnation: common::Incarnation,
-) -> StoragePrefix {
+pub fn generate_storage_prefix(address_hash: H256, incarnation: Incarnation) -> StoragePrefix {
     let mut prefix = [0; STORAGE_PREFIX_LENGTH];
-    prefix[..common::HASH_LENGTH].copy_from_slice(address_hash.as_bytes());
-    prefix[common::HASH_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
+    prefix[..KECCAK_LENGTH].copy_from_slice(address_hash.as_bytes());
+    prefix[KECCAK_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
     prefix
 }
 
 /// address hash + incarnation prefix (for plain state)
 pub fn plain_generate_storage_prefix(
-    address: common::Address,
-    incarnation: common::Incarnation,
+    address: Address,
+    incarnation: Incarnation,
 ) -> PlainStoragePrefix {
     let mut prefix = PlainStoragePrefix::default();
-    prefix[..common::ADDRESS_LENGTH].copy_from_slice(address.as_bytes());
-    prefix[common::ADDRESS_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
+    prefix[..ADDRESS_LENGTH].copy_from_slice(address.as_bytes());
+    prefix[ADDRESS_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
     prefix
 }
 
-pub fn plain_parse_storage_prefix(prefix: &[u8]) -> (common::Address, u64) {
+pub fn plain_parse_storage_prefix(prefix: &[u8]) -> (Address, u64) {
     (
-        common::Address::from_slice(&prefix[..common::ADDRESS_LENGTH]),
+        Address::from_slice(&prefix[..ADDRESS_LENGTH]),
         u64::from_be_bytes(*array_ref!(
-            prefix[common::ADDRESS_LENGTH..common::ADDRESS_LENGTH + common::INCARNATION_LENGTH],
+            prefix[ADDRESS_LENGTH..ADDRESS_LENGTH + INCARNATION_LENGTH],
             0,
             8
         )),

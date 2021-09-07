@@ -1,4 +1,4 @@
-use crate::{common, kv::*, MutableTransaction, Transaction};
+use crate::{kv::*, models::*, MutableTransaction, Transaction};
 use anyhow::Context;
 use arrayref::array_ref;
 use std::fmt::Display;
@@ -49,10 +49,10 @@ impl StageId {
     ) -> anyhow::Result<Option<u64>> {
         if let Some(b) = tx.get(table, self.as_ref()).await? {
             return Ok(Some(u64::from_be_bytes(*array_ref![
-                b.get(0..common::BLOCK_NUMBER_LENGTH)
+                b.get(0..BLOCK_NUMBER_LENGTH)
                     .context("failed to read block number from bytes")?,
                 0,
-                common::BLOCK_NUMBER_LENGTH
+                BLOCK_NUMBER_LENGTH
             ])));
         }
 
