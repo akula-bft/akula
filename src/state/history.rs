@@ -135,9 +135,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        bitmapdb, crypto, kv::traits::MutableKV, state::database::*, txdb, MutableTransaction,
-    };
+    use crate::{bitmapdb, crypto, kv::traits::MutableKV, state::database::*, MutableTransaction};
     use pin_utils::pin_mut;
     use std::collections::HashMap;
     use tokio_stream::StreamExt;
@@ -176,7 +174,7 @@ mod tests {
         block_writer.write_history().await.unwrap();
 
         let mut cursor = tx.cursor(&tables::AccountChangeSet).await.unwrap();
-        let s = txdb::walk(&mut cursor, &[], 0);
+        let s = cursor.walk(&[], |_, _| true);
 
         pin_mut!(s);
 
@@ -200,8 +198,8 @@ mod tests {
         assert_eq!(index.iter().next(), Some(1));
 
         let mut cursor = tx.cursor(&tables::StorageChangeSet).await.unwrap();
-        let k = BlockNumber(1).db_key();
-        let s = txdb::walk(&mut cursor, &k, 8 * 8);
+        let bn = BlockNumber(1).db_key();
+        let s = cursor.walk(&bn, |key, _| key.starts_with(&bn));
 
         pin_mut!(s);
 
@@ -258,20 +256,18 @@ mod tests {
             assert_eq!(index.iter().next().unwrap(), 2);
             assert_eq!(index.len(), 1);
 
-            let res_account_storage = txdb::walk(
-                &mut plain_state,
-                &plain_generate_storage_prefix(address, acc.incarnation),
-                8 * (ADDRESS_LENGTH as u64 + 8),
-            )
-            .fold(HashMap::new(), |mut accum, res| {
-                let (k, v) = res.unwrap();
-                accum.insert(
-                    H256::from_slice(&k[ADDRESS_LENGTH + 8..]),
-                    U256::from_big_endian(&v),
-                );
-                accum
-            })
-            .await;
+            let prefix = plain_generate_storage_prefix(address, acc.incarnation);
+            let res_account_storage = plain_state
+                .walk(&prefix, |key, _| key.starts_with(&prefix))
+                .fold(HashMap::new(), |mut accum, res| {
+                    let (k, v) = res.unwrap();
+                    accum.insert(
+                        H256::from_slice(&k[ADDRESS_LENGTH + 8..]),
+                        U256::from_big_endian(&v),
+                    );
+                    accum
+                })
+                .await;
 
             assert_eq!(res_account_storage, acc_state_storage[i]);
 
@@ -288,19 +284,20 @@ mod tests {
             }
         }
 
-        let changeset_in_db = txdb::walk(
-            &mut tx.cursor(&tables::AccountChangeSet).await.unwrap(),
-            &encode_block_number(2),
-            8 * 8,
-        )
-        .map(|res| {
-            let (k, v) = res.unwrap();
-            AccountHistory::decode(k, v).1
-        })
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<AccountChangeSet>();
+        let bn = encode_block_number(2);
+        let changeset_in_db = tx
+            .cursor(&tables::AccountChangeSet)
+            .await
+            .unwrap()
+            .walk(&bn, |key, _| key.starts_with(&bn))
+            .map(|res| {
+                let (k, v) = res.unwrap();
+                AccountHistory::decode(k, v).1
+            })
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<AccountChangeSet>();
 
         let mut expected_changeset = AccountChangeSet::new();
         for i in 0..num_of_accounts {
@@ -310,19 +307,20 @@ mod tests {
 
         assert_eq!(changeset_in_db, expected_changeset);
 
-        let cs = txdb::walk(
-            &mut tx.cursor(&tables::StorageChangeSet).await.unwrap(),
-            &encode_block_number(2),
-            8 * 8,
-        )
-        .map(|res| {
-            let (k, v) = res.unwrap();
-            StorageHistory::decode(k, v).1
-        })
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<StorageChangeSet>();
+        let bn = encode_block_number(2);
+        let cs = tx
+            .cursor(&tables::StorageChangeSet)
+            .await
+            .unwrap()
+            .walk(&bn, |key, _| key.starts_with(&bn))
+            .map(|res| {
+                let (k, v) = res.unwrap();
+                StorageHistory::decode(k, v).1
+            })
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<StorageChangeSet>();
 
         assert_eq!(cs.len(), num_of_accounts * num_of_state_keys);
 

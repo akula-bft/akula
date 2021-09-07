@@ -1,4 +1,4 @@
-use crate::{kv::Table, models::*, txdb, Transaction};
+use crate::{kv::Table, models::*, Cursor, Transaction};
 use arrayref::array_ref;
 use pin_utils::pin_mut;
 use roaring::RoaringTreemap;
@@ -29,7 +29,7 @@ where
 
     let mut c = tx.cursor(table).await?;
 
-    let s = txdb::walk(&mut c, &from_key, (key.len() * 8) as u64);
+    let s = c.walk(&from_key, |k, _| k.starts_with(key));
 
     pin_mut!(s);
 
