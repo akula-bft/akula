@@ -1,8 +1,11 @@
 use crate::{
     dbutils::*,
-    kv::{tables, traits::MutableCursor},
+    kv::{
+        tables,
+        traits::{Cursor, MutableCursor},
+    },
     models::*,
-    txdb, MutableTransaction, Transaction as ReadTransaction,
+    MutableTransaction, Transaction as ReadTransaction,
 };
 use anyhow::{bail, Context};
 use arrayref::array_ref;
@@ -114,7 +117,7 @@ pub mod tx {
             let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
 
             let start_key = base_tx_id.to_be_bytes();
-            let walker = txdb::walk(&mut cursor, &start_key, 0);
+            let walker = cursor.walk(&start_key, |_, _| true);
 
             pin!(walker);
 
@@ -173,7 +176,10 @@ pub mod tx_sender {
             let mut cursor = tx.cursor(&tables::TxSender).await?;
 
             let start_key = base_tx_id.to_be_bytes();
-            txdb::get_n(&mut cursor, &start_key, 0, amount as usize)
+            cursor
+                .walk(&start_key, |_, _| true)
+                .take(amount as usize)
+                .collect::<anyhow::Result<Vec<_>>>()
                 .await?
                 .into_iter()
                 .map(|(_, address_bytes)| Address::from_slice(&*address_bytes))

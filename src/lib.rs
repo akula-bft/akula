@@ -30,7 +30,6 @@ pub mod models;
 pub mod stagedsync;
 pub mod stages;
 mod state;
-pub mod txdb;
 pub(crate) mod util;
 
 pub use changeset::*;

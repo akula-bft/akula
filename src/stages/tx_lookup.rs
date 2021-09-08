@@ -7,7 +7,7 @@ use crate::{
     kv::tables,
     models::BodyForStorage,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
-    txdb, Cursor, MutableTransaction, StageId,
+    Cursor, MutableTransaction, StageId,
 };
 use async_trait::async_trait;
 use ethereum_types::U64;
@@ -53,7 +53,7 @@ where
         (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
             .to_big_endian(&mut start_block_number);
 
-        let walker_block_body = txdb::walk(&mut bodies_cursor, &start_block_number, 0);
+        let walker_block_body = bodies_cursor.walk(&start_block_number, |_, _| true);
         pin!(walker_block_body);
 
         while let Some((block_body_key, ref block_body_value)) =
@@ -69,7 +69,7 @@ where
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
             let tx_base_id_as_bytes = tx_base_id.to_be_bytes();
 
-            let walker_block_txs = txdb::walk(&mut block_txs_cursor, &tx_base_id_as_bytes, 0);
+            let walker_block_txs = block_txs_cursor.walk(&tx_base_id_as_bytes, |_, _| true);
             pin!(walker_block_txs);
 
             let mut num_txs = 1;

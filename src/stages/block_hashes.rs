@@ -5,7 +5,7 @@ use crate::{
     },
     kv::tables,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
-    txdb, MutableTransaction, StageId,
+    Cursor, MutableTransaction, StageId,
 };
 use async_trait::async_trait;
 use tokio::pin;
@@ -40,7 +40,7 @@ where
 
         let start_key = past_progress.to_be_bytes();
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = txdb::walk(&mut bodies_cursor, &start_key, 0);
+        let walker = bodies_cursor.walk(&start_key, |_, _| true);
         pin!(walker);
 
         while let Some((block_key, _)) = walker.try_next().await? {

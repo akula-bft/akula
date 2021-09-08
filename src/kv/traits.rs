@@ -1,9 +1,10 @@
 use super::*;
 use arrayref::array_ref;
+use async_stream::try_stream;
 use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum_types::Address;
-use futures_core::stream::LocalBoxStream;
+use futures_core::stream::{BoxStream, LocalBoxStream};
 use std::fmt::Debug;
 
 #[async_trait]
@@ -123,6 +124,36 @@ where
     async fn prev(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     async fn last(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
     async fn current(&mut self) -> anyhow::Result<Option<(Bytes<'tx>, Bytes<'tx>)>>;
+
+    fn walk<'cur, F>(
+        &'cur mut self,
+        start_key: &[u8],
+        take_while: F,
+    ) -> BoxStream<'cur, anyhow::Result<(Bytes<'tx>, Bytes<'tx>)>>
+    where
+        F: Fn(&Bytes<'tx>, &Bytes<'tx>) -> bool + Send + 'cur,
+        'tx: 'cur,
+    {
+        let start_key = start_key.to_vec();
+        Box::pin(try_stream! {
+            if let Some((mut k, mut v)) = self.seek(&start_key).await? {
+                loop {
+                    if !(take_while)(&k, &v) {
+                        break;
+                    }
+
+                    yield (k, v);
+
+                    match self.next().await? {
+                        Some((k1, v1)) => {
+                            (k, v) = (k1, v1);
+                        }
+                        None => break,
+                    }
+                }
+            }
+        })
+    }
 }
 
 #[async_trait]
