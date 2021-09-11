@@ -73,14 +73,13 @@ where
 
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
         let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber).await?;
-        let processed = 0;
 
         let start_key = unwind_to.to_be_bytes();
         let end_key = past_progress.to_be_bytes();
 
-        let walker = bodies_cursor.walk(&start_key, |_, _| true);
+        let mut walker = bodies_cursor.walk(&start_key, |_, _| true);
 
-        while let Some((block_key, bodies_value)) = walker.try_next().await? {
+        while let Some((block_key, _)) = walker.try_next().await? {
             let key = &block_key[8..];
             let value = &block_key[..8];
             blockhashes_cursor.delete(key, value).await?;
