@@ -5,7 +5,7 @@ use crate::{
     },
     kv::tables,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
-    Cursor, MutableTransaction, StageId,
+    Cursor, MutableCursor, MutableTransaction, StageId,
 };
 use async_trait::async_trait;
 use tokio::pin;
@@ -68,8 +68,28 @@ where
     where
         'db: 'tx,
     {
-        let _ = tx;
-        let _ = input;
-        todo!()
+        let past_progress = input.stage_progress;
+        let unwind_to = input.unwind_to;
+
+        let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
+        let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber).await?;
+        let processed = 0;
+
+        let start_key = unwind_to.to_be_bytes();
+        let end_key = past_progress.to_be_bytes();
+
+        let walker = bodies_cursor.walk(&start_key, |_, _| true);
+
+        while let Some((block_key, bodies_value)) = walker.try_next().await? {
+            let key = &block_key[8..];
+            let value = &block_key[..8];
+            blockhashes_cursor.delete(key, value).await?;
+
+            // we've processed the last key. So it's time to leave the loop.
+            if block_key == end_key.as_ref() {
+                break;
+            }
+        }
+        Ok(())
     }
 }
