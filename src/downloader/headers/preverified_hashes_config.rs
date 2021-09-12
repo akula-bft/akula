@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use serde::{de, Deserialize};
+use std::str::FromStr;
 
 /// The preverified hashes is a list of known precomputed hashes of every 192-th block in the chain:
 ///
@@ -11,6 +12,13 @@ pub struct PreverifiedHashesConfig {
     pub hashes: Vec<ethereum_types::H256>,
 }
 
+struct UnprefixedHexH256(pub ethereum_types::H256);
+
+#[derive(Deserialize)]
+struct PreverifiedHashesConfigUnprefixedHex {
+    pub hashes: Vec<UnprefixedHexH256>,
+}
+
 impl PreverifiedHashesConfig {
     pub fn new(chain_name: &str) -> anyhow::Result<Self> {
         let config_text = match chain_name {
@@ -18,20 +26,31 @@ impl PreverifiedHashesConfig {
             "ropsten" => include_str!("preverified_hashes_ropsten.toml"),
             _ => anyhow::bail!("unsupported chain"),
         };
-        let config: HashMap<String, Vec<String>> = toml::from_str(config_text)?;
+        let config: PreverifiedHashesConfigUnprefixedHex = toml::from_str(config_text)?;
         Ok(PreverifiedHashesConfig {
-            hashes: PreverifiedHashesConfig::parse_hashes(&config["hashes"]),
+            hashes: config.hashes.iter().map(|hash| hash.0).collect(),
         })
     }
+}
 
-    fn parse_hashes(hash_strings: &[String]) -> Vec<ethereum_types::H256> {
-        hash_strings
-            .iter()
-            .map(|hash_str| {
-                let mut hash_bytes = [0u8; 32];
-                hex::decode_to_slice(hash_str, &mut hash_bytes).unwrap();
-                ethereum_types::H256::from(hash_bytes)
-            })
-            .collect()
+impl FromStr for UnprefixedHexH256 {
+    type Err = hex::FromHexError;
+
+    fn from_str(hash_str: &str) -> Result<Self, Self::Err> {
+        let mut hash_bytes = [0u8; 32];
+        hex::decode_to_slice(hash_str, &mut hash_bytes)?;
+        let hash = ethereum_types::H256::from(hash_bytes);
+
+        Ok(UnprefixedHexH256(hash))
+    }
+}
+
+impl<'de> Deserialize<'de> for UnprefixedHexH256 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let hash_str = String::deserialize(deserializer)?;
+        FromStr::from_str(&hash_str).map_err(de::Error::custom)
     }
 }
