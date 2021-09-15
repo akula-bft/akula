@@ -133,6 +133,10 @@ where
     type Cursor<'tx, T: Table> = MdbxCursor<'tx, K>;
     type CursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, K>;
 
+    fn id(&self) -> u64 {
+        MdbxTransaction::id(self)
+    }
+
     async fn cursor<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,

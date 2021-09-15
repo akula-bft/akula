@@ -27,7 +27,7 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
         _: tonic::Request<()>,
     ) -> Result<Response<VersionReply>, tonic::Status> {
         Ok(Response::new(VersionReply {
-            major: 2,
+            major: 4,
             minor: 0,
             patch: 0,
         }))
@@ -67,6 +67,13 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
                     .as_mut()
                     .ok_or_else(|| tonic::Status::invalid_argument("cursor closed"))
             }
+
+            let _ = tx
+                .send(Ok(Pair {
+                    tx_id: dbtx.id(),
+                    ..Default::default()
+                }))
+                .await;
 
             while let Some(c) = req.try_next().await.unwrap() {
                 let _ = tx
@@ -163,6 +170,7 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
                             Ok(Pair {
                                 k: k.as_ref().to_vec().into(),
                                 v: v.as_ref().to_vec().into(),
+                                tx_id: dbtx.id(),
                                 cursor_id,
                             })
                         }
