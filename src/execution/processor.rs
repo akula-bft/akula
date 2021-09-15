@@ -294,7 +294,8 @@ where
         let block_number = self.header.number;
         let mut miner_reward = block_reward;
         for ommer in &self.block.ommers {
-            let ommer_reward = (U256::from(8 + ommer.number - block_number) * block_reward) >> 3;
+            let ommer_reward =
+                (U256::from(8 + ommer.number.0 - block_number.0) * block_reward) >> 3;
             self.state
                 .add_to_balance(ommer.beneficiary, ommer_reward)
                 .await?;
@@ -322,7 +323,7 @@ mod tests {
     fn zero_gas_price() {
         run_test(async {
             let header = PartialHeader {
-                number: 2_687_232,
+                number: 2_687_232.into(),
                 gas_limit: 3_303_221,
                 beneficiary: hex!("4bb96091ee9d802ed039c4d1a5f6216f90f81b01").into(),
                 ..PartialHeader::empty()
@@ -358,7 +359,7 @@ mod tests {
     fn no_refund_on_error() {
         run_test(async {
             let header = PartialHeader {
-                number: 10_050_107,
+                number: 10_050_107.into(),
                 gas_limit: 328_646,
                 beneficiary: hex!("5146556427ff689250ed1801a783d12138c3dd5e").into(),
                 ..PartialHeader::empty()
@@ -448,7 +449,7 @@ mod tests {
     fn selfdestruct() {
         run_test(async {
             let header = PartialHeader {
-                number: 1_487_375,
+                number: 1_487_375.into(),
                 gas_limit: 4_712_388,
                 beneficiary: hex!("61c808d82a3ac53231750dadc13c777b59310bd9").into(),
                 ..PartialHeader::empty()
@@ -575,7 +576,7 @@ mod tests {
     #[test]
     fn out_of_gas_during_account_recreation() {
         run_test(async {
-            let block_number = 2_081_788;
+            let block_number = 2_081_788.into();
             let header = PartialHeader {
                 number: block_number,
                 gas_limit: 4_712_388,
@@ -644,7 +645,7 @@ mod tests {
     #[test]
     fn empty_suicide_beneficiary() {
         run_test(async {
-            let block_number = 2_687_389;
+            let block_number = 2_687_389.into();
             let header = PartialHeader {
                 number: block_number,
                 gas_limit: 4_712_388,

@@ -82,7 +82,7 @@ mod tests {
             Message::GetBlockHeaders(GetBlockHeadersMessage {
                 request_id: 1111,
                 params: GetBlockHeadersMessageParams {
-                    start_block: BlockId::Number(9999),
+                    start_block: BlockId::Number(9999.into()),
                     limit: 5,
                     skip: 5,
                     reverse: 0,

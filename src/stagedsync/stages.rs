@@ -1,4 +1,4 @@
-use crate::{kv::*, models::*, MutableTransaction, Transaction};
+use crate::{dbutils::encode_block_number, kv::*, models::*, MutableTransaction, Transaction};
 use anyhow::Context;
 use arrayref::array_ref;
 use std::fmt::Display;
@@ -45,14 +45,14 @@ impl StageId {
     pub async fn get_progress<'db, Tx: Transaction<'db>>(
         &self,
         tx: &Tx,
-    ) -> anyhow::Result<Option<u64>> {
+    ) -> anyhow::Result<Option<BlockNumber>> {
         if let Some(b) = tx.get(&tables::SyncStage, self.as_ref()).await? {
-            return Ok(Some(u64::from_be_bytes(*array_ref![
+            return Ok(Some(BlockNumber(u64::from_be_bytes(*array_ref![
                 b.get(0..BLOCK_NUMBER_LENGTH)
                     .context("failed to read block number from bytes")?,
                 0,
                 BLOCK_NUMBER_LENGTH
-            ])));
+            ]))));
         }
 
         Ok(None)
@@ -62,9 +62,13 @@ impl StageId {
     pub async fn save_progress<'db, RwTx: MutableTransaction<'db>>(
         &self,
         tx: &RwTx,
-        block: u64,
+        block: BlockNumber,
     ) -> anyhow::Result<()> {
-        tx.set(&tables::SyncStage, self.as_ref(), &block.to_be_bytes())
-            .await
+        tx.set(
+            &tables::SyncStage,
+            self.as_ref(),
+            &encode_block_number(block),
+        )
+        .await
     }
 }

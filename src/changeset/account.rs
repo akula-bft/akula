@@ -8,7 +8,7 @@ impl HistoryKind for AccountHistory {
     type ChangeSetTable = tables::AccountChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn index_chunk_key(key: Self::Key, block_number: u64) -> Self::IndexChunkKey {
+    fn index_chunk_key(key: Self::Key, block_number: BlockNumber) -> Self::IndexChunkKey {
         let mut v = Self::IndexChunkKey::default();
         v[..key.as_ref().len()].copy_from_slice(key.as_ref());
         v[key.as_ref().len()..].copy_from_slice(&block_number.to_be_bytes());
@@ -16,7 +16,7 @@ impl HistoryKind for AccountHistory {
     }
     async fn find<'tx, C>(
         cursor: &mut C,
-        block_number: u64,
+        block_number: BlockNumber,
         needle: &Self::Key,
     ) -> anyhow::Result<Option<Bytes<'tx>>>
     where
@@ -35,7 +35,7 @@ impl HistoryKind for AccountHistory {
     }
 
     fn encode<'cs, 'tx: 'cs>(
-        block_number: u64,
+        block_number: BlockNumber,
         s: &'cs ChangeSet<'tx, Self>,
     ) -> Self::EncodedStream<'tx, 'cs> {
         let k = dbutils::encode_block_number(block_number);
@@ -49,8 +49,11 @@ impl HistoryKind for AccountHistory {
         })
     }
 
-    fn decode<'tx>(db_key: Bytes<'tx>, db_value: Bytes<'tx>) -> (u64, Change<'tx, Self::Key>) {
-        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, BLOCK_NUMBER_LENGTH));
+    fn decode<'tx>(
+        db_key: Bytes<'tx>,
+        db_value: Bytes<'tx>,
+    ) -> (BlockNumber, Change<'tx, Self::Key>) {
+        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, BLOCK_NUMBER_LENGTH)).into();
 
         let mut k = db_value;
         let value = k.split_off(ADDRESS_LENGTH);
@@ -85,7 +88,7 @@ mod tests {
 
         let mut ch2 = AccountChangeSet::new();
 
-        for (k, v) in AccountHistory::encode(1, &ch) {
+        for (k, v) in AccountHistory::encode(1.into(), &ch) {
             let (_, change) = AccountHistory::decode(k, v);
 
             ch2.insert(change);

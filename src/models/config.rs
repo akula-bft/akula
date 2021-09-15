@@ -1,3 +1,4 @@
+use super::BlockNumber;
 use ethereum_types::*;
 use evmodin::Revision;
 use serde::Deserialize;
@@ -5,7 +6,7 @@ use std::collections::{BTreeSet, HashSet};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct DaoConfig {
-    pub block_number: u64,
+    pub block_number: BlockNumber,
     pub drain: HashSet<Address>,
     pub beneficiary: Address,
 }
@@ -15,21 +16,21 @@ pub struct DaoConfig {
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {
     pub chain_id: u64,
-    pub homestead_block: Option<u64>,
+    pub homestead_block: Option<BlockNumber>,
     pub dao_fork: Option<DaoConfig>,
-    pub tangerine_block: Option<u64>,
-    pub spurious_block: Option<u64>,
-    pub byzantium_block: Option<u64>,
-    pub constantinople_block: Option<u64>,
-    pub petersburg_block: Option<u64>,
-    pub istanbul_block: Option<u64>,
-    pub muir_glacier_block: Option<u64>,
-    pub berlin_block: Option<u64>,
-    pub london_block: Option<u64>,
+    pub tangerine_block: Option<BlockNumber>,
+    pub spurious_block: Option<BlockNumber>,
+    pub byzantium_block: Option<BlockNumber>,
+    pub constantinople_block: Option<BlockNumber>,
+    pub petersburg_block: Option<BlockNumber>,
+    pub istanbul_block: Option<BlockNumber>,
+    pub muir_glacier_block: Option<BlockNumber>,
+    pub berlin_block: Option<BlockNumber>,
+    pub london_block: Option<BlockNumber>,
 }
 
 impl ChainConfig {
-    pub fn gather_forks(&self) -> BTreeSet<u64> {
+    pub fn gather_forks(&self) -> BTreeSet<BlockNumber> {
         [
             self.homestead_block,
             self.dao_fork.as_ref().map(|c| c.block_number),
@@ -46,7 +47,7 @@ impl ChainConfig {
         .iter()
         .filter_map(|b| {
             if let Some(b) = *b {
-                if b > 0 {
+                if b.0 > 0 {
                     return Some(b);
                 }
             }
@@ -56,7 +57,8 @@ impl ChainConfig {
         .collect()
     }
 
-    pub fn revision(&self, block_num: u64) -> Revision {
+    pub fn revision(&self, block_number: impl Into<BlockNumber>) -> Revision {
+        let block_number = block_number.into();
         for (fork, revision) in [
             (self.london_block, Revision::London),
             (self.berlin_block, Revision::Berlin),
@@ -69,7 +71,7 @@ impl ChainConfig {
             (self.homestead_block, Revision::Homestead),
         ] {
             if let Some(fork_block) = fork {
-                if block_num >= fork_block {
+                if block_number >= fork_block {
                     return revision;
                 }
             }
@@ -78,10 +80,10 @@ impl ChainConfig {
         Revision::Frontier
     }
 
-    pub fn is_dao_block(&self, block_num: u64) -> bool {
+    pub fn is_dao_block(&self, block_number: impl Into<BlockNumber>) -> bool {
         self.dao_fork
             .as_ref()
-            .map(|c| c.block_number == block_num)
+            .map(|c| c.block_number == block_number.into())
             .unwrap_or(false)
     }
 }

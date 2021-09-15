@@ -30,7 +30,7 @@ where
         'db: 'tx,
     {
         let _ = tx;
-        let past_progress = input.stage_progress.unwrap_or(0);
+        let past_progress = input.stage_progress.unwrap_or_default();
 
         if !input.restarted {
             info!("Waiting for headers...");
@@ -42,15 +42,15 @@ where
 
         let target = past_progress + 100;
 
-        let commit_block =
-            rand::random::<bool>().then(|| past_progress + rand::thread_rng().gen_range(0..target));
+        let commit_block = rand::random::<bool>()
+            .then(|| past_progress + rand::thread_rng().gen_range(0..*target));
 
         let mut processed = past_progress;
         let mut must_commit = false;
         for block in past_progress..=target {
-            info!(block = block, "(mock) Downloading");
+            info!(block = block.0, "(mock) Downloading");
 
-            processed += 1;
+            processed.0 += 1;
 
             if let Some(commit_block) = commit_block {
                 if block == commit_block {
@@ -62,7 +62,7 @@ where
             let dur = Duration::from_millis(rand::thread_rng().gen_range(0..500));
             sleep(dur).await;
         }
-        info!(highest = target, "Processed");
+        info!(highest = target.0, "Processed");
         Ok(ExecOutput::Progress {
             stage_progress: processed,
             done: !must_commit,

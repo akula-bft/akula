@@ -131,149 +131,149 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::Homestead => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
+            homestead_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::EIP150 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::EIP158 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::Byzantium => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::Constantinople => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::ConstantinopleFix => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
-            petersburg_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
+            petersburg_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::Istanbul => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
-            petersburg_block: Some(0),
-            istanbul_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
+            petersburg_block: Some(0.into()),
+            istanbul_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::Berlin => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
-            petersburg_block: Some(0),
-            istanbul_block: Some(0),
-            muir_glacier_block: Some(0),
-            berlin_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
+            petersburg_block: Some(0.into()),
+            istanbul_block: Some(0.into()),
+            muir_glacier_block: Some(0.into()),
+            berlin_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::London => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
-            petersburg_block: Some(0),
-            istanbul_block: Some(0),
-            muir_glacier_block: Some(0),
-            berlin_block: Some(0),
-            london_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
+            petersburg_block: Some(0.into()),
+            istanbul_block: Some(0.into()),
+            muir_glacier_block: Some(0.into()),
+            berlin_block: Some(0.into()),
+            london_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::FrontierToHomesteadAt5 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(5),
+            homestead_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::HomesteadToEIP150At5 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(5),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::HomesteadToDaoAt5 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
+            homestead_block: Some(0.into()),
             dao_fork: Some(DaoConfig {
-                block_number: 5,
+                block_number: 5.into(),
                 ..MAINNET_CONFIG.dao_fork.clone().unwrap()
             }),
             ..ChainConfig::default()
         },
         Network::EIP158ToByzantiumAt5 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(5),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::ByzantiumToConstantinopleFixAt5 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(5),
-            petersburg_block: Some(5),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(5.into()),
+            petersburg_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::BerlinToLondonAt5 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
-            petersburg_block: Some(0),
-            istanbul_block: Some(0),
-            muir_glacier_block: Some(0),
-            berlin_block: Some(0),
-            london_block: Some(5),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
+            petersburg_block: Some(0.into()),
+            istanbul_block: Some(0.into()),
+            muir_glacier_block: Some(0.into()),
+            berlin_block: Some(0.into()),
+            london_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::EIP2384 => ChainConfig {
             chain_id: 1,
-            homestead_block: Some(0),
-            tangerine_block: Some(0),
-            spurious_block: Some(0),
-            byzantium_block: Some(0),
-            constantinople_block: Some(0),
-            petersburg_block: Some(0),
-            istanbul_block: Some(0),
-            muir_glacier_block: Some(0),
+            homestead_block: Some(0.into()),
+            tangerine_block: Some(0.into()),
+            spurious_block: Some(0.into()),
+            byzantium_block: Some(0.into()),
+            constantinople_block: Some(0.into()),
+            petersburg_block: Some(0.into()),
+            istanbul_block: Some(0.into()),
+            muir_glacier_block: Some(0.into()),
             ..ChainConfig::default()
         },
     }
@@ -323,6 +323,13 @@ where
     Ok(d)
 }
 
+fn deserialize_str_as_blocknumber<'de, D>(deserializer: D) -> Result<BlockNumber, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    deserialize_str_as_u64(deserializer).map(BlockNumber)
+}
+
 fn deserialize_str_as_u128<'de, D>(deserializer: D) -> Result<u128, D::Error>
 where
     D: de::Deserializer<'de>,
@@ -353,8 +360,8 @@ struct DifficultyTest {
     #[serde(deserialize_with = "deserialize_str_as_u64")]
     current_timestamp: u64,
     /// Number of a current block (previous block number = currentBlockNumber - 1)
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
-    current_block_number: u64,
+    #[serde(deserialize_with = "deserialize_str_as_blocknumber")]
+    current_block_number: BlockNumber,
     /// Difficulty of a current block
     #[serde(deserialize_with = "deserialize_str_as_u128")]
     current_difficulty: u128,

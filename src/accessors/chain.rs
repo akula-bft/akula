@@ -20,13 +20,14 @@ pub mod canonical_hash {
 
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
-        block_num: u64,
+        block_number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<H256>> {
-        let key = encode_block_number(block_num);
+        let block_number = block_number.into();
+        let key = encode_block_number(block_number);
 
         trace!(
             "Reading canonical hash of {} from at {}",
-            block_num,
+            block_number,
             hex::encode(&key)
         );
 
@@ -42,12 +43,13 @@ pub mod canonical_hash {
 
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
         tx: &'tx RwTx,
-        block_num: u64,
+        block_number: impl Into<BlockNumber>,
         hash: H256,
     ) -> anyhow::Result<()> {
-        let key = encode_block_number(block_num);
+        let block_number = block_number.into();
+        let key = encode_block_number(block_number);
 
-        trace!("Writing canonical hash of {}", block_num);
+        trace!("Writing canonical hash of {}", block_number);
 
         let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
         cursor.put(&key, hash.as_bytes()).await.unwrap();
@@ -85,8 +87,9 @@ pub mod header {
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
-        number: u64,
+        number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<HeaderType>> {
+        let number = number.into();
         trace!("Reading header for block {}/{:?}", number, hash);
 
         if let Some(b) = tx.get(&tables::Header, &header_key(number, hash)).await? {
@@ -220,8 +223,9 @@ pub mod storage_body {
     async fn read_raw<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
-        number: u64,
+        number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
+        let number = number.into();
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
         if let Some(b) = tx
@@ -237,7 +241,7 @@ pub mod storage_body {
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
-        number: u64,
+        number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BodyForStorage>> {
         if let Some(b) = read_raw(tx, hash, number).await? {
             return Ok(Some(rlp::decode(&b)?));
@@ -249,7 +253,7 @@ pub mod storage_body {
     pub async fn has<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
-        number: u64,
+        number: impl Into<BlockNumber>,
     ) -> anyhow::Result<bool> {
         Ok(read_raw(tx, hash, number).await?.is_some())
     }
@@ -257,9 +261,10 @@ pub mod storage_body {
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
         tx: &'tx RwTx,
         hash: H256,
-        number: u64,
+        number: impl Into<BlockNumber>,
         body: &BodyForStorage,
     ) -> anyhow::Result<()> {
+        let number = number.into();
         trace!("Writing storage body for block {}/{:?}", number, hash);
 
         let data = rlp::encode(body);
@@ -276,8 +281,9 @@ pub mod td {
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
-        number: u64,
+        number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<U256>> {
+        let number = number.into();
         trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) = tx

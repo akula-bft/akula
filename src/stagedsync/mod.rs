@@ -59,7 +59,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     // Unwind magic happens here.
                     // Encapsulated into a future for tracing instrumentation.
                     let res: anyhow::Result<()> = async {
-                        let stage_progress = stage_id.get_progress(&tx).await?.unwrap_or(0);
+                        let stage_progress = stage_id.get_progress(&tx).await?.unwrap_or_default();
 
                         if stage_progress > to {
                             info!("RUNNING");
@@ -79,8 +79,8 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             info!("DONE");
                         } else {
                             debug!(
-                                unwind_point = to,
-                                progress = stage_progress,
+                                unwind_point = *to,
+                                progress = *stage_progress,
                                 "Unwind point too far for stage"
                             );
                         }
@@ -143,7 +143,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                     }
                                 }
                                 ExecOutput::Unwind { unwind_to } => {
-                                    info!(to = unwind_to, "Unwind requested");
+                                    info!(to = unwind_to.0, "Unwind requested");
                                 }
                             }
 

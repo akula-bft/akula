@@ -63,7 +63,7 @@ mod tests {
             // Prepare
             // ---------------------------------------
 
-            let block_number = 13_500_001;
+            let block_number = 13_500_001.into();
             let miner = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
 
             let gas_used = 98_824;
@@ -182,7 +182,7 @@ mod tests {
 
             let new_val = hex!("000000000000000000000000000000000000000000000000000000000000003e");
 
-            let block_number = 13_500_002;
+            let block_number = 13_500_002.into();
             let mut header = header.clone();
 
             header.number = block_number;

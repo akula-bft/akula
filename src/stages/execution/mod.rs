@@ -22,7 +22,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         'db: 'tx,
     {
         let _ = tx;
-        let stage_progress = input.stage_progress.unwrap_or(0);
+        let stage_progress = input.stage_progress.unwrap_or_default();
 
         for block_number in stage_progress
             ..input

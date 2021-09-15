@@ -1,4 +1,4 @@
-use crate::models::BlockHeader as Header;
+use crate::models::{BlockHeader as Header, BlockNumber};
 use parking_lot::RwLock;
 use std::{
     collections::{HashMap, LinkedList},
@@ -23,7 +23,7 @@ pub enum HeaderSliceStatus {
 }
 
 pub struct HeaderSlice {
-    pub start_block_num: u64,
+    pub start_block_num: BlockNumber,
     pub status: HeaderSliceStatus,
     pub headers: Option<Vec<Header>>,
     pub request_time: Option<time::Instant>,
@@ -61,7 +61,7 @@ impl HeaderSlices {
         let mut slices = LinkedList::new();
         for i in 0..max_slices {
             let slice = HeaderSlice {
-                start_block_num: (i * HEADER_SLICE_SIZE) as u64,
+                start_block_num: BlockNumber((i * HEADER_SLICE_SIZE) as u64),
                 status: HeaderSliceStatus::Empty,
                 headers: None,
                 request_time: None,
@@ -117,7 +117,7 @@ impl HeaderSlices {
         Ok(())
     }
 
-    pub fn find<F>(&self, start_block_num: u64, f: F)
+    pub fn find<F>(&self, start_block_num: BlockNumber, f: F)
     where
         F: FnOnce(Option<&RwLock<HeaderSlice>>),
     {
@@ -153,7 +153,7 @@ impl HeaderSlices {
 
         for _ in initial_len..self.max_slices {
             let slice = HeaderSlice {
-                start_block_num: self.max_block_num.load(ATOMIC_ORDERING),
+                start_block_num: BlockNumber(self.max_block_num.load(ATOMIC_ORDERING)),
                 status: HeaderSliceStatus::Empty,
                 headers: None,
                 request_time: None,
@@ -216,14 +216,14 @@ impl HeaderSlices {
         counters
     }
 
-    pub fn min_block_num(&self) -> u64 {
+    pub fn min_block_num(&self) -> BlockNumber {
         if let Some(first_slice) = self.slices.read().front() {
             return first_slice.read().start_block_num;
         }
         self.max_block_num()
     }
 
-    pub fn max_block_num(&self) -> u64 {
-        self.max_block_num.load(ATOMIC_ORDERING)
+    pub fn max_block_num(&self) -> BlockNumber {
+        BlockNumber(self.max_block_num.load(ATOMIC_ORDERING))
     }
 }

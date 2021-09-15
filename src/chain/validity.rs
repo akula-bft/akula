@@ -100,7 +100,7 @@ impl std::error::Error for ValidationError {}
 
 pub fn pre_validate_transaction(
     txn: &TransactionMessage,
-    block_number: u64,
+    block_number: impl Into<BlockNumber>,
     config: &ChainConfig,
     base_fee_per_gas: Option<U256>,
 ) -> Result<(), ValidationError> {
@@ -152,8 +152,10 @@ async fn get_parent<'storage, S>(
 where
     S: State<'storage>,
 {
-    if let Some(parent_number) = header.number.checked_sub(1) {
-        return state.read_header(parent_number, header.parent_hash).await;
+    if let Some(parent_number) = header.number.0.checked_sub(1) {
+        return state
+            .read_header(parent_number.into(), header.parent_hash)
+            .await;
     }
 
     Ok(None)

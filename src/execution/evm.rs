@@ -496,7 +496,7 @@ where
                     let tx_gas_price = self.txn.effective_gas_price(base_fee_per_gas);
                     let tx_origin = self.txn.sender;
                     let block_coinbase = self.header.beneficiary;
-                    let block_number = self.header.number;
+                    let block_number = self.header.number.0;
                     let block_timestamp = self.header.timestamp;
                     let block_gas_limit = self.header.gas_limit;
                     let block_difficulty = self.header.difficulty;
@@ -521,7 +521,7 @@ where
                     let n = i.data().block_number;
 
                     let base_number = self.header.number;
-                    let distance = base_number - n;
+                    let distance = base_number.0 - n;
                     assert!(distance <= 256);
 
                     let mut hash = self.header.parent_hash;
@@ -530,7 +530,7 @@ where
                         hash = self
                             .state
                             .db()
-                            .read_header(base_number - i, hash)
+                            .read_header(BlockNumber(base_number.0 - i), hash)
                             .await?
                             .context("no header")?
                             .parent_hash;
@@ -628,7 +628,7 @@ mod tests {
     fn value_transfer() {
         run_test(async {
             let header = PartialHeader {
-                number: 10_336_006,
+                number: 10_336_006.into(),
                 ..PartialHeader::empty()
             };
 
@@ -677,7 +677,7 @@ mod tests {
     fn smart_contract_with_storage() {
         run_test(async {
             let header = PartialHeader {
-                number: 10_336_006,
+                number: 10_336_006.into(),
                 ..PartialHeader::empty()
             };
             let caller = hex!("0a6bb546b9208cfab9e8fa2b9b2c042b18df7030").into();
@@ -772,7 +772,7 @@ mod tests {
     fn maximum_call_depth() {
         run_test(async {
             let header = PartialHeader {
-                number: 1_431_916,
+                number: 1_431_916.into(),
                 ..PartialHeader::empty()
             };
             let caller = hex!("8e4d1ea201b908ab5e1f5a1c3f9f1b4f6c1e9cf1").into();
@@ -866,7 +866,7 @@ mod tests {
     fn delegatecall() {
         run_test(async {
             let header = PartialHeader {
-                number: 1_639_560,
+                number: 1_639_560.into(),
                 ..PartialHeader::empty()
             };
             let caller_address = hex!("8e4d1ea201b908ab5e1f5a1c3f9f1b4f6c1e9cf1").into();
@@ -938,7 +938,7 @@ mod tests {
     fn create_should_only_return_on_failure() {
         run_test(async {
             let header = PartialHeader {
-                number: 4_575_910,
+                number: 4_575_910.into(),
                 ..PartialHeader::empty()
             };
             let caller = hex!("f466859ead1932d743d622cb74fc058882e8648a").into();
@@ -1016,7 +1016,7 @@ mod tests {
     fn contract_overwrite() {
         run_test(async {
             let header = PartialHeader {
-                number: 7_753_545,
+                number: 7_753_545.into(),
                 ..PartialHeader::empty()
             };
 
@@ -1061,7 +1061,7 @@ mod tests {
     fn eip3541() {
         run_test(async {
             let header = PartialHeader {
-                number: 13_500_000,
+                number: 13_500_000.into(),
                 ..PartialHeader::empty()
             };
 

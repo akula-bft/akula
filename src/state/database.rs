@@ -135,18 +135,18 @@ pub struct ChangeSetWriter<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
     account_changes: HashMap<<AccountHistory as HistoryKind>::Key, Bytes<'static>>,
     storage_changed: HashSet<Address>,
     storage_changes: HashMap<<StorageHistory as HistoryKind>::Key, Bytes<'static>>,
-    block_number: u64,
+    block_number: BlockNumber,
     _marker: PhantomData<&'db ()>,
 }
 
 impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> ChangeSetWriter<'db, 'tx, Tx> {
-    pub fn new(tx: &'tx Tx, block_number: u64) -> Self {
+    pub fn new(tx: &'tx Tx, block_number: impl Into<BlockNumber>) -> Self {
         Self {
             tx,
             account_changes: Default::default(),
             storage_changed: Default::default(),
             storage_changes: Default::default(),
-            block_number,
+            block_number: block_number.into(),
             _marker: PhantomData,
         }
     }
@@ -230,7 +230,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
 
 async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>(
     tx: &'tx Tx,
-    block_number: u64,
+    block_number: BlockNumber,
     changes: ChangeSet<'tx, K>,
 ) -> anyhow::Result<()> {
     let mut buf = vec![];
@@ -241,7 +241,7 @@ async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>
             .await
             .context("failed to find chunk")?;
 
-        index.push(block_number);
+        index.push(*block_number);
 
         for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys(&k)
         {
@@ -266,7 +266,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
             C: MutableCursorDupSort<'tx, K::ChangeSetTable>,
         >(
             cursor: &mut C,
-            block_number: u64,
+            block_number: BlockNumber,
             changes: &'cs ChangeSet<'tx, K>,
         ) -> anyhow::Result<()> {
             let mut prev_k = None;
@@ -331,7 +331,7 @@ pub struct PlainStateWriter<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
 }
 
 impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> PlainStateWriter<'db, 'tx, Tx> {
-    pub fn new(tx: &'tx Tx, block_number: u64) -> Self {
+    pub fn new(tx: &'tx Tx, block_number: impl Into<BlockNumber>) -> Self {
         Self {
             tx,
             csw: ChangeSetWriter::new(tx, block_number),

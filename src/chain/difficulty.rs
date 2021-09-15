@@ -4,8 +4,8 @@ use evmodin::Revision;
 
 const MIN_DIFFICULTY: u64 = 131_072;
 
-pub fn difficulty_bomb(mut difficulty: U256, block_number: u64) -> U256 {
-    let n = block_number / 100_000;
+pub fn difficulty_bomb(mut difficulty: U256, block_number: impl Into<BlockNumber>) -> U256 {
+    let n = block_number.into().0 / 100_000;
     if n >= 2 {
         difficulty += U256::one() << (n - 2);
     }
@@ -17,7 +17,7 @@ pub fn difficulty_bomb(mut difficulty: U256, block_number: u64) -> U256 {
 }
 
 pub fn canonical_difficulty_frontier(
-    block_number: u64,
+    block_number: impl Into<BlockNumber>,
     block_timestamp: u64,
     parent_difficulty: U256,
     parent_timestamp: u64,
@@ -36,7 +36,7 @@ pub fn canonical_difficulty_frontier(
 }
 
 fn canonical_difficulty_homestead(
-    block_number: u64,
+    block_number: impl Into<BlockNumber>,
     block_timestamp: u64,
     parent_difficulty: U256,
     parent_timestamp: u64,
@@ -55,12 +55,12 @@ fn canonical_difficulty_homestead(
 }
 
 fn canonical_difficulty_byzantium(
-    mut block_number: u64,
+    block_number: impl Into<BlockNumber>,
     block_timestamp: u64,
     parent_difficulty: U256,
     parent_timestamp: u64,
     parent_has_uncles: bool,
-    bomb_delay: u64,
+    bomb_delay: impl Into<BlockNumber>,
 ) -> U256 {
     let mut difficulty = parent_difficulty;
 
@@ -74,23 +74,27 @@ fn canonical_difficulty_byzantium(
         difficulty += U256::from(99 + y - z) * x;
     }
 
+    let bomb_delay = bomb_delay.into();
+    let mut block_number = block_number.into();
+
     // https://eips.ethereum.org/EIPS/eip-649
     if block_number > bomb_delay {
-        block_number -= bomb_delay;
+        block_number.0 -= bomb_delay.0;
     } else {
-        block_number = 0;
+        block_number = 0.into();
     }
     difficulty_bomb(difficulty, block_number)
 }
 
 pub fn canonical_difficulty(
-    block_number: u64,
+    block_number: impl Into<BlockNumber>,
     block_timestamp: u64,
     parent_difficulty: U256,
     parent_timestamp: u64,
     parent_has_uncles: bool,
     config: &ChainConfig,
 ) -> U256 {
+    let block_number = block_number.into();
     let rev = config.revision(block_number);
 
     if rev >= Revision::Byzantium {
@@ -98,7 +102,7 @@ pub fn canonical_difficulty(
             if rev >= Revision::London {
                 // https://eips.ethereum.org/EIPS/eip-3554
                 9_700_000
-            } else if block_number >= config.muir_glacier_block.unwrap_or(u64::MAX) {
+            } else if block_number >= config.muir_glacier_block.unwrap_or(BlockNumber(u64::MAX)) {
                 // https://eips.ethereum.org/EIPS/eip-2384
                 9_000_000
             } else if rev >= Revision::Constantinople {

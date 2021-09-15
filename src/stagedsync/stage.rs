@@ -1,5 +1,5 @@
 use super::stages::StageId;
-use crate::MutableTransaction;
+use crate::{models::*, MutableTransaction};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use std::fmt::Debug;
@@ -7,10 +7,10 @@ use std::fmt::Debug;
 #[derive(Debug, PartialEq)]
 pub enum ExecOutput {
     Unwind {
-        unwind_to: u64,
+        unwind_to: BlockNumber,
     },
     Progress {
-        stage_progress: u64,
+        stage_progress: BlockNumber,
         done: bool,
         must_commit: bool,
     },
@@ -40,12 +40,12 @@ pub trait Stage<'db, RwTx: MutableTransaction<'db>>: Send + Sync + Debug {
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
     pub restarted: bool,
-    pub previous_stage: Option<(StageId, u64)>,
-    pub stage_progress: Option<u64>,
+    pub previous_stage: Option<(StageId, BlockNumber)>,
+    pub stage_progress: Option<BlockNumber>,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct UnwindInput {
-    pub stage_progress: u64,
-    pub unwind_to: u64,
+    pub stage_progress: BlockNumber,
+    pub unwind_to: BlockNumber,
 }

@@ -494,7 +494,7 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
         Ok(())
     }
 
-    pub async fn write_to_db(self, block_number: u64) -> anyhow::Result<()> {
+    pub async fn write_to_db(self, block_number: BlockNumber) -> anyhow::Result<()> {
         self.db.begin_block(block_number);
 
         for (address, storage) in self.storage {

@@ -33,11 +33,11 @@ pub struct InMemoryState {
 
     canonical_hashes: Vec<H256>,
     // per block
-    account_changes: HashMap<u64, AccountChanges>,
+    account_changes: HashMap<BlockNumber, AccountChanges>,
     // per block
-    storage_changes: HashMap<u64, StorageChanges>,
+    storage_changes: HashMap<BlockNumber, StorageChanges>,
 
-    block_number: u64,
+    block_number: BlockNumber,
 }
 
 impl InMemoryState {
@@ -118,10 +118,10 @@ impl State<'static> for InMemoryState {
 
     async fn read_header(
         &self,
-        block_number: u64,
+        block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockHeader>> {
-        if let Some(header_map) = self.headers.get(block_number as usize) {
+        if let Some(header_map) = self.headers.get(block_number.0 as usize) {
             return Ok(header_map.get(&block_hash).cloned());
         }
 
@@ -130,10 +130,10 @@ impl State<'static> for InMemoryState {
 
     async fn read_body(
         &self,
-        block_number: u64,
+        block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockBody>> {
-        if let Some(body_map) = self.bodies.get(block_number as usize) {
+        if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
             return Ok(body_map.get(&block_hash).cloned());
         }
 
@@ -142,10 +142,10 @@ impl State<'static> for InMemoryState {
 
     async fn read_body_with_senders(
         &self,
-        block_number: u64,
+        block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
-        if let Some(body_map) = self.bodies.get(block_number as usize) {
+        if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
             return body_map
                 .get(&block_hash)
                 .map(|body| {
@@ -172,10 +172,10 @@ impl State<'static> for InMemoryState {
 
     async fn total_difficulty(
         &self,
-        block_number: u64,
+        block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<U256>> {
-        if let Some(difficulty_map) = self.difficulty.get(block_number as usize) {
+        if let Some(difficulty_map) = self.difficulty.get(block_number.0 as usize) {
             return Ok(difficulty_map.get(&block_hash).cloned());
         }
 
@@ -196,12 +196,12 @@ impl State<'static> for InMemoryState {
         )))
     }
 
-    async fn current_canonical_block(&self) -> anyhow::Result<u64> {
-        Ok(self.canonical_hashes.len() as u64 - 1)
+    async fn current_canonical_block(&self) -> anyhow::Result<BlockNumber> {
+        Ok(BlockNumber(self.canonical_hashes.len() as u64 - 1))
     }
 
-    async fn canonical_hash(&self, block_number: u64) -> anyhow::Result<Option<H256>> {
-        Ok(self.canonical_hashes.get(block_number as usize).copied())
+    async fn canonical_hash(&self, block_number: BlockNumber) -> anyhow::Result<Option<H256>> {
+        Ok(self.canonical_hashes.get(block_number.0 as usize).copied())
     }
 
     async fn insert_block(&mut self, block: Block, hash: H256) -> anyhow::Result<()> {
@@ -211,7 +211,7 @@ impl State<'static> for InMemoryState {
             ommers,
         } = block;
 
-        let block_number = header.number as usize;
+        let block_number = header.number.0 as usize;
         let parent_hash = header.parent_hash;
         let difficulty = header.difficulty;
 
@@ -250,8 +250,12 @@ impl State<'static> for InMemoryState {
         Ok(())
     }
 
-    async fn canonize_block(&mut self, block_number: u64, block_hash: H256) -> anyhow::Result<()> {
-        let block_number = block_number as usize;
+    async fn canonize_block(
+        &mut self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<()> {
+        let block_number = block_number.0 as usize;
 
         if self.canonical_hashes.len() <= block_number {
             self.canonical_hashes
@@ -263,13 +267,13 @@ impl State<'static> for InMemoryState {
         Ok(())
     }
 
-    async fn decanonize_block(&mut self, block_number: u64) -> anyhow::Result<()> {
-        self.canonical_hashes.truncate(block_number as usize);
+    async fn decanonize_block(&mut self, block_number: BlockNumber) -> anyhow::Result<()> {
+        self.canonical_hashes.truncate(block_number.0 as usize);
 
         Ok(())
     }
 
-    async fn insert_receipts(&mut self, _: u64, _: &[Receipt]) -> anyhow::Result<()> {
+    async fn insert_receipts(&mut self, _: BlockNumber, _: &[Receipt]) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -278,7 +282,7 @@ impl State<'static> for InMemoryState {
 
     /// Mark the beggining of a new block.
     /// Must be called prior to calling update_account/update_account_code/update_storage.
-    fn begin_block(&mut self, block_number: u64) {
+    fn begin_block(&mut self, block_number: BlockNumber) {
         self.block_number = block_number;
         self.account_changes.remove(&block_number);
         self.storage_changes.remove(&block_number);
@@ -354,7 +358,7 @@ impl State<'static> for InMemoryState {
         Ok(())
     }
 
-    async fn unwind_state_changes(&mut self, block_number: u64) -> anyhow::Result<()> {
+    async fn unwind_state_changes(&mut self, block_number: BlockNumber) -> anyhow::Result<()> {
         for (address, account) in self.account_changes.entry(block_number).or_default() {
             if let Some(account) = account {
                 self.accounts.insert(*address, account.clone());

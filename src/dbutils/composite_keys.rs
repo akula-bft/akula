@@ -19,10 +19,11 @@ pub type PlainCompositeStorageKey = [u8; PLAIN_COMPOSITE_STORAGE_KEY_LENGTH];
 pub type StoragePrefix = [u8; STORAGE_PREFIX_LENGTH];
 pub type PlainStoragePrefix = [u8; PLAIN_STORAGE_PREFIX_LENGTH];
 
-#[allow(non_upper_case_globals)]
-pub const encode_block_number: fn(u64) -> [u8; 8] = u64::to_be_bytes;
+pub fn encode_block_number(block_number: impl Into<BlockNumber>) -> [u8; 8] {
+    block_number.into().to_be_bytes()
+}
 
-pub fn header_key(number: u64, hash: H256) -> HeaderKey {
+pub fn header_key(number: impl Into<BlockNumber>, hash: H256) -> HeaderKey {
     let mut v: HeaderKey = [0; HEADER_KEY_LEN];
 
     v[..BLOCK_NUMBER_LENGTH].copy_from_slice(&encode_block_number(number));

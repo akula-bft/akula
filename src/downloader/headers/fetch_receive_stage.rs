@@ -7,7 +7,7 @@ use crate::{
         messages::{BlockHeadersMessage, EthMessageId, Message},
         sentry_client_reactor::SentryClientReactor,
     },
-    models::BlockHeader as Header,
+    models::{BlockHeader as Header, BlockNumber},
 };
 use futures_core::Stream;
 use parking_lot::RwLock;
@@ -89,7 +89,7 @@ impl FetchReceiveStage {
         &self,
         slice_lock_opt: Option<&RwLock<HeaderSlice>>,
         headers: Vec<Header>,
-        start_block_num: u64,
+        start_block_num: BlockNumber,
     ) {
         match slice_lock_opt {
             Some(slice_lock) => {
