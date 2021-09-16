@@ -2,9 +2,8 @@ use crate::downloader::{
     messages::{EthMessageId, Message},
     sentry_client::*,
 };
-use anyhow::bail;
-use futures_core::Stream;
-use futures_util::TryStreamExt;
+use futures_core::{Future, Stream};
+use futures_util::{FutureExt, TryStreamExt};
 use parking_lot::RwLock;
 use std::{collections::HashMap, fmt, pin::Pin, sync::Arc};
 use strum::IntoEnumIterator;
@@ -55,8 +54,7 @@ impl std::error::Error for SendMessageError {}
 
 impl SentryClientReactor {
     pub fn new(sentry: Box<dyn SentryClient>) -> Self {
-        let (send_message_sender, send_message_receiver) =
-            mpsc::channel::<SendMessageCommand>(1024);
+        let (send_message_sender, send_message_receiver) = mpsc::channel::<SendMessageCommand>(16);
 
         let mut receive_messages_senders =
             HashMap::<EthMessageId, broadcast::Sender<Message>>::new();
@@ -119,7 +117,7 @@ impl SentryClientReactor {
             peer_filter,
         };
         if self.send_message_sender.send(command).await.is_err() {
-            bail!("Reactor stopped");
+            return Err(anyhow::Error::new(SendMessageError::ReactorStopped));
         }
 
         Ok(())
@@ -144,6 +142,16 @@ impl SentryClientReactor {
             }
             Ok(_) => Ok(()),
         }
+    }
+
+    pub fn reserve_capacity_in_send_queue(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
+        let sender = self.send_message_sender.clone();
+        Box::pin(sender.reserve_owned().map(|result| match result {
+            Ok(_) => Ok(()),
+            Err(_) => Err(anyhow::Error::new(SendMessageError::ReactorStopped)),
+        }))
     }
 
     pub fn receive_messages(
