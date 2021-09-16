@@ -35,7 +35,7 @@ pub(crate) mod util;
 
 pub use changeset::*;
 pub use kv::{
-    mdbx::{table_sizes as mdbx_table_sizes, Environment as MdbxEnvironment},
+    mdbx::Environment as MdbxEnvironment,
     new_mem_database,
     remote::{kv_client::KvClient as RemoteKvClient, RemoteCursor, RemoteTransaction},
     traits::{

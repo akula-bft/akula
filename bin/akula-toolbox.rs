@@ -1,4 +1,4 @@
-use akula::{mdbx_table_sizes, stagedsync};
+use akula::{kv::traits::KV, stagedsync};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -40,7 +40,10 @@ async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()> {
         &chaindata,
         2,
     )?;
-    let mut sizes = mdbx_table_sizes(&env.begin_ro_txn()?)?
+    let mut sizes = env
+        .begin(0)
+        .await?
+        .table_sizes()?
         .into_iter()
         .collect::<Vec<_>>();
     sizes.sort_by_key(|(_, size)| *size);

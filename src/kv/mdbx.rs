@@ -1,46 +1,15 @@
 use crate::{
     kv::{traits, *},
-    Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort,
+    Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort, Transaction,
 };
 use ::mdbx::{
-    DatabaseFlags, EnvironmentKind, Error as MdbxError, Transaction as MdbxTransaction,
-    TransactionKind, WriteFlags, RO, RW,
+    DatabaseFlags, EnvironmentKind, Error as MdbxError, TransactionKind, WriteFlags, RO, RW,
 };
 use akula_table_defs::AutoDupSortConfig;
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};
 use std::{collections::HashMap, ops::Deref, path::Path, str};
-
-pub fn table_sizes<E>(tx: &MdbxTransaction<RO, E>) -> anyhow::Result<HashMap<String, u64>>
-where
-    E: EnvironmentKind,
-{
-    let mut out = HashMap::new();
-    let main_db = tx.open_db(None)?;
-    let mut cursor = tx.cursor(&main_db)?;
-    while let Some((table, _)) = cursor.next_nodup()? {
-        let table = String::from_utf8(table.to_vec()).unwrap();
-        let db = tx
-            .open_db(Some(&table))
-            .with_context(|| format!("failed to open table: {}", table))?;
-        let st = tx
-            .db_stat(&db)
-            .with_context(|| format!("failed to get stats for table: {}", table))?;
-
-        out.insert(
-            table,
-            ((st.leaf_pages() + st.branch_pages() + st.overflow_pages()) * st.page_size() as usize)
-                as u64,
-        );
-
-        unsafe {
-            tx.close_db(db)?;
-        }
-    }
-
-    Ok(out)
-}
 
 pub struct Environment<E: EnvironmentKind> {
     inner: ::mdbx::Environment<E>,
@@ -111,7 +80,9 @@ impl<E: EnvironmentKind> traits::KV for Environment<E> {
     type Tx<'tx> = MdbxTransaction<'tx, RO, E>;
 
     async fn begin(&self, _flags: u8) -> anyhow::Result<Self::Tx<'_>> {
-        Ok(self.inner.begin_ro_txn()?)
+        Ok(MdbxTransaction {
+            inner: self.inner.begin_ro_txn()?,
+        })
     }
 }
 
@@ -120,7 +91,52 @@ impl<E: EnvironmentKind> traits::MutableKV for Environment<E> {
     type MutableTx<'tx> = MdbxTransaction<'tx, RW, E>;
 
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>> {
-        Ok(self.inner.begin_rw_txn()?)
+        Ok(MdbxTransaction {
+            inner: self.inner.begin_rw_txn()?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct MdbxTransaction<'env, K, E>
+where
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
+    inner: ::mdbx::Transaction<'env, K, E>,
+}
+
+impl<'env, E> MdbxTransaction<'env, RO, E>
+where
+    E: EnvironmentKind,
+{
+    pub fn table_sizes(&self) -> anyhow::Result<HashMap<String, u64>> {
+        let mut out = HashMap::new();
+        let main_db = self.inner.open_db(None)?;
+        let mut cursor = self.inner.cursor(&main_db)?;
+        while let Some((table, _)) = cursor.next_nodup()? {
+            let table = String::from_utf8(table.to_vec()).unwrap();
+            let db = self
+                .inner
+                .open_db(Some(&table))
+                .with_context(|| format!("failed to open table: {}", table))?;
+            let st = self
+                .inner
+                .db_stat(&db)
+                .with_context(|| format!("failed to get stats for table: {}", table))?;
+
+            out.insert(
+                table,
+                ((st.leaf_pages() + st.branch_pages() + st.overflow_pages())
+                    * st.page_size() as usize) as u64,
+            );
+
+            unsafe {
+                self.inner.close_db(db)?;
+            }
+        }
+
+        Ok(out)
     }
 }
 
@@ -134,7 +150,7 @@ where
     type CursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, K>;
 
     fn id(&self) -> u64 {
-        MdbxTransaction::id(self)
+        self.inner.id()
     }
 
     async fn cursor<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
@@ -143,7 +159,9 @@ where
         T: Table,
     {
         Ok(MdbxCursor {
-            inner: Self::cursor(self, &self.open_db(Some(table.db_name().as_ref()))?)?,
+            inner: self
+                .inner
+                .cursor(&self.inner.open_db(Some(table.db_name().as_ref()))?)?,
             t: table.db_name(),
         })
     }
@@ -153,15 +171,13 @@ where
         'env: 'tx,
         T: DupSort,
     {
-        traits::Transaction::cursor(self, table).await
+        self.cursor(table).await
     }
 
     async fn get<'s, T: Table>(&'s self, table: &T, k: &[u8]) -> anyhow::Result<Option<Bytes<'s>>> {
-        Ok(Self::get(
-            self,
-            &self.open_db(Some(table.db_name().as_ref()))?,
-            k,
-        )?)
+        Ok(self
+            .inner
+            .get(&self.inner.open_db(Some(table.db_name().as_ref()))?, k)?)
     }
 }
 
@@ -178,7 +194,7 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         'env: 'tx,
         T: Table,
     {
-        traits::Transaction::cursor(self, table).await
+        self.cursor(table).await
     }
 
     async fn mutable_cursor_dupsort<'tx, T>(
@@ -200,9 +216,8 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         {
             return MutableCursor::<T>::put(&mut self.mutable_cursor(table).await?, k, v).await;
         }
-        Ok(Self::put(
-            self,
-            &self.open_db(Some(table.db_name().as_ref()))?,
+        Ok(self.inner.put(
+            &self.inner.open_db(Some(table.db_name().as_ref()))?,
             k,
             v,
             WriteFlags::UPSERT,
@@ -210,7 +225,7 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
     }
 
     async fn commit(self) -> anyhow::Result<()> {
-        MdbxTransaction::commit(self)?;
+        self.inner.commit()?;
 
         Ok(())
     }
