@@ -1,16 +1,19 @@
-use crate::downloader::{
-    chain_config::{ChainConfig, ChainsConfig},
-    headers::{
-        fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage,
-        header_slices::HeaderSlices, preverified_hashes_config::PreverifiedHashesConfig,
-        refill_stage::RefillStage, retry_stage::RetryStage, save_stage::SaveStage,
-        verify_stage::VerifyStage,
+use crate::{
+    downloader::{
+        chain_config::{ChainConfig, ChainsConfig},
+        headers::{
+            fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage,
+            header_slices, header_slices::HeaderSlices,
+            preverified_hashes_config::PreverifiedHashesConfig, refill_stage::RefillStage,
+            retry_stage::RetryStage, save_stage::SaveStage, verify_stage::VerifyStage,
+        },
+        opts::Opts,
+        sentry_client,
+        sentry_client::SentryClient,
+        sentry_client_impl::SentryClientImpl,
+        sentry_client_reactor::SentryClientReactor,
     },
-    opts::Opts,
-    sentry_client,
-    sentry_client::SentryClient,
-    sentry_client_impl::SentryClientImpl,
-    sentry_client_reactor::SentryClientReactor,
+    models::BlockNumber,
 };
 use futures_core::Stream;
 use parking_lot::RwLock;
@@ -56,7 +59,17 @@ impl Downloader {
         let mut ui_system = crate::downloader::ui_system::UISystem::new();
         ui_system.start();
 
-        let header_slices = Arc::new(HeaderSlices::new(50 << 20 /* 50 Mb */));
+        let preverified_hashes_config = PreverifiedHashesConfig::new(&self.opts.chain_name)?;
+
+        let header_slices_mem_limit = 50 << 20; /* 50 Mb */
+        let header_slices_final_block_num = BlockNumber(
+            ((preverified_hashes_config.hashes.len() - 1) * header_slices::HEADER_SLICE_SIZE)
+                as u64,
+        );
+        let header_slices = Arc::new(HeaderSlices::new(
+            header_slices_mem_limit,
+            header_slices_final_block_num,
+        ));
         let sentry = Arc::new(RwLock::new(sentry_reactor));
 
         let header_slices_view =
@@ -80,10 +93,7 @@ impl Downloader {
 
         let retry_stage = RetryStage::new(Arc::clone(&header_slices));
 
-        let verify_stage = VerifyStage::new(
-            Arc::clone(&header_slices),
-            PreverifiedHashesConfig::new(&self.opts.chain_name)?,
-        );
+        let verify_stage = VerifyStage::new(Arc::clone(&header_slices), preverified_hashes_config);
 
         let save_stage = SaveStage::new(Arc::clone(&header_slices));
 
@@ -135,6 +145,9 @@ impl Downloader {
             }
 
             if !fetch_receive_stage_ref.can_proceed() {
+                break;
+            }
+            if header_slices.is_empty_at_final_position() {
                 break;
             }
 

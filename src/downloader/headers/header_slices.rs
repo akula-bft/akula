@@ -47,6 +47,7 @@ pub struct HeaderSlices {
     slices: RwLock<LinkedList<RwLock<HeaderSlice>>>,
     max_slices: usize,
     max_block_num: AtomicU64,
+    final_block_num: BlockNumber,
     state_watches: HashMap<HeaderSliceStatus, HeaderSliceStatusWatch>,
 }
 
@@ -55,8 +56,16 @@ pub const HEADER_SLICE_SIZE: usize = 192;
 const ATOMIC_ORDERING: Ordering = Ordering::SeqCst;
 
 impl HeaderSlices {
-    pub fn new(mem_limit: usize) -> Self {
+    pub fn new(mem_limit: usize, final_block_num: BlockNumber) -> Self {
         let max_slices = mem_limit / std::mem::size_of::<Header>() / HEADER_SLICE_SIZE;
+
+        assert_eq!(
+            (final_block_num.0 as usize) % HEADER_SLICE_SIZE,
+            0,
+            "final_block_num must be at the slice boundary"
+        );
+        let max_slices =
+            std::cmp::min(max_slices, (final_block_num.0 as usize) / HEADER_SLICE_SIZE);
 
         let mut slices = LinkedList::new();
         for i in 0..max_slices {
@@ -92,6 +101,7 @@ impl HeaderSlices {
             slices: RwLock::new(slices),
             max_slices,
             max_block_num: AtomicU64::new((max_slices * HEADER_SLICE_SIZE) as u64),
+            final_block_num,
             state_watches,
         }
     }
@@ -150,10 +160,16 @@ impl HeaderSlices {
     pub fn refill(&self) {
         let mut slices = self.slices.write();
         let initial_len = slices.len();
+        let mut count = 0;
 
         for _ in initial_len..self.max_slices {
+            let max_block_num = self.max_block_num();
+            if max_block_num >= self.final_block_num {
+                break;
+            }
+
             let slice = HeaderSlice {
-                start_block_num: BlockNumber(self.max_block_num.load(ATOMIC_ORDERING)),
+                start_block_num: max_block_num,
                 status: HeaderSliceStatus::Empty,
                 headers: None,
                 request_time: None,
@@ -162,9 +178,9 @@ impl HeaderSlices {
             slices.push_back(RwLock::new(slice));
             self.max_block_num
                 .fetch_add(HEADER_SLICE_SIZE as u64, ATOMIC_ORDERING);
+            count += 1;
         }
 
-        let count = self.max_slices - initial_len;
         let status_watch = &self.state_watches[&HeaderSliceStatus::Empty];
         status_watch.count.fetch_add(count, ATOMIC_ORDERING);
     }
@@ -225,5 +241,13 @@ impl HeaderSlices {
 
     pub fn max_block_num(&self) -> BlockNumber {
         BlockNumber(self.max_block_num.load(ATOMIC_ORDERING))
+    }
+
+    pub fn final_block_num(&self) -> BlockNumber {
+        self.final_block_num
+    }
+
+    pub fn is_empty_at_final_position(&self) -> bool {
+        (self.max_block_num() >= self.final_block_num) && self.slices.read().is_empty()
     }
 }
