@@ -392,7 +392,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .await?
             .delete(address.as_bytes(), &[])
             .await?;
-        if original.incarnation > 0 {
+        if original.incarnation.0 > 0 {
             self.tx
                 .set(
                     &tables::IncarnationMap,

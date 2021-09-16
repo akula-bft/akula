@@ -32,7 +32,7 @@ impl HistoryKind for StorageHistory {
             block_number,
             Address::from_slice(&k[..ADDRESS_LENGTH]),
             &k[ADDRESS_LENGTH..],
-            0,
+            0.into(),
         )
         .await
     }
@@ -89,7 +89,7 @@ where
         Address::from_slice(&k[..ADDRESS_LENGTH]),
         &k[ADDRESS_LENGTH + INCARNATION_LENGTH
             ..ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH],
-        u64::from_be_bytes(*array_ref!(&k[ADDRESS_LENGTH..], 0, INCARNATION_LENGTH)),
+        u64::from_be_bytes(*array_ref!(&k[ADDRESS_LENGTH..], 0, INCARNATION_LENGTH)).into(),
     )
     .await
 }
@@ -104,7 +104,14 @@ pub async fn find_without_incarnation<'tx, C>(
 where
     C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
-    do_search_2(c, block_number.into(), address_to_find, key_to_find, 0).await
+    do_search_2(
+        c,
+        block_number.into(),
+        address_to_find,
+        key_to_find,
+        0.into(),
+    )
+    .await
 }
 
 pub async fn do_search_2<'tx, C>(
@@ -112,12 +119,12 @@ pub async fn do_search_2<'tx, C>(
     block_number: BlockNumber,
     address_to_find: Address,
     key_bytes_to_find: &[u8],
-    incarnation: u64,
+    incarnation: Incarnation,
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
     C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
-    if incarnation == 0 {
+    if incarnation.0 == 0 {
         let mut seek = [0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH];
         seek[..BLOCK_NUMBER_LENGTH].copy_from_slice(&block_number.db_key());
         seek[BLOCK_NUMBER_LENGTH..].copy_from_slice(address_to_find.as_bytes());
@@ -194,7 +201,7 @@ mod tests {
 
     #[test]
     fn encoding_storage_new_with_random_incarnation() {
-        do_test_encoding_storage_new(rand::random, hash_value_generator)
+        do_test_encoding_storage_new(|| Incarnation(rand::random()), hash_value_generator)
     }
 
     #[test]
@@ -457,27 +464,27 @@ mod tests {
 
         let ch = vec![
             (
-                dbutils::plain_generate_composite_storage_key(contract_a, 2, key1),
+                dbutils::plain_generate_composite_storage_key(contract_a, 2.into(), key1),
                 Bytes::from(&val1),
             ),
             (
-                dbutils::plain_generate_composite_storage_key(contract_a, 1, key5),
+                dbutils::plain_generate_composite_storage_key(contract_a, 1.into(), key5),
                 Bytes::from(&val5),
             ),
             (
-                dbutils::plain_generate_composite_storage_key(contract_a, 2, key6),
+                dbutils::plain_generate_composite_storage_key(contract_a, 2.into(), key6),
                 Bytes::from(&val6),
             ),
             (
-                dbutils::plain_generate_composite_storage_key(contract_b, 1, key2),
+                dbutils::plain_generate_composite_storage_key(contract_b, 1.into(), key2),
                 Bytes::from(&val2),
             ),
             (
-                dbutils::plain_generate_composite_storage_key(contract_b, 1, key3),
+                dbutils::plain_generate_composite_storage_key(contract_b, 1.into(), key3),
                 Bytes::from(&val3),
             ),
             (
-                dbutils::plain_generate_composite_storage_key(contract_c, 5, key4),
+                dbutils::plain_generate_composite_storage_key(contract_c, 5.into(), key4),
                 Bytes::from(&val4),
             ),
         ]
@@ -497,7 +504,7 @@ mod tests {
             find_with_incarnation(
                 &mut cs,
                 1,
-                &dbutils::plain_generate_composite_storage_key(contract_a, 2, key1),
+                &dbutils::plain_generate_composite_storage_key(contract_a, 2.into(), key1),
             )
             .await
             .unwrap()
@@ -509,7 +516,7 @@ mod tests {
             find_with_incarnation(
                 &mut cs,
                 1,
-                &dbutils::plain_generate_composite_storage_key(contract_b, 1, key3)
+                &dbutils::plain_generate_composite_storage_key(contract_b, 1.into(), key3)
             )
             .await
             .unwrap()
@@ -521,7 +528,7 @@ mod tests {
             find_with_incarnation(
                 &mut cs,
                 1,
-                &dbutils::plain_generate_composite_storage_key(contract_a, 1, key5)
+                &dbutils::plain_generate_composite_storage_key(contract_a, 1.into(), key5)
             )
             .await
             .unwrap()
@@ -533,7 +540,7 @@ mod tests {
             find_with_incarnation(
                 &mut cs,
                 1,
-                &dbutils::plain_generate_composite_storage_key(contract_a, 1, key1)
+                &dbutils::plain_generate_composite_storage_key(contract_a, 1.into(), key1)
             )
             .await
             .unwrap(),
@@ -544,7 +551,7 @@ mod tests {
             find_with_incarnation(
                 &mut cs,
                 1,
-                &dbutils::plain_generate_composite_storage_key(contract_d, 2, key1)
+                &dbutils::plain_generate_composite_storage_key(contract_d, 2.into(), key1)
             )
             .await
             .unwrap(),
@@ -555,7 +562,7 @@ mod tests {
             find_with_incarnation(
                 &mut cs,
                 1,
-                &dbutils::plain_generate_composite_storage_key(contract_b, 1, key7)
+                &dbutils::plain_generate_composite_storage_key(contract_b, 1.into(), key7)
             )
             .await
             .unwrap(),

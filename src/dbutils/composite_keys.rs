@@ -94,14 +94,15 @@ pub fn plain_generate_storage_prefix(
     prefix
 }
 
-pub fn plain_parse_storage_prefix(prefix: &[u8]) -> (Address, u64) {
+pub fn plain_parse_storage_prefix(prefix: &[u8]) -> (Address, Incarnation) {
     (
         Address::from_slice(&prefix[..ADDRESS_LENGTH]),
         u64::from_be_bytes(*array_ref!(
             prefix[ADDRESS_LENGTH..ADDRESS_LENGTH + INCARNATION_LENGTH],
             0,
             8
-        )),
+        ))
+        .into(),
     )
 }
 
@@ -113,7 +114,7 @@ mod tests {
     #[test]
     fn plain_storage_prefix() {
         let expected_addr = hex!("5A0b54D5dc17e0AadC383d2db43B0a0D3E029c4c").into();
-        let expected_incarnation = 999_000_999_u64;
+        let expected_incarnation = 999_000_999_u64.into();
 
         let prefix = plain_generate_storage_prefix(expected_addr, expected_incarnation);
 
@@ -129,7 +130,7 @@ mod tests {
     #[test]
     fn plain_composite_storage_key() {
         let expected_addr = hex!("5A0b54D5dc17e0AadC383d2db43B0a0D3E029c4c").into();
-        let expected_incarnation = 999_000_999_u64;
+        let expected_incarnation = 999_000_999_u64.into();
         let expected_key =
             hex!("58833f949125129fb8c6c93d2c6003c5bab7c0b116d695f4ca137b1debf4e472").into();
 

@@ -7,7 +7,8 @@ use std::fmt::Debug;
 #[async_trait]
 pub trait State<'storage>: Debug + Send + Sync {
     async fn number_of_accounts(&self) -> anyhow::Result<u64>;
-    async fn storage_size(&self, address: Address, incarnation: u64) -> anyhow::Result<u64>;
+    async fn storage_size(&self, address: Address, incarnation: Incarnation)
+        -> anyhow::Result<u64>;
 
     // Readers
 
@@ -18,12 +19,12 @@ pub trait State<'storage>: Debug + Send + Sync {
     async fn read_storage(
         &self,
         address: Address,
-        incarnation: u64,
+        incarnation: Incarnation,
         location: H256,
     ) -> anyhow::Result<H256>;
 
     // Previous non-zero incarnation of an account; 0 if none exists.
-    async fn previous_incarnation(&self, address: Address) -> anyhow::Result<u64>;
+    async fn previous_incarnation(&self, address: Address) -> anyhow::Result<Incarnation>;
 
     async fn read_header(
         &self,
@@ -88,7 +89,7 @@ pub trait State<'storage>: Debug + Send + Sync {
     async fn update_account_code(
         &mut self,
         address: Address,
-        incarnation: u64,
+        incarnation: Incarnation,
         code_hash: H256,
         code: Bytes<'storage>,
     ) -> anyhow::Result<()>;
@@ -96,7 +97,7 @@ pub trait State<'storage>: Debug + Send + Sync {
     async fn update_storage(
         &mut self,
         address: Address,
-        incarnation: u64,
+        incarnation: Incarnation,
         location: H256,
         initial: H256,
         current: H256,

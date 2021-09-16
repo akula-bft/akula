@@ -149,7 +149,7 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
         let mut current = Account::default();
         let mut initial = None;
 
-        let mut prev_incarnation: Option<u64> = None;
+        let mut prev_incarnation: Option<Incarnation> = None;
         self.journal.push({
             if let Some(prev) = get_object(self.db, &mut self.objects, address).await? {
                 initial = prev.initial.clone();
@@ -168,8 +168,8 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
             }
         });
 
-        let mut prev_incarnation = prev_incarnation.unwrap_or(0);
-        if prev_incarnation == 0 {
+        let mut prev_incarnation = prev_incarnation.unwrap_or(Incarnation(0));
+        if prev_incarnation.0 == 0 {
             prev_incarnation = self.db.previous_incarnation(address).await?;
         }
 

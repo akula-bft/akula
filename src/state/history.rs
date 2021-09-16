@@ -66,7 +66,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
             //restore codehash
             if let Some(mut acc) = Account::decode_for_storage(&*data)? {
-                if acc.incarnation > 0 && acc.code_hash == EMPTY_HASH {
+                if acc.incarnation.0 > 0 && acc.code_hash == EMPTY_HASH {
                     if let Some(code_hash) = tx
                         .get(
                             &tables::PlainCodeHash,
@@ -375,7 +375,7 @@ mod tests {
             // acc_history[i].root = Some(Hash::from_slice(
             //     &hex::decode(format!("{:0>64}", 10 + i)).unwrap(),
             // ));
-            acc_history[i].incarnation = i as u64 + 1;
+            acc_history[i].incarnation = Incarnation(i as u64 + 1);
 
             acc_state.push(acc_history[i].clone());
             acc_state[i].nonce += 1;

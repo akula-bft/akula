@@ -14,7 +14,7 @@ pub struct Account {
     pub nonce: u64,
     pub balance: U256,
     pub code_hash: H256, // hash of the bytecode
-    pub incarnation: u64,
+    pub incarnation: Incarnation,
 }
 
 #[derive(Debug, RlpEncodable, RlpDecodable)]
@@ -31,7 +31,7 @@ impl Default for Account {
             nonce: 0,
             balance: U256::zero(),
             code_hash: EMPTY_HASH,
-            incarnation: 0,
+            incarnation: Incarnation(0),
         }
     }
 }
@@ -83,8 +83,8 @@ impl Account {
             struct_length += 33 // 32-byte array + 1 byte for length
         }
 
-        if self.incarnation > 0 {
-            struct_length += 1 + Self::u64_compact_len(self.incarnation);
+        if self.incarnation.0 > 0 {
+            struct_length += 1 + Self::u64_compact_len(self.incarnation.0);
         }
 
         struct_length
@@ -127,7 +127,7 @@ impl Account {
             pos += 1 + Self::write_compact(&value_to_bytes(self.balance), &mut buffer[pos..]);
         }
 
-        if self.incarnation > 0 {
+        if self.incarnation.0 > 0 {
             field_set.set_incarnation(true);
             pos += 1 + Self::write_compact(&self.incarnation.to_be_bytes(), &mut buffer[pos..]);
         }
@@ -172,7 +172,7 @@ impl Account {
         if field_set.incarnation() {
             let decode_length = enc.get_u8() as usize;
 
-            a.incarnation = bytes_to_u64(&enc[..decode_length]);
+            a.incarnation = bytes_to_u64(&enc[..decode_length]).into();
             enc.advance(decode_length);
         }
 
@@ -228,7 +228,7 @@ mod tests {
                 nonce: 100,
                 balance: U256::zero(),
                 code_hash: EMPTY_HASH,
-                incarnation: 5,
+                incarnation: 5.into(),
             },
             &hex!("0501640105"),
         )
@@ -241,7 +241,7 @@ mod tests {
                 nonce: 2,
                 balance: 1000.into(),
                 code_hash: keccak256(&[1, 2, 3]),
-                incarnation: 4,
+                incarnation: 4.into(),
             },
             &hex!("0f01020203e8010420f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"),
         )
@@ -253,7 +253,7 @@ mod tests {
             nonce: 2,
             balance: 1000.into(),
             code_hash: keccak256(&[1, 2, 3]),
-            incarnation: 5,
+            incarnation: 5.into(),
         }, &hex!("0f01020203e8010520f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"))
     }
 
@@ -264,7 +264,7 @@ mod tests {
                 nonce: 2,
                 balance: 1000.into(),
                 code_hash: EMPTY_HASH,
-                incarnation: 5,
+                incarnation: 5.into(),
             },
             &hex!("0701020203e80105"),
         )
@@ -279,7 +279,7 @@ mod tests {
                 code_hash: H256(hex!(
                     "0000000000000000000000000000000000000000000000000000000000000123"
                 )),
-                incarnation: 1,
+                incarnation: 1.into(),
             },
             &hex!("0c0101200000000000000000000000000000000000000000000000000000000000000123"),
         )
@@ -292,7 +292,7 @@ mod tests {
                 nonce: 0,
                 balance: 0.into(),
                 code_hash: EMPTY_HASH,
-                incarnation: 1,
+                incarnation: 1.into(),
             },
             &hex!("040101"),
         )
