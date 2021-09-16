@@ -2,8 +2,9 @@ use crate::downloader::{
     chain_config::{ChainConfig, ChainsConfig},
     headers::{
         fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage,
-        header_slices::HeaderSlices, refill_stage::RefillStage, retry_stage::RetryStage,
-        save_stage::SaveStage, verify_stage::VerifyStage,
+        header_slices::HeaderSlices, preverified_hashes_config::PreverifiedHashesConfig,
+        refill_stage::RefillStage, retry_stage::RetryStage, save_stage::SaveStage,
+        verify_stage::VerifyStage,
     },
     opts::Opts,
     sentry_client,
@@ -79,7 +80,10 @@ impl Downloader {
 
         let retry_stage = RetryStage::new(Arc::clone(&header_slices));
 
-        let verify_stage = VerifyStage::new(Arc::clone(&header_slices));
+        let verify_stage = VerifyStage::new(
+            Arc::clone(&header_slices),
+            PreverifiedHashesConfig::new(&self.opts.chain_name)?,
+        );
 
         let save_stage = SaveStage::new(Arc::clone(&header_slices));
 
