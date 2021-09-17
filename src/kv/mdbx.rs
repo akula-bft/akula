@@ -114,8 +114,8 @@ where
         let mut out = HashMap::new();
         let main_db = self.inner.open_db(None)?;
         let mut cursor = self.inner.cursor(&main_db)?;
-        while let Some((table, _)) = cursor.next_nodup()? {
-            let table = String::from_utf8(table.to_vec()).unwrap();
+        while let Some((table, _)) = cursor.next_nodup::<Vec<u8>, ()>()? {
+            let table = String::from_utf8(table)?;
             let db = self
                 .inner
                 .open_db(Some(&table))
@@ -174,7 +174,11 @@ where
         self.cursor(table).await
     }
 
-    async fn get<'s, T: Table>(&'s self, table: &T, k: &[u8]) -> anyhow::Result<Option<Bytes<'s>>> {
+    async fn get<'tx, T: Table>(
+        &'tx self,
+        table: &T,
+        k: &[u8],
+    ) -> anyhow::Result<Option<Bytes<'tx>>> {
         Ok(self
             .inner
             .get(&self.inner.open_db(Some(table.db_name().as_ref()))?, k)?)
@@ -238,7 +242,7 @@ fn seek_autodupsort<'txn, K: TransactionKind>(
 ) -> anyhow::Result<Option<(Bytes<'txn>, Bytes<'txn>)>> {
     let &AutoDupSortConfig { from, to } = dupsort_data;
     if seek.is_empty() {
-        if let Some((mut k, mut v)) = c.first()? {
+        if let Some((mut k, mut v)) = c.first::<Bytes<'txn>, Bytes<'txn>>()? {
             if k.len() == to {
                 let mut k2 = Vec::with_capacity(k.len() + from - to);
                 k2.extend_from_slice(&k[..]);
@@ -261,7 +265,7 @@ fn seek_autodupsort<'txn, K: TransactionKind>(
         seek1 = seek;
     }
 
-    let (mut k, mut v) = match c.set_range(seek1)? {
+    let (mut k, mut v) = match c.set_range::<Bytes<'txn>, Bytes<'txn>>(seek1)? {
         Some(out) => out,
         None => return Ok(None),
     };
@@ -353,7 +357,7 @@ where
         {
             return Ok(self
                 .inner
-                .get_both_range(&key[..to], &key[to..])?
+                .get_both_range::<Bytes<'txn>>(&key[..to], &key[to..])?
                 .and_then(|v| {
                     (key[to..] == v[..from - to])
                         .then(move || (key[..to].to_vec().into(), v.slice(from - to..)))
@@ -432,7 +436,10 @@ fn delete_autodupsort<'txn>(
     }
 
     if key.len() == from {
-        if let Some(v) = c.inner.get_both_range(&key[..to], &key[to..])? {
+        if let Some(v) = c
+            .inner
+            .get_both_range::<Bytes<'txn>>(&key[..to], &key[to..])?
+        {
             if v[..from - to] == key[to..] {
                 return Ok(c.inner.del(WriteFlags::CURRENT)?);
             }
@@ -441,7 +448,7 @@ fn delete_autodupsort<'txn>(
         return Ok(());
     }
 
-    if c.inner.set(key)?.is_some() {
+    if c.inner.set::<()>(key)?.is_some() {
         c.inner.del(WriteFlags::CURRENT)?;
     }
 
@@ -485,9 +492,12 @@ fn put_autodupsort<'txn>(
         .copied()
         .collect::<Vec<_>>();
     let key = &key[..to];
-    let v = match c.inner.get_both_range(key, &value[..from - to])? {
+    let v = match c
+        .inner
+        .get_both_range::<Bytes<'txn>>(key, &value[..from - to])?
+    {
         None => {
-            return Ok(c.inner.put(key, value, WriteFlags::default())?);
+            return Ok(c.inner.put(key, &value, WriteFlags::default())?);
         }
         Some(v) => v,
     };
@@ -495,12 +505,12 @@ fn put_autodupsort<'txn>(
     if v[..from - to] == value[..from - to] {
         if v.len() == value.len() {
             // in DupSort case mdbx.Current works only with values of same length
-            return Ok(c.inner.put(key, value, WriteFlags::CURRENT)?);
+            return Ok(c.inner.put(key, &value, WriteFlags::CURRENT)?);
         }
         c.inner.del(WriteFlags::CURRENT)?;
     }
 
-    Ok(c.inner.put(key, value, WriteFlags::default())?)
+    Ok(c.inner.put(key, &value, WriteFlags::default())?)
 }
 
 #[async_trait]
@@ -524,7 +534,7 @@ where
     }
 
     async fn append(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        Ok(self.inner.put(&key, &value, WriteFlags::APPEND)?)
+        Ok(self.inner.put(key, value, WriteFlags::APPEND)?)
     }
 
     async fn delete(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
@@ -536,14 +546,14 @@ where
         }
 
         if tables::DUP_SORT_TABLES.contains_key(&self.t.as_ref()) {
-            if self.inner.get_both(key, value)?.is_some() {
+            if self.inner.get_both::<Bytes<'txn>>(key, value)?.is_some() {
                 self.inner.del(WriteFlags::CURRENT)?;
             }
 
             return Ok(());
         }
 
-        if self.inner.set(key)?.is_some() {
+        if self.inner.set::<()>(key)?.is_some() {
             self.inner.del(WriteFlags::CURRENT)?;
         }
 
@@ -570,6 +580,6 @@ where
         Ok(self.inner.del(WriteFlags::NO_DUP_DATA)?)
     }
     async fn append_dup(&mut self, key: &[u8], value: &[u8]) -> anyhow::Result<()> {
-        Ok(self.inner.put(&key, &value, WriteFlags::APPEND_DUP)?)
+        Ok(self.inner.put(key, value, WriteFlags::APPEND_DUP)?)
     }
 }
