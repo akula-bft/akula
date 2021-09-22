@@ -4,6 +4,53 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 
+#[derive(Debug)]
+pub struct ErasedTable<T>(pub T)
+where
+    T: Table;
+
+impl<T> Table for ErasedTable<T>
+where
+    T: Table,
+{
+    type Key = Vec<u8>;
+    type Value = Vec<u8>;
+    type SeekKey = Vec<u8>;
+
+    fn db_name(&self) -> string::String<StaticBytes> {
+        self.0.db_name()
+    }
+}
+
+impl<T> ErasedTable<T>
+where
+    T: Table,
+{
+    pub fn encode_key(object: T::Key) -> <<T as Table>::Key as TableEncode>::Encoded {
+        object.encode()
+    }
+
+    pub fn decode_key(
+        input: &[u8],
+    ) -> Result<T::Key, <<T as Table>::Key as TableDecode>::DecodeError> {
+        T::Key::decode(input)
+    }
+
+    pub fn encode_value(object: T::Value) -> <<T as Table>::Value as TableEncode>::Encoded {
+        object.encode()
+    }
+
+    pub fn decode_value(
+        input: &[u8],
+    ) -> Result<T::Value, <<T as Table>::Value as TableDecode>::DecodeError> {
+        T::Value::decode(input)
+    }
+
+    pub fn encode_seek_key(object: T::SeekKey) -> <<T as Table>::SeekKey as TableEncode>::Encoded {
+        object.encode()
+    }
+}
+
 macro_rules! decl_table {
     ($name:ident => $key:ty => $value:ty => $seek_key:ty) => {
         #[derive(Clone, Copy, Debug, Default)]
@@ -24,8 +71,12 @@ macro_rules! decl_table {
         }
 
         impl $name {
-            const fn const_db_name() -> &'static str {
+            pub const fn const_db_name() -> &'static str {
                 stringify!($name)
+            }
+
+            pub const fn erased(self) -> ErasedTable<Self> {
+                ErasedTable(self)
             }
         }
 
