@@ -1,8 +1,10 @@
 use super::*;
+use crate::models::*;
+use arrayref::array_ref;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 #[derive(Debug)]
 pub struct ErasedTable<T>(pub T)
@@ -112,6 +114,48 @@ impl traits::TableDecode for Vec<u8> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct InvalidLength<const EXPECTED: usize> {
+    pub got: usize,
+}
+
+impl<const EXPECTED: usize> Display for InvalidLength<EXPECTED> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid length: {} != {}", EXPECTED, self.got)
+    }
+}
+
+impl<const EXPECTED: usize> std::error::Error for InvalidLength<EXPECTED> {}
+
+macro_rules! u64_table_object {
+    ($ty:ident) => {
+        impl TableDecode for $ty
+        where
+            InvalidLength<8>: 'static,
+        {
+            type DecodeError = InvalidLength<8>;
+
+            fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+                match b.len() {
+                    8 => Ok(Self(u64::from_be_bytes(*array_ref!(&*b, 0, 8)))),
+                    other => Err(InvalidLength { got: other }),
+                }
+            }
+        }
+
+        impl TableEncode for $ty {
+            type Encoded = [u8; 8];
+
+            fn encode(self) -> Self::Encoded {
+                self.0.to_be_bytes()
+            }
+        }
+    };
+}
+
+u64_table_object!(BlockNumber);
+u64_table_object!(Incarnation);
+
 impl DupSort for PlainState {
     type SeekBothKey = Vec<u8>;
 }
@@ -145,8 +189,8 @@ decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(DbInfo => Vec<u8> => Vec<u8>);
 decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
-decl_table!(HeaderNumber => Vec<u8> => Vec<u8>);
-decl_table!(CanonicalHeader => Vec<u8> => Vec<u8>);
+decl_table!(HeaderNumber => Vec<u8> => BlockNumber);
+decl_table!(CanonicalHeader => BlockNumber => Vec<u8>);
 decl_table!(Header => Vec<u8> => Vec<u8>);
 decl_table!(HeadersTotalDifficulty => Vec<u8> => Vec<u8>);
 decl_table!(BlockBody => Vec<u8> => Vec<u8>);
@@ -160,7 +204,7 @@ decl_table!(CallFromIndex => Vec<u8> => Vec<u8>);
 decl_table!(CallToIndex => Vec<u8> => Vec<u8>);
 decl_table!(BlockTransactionLookup => Vec<u8> => Vec<u8>);
 decl_table!(Config => Vec<u8> => Vec<u8>);
-decl_table!(SyncStage => Vec<u8> => Vec<u8>);
+decl_table!(SyncStage => Vec<u8> => BlockNumber);
 decl_table!(CliqueSeparate => Vec<u8> => Vec<u8>);
 decl_table!(CliqueSnapshot => Vec<u8> => Vec<u8>);
 decl_table!(CliqueLastSnapshot => Vec<u8> => Vec<u8>);

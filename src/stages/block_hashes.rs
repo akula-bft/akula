@@ -36,7 +36,7 @@ where
         let past_progress = input.stage_progress.unwrap_or(BlockNumber(0));
 
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber).await?;
+        let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber.erased()).await?;
         let processed = BlockNumber(0);
 
         let start_key = past_progress.to_be_bytes().to_vec();

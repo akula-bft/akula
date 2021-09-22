@@ -128,14 +128,21 @@ mod tests {
             collector.collect(entry);
         }
         // Any cursor is fine
-        let mut cursor = tx.mutable_cursor(&tables::HeaderNumber).await.unwrap();
+        let mut cursor = tx
+            .mutable_cursor(&tables::HeaderNumber.erased())
+            .await
+            .unwrap();
         collector.load(&mut cursor, None).await.unwrap();
 
         // We sort the entries and compare them to what is in db
         entries.sort_unstable();
 
         for entry in entries {
-            if let Some(expected_value) = tx.get(&tables::HeaderNumber, entry.key).await.unwrap() {
+            if let Some(expected_value) = tx
+                .get(&tables::HeaderNumber.erased(), entry.key)
+                .await
+                .unwrap()
+            {
                 assert_eq!(entry.value, expected_value);
             }
         }
@@ -161,14 +168,21 @@ mod tests {
             collector.collect(entry);
         }
         // Any cursor is fine
-        let mut cursor = tx.mutable_cursor(&tables::HeaderNumber).await.unwrap();
+        let mut cursor = tx
+            .mutable_cursor(&tables::HeaderNumber.erased())
+            .await
+            .unwrap();
         collector.load(&mut cursor, None).await.unwrap();
 
         // We sort the entries and compare them to what is in db
         entries.sort_unstable();
 
         for entry in entries {
-            if let Some(expected_value) = tx.get(&tables::HeaderNumber, entry.key).await.unwrap() {
+            if let Some(expected_value) = tx
+                .get(&tables::HeaderNumber.erased(), entry.key)
+                .await
+                .unwrap()
+            {
                 assert_eq!(entry.value, expected_value);
             }
         }

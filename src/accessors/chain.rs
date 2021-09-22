@@ -8,7 +8,6 @@ use crate::{
     MutableTransaction, Transaction as ReadTransaction,
 };
 use anyhow::{bail, Context};
-use arrayref::array_ref;
 use ethereum_types::{Address, H256, U256};
 use tokio::pin;
 use tokio_stream::StreamExt;
@@ -23,15 +22,8 @@ pub mod canonical_hash {
         block_number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<H256>> {
         let block_number = block_number.into();
-        let key = encode_block_number(block_number);
 
-        trace!(
-            "Reading canonical hash of {} from at {}",
-            block_number,
-            hex::encode(&key)
-        );
-
-        if let Some(b) = tx.get(&tables::CanonicalHeader, key.into()).await? {
+        if let Some(b) = tx.get(&tables::CanonicalHeader, block_number).await? {
             match b.len() {
                 KECCAK_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
@@ -47,13 +39,12 @@ pub mod canonical_hash {
         hash: H256,
     ) -> anyhow::Result<()> {
         let block_number = block_number.into();
-        let key = encode_block_number(block_number).to_vec();
         let hash = hash.to_fixed_bytes().to_vec();
 
         trace!("Writing canonical hash of {}", block_number);
 
         let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
-        cursor.put(key, hash).await.unwrap();
+        cursor.put(block_number, hash).await.unwrap();
 
         Ok(())
     }
@@ -65,20 +56,11 @@ pub mod header_number {
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
-    ) -> anyhow::Result<Option<u64>> {
+    ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading block number for hash {:?}", hash);
 
-        if let Some(b) = tx
-            .get(&tables::HeaderNumber, hash.to_fixed_bytes().into())
-            .await?
-        {
-            match b.len() {
-                BLOCK_NUMBER_LENGTH => return Ok(Some(u64::from_be_bytes(*array_ref![b, 0, 8]))),
-                other => bail!("invalid length: {}", other),
-            }
-        }
-
-        Ok(None)
+        tx.get(&tables::HeaderNumber, hash.to_fixed_bytes().into())
+            .await
     }
 }
 
