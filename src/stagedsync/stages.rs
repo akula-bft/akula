@@ -46,7 +46,7 @@ impl StageId {
         &self,
         tx: &Tx,
     ) -> anyhow::Result<Option<BlockNumber>> {
-        if let Some(b) = tx.get(&tables::SyncStage, self.as_ref()).await? {
+        if let Some(b) = tx.get(&tables::SyncStage, self.0.into()).await? {
             return Ok(Some(BlockNumber(u64::from_be_bytes(*array_ref![
                 b.get(0..BLOCK_NUMBER_LENGTH)
                     .context("failed to read block number from bytes")?,
@@ -66,8 +66,8 @@ impl StageId {
     ) -> anyhow::Result<()> {
         tx.set(
             &tables::SyncStage,
-            self.as_ref(),
-            &encode_block_number(block),
+            self.0.into(),
+            encode_block_number(block).to_vec(),
         )
         .await
     }

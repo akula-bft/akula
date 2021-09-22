@@ -128,9 +128,9 @@ where
         let mut seek = [0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH];
         seek[..BLOCK_NUMBER_LENGTH].copy_from_slice(&block_number.db_key());
         seek[BLOCK_NUMBER_LENGTH..].copy_from_slice(address_to_find.as_bytes());
-        let mut b = c.seek(&seek).await?;
+        let mut b = c.seek(seek.to_vec()).await?;
         while let Some((k, v)) = b {
-            let (_, change) = StorageHistory::decode(k, v);
+            let (_, change) = StorageHistory::decode(k.into(), v.into());
             if !change.key.starts_with(address_to_find.as_bytes()) {
                 break;
             }
@@ -154,9 +154,12 @@ where
         .unwrap();
     seek[BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH..].copy_from_slice(&incarnation.to_be_bytes());
 
-    if let Some(v) = c.seek_both_range(&seek, key_bytes_to_find).await? {
+    if let Some(v) = c
+        .seek_both_range(seek.clone(), key_bytes_to_find.to_vec())
+        .await?
+    {
         if v.starts_with(key_bytes_to_find) {
-            let (_, change) = StorageHistory::decode(seek.into(), v);
+            let (_, change) = StorageHistory::decode(seek.into(), v.into());
 
             return Ok(Some(change.value));
         }
@@ -310,7 +313,7 @@ mod tests {
                 .unwrap();
 
             for (k, v) in StorageHistory::encode(1.into(), &ch) {
-                c.put(&k, &v).await.unwrap()
+                c.put(k.to_vec(), v.to_vec()).await.unwrap()
             }
 
             for v in ch {
@@ -369,7 +372,7 @@ mod tests {
                 .unwrap();
 
             for (k, v) in StorageHistory::encode(1.into(), &ch) {
-                c.put(&k, &v).await.unwrap()
+                c.put(k.to_vec(), v.to_vec()).await.unwrap()
             }
 
             for v in ch {
@@ -497,7 +500,7 @@ mod tests {
             .await
             .unwrap();
         for (k, v) in StorageHistory::encode(1.into(), &ch) {
-            c.put(&k, &v).await.unwrap()
+            c.put(k.to_vec(), v.to_vec()).await.unwrap()
         }
 
         assert_eq!(

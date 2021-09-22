@@ -228,12 +228,15 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
     }
 }
 
-async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>(
+async fn write_index<'db: 'tx, 'tx, K, Tx>(
     tx: &'tx Tx,
     block_number: BlockNumber,
     changes: ChangeSet<'tx, K>,
-) -> anyhow::Result<()> {
-    let mut buf = vec![];
+) -> anyhow::Result<()>
+where
+    K: HistoryKind,
+    Tx: MutableTransaction<'db>,
+{
     for change in changes {
         let k = dbutils::composite_key_without_incarnation::<K>(&change.key);
 
@@ -245,9 +248,9 @@ async fn write_index<'db: 'tx, 'tx, K: HistoryKind, Tx: MutableTransaction<'db>>
 
         for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys(&k)
         {
-            buf.clear();
+            let mut buf = vec![];
             chunk.serialize_into(&mut buf)?;
-            tx.set(&K::IndexTable::default(), &chunk_key, &buf).await?;
+            tx.set(&K::IndexTable::default(), chunk_key, buf).await?;
         }
     }
 
@@ -275,9 +278,13 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
             for (k, v) in s {
                 let dup = prev_k.map(|prev_k| k == prev_k).unwrap_or(false);
                 if dup {
-                    cursor.append_dup(&*k, &*v).await?;
+                    cursor
+                        .append_dup(k.as_ref().to_vec(), v.as_ref().to_vec())
+                        .await?;
                 } else {
-                    cursor.append(&*k, &*v).await?;
+                    cursor
+                        .append(k.as_ref().to_vec(), v.as_ref().to_vec())
+                        .await?;
                 }
 
                 prev_k = Some(k);
@@ -355,7 +362,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         let value = account.encode_for_storage(false);
 
         self.tx
-            .set(&tables::PlainState, address.as_bytes(), &value)
+            .set(&tables::PlainState, address.as_bytes().to_vec(), value)
             .await
     }
 
@@ -371,13 +378,13 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .await?;
 
         self.tx
-            .set(&tables::Code, code_hash.as_bytes(), code)
+            .set(&tables::Code, code_hash.as_bytes().to_vec(), code.to_vec())
             .await?;
         self.tx
             .set(
                 &tables::PlainCodeHash,
-                &dbutils::plain_generate_storage_prefix(address, incarnation),
-                code_hash.as_bytes(),
+                dbutils::plain_generate_storage_prefix(address, incarnation).to_vec(),
+                code_hash.as_bytes().to_vec(),
             )
             .await?;
 
@@ -390,14 +397,14 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         self.tx
             .mutable_cursor(&tables::PlainState)
             .await?
-            .delete(address.as_bytes(), &[])
+            .delete(address.as_bytes().to_vec(), vec![])
             .await?;
         if original.incarnation.0 > 0 {
             self.tx
                 .set(
                     &tables::IncarnationMap,
-                    address.as_bytes(),
-                    &original.incarnation.to_be_bytes(),
+                    address.as_bytes().to_vec(),
+                    original.incarnation.to_be_bytes().to_vec(),
                 )
                 .await?;
         }
@@ -422,13 +429,13 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         }
 
         let composite_key =
-            dbutils::plain_generate_composite_storage_key(address, incarnation, key);
+            dbutils::plain_generate_composite_storage_key(address, incarnation, key).to_vec();
 
         let mut c = self.tx.mutable_cursor(&tables::PlainState).await?;
         if value.is_zero() {
-            c.delete(&composite_key, &[]).await?;
+            c.delete(composite_key, vec![]).await?;
         } else {
-            c.put(&composite_key, &value_to_bytes(value)).await?;
+            c.put(composite_key, value_to_bytes(value).to_vec()).await?;
         }
 
         Ok(())
@@ -456,7 +463,10 @@ pub async fn read_account_data<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
 ) -> anyhow::Result<Option<Account>> {
-    if let Some(encoded) = tx.get(&tables::PlainState, address.as_bytes()).await? {
+    if let Some(encoded) = tx
+        .get(&tables::PlainState, address.as_bytes().to_vec())
+        .await?
+    {
         return Account::decode_for_storage(&*encoded);
     }
 
@@ -469,8 +479,11 @@ pub async fn read_account_storage<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     incarnation: Incarnation,
     key: H256,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let composite_key = dbutils::plain_generate_composite_storage_key(address, incarnation, key);
-    tx.get(&tables::PlainState, &composite_key).await
+    let composite_key =
+        dbutils::plain_generate_composite_storage_key(address, incarnation, key).to_vec();
+    tx.get(&tables::PlainState, composite_key)
+        .await
+        .map(|opt| opt.map(|v| v.into()))
 }
 
 pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -479,7 +492,9 @@ pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     _: Incarnation,
     code_hash: H256,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    tx.get(&tables::PlainState, code_hash.as_bytes()).await
+    tx.get(&tables::PlainState, code_hash.as_bytes().into())
+        .await
+        .map(|opt| opt.map(|v| v.into()))
 }
 
 pub async fn read_account_code_size<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -499,7 +514,7 @@ pub async fn read_previous_incarnation<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     address: Address,
 ) -> anyhow::Result<Option<u64>> {
     Ok(tx
-        .get(&tables::IncarnationMap, address.as_bytes())
+        .get(&tables::IncarnationMap, address.as_bytes().to_vec())
         .await?
         .map(|b| u64::from_be_bytes(*array_ref!(&*b, 0, 8))))
 }

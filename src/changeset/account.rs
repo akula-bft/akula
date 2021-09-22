@@ -22,9 +22,12 @@ impl HistoryKind for AccountHistory {
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
-        let k = dbutils::encode_block_number(block_number);
-        if let Some(v) = cursor.seek_both_range(&k, needle.as_bytes()).await? {
-            let (_, Change { key, value }) = Self::decode(k.to_vec().into(), v);
+        let k = dbutils::encode_block_number(block_number).to_vec();
+        if let Some(v) = cursor
+            .seek_both_range(k.clone(), needle.as_bytes().to_vec())
+            .await?
+        {
+            let (_, Change { key, value }) = Self::decode(k.to_vec().into(), v.into());
 
             if key == *needle {
                 return Ok(Some(value));

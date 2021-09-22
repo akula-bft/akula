@@ -31,7 +31,7 @@ pub mod canonical_hash {
             hex::encode(&key)
         );
 
-        if let Some(b) = tx.get(&tables::CanonicalHeader, &key).await? {
+        if let Some(b) = tx.get(&tables::CanonicalHeader, key.into()).await? {
             match b.len() {
                 KECCAK_LENGTH => return Ok(Some(H256::from_slice(&*b))),
                 other => bail!("invalid length: {}", other),
@@ -47,12 +47,13 @@ pub mod canonical_hash {
         hash: H256,
     ) -> anyhow::Result<()> {
         let block_number = block_number.into();
-        let key = encode_block_number(block_number);
+        let key = encode_block_number(block_number).to_vec();
+        let hash = hash.to_fixed_bytes().to_vec();
 
         trace!("Writing canonical hash of {}", block_number);
 
         let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
-        cursor.put(&key, hash.as_bytes()).await.unwrap();
+        cursor.put(key, hash).await.unwrap();
 
         Ok(())
     }
@@ -68,7 +69,7 @@ pub mod header_number {
         trace!("Reading block number for hash {:?}", hash);
 
         if let Some(b) = tx
-            .get(&tables::HeaderNumber, &hash.to_fixed_bytes())
+            .get(&tables::HeaderNumber, hash.to_fixed_bytes().into())
             .await?
         {
             match b.len() {
@@ -92,7 +93,10 @@ pub mod header {
         let number = number.into();
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        if let Some(b) = tx.get(&tables::Header, &header_key(number, hash)).await? {
+        if let Some(b) = tx
+            .get(&tables::Header, header_key(number, hash).into())
+            .await?
+        {
             return Ok(Some(rlp::decode(&b)?));
         }
 
@@ -119,8 +123,8 @@ pub mod tx {
 
             let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
 
-            let start_key = base_tx_id.to_be_bytes();
-            let walker = cursor.walk(&start_key, |_, _| true);
+            let start_key = base_tx_id.to_be_bytes().to_vec();
+            let walker = cursor.walk(start_key, |_, _| true);
 
             pin!(walker);
 
@@ -152,9 +156,9 @@ pub mod tx {
         let mut cursor = tx.mutable_cursor(&tables::BlockTransaction).await.unwrap();
 
         for (i, eth_tx) in txs.iter().enumerate() {
-            let key = (base_tx_id + i as u64).to_be_bytes();
-            let data = rlp::encode(eth_tx).freeze();
-            cursor.put(&key, &data).await.unwrap();
+            let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
+            let data = rlp::encode(eth_tx).to_vec();
+            cursor.put(key, data).await.unwrap();
         }
 
         Ok(())
@@ -178,9 +182,9 @@ pub mod tx_sender {
         Ok(if amount > 0 {
             let mut cursor = tx.cursor(&tables::TxSender).await?;
 
-            let start_key = base_tx_id.to_be_bytes();
+            let start_key = base_tx_id.to_be_bytes().to_vec();
             cursor
-                .walk(&start_key, |_, _| true)
+                .walk(start_key, |_, _| true)
                 .take(amount as usize)
                 .collect::<anyhow::Result<Vec<_>>>()
                 .await?
@@ -206,9 +210,9 @@ pub mod tx_sender {
         let mut cursor = tx.mutable_cursor(&tables::TxSender).await.unwrap();
 
         for (i, sender) in senders.iter().enumerate() {
-            let key = (base_tx_id + i as u64).to_be_bytes();
-            let data = sender.to_fixed_bytes();
-            cursor.put(&key, &data).await.unwrap();
+            let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
+            let data = sender.to_fixed_bytes().to_vec();
+            cursor.put(key, data).await.unwrap();
         }
 
         Ok(())
@@ -229,10 +233,10 @@ pub mod storage_body {
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get(&tables::BlockBody, &header_key(number, hash))
+            .get(&tables::BlockBody, header_key(number, hash).into())
             .await?
         {
-            return Ok(Some(b));
+            return Ok(Some(b.into()));
         }
 
         Ok(None)
@@ -269,7 +273,10 @@ pub mod storage_body {
 
         let data = rlp::encode(body);
         let mut cursor = tx.mutable_cursor(&tables::BlockBody).await.unwrap();
-        cursor.put(&header_key(number, hash), &data).await.unwrap();
+        cursor
+            .put(header_key(number, hash).to_vec(), data.to_vec())
+            .await
+            .unwrap();
 
         Ok(())
     }
@@ -287,7 +294,10 @@ pub mod td {
         trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get(&tables::HeadersTotalDifficulty, &header_key(number, hash))
+            .get(
+                &tables::HeadersTotalDifficulty,
+                header_key(number, hash).into(),
+            )
             .await?
         {
             trace!("Reading TD RLP: {}", hex::encode(&b));
@@ -308,7 +318,13 @@ pub mod tl {
     ) -> anyhow::Result<Option<Vec<u8>>> {
         trace!("Reading Block number for a tx_hash {:?}", tx_hash);
 
-        if let Some(b) = tx.get(&tables::TxLookup, tx_hash.as_bytes()).await? {
+        if let Some(b) = tx
+            .get(
+                &tables::BlockTransactionLookup,
+                tx_hash.to_fixed_bytes().into(),
+            )
+            .await?
+        {
             trace!("Reading TL RLP: {}", hex::encode(&b));
 
             return Ok(Some(rlp::decode(&b)?));

@@ -39,9 +39,9 @@ where
         let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber).await?;
         let processed = BlockNumber(0);
 
-        let start_key = past_progress.to_be_bytes();
+        let start_key = past_progress.to_be_bytes().to_vec();
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = bodies_cursor.walk(&start_key, |_, _| true);
+        let walker = bodies_cursor.walk(start_key, |_, _| true);
         pin!(walker);
 
         while let Some((block_key, _)) = walker.try_next().await? {

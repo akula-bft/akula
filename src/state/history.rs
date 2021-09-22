@@ -13,7 +13,9 @@ pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         return Ok(Some(v));
     }
 
-    tx.get(&tables::PlainState, address.as_fixed_bytes()).await
+    tx.get(&tables::PlainState, address.as_fixed_bytes().to_vec())
+        .await
+        .map(|opt| opt.map(From::from))
 }
 
 pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -28,7 +30,9 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         return Ok(Some(v));
     }
 
-    tx.get(&tables::PlainState, &key).await
+    tx.get(&tables::PlainState, key.to_vec())
+        .await
+        .map(|opt| opt.map(From::from))
 }
 
 pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -38,7 +42,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
-        .seek(&AccountHistory::index_chunk_key(address, block_number))
+        .seek(AccountHistory::index_chunk_key(address, block_number).to_vec())
         .await?
     {
         if k.starts_with(address.as_fixed_bytes()) {
@@ -70,7 +74,8 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                     if let Some(code_hash) = tx
                         .get(
                             &tables::PlainCodeHash,
-                            &dbutils::plain_generate_storage_prefix(address, acc.incarnation),
+                            dbutils::plain_generate_storage_prefix(address, acc.incarnation)
+                                .to_vec(),
                         )
                         .await?
                     {
@@ -97,7 +102,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::StorageHistory).await?;
     if let Some((k, v)) = ch
-        .seek(&StorageHistory::index_chunk_key(key, timestamp))
+        .seek(StorageHistory::index_chunk_key(key, timestamp).to_vec())
         .await?
     {
         if k[..ADDRESS_LENGTH] != key[..ADDRESS_LENGTH]
@@ -176,7 +181,7 @@ mod tests {
         block_writer.write_history().await.unwrap();
 
         let mut cursor = tx.cursor(&tables::AccountChangeSet).await.unwrap();
-        let s = cursor.walk(&[], |_, _| true);
+        let s = cursor.walk(vec![], |_, _| true);
 
         pin_mut!(s);
 
@@ -200,8 +205,8 @@ mod tests {
         assert_eq!(index.iter().next(), Some(1));
 
         let mut cursor = tx.cursor(&tables::StorageChangeSet).await.unwrap();
-        let bn = BlockNumber(1).db_key();
-        let s = cursor.walk(&bn, |key, _| key.starts_with(&bn));
+        let bn = BlockNumber(1).db_key().to_vec();
+        let s = cursor.walk(bn.clone(), |key, _| key.starts_with(&bn));
 
         pin_mut!(s);
 
@@ -213,7 +218,7 @@ mod tests {
         assert_eq!(count, 0, "changeset must be deleted");
 
         assert_eq!(
-            tx.get(&tables::AccountHistory, &addrs[0].to_fixed_bytes())
+            tx.get(&tables::AccountHistory, addrs[0].to_fixed_bytes().to_vec())
                 .await
                 .unwrap(),
             None,
@@ -258,9 +263,9 @@ mod tests {
             assert_eq!(index.iter().next().unwrap(), 2);
             assert_eq!(index.len(), 1);
 
-            let prefix = plain_generate_storage_prefix(address, acc.incarnation);
+            let prefix = plain_generate_storage_prefix(address, acc.incarnation).to_vec();
             let res_account_storage = plain_state
-                .walk(&prefix, |key, _| key.starts_with(&prefix))
+                .walk(prefix.clone(), |key, _| key.starts_with(&prefix))
                 .fold(HashMap::new(), |mut accum, res| {
                     let (k, v) = res.unwrap();
                     accum.insert(
@@ -286,15 +291,15 @@ mod tests {
             }
         }
 
-        let bn = encode_block_number(2);
+        let bn = encode_block_number(2).to_vec();
         let changeset_in_db = tx
             .cursor(&tables::AccountChangeSet)
             .await
             .unwrap()
-            .walk(&bn, |key, _| key.starts_with(&bn))
+            .walk(bn.clone(), |key, _| key.starts_with(&bn))
             .map(|res| {
                 let (k, v) = res.unwrap();
-                AccountHistory::decode(k, v).1
+                AccountHistory::decode(k.into(), v.into()).1
             })
             .collect::<Vec<_>>()
             .await
@@ -309,15 +314,15 @@ mod tests {
 
         assert_eq!(changeset_in_db, expected_changeset);
 
-        let bn = encode_block_number(2);
+        let bn = encode_block_number(2).to_vec();
         let cs = tx
             .cursor(&tables::StorageChangeSet)
             .await
             .unwrap()
-            .walk(&bn, |key, _| key.starts_with(&bn))
+            .walk(bn.clone(), |key, _| key.starts_with(&bn))
             .map(|res| {
                 let (k, v) = res.unwrap();
-                StorageHistory::decode(k, v).1
+                StorageHistory::decode(k.into(), v.into()).1
             })
             .collect::<Vec<_>>()
             .await

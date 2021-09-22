@@ -36,7 +36,7 @@ where
         'db: 'tx,
     {
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut tx_hash_cursor = tx.mutable_cursor(&tables::TxLookup).await?;
+        let mut tx_hash_cursor = tx.mutable_cursor(&tables::BlockTransactionLookup).await?;
 
         let mut block_txs_cursor = tx.cursor(&tables::BlockTransaction).await?;
 
@@ -44,16 +44,16 @@ where
 
         let mut start_block_number = [0; 8];
         let (_, last_processed_block_number) = tx
-            .mutable_cursor(&tables::TxLookup)
+            .mutable_cursor(&tables::BlockTransactionLookup)
             .await?
             .last()
             .await?
-            .unwrap_or((bytes::Bytes::from(&[]), bytes::Bytes::from(&[])));
+            .unwrap_or((vec![], vec![]));
 
         (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
             .to_big_endian(&mut start_block_number);
 
-        let walker_block_body = bodies_cursor.walk(&start_block_number, |_, _| true);
+        let walker_block_body = bodies_cursor.walk(start_block_number.to_vec(), |_, _| true);
         pin!(walker_block_body);
 
         while let Some((block_body_key, ref block_body_value)) =
@@ -67,9 +67,9 @@ where
                 .collect::<Vec<_>>();
             let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
-            let tx_base_id_as_bytes = tx_base_id.to_be_bytes();
+            let tx_base_id_as_bytes = tx_base_id.to_be_bytes().to_vec();
 
-            let walker_block_txs = block_txs_cursor.walk(&tx_base_id_as_bytes, |_, _| true);
+            let walker_block_txs = block_txs_cursor.walk(tx_base_id_as_bytes, |_, _| true);
             pin!(walker_block_txs);
 
             let mut num_txs = 1;

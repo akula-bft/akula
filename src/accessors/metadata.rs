@@ -7,7 +7,7 @@ pub async fn read_chain_config<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     block: H256,
 ) -> anyhow::Result<Option<ChainConfig>> {
-    let key = block.as_bytes();
+    let key = block.as_bytes().into();
 
     trace!(
         "Reading chain config for block {:?} from at key {}",

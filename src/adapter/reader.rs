@@ -35,7 +35,10 @@ impl<'db: 'tx, 'tx, Tx: Transaction<'db> + ?Sized> StateReader<'db, 'tx, Tx> {
         incarnation: Incarnation,
         key: H256,
     ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        let composite_key = plain_generate_composite_storage_key(address, incarnation, key);
-        self.tx.get(&tables::PlainState, &composite_key).await
+        let composite_key = plain_generate_composite_storage_key(address, incarnation, key).into();
+        self.tx
+            .get(&tables::PlainState, composite_key)
+            .await
+            .map(|opt| opt.map(From::from))
     }
 }

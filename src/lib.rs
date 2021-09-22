@@ -13,6 +13,7 @@
     dead_code,
     incomplete_features,
     clippy::mutable_key_type,
+    clippy::type_complexity,
     clippy::unused_io_amount
 )]
 

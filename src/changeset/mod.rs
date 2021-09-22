@@ -50,10 +50,10 @@ pub type ChangeSet<'tx, K> = BTreeSet<Change<'tx, <K as HistoryKind>::Key>>;
 
 #[async_trait]
 pub trait HistoryKind: Send {
-    type ChangeSetTable: DupSort;
+    type ChangeSetTable: DupSort<Key = Vec<u8>, Value = Vec<u8>, SeekBothKey = Vec<u8>>;
     type Key: Eq + Ord + AsRef<[u8]> + Sync;
     type IndexChunkKey: Eq + Ord + AsRef<[u8]>;
-    type IndexTable: Table + Default;
+    type IndexTable: Table<Key = Vec<u8>, Value = Vec<u8>, SeekKey = Vec<u8>> + Default;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
     fn index_chunk_key(key: Self::Key, block_number: BlockNumber) -> Self::IndexChunkKey;
