@@ -7,7 +7,7 @@ use crate::{
     models::*,
     MutableTransaction, Transaction as ReadTransaction,
 };
-use anyhow::{bail, Context};
+use anyhow::Context;
 use ethereum_types::{Address, H256, U256};
 use tokio::pin;
 use tokio_stream::StreamExt;
@@ -21,16 +21,7 @@ pub mod canonical_hash {
         tx: &'tx Tx,
         block_number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<H256>> {
-        let block_number = block_number.into();
-
-        if let Some(b) = tx.get(&tables::CanonicalHeader, block_number).await? {
-            match b.len() {
-                KECCAK_LENGTH => return Ok(Some(H256::from_slice(&*b))),
-                other => bail!("invalid length: {}", other),
-            }
-        }
-
-        Ok(None)
+        tx.get(&tables::CanonicalHeader, block_number.into()).await
     }
 
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
@@ -39,7 +30,6 @@ pub mod canonical_hash {
         hash: H256,
     ) -> anyhow::Result<()> {
         let block_number = block_number.into();
-        let hash = hash.to_fixed_bytes().to_vec();
 
         trace!("Writing canonical hash of {}", block_number);
 
@@ -152,9 +142,11 @@ pub mod tx_sender {
 
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
-        base_tx_id: u64,
+        base_tx_id: impl Into<TxIndex>,
         amount: u32,
     ) -> anyhow::Result<Vec<Address>> {
+        let base_tx_id = base_tx_id.into();
+
         trace!(
             "Reading {} transaction senders starting from {}",
             amount,
@@ -164,14 +156,14 @@ pub mod tx_sender {
         Ok(if amount > 0 {
             let mut cursor = tx.cursor(&tables::TxSender).await?;
 
-            let start_key = base_tx_id.to_be_bytes().to_vec();
+            let start_key = base_tx_id;
             cursor
                 .walk(start_key, |_, _| true)
                 .take(amount as usize)
                 .collect::<anyhow::Result<Vec<_>>>()
                 .await?
                 .into_iter()
-                .map(|(_, address_bytes)| Address::from_slice(&*address_bytes))
+                .map(|(_, address)| address)
                 .collect()
         } else {
             vec![]
@@ -180,9 +172,10 @@ pub mod tx_sender {
 
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
         tx: &'tx RwTx,
-        base_tx_id: u64,
+        base_tx_id: impl Into<TxIndex>,
         senders: &[Address],
     ) -> anyhow::Result<()> {
+        let base_tx_id = base_tx_id.into();
         trace!(
             "Writing {} transaction senders starting from {}",
             senders.len(),
@@ -191,10 +184,11 @@ pub mod tx_sender {
 
         let mut cursor = tx.mutable_cursor(&tables::TxSender).await.unwrap();
 
-        for (i, sender) in senders.iter().enumerate() {
-            let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
-            let data = sender.to_fixed_bytes().to_vec();
-            cursor.put(key, data).await.unwrap();
+        for (i, &sender) in senders.iter().enumerate() {
+            cursor
+                .put(TxIndex(base_tx_id.0 + i as u64), sender)
+                .await
+                .unwrap();
         }
 
         Ok(())

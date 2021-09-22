@@ -129,6 +129,26 @@ impl BlockNumber {
     }
 }
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deref,
+    DerefMut,
+    Default,
+    Display,
+    PartialEq,
+    Eq,
+    From,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct TxIndex(pub u64);
+
 #[allow(non_upper_case_globals)]
 pub const value_to_bytes: fn(U256) -> [u8; 32] = From::<U256>::from;
 

@@ -36,19 +36,22 @@ where
         'db: 'tx,
     {
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut tx_hash_cursor = tx.mutable_cursor(&tables::BlockTransactionLookup).await?;
+        let mut tx_hash_cursor = tx
+            .mutable_cursor(&tables::BlockTransactionLookup.erased())
+            .await?;
 
         let mut block_txs_cursor = tx.cursor(&tables::BlockTransaction).await?;
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
         let mut start_block_number = [0; 8];
-        let (_, last_processed_block_number) = tx
+        let last_processed_block_number = tx
             .mutable_cursor(&tables::BlockTransactionLookup)
             .await?
             .last()
             .await?
-            .unwrap_or((vec![], vec![]));
+            .map(|(_, v)| v)
+            .unwrap_or_else(Vec::new);
 
         (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
             .to_big_endian(&mut start_block_number);

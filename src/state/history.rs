@@ -1,5 +1,4 @@
 use crate::{changeset::*, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
-use arrayref::array_ref;
 use bytes::Bytes;
 use ethereum_types::*;
 use roaring::RoaringTreemap;
@@ -79,7 +78,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                         )
                         .await?
                     {
-                        acc.code_hash = H256(*array_ref![&*code_hash, 0, 32]);
+                        acc.code_hash = code_hash;
                     }
 
                     let data = acc.encode_for_storage(false);

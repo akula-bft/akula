@@ -1,6 +1,7 @@
 use super::*;
 use crate::models::*;
 use arrayref::array_ref;
+use ethereum_types::*;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -155,6 +156,51 @@ macro_rules! u64_table_object {
 
 u64_table_object!(BlockNumber);
 u64_table_object!(Incarnation);
+u64_table_object!(TxIndex);
+
+impl TableEncode for Address {
+    type Encoded = [u8; ADDRESS_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
+impl TableDecode for Address
+where
+    InvalidLength<ADDRESS_LENGTH>: 'static,
+{
+    type DecodeError = InvalidLength<ADDRESS_LENGTH>;
+
+    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+        match b.len() {
+            ADDRESS_LENGTH => Ok(Address::from_slice(&*b)),
+            other => Err(InvalidLength { got: other }),
+        }
+    }
+}
+
+impl TableEncode for H256 {
+    type Encoded = [u8; KECCAK_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
+impl TableDecode for H256
+where
+    InvalidLength<KECCAK_LENGTH>: 'static,
+{
+    type DecodeError = InvalidLength<KECCAK_LENGTH>;
+
+    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+        match b.len() {
+            KECCAK_LENGTH => Ok(H256::from_slice(&*b)),
+            other => Err(InvalidLength { got: other }),
+        }
+    }
+}
 
 impl DupSort for PlainState {
     type SeekBothKey = Vec<u8>;
@@ -173,24 +219,24 @@ impl DupSort for CallTraceSet {
 }
 
 decl_table!(PlainState => Vec<u8> => Vec<u8>);
-decl_table!(PlainCodeHash => Vec<u8> => Vec<u8>);
+decl_table!(PlainCodeHash => Vec<u8> => H256);
 decl_table!(AccountChangeSet => Vec<u8> => Vec<u8>);
 decl_table!(StorageChangeSet => Vec<u8> => Vec<u8>);
-decl_table!(HashedAccount => Vec<u8> => Vec<u8>);
+decl_table!(HashedAccount => H256 => Vec<u8>);
 decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
 decl_table!(AccountHistory => Vec<u8> => Vec<u8>);
 decl_table!(StorageHistory => Vec<u8> => Vec<u8>);
-decl_table!(Code => Vec<u8> => Vec<u8>);
+decl_table!(Code => H256 => Vec<u8>);
 decl_table!(HashedCodeHash => Vec<u8> => Vec<u8>);
 decl_table!(IncarnationMap => Vec<u8> => Vec<u8>);
-decl_table!(TEVMCode => Vec<u8> => Vec<u8>);
+decl_table!(TEVMCode => H256 => Vec<u8>);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(DbInfo => Vec<u8> => Vec<u8>);
 decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
-decl_table!(HeaderNumber => Vec<u8> => BlockNumber);
-decl_table!(CanonicalHeader => BlockNumber => Vec<u8>);
+decl_table!(HeaderNumber => H256 => BlockNumber);
+decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => Vec<u8> => Vec<u8>);
 decl_table!(HeadersTotalDifficulty => Vec<u8> => Vec<u8>);
 decl_table!(BlockBody => Vec<u8> => Vec<u8>);
@@ -202,13 +248,13 @@ decl_table!(LogAddressIndex => Vec<u8> => Vec<u8>);
 decl_table!(CallTraceSet => Vec<u8> => Vec<u8>);
 decl_table!(CallFromIndex => Vec<u8> => Vec<u8>);
 decl_table!(CallToIndex => Vec<u8> => Vec<u8>);
-decl_table!(BlockTransactionLookup => Vec<u8> => Vec<u8>);
-decl_table!(Config => Vec<u8> => Vec<u8>);
+decl_table!(BlockTransactionLookup => H256 => Vec<u8>);
+decl_table!(Config => H256 => Vec<u8>);
 decl_table!(SyncStage => Vec<u8> => BlockNumber);
 decl_table!(CliqueSeparate => Vec<u8> => Vec<u8>);
 decl_table!(CliqueSnapshot => Vec<u8> => Vec<u8>);
 decl_table!(CliqueLastSnapshot => Vec<u8> => Vec<u8>);
-decl_table!(TxSender => Vec<u8> => Vec<u8>);
+decl_table!(TxSender => TxIndex => Address);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
 decl_table!(Sequence => Vec<u8> => Vec<u8>);
