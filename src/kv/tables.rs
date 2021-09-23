@@ -1,5 +1,5 @@
 use super::*;
-use crate::models::*;
+use crate::{models::*, StageId};
 use arrayref::array_ref;
 use ethereum_types::*;
 use maplit::hashmap;
@@ -35,7 +35,10 @@ where
 
     pub fn decode_key(
         input: &[u8],
-    ) -> Result<T::Key, <<T as Table>::Key as TableDecode>::DecodeError> {
+    ) -> Result<T::Key, <<T as Table>::Key as TableDecode>::DecodeError>
+    where
+        <T as Table>::Key: TableDecode,
+    {
         T::Key::decode(input)
     }
 
@@ -202,6 +205,14 @@ where
     }
 }
 
+impl TableEncode for StageId {
+    type Encoded = &'static str;
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
 impl DupSort for PlainState {
     type SeekBothKey = Vec<u8>;
 }
@@ -250,7 +261,7 @@ decl_table!(CallFromIndex => Vec<u8> => Vec<u8>);
 decl_table!(CallToIndex => Vec<u8> => Vec<u8>);
 decl_table!(BlockTransactionLookup => H256 => Vec<u8>);
 decl_table!(Config => H256 => Vec<u8>);
-decl_table!(SyncStage => Vec<u8> => BlockNumber);
+decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(CliqueSeparate => Vec<u8> => Vec<u8>);
 decl_table!(CliqueSnapshot => Vec<u8> => Vec<u8>);
 decl_table!(CliqueLastSnapshot => Vec<u8> => Vec<u8>);
