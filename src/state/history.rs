@@ -1,7 +1,6 @@
 use crate::{changeset::*, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
 use bytes::Bytes;
 use ethereum_types::*;
-use roaring::RoaringTreemap;
 
 pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
@@ -45,9 +44,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         .await?
     {
         if k.starts_with(address.as_fixed_bytes()) {
-            let change_set_block = RoaringTreemap::deserialize_from(&*v)?
-                .into_iter()
-                .find(|n| *n >= *block_number);
+            let change_set_block = v.iter().find(|n| *n >= *block_number);
 
             let data = {
                 if let Some(change_set_block) = change_set_block {
@@ -110,9 +107,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         {
             return Ok(None);
         }
-        let change_set_block = RoaringTreemap::deserialize_from(&*v)?
-            .into_iter()
-            .find(|n| *n >= *timestamp);
+        let change_set_block = v.iter().find(|n| *n >= *timestamp);
 
         let data = {
             if let Some(change_set_block) = change_set_block {

@@ -248,9 +248,7 @@ where
 
         for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys(&k)
         {
-            let mut buf = vec![];
-            chunk.serialize_into(&mut buf)?;
-            tx.set(&K::IndexTable::default(), chunk_key, buf).await?;
+            tx.set(&K::IndexTable::default(), chunk_key, chunk).await?;
         }
     }
 

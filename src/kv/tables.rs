@@ -4,6 +4,7 @@ use arrayref::array_ref;
 use ethereum_types::*;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
+use roaring::RoaringTreemap;
 use serde::Deserialize;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
@@ -205,6 +206,24 @@ where
     }
 }
 
+impl TableEncode for RoaringTreemap {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = vec![];
+        self.serialize_into(&mut out).unwrap();
+        out
+    }
+}
+
+impl TableDecode for RoaringTreemap {
+    type DecodeError = std::io::Error;
+
+    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+        RoaringTreemap::deserialize_from(b)
+    }
+}
+
 impl TableEncode for StageId {
     type Encoded = &'static str;
 
@@ -235,8 +254,8 @@ decl_table!(AccountChangeSet => Vec<u8> => Vec<u8>);
 decl_table!(StorageChangeSet => Vec<u8> => Vec<u8>);
 decl_table!(HashedAccount => H256 => Vec<u8>);
 decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
-decl_table!(AccountHistory => Vec<u8> => Vec<u8>);
-decl_table!(StorageHistory => Vec<u8> => Vec<u8>);
+decl_table!(AccountHistory => Vec<u8> => RoaringTreemap);
+decl_table!(StorageHistory => Vec<u8> => RoaringTreemap);
 decl_table!(Code => H256 => Vec<u8>);
 decl_table!(HashedCodeHash => Vec<u8> => Vec<u8>);
 decl_table!(IncarnationMap => Vec<u8> => Vec<u8>);

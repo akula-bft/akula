@@ -17,7 +17,7 @@ pub async fn get<'db, Tx, T>(
 ) -> anyhow::Result<RoaringTreemap>
 where
     Tx: Transaction<'db>,
-    T: Table<Key = Vec<u8>, Value = Vec<u8>, SeekKey = Vec<u8>>,
+    T: Table<Key = Vec<u8>, Value = RoaringTreemap, SeekKey = Vec<u8>>,
 {
     let mut out: Option<RoaringTreemap> = None;
 
@@ -34,8 +34,6 @@ where
     pin_mut!(s);
 
     while let Some((k, v)) = s.try_next().await? {
-        let v = RoaringTreemap::deserialize_from(v.as_slice())?;
-
         if out.is_some() {
             out = Some(out.unwrap() | v);
         } else {

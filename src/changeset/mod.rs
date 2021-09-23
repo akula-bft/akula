@@ -2,6 +2,7 @@ use crate::{kv::*, models::*, CursorDupSort, *};
 use arrayref::array_ref;
 use async_trait::async_trait;
 use bytes::Bytes;
+use roaring::RoaringTreemap;
 use std::{collections::BTreeSet, fmt::Debug};
 
 mod account;
@@ -53,7 +54,7 @@ pub trait HistoryKind: Send {
     type ChangeSetTable: DupSort<Key = Vec<u8>, Value = Vec<u8>, SeekBothKey = Vec<u8>>;
     type Key: Eq + Ord + AsRef<[u8]> + Sync;
     type IndexChunkKey: Eq + Ord + AsRef<[u8]>;
-    type IndexTable: Table<Key = Vec<u8>, Value = Vec<u8>, SeekKey = Vec<u8>> + Default;
+    type IndexTable: Table<Key = Vec<u8>, Value = RoaringTreemap, SeekKey = Vec<u8>> + Default;
     type EncodedStream<'tx: 'cs, 'cs>: EncodedStream<'tx, 'cs>;
 
     fn index_chunk_key(key: Self::Key, block_number: BlockNumber) -> Self::IndexChunkKey;
