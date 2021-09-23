@@ -207,19 +207,19 @@ impl TableDecode for RoaringTreemap {
     }
 }
 
-pub type BitmapKey<K> = (K, BlockNumber);
+pub struct BitmapKey<K> {
+    pub inner: K,
+    pub block_number: BlockNumber,
+}
 
 impl TableEncode for BitmapKey<Address> {
-    type Encoded = Vec<u8>;
+    type Encoded = [u8; ADDRESS_LENGTH + BLOCK_NUMBER_LENGTH];
 
     fn encode(self) -> Self::Encoded {
-        self.0
-            .encode()
-            .as_ref()
-            .iter()
-            .copied()
-            .chain(self.1.encode())
-            .collect()
+        let mut out = [0; ADDRESS_LENGTH + BLOCK_NUMBER_LENGTH];
+        out[..ADDRESS_LENGTH].copy_from_slice(&self.inner.encode());
+        out[ADDRESS_LENGTH..].copy_from_slice(&self.block_number.encode());
+        out
     }
 }
 
@@ -231,10 +231,43 @@ impl TableDecode for BitmapKey<Address> {
             );
         }
 
-        Ok((
-            Address::decode(&b[..ADDRESS_LENGTH]).unwrap(),
-            BlockNumber::decode(&b[ADDRESS_LENGTH..]).unwrap(),
-        ))
+        Ok(Self {
+            inner: Address::decode(&b[..ADDRESS_LENGTH])?,
+            block_number: BlockNumber::decode(&b[ADDRESS_LENGTH..])?,
+        })
+    }
+}
+
+impl TableEncode for BitmapKey<(Address, H256)> {
+    type Encoded = [u8; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = [0; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
+        out[..ADDRESS_LENGTH].copy_from_slice(&self.inner.0.encode());
+        out[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH].copy_from_slice(&self.inner.1.encode());
+        out[ADDRESS_LENGTH + KECCAK_LENGTH..].copy_from_slice(&self.block_number.encode());
+        out
+    }
+}
+
+impl TableDecode for BitmapKey<(Address, H256)> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH {
+            return Err(
+                InvalidLength::<{ ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH }> {
+                    got: b.len(),
+                }
+                .into(),
+            );
+        }
+
+        Ok(Self {
+            inner: (
+                Address::decode(&b[..ADDRESS_LENGTH])?,
+                H256::decode(&b[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH])?,
+            ),
+            block_number: BlockNumber::decode(&b[ADDRESS_LENGTH + KECCAK_LENGTH..])?,
+        })
     }
 }
 
@@ -262,14 +295,32 @@ impl DupSort for CallTraceSet {
     type SeekBothKey = Vec<u8>;
 }
 
+pub type AccountChangeKey = BlockNumber;
+
+pub struct AccountChange {
+    pub address: Address,
+    pub account: Vec<u8>,
+}
+
+pub struct StorageChangeKey {
+    pub block_number: BlockNumber,
+    pub address: Address,
+    pub incarnation: Incarnation,
+}
+
+pub struct StorageChange {
+    pub location: H256,
+    pub value: H256,
+}
+
 decl_table!(PlainState => Vec<u8> => Vec<u8>);
 decl_table!(PlainCodeHash => Vec<u8> => H256);
-decl_table!(AccountChangeSet => Vec<u8> => Vec<u8>);
-decl_table!(StorageChangeSet => Vec<u8> => Vec<u8>);
+decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
+decl_table!(StorageChangeSet => StorageChangeKey => StorageChange);
 decl_table!(HashedAccount => H256 => Vec<u8>);
 decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
-decl_table!(AccountHistory => Vec<u8> => RoaringTreemap);
-decl_table!(StorageHistory => Vec<u8> => RoaringTreemap);
+decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
+decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Vec<u8>);
 decl_table!(HashedCodeHash => Vec<u8> => Vec<u8>);
 decl_table!(IncarnationMap => Vec<u8> => Vec<u8>);

@@ -3,16 +3,13 @@ use super::*;
 #[async_trait]
 impl HistoryKind for AccountHistory {
     type Key = Address;
-    type IndexChunkKey = [u8; ADDRESS_LENGTH + BLOCK_NUMBER_LENGTH];
+    type IndexChunkKey = Address;
     type IndexTable = tables::AccountHistory;
     type ChangeSetTable = tables::AccountChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn index_chunk_key(key: Self::Key, block_number: BlockNumber) -> Self::IndexChunkKey {
-        let mut v = Self::IndexChunkKey::default();
-        v[..key.as_ref().len()].copy_from_slice(key.as_ref());
-        v[key.as_ref().len()..].copy_from_slice(&block_number.to_be_bytes());
-        v
+    fn index_chunk_key(key: Self::Key) -> Self::IndexChunkKey {
+        key
     }
     async fn find<'tx, C>(
         cursor: &mut C,

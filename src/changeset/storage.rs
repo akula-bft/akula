@@ -1,23 +1,22 @@
 use super::*;
 use crate::CursorDupSort;
 use bytes::Bytes;
+use ethereum_types::*;
 use std::io::Write;
 
 #[async_trait]
 impl HistoryKind for StorageHistory {
     type Key = [u8; ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH];
-    type IndexChunkKey = [u8; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
+    type IndexChunkKey = (Address, H256);
     type IndexTable = tables::StorageHistory;
     type ChangeSetTable = tables::StorageChangeSet;
     type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
 
-    fn index_chunk_key(key: Self::Key, block_number: BlockNumber) -> Self::IndexChunkKey {
-        let mut v = [0; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
-        v[..ADDRESS_LENGTH].copy_from_slice(&key[..ADDRESS_LENGTH]);
-        v[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH]
-            .copy_from_slice(&key[ADDRESS_LENGTH + INCARNATION_LENGTH..]);
-        v[ADDRESS_LENGTH + KECCAK_LENGTH..].copy_from_slice(&block_number.to_be_bytes());
-        v
+    fn index_chunk_key(key: Self::Key) -> Self::IndexChunkKey {
+        (
+            Address::from_slice(&key[..ADDRESS_LENGTH]),
+            H256::from_slice(&key[ADDRESS_LENGTH + INCARNATION_LENGTH..]),
+        )
     }
     async fn find<'tx, C>(
         cursor: &mut C,
@@ -31,7 +30,7 @@ impl HistoryKind for StorageHistory {
             cursor,
             block_number,
             Address::from_slice(&k[..ADDRESS_LENGTH]),
-            &k[ADDRESS_LENGTH..],
+            H256::from_slice(&k[ADDRESS_LENGTH + INCARNATION_LENGTH..]),
             0.into(),
         )
         .await
@@ -78,20 +77,14 @@ impl HistoryKind for StorageHistory {
 pub async fn find_with_incarnation<'tx, C>(
     c: &mut C,
     block_number: impl Into<BlockNumber>,
-    k: &[u8],
+    address: Address,
+    incarnation: Incarnation,
+    location: H256,
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
     C: CursorDupSort<'tx, tables::StorageChangeSet>,
 {
-    do_search_2(
-        c,
-        block_number.into(),
-        Address::from_slice(&k[..ADDRESS_LENGTH]),
-        &k[ADDRESS_LENGTH + INCARNATION_LENGTH
-            ..ADDRESS_LENGTH + INCARNATION_LENGTH + KECCAK_LENGTH],
-        u64::from_be_bytes(*array_ref!(&k[ADDRESS_LENGTH..], 0, INCARNATION_LENGTH)).into(),
-    )
-    .await
+    do_search_2(c, block_number.into(), address, location, incarnation).await
 }
 
 #[allow(dead_code)]
@@ -118,7 +111,7 @@ pub async fn do_search_2<'tx, C>(
     c: &mut C,
     block_number: BlockNumber,
     address_to_find: Address,
-    key_bytes_to_find: &[u8],
+    location_to_find: H256,
     incarnation: Incarnation,
 ) -> anyhow::Result<Option<Bytes<'tx>>>
 where
@@ -136,7 +129,7 @@ where
             }
 
             let st_hash = &change.key[ADDRESS_LENGTH + INCARNATION_LENGTH..];
-            if st_hash == key_bytes_to_find {
+            if st_hash == &location_to_find.0 {
                 return Ok(Some(change.value));
             }
 

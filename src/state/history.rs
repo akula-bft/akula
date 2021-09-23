@@ -1,4 +1,11 @@
-use crate::{changeset::*, dbutils, dbutils::*, kv::*, models::*, Cursor, Transaction};
+use crate::{
+    changeset::*,
+    dbutils,
+    dbutils::*,
+    kv::{tables::BitmapKey, *},
+    models::*,
+    Cursor, Transaction,
+};
 use bytes::Bytes;
 use ethereum_types::*;
 
@@ -20,14 +27,16 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     incarnation: Incarnation,
-    key: H256,
+    location: H256,
     block_number: impl Into<BlockNumber>,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let key = plain_generate_composite_storage_key(address, incarnation, key);
-    if let Some(v) = find_storage_by_history(tx, key, block_number.into()).await? {
+    if let Some(v) =
+        find_storage_by_history(tx, address, incarnation, location, block_number.into()).await?
+    {
         return Ok(Some(v));
     }
 
+    let key = plain_generate_composite_storage_key(address, incarnation, location);
     tx.get(&tables::PlainState, key.to_vec())
         .await
         .map(|opt| opt.map(From::from))
@@ -40,10 +49,13 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
-        .seek(AccountHistory::index_chunk_key(address, block_number).to_vec())
+        .seek(BitmapKey {
+            inner: address,
+            block_number,
+        })
         .await?
     {
-        if k.starts_with(address.as_fixed_bytes()) {
+        if k.inner == address {
             let change_set_block = v.iter().find(|n| *n >= *block_number);
 
             let data = {
@@ -93,18 +105,20 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
-    key: PlainCompositeStorageKey,
+    address: Address,
+    incarnation: Incarnation,
+    location: H256,
     timestamp: BlockNumber,
-) -> anyhow::Result<Option<Bytes<'tx>>> {
+) -> anyhow::Result<Option<H256>> {
     let mut ch = tx.cursor(&tables::StorageHistory).await?;
     if let Some((k, v)) = ch
-        .seek(StorageHistory::index_chunk_key(key, timestamp).to_vec())
+        .seek(BitmapKey {
+            inner: (address, location),
+            block_number: timestamp,
+        })
         .await?
     {
-        if k[..ADDRESS_LENGTH] != key[..ADDRESS_LENGTH]
-            || k[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH]
-                != key[ADDRESS_LENGTH + INCARNATION_LENGTH..]
-        {
+        if k.inner.0 != address || k.inner.1 != location {
             return Ok(None);
         }
         let change_set_block = v.iter().find(|n| *n >= *timestamp);
@@ -113,8 +127,14 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
             if let Some(change_set_block) = change_set_block {
                 let data = {
                     let mut c = tx.cursor_dup_sort(&tables::StorageChangeSet).await?;
-                    find_storage_with_incarnation(&mut c, BlockNumber(change_set_block), &key)
-                        .await?
+                    find_storage_with_incarnation(
+                        &mut c,
+                        BlockNumber(change_set_block),
+                        address,
+                        incarnation,
+                        location,
+                    )
+                    .await?
                 };
 
                 if let Some(data) = data {
@@ -244,15 +264,9 @@ mod tests {
 
             assert_eq!(acc_state[i], acc);
 
-            let index = bitmapdb::get(
-                &tx,
-                &tables::AccountHistory,
-                address.as_bytes(),
-                0,
-                u64::MAX,
-            )
-            .await
-            .unwrap();
+            let index = bitmapdb::get(&tx, &tables::AccountHistory, address, 0, u64::MAX)
+                .await
+                .unwrap();
 
             assert_eq!(index.iter().next().unwrap(), 2);
             assert_eq!(index.len(), 1);

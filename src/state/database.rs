@@ -2,7 +2,10 @@ use crate::{
     bitmapdb,
     changeset::{AccountHistory, Change, HistoryKind, StorageHistory},
     dbutils,
-    kv::tables,
+    kv::{
+        tables::{self, BitmapKey},
+        TableDecode,
+    },
     models::*,
     ChangeSet, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
 };
@@ -235,20 +238,27 @@ async fn write_index<'db: 'tx, 'tx, K, Tx>(
 ) -> anyhow::Result<()>
 where
     K: HistoryKind,
+    BitmapKey<K::IndexChunkKey>: TableDecode,
     Tx: MutableTransaction<'db>,
 {
     for change in changes {
-        let k = dbutils::composite_key_without_incarnation::<K>(&change.key);
-
-        let mut index = bitmapdb::get(tx, &K::IndexTable::default(), &k, 0, u64::MAX)
+        let k = K::index_chunk_key(change.key);
+        let mut index = bitmapdb::get(tx, &K::IndexTable::default(), k.clone(), 0, u64::MAX)
             .await
             .context("failed to find chunk")?;
 
         index.push(*block_number);
 
-        for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys(&k)
-        {
-            tx.set(&K::IndexTable::default(), chunk_key, chunk).await?;
+        for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys() {
+            tx.set(
+                &K::IndexTable::default(),
+                BitmapKey {
+                    inner: k.clone(),
+                    block_number: chunk_key,
+                },
+                chunk,
+            )
+            .await?;
         }
     }
 
