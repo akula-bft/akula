@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum_types::Address;
 use futures_core::stream::{BoxStream, LocalBoxStream};
-use std::{error::Error, fmt::Debug};
+use std::fmt::Debug;
 
 #[async_trait]
 pub trait KV: Send + Sync + 'static {
@@ -28,9 +28,7 @@ pub trait TableEncode: Send + Sync + Sized {
 }
 
 pub trait TableDecode: Send + Sync + Sized {
-    type DecodeError: Error + Send + Sync + 'static;
-
-    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError>;
+    fn decode(b: &[u8]) -> anyhow::Result<Self>;
 }
 
 pub trait TableObject: TableEncode + TableDecode {}

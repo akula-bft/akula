@@ -6,7 +6,7 @@ use ::mdbx::{DatabaseFlags, EnvironmentKind, TransactionKind, WriteFlags, RO, RW
 use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
-use std::{collections::HashMap, ops::Deref, path::Path, str, sync::Arc};
+use std::{collections::HashMap, ops::Deref, path::Path, str};
 use tables::*;
 
 #[derive(Clone, Debug)]
@@ -21,7 +21,7 @@ where
         Self: Sized,
     {
         T::decode(data_val)
-            .map_err(|e| ::mdbx::Error::DecodeError(Arc::new(e)))
+            .map_err(|e| ::mdbx::Error::DecodeError(e.into()))
             .map(Self)
     }
 }

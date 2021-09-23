@@ -34,9 +34,7 @@ where
         object.encode()
     }
 
-    pub fn decode_key(
-        input: &[u8],
-    ) -> Result<T::Key, <<T as Table>::Key as TableDecode>::DecodeError>
+    pub fn decode_key(input: &[u8]) -> anyhow::Result<T::Key>
     where
         <T as Table>::Key: TableDecode,
     {
@@ -47,9 +45,7 @@ where
         object.encode()
     }
 
-    pub fn decode_value(
-        input: &[u8],
-    ) -> Result<T::Value, <<T as Table>::Value as TableDecode>::DecodeError> {
+    pub fn decode_value(input: &[u8]) -> anyhow::Result<T::Value> {
         T::Value::decode(input)
     }
 
@@ -112,9 +108,7 @@ impl traits::TableEncode for Vec<u8> {
 }
 
 impl traits::TableDecode for Vec<u8> {
-    type DecodeError = !;
-
-    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
         Ok(b.to_vec())
     }
 }
@@ -138,12 +132,10 @@ macro_rules! u64_table_object {
         where
             InvalidLength<8>: 'static,
         {
-            type DecodeError = InvalidLength<8>;
-
-            fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
                 match b.len() {
                     8 => Ok(Self(u64::from_be_bytes(*array_ref!(&*b, 0, 8)))),
-                    other => Err(InvalidLength { got: other }),
+                    other => Err(InvalidLength::<8> { got: other }.into()),
                 }
             }
         }
@@ -170,16 +162,11 @@ impl TableEncode for Address {
     }
 }
 
-impl TableDecode for Address
-where
-    InvalidLength<ADDRESS_LENGTH>: 'static,
-{
-    type DecodeError = InvalidLength<ADDRESS_LENGTH>;
-
-    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+impl TableDecode for Address {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
         match b.len() {
             ADDRESS_LENGTH => Ok(Address::from_slice(&*b)),
-            other => Err(InvalidLength { got: other }),
+            other => Err(InvalidLength::<ADDRESS_LENGTH> { got: other }.into()),
         }
     }
 }
@@ -196,12 +183,10 @@ impl TableDecode for H256
 where
     InvalidLength<KECCAK_LENGTH>: 'static,
 {
-    type DecodeError = InvalidLength<KECCAK_LENGTH>;
-
-    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
         match b.len() {
             KECCAK_LENGTH => Ok(H256::from_slice(&*b)),
-            other => Err(InvalidLength { got: other }),
+            other => Err(InvalidLength::<KECCAK_LENGTH> { got: other }.into()),
         }
     }
 }
@@ -217,10 +202,39 @@ impl TableEncode for RoaringTreemap {
 }
 
 impl TableDecode for RoaringTreemap {
-    type DecodeError = std::io::Error;
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        Ok(RoaringTreemap::deserialize_from(b)?)
+    }
+}
 
-    fn decode(b: &[u8]) -> Result<Self, Self::DecodeError> {
-        RoaringTreemap::deserialize_from(b)
+pub type BitmapKey<K> = (K, BlockNumber);
+
+impl TableEncode for BitmapKey<Address> {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+            .encode()
+            .as_ref()
+            .iter()
+            .copied()
+            .chain(self.1.encode())
+            .collect()
+    }
+}
+
+impl TableDecode for BitmapKey<Address> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != ADDRESS_LENGTH + BLOCK_NUMBER_LENGTH {
+            return Err(
+                InvalidLength::<{ ADDRESS_LENGTH + BLOCK_NUMBER_LENGTH }> { got: b.len() }.into(),
+            );
+        }
+
+        Ok((
+            Address::decode(&b[..ADDRESS_LENGTH]).unwrap(),
+            BlockNumber::decode(&b[ADDRESS_LENGTH..]).unwrap(),
+        ))
     }
 }
 
