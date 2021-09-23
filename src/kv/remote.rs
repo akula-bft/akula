@@ -106,6 +106,17 @@ impl<'env> crate::Transaction<'env> for RemoteTransaction {
     {
         self.cursor(table).await
     }
+
+    async fn get<'tx, T>(&'tx self, table: &T, key: T::Key) -> anyhow::Result<Option<T::Value>>
+    where
+        'env: 'tx,
+        T: Table,
+    {
+        self.cursor(table)
+            .await?
+            .op_value(Op::SeekExact, Some(key.encode().as_ref()), None)
+            .await
+    }
 }
 
 impl<'tx, T: Table> RemoteCursor<'tx, T> {
@@ -114,7 +125,7 @@ impl<'tx, T: Table> RemoteCursor<'tx, T> {
         op: Op,
         key: Option<&[u8]>,
         value: Option<&[u8]>,
-    ) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    ) -> anyhow::Result<Option<Pair>> {
         let mut io = self.transaction.io.lock().await;
 
         io.0.send(Cursor {
@@ -129,40 +140,101 @@ impl<'tx, T: Table> RemoteCursor<'tx, T> {
 
         let rsp = io.1.message().await?.context("no response")?;
 
-        Ok((!rsp.k.is_empty() || !rsp.v.is_empty())
-            .then_some((T::Key::decode(&*rsp.k)?, T::Value::decode(&*rsp.v)?)))
+        Ok((!rsp.k.is_empty() || !rsp.v.is_empty()).then_some(rsp))
+    }
+
+    async fn op_none(
+        &mut self,
+        op: Op,
+        key: Option<&[u8]>,
+        value: Option<&[u8]>,
+    ) -> anyhow::Result<()> {
+        self.op(op, key, value).await?;
+
+        Ok(())
+    }
+
+    async fn op_value(
+        &mut self,
+        op: Op,
+        key: Option<&[u8]>,
+        value: Option<&[u8]>,
+    ) -> anyhow::Result<Option<T::Value>> {
+        if let Some(rsp) = self.op(op, key, value).await? {
+            return Ok(Some(T::Value::decode(&*rsp.v)?));
+        }
+
+        Ok(None)
+    }
+
+    async fn op_kv(
+        &mut self,
+        op: Op,
+        key: Option<&[u8]>,
+        value: Option<&[u8]>,
+    ) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        if let Some(rsp) = self.op(op, key, value).await? {
+            return Ok(Some((T::Key::decode(&*rsp.k)?, T::Value::decode(&*rsp.v)?)));
+        }
+
+        Ok(None)
     }
 }
 
 #[async_trait]
 impl<'tx, T: Table> traits::Cursor<'tx, T> for RemoteCursor<'tx, T> {
-    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::First, None, None).await
+    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::First, None, None).await
     }
 
-    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::Seek, Some(key.encode().as_ref()), None).await
-    }
-
-    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::SeekExact, Some(key.encode().as_ref()), None)
+    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::Seek, Some(key.encode().as_ref()), None)
             .await
     }
 
-    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::Next, None, None).await
+    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::SeekExact, Some(key.encode().as_ref()), None)
+            .await
     }
 
-    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::Prev, None, None).await
+    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::Next, None, None).await
     }
 
-    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::Last, None, None).await
+    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::Prev, None, None).await
     }
 
-    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::Current, None, None).await
+    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::Last, None, None).await
+    }
+
+    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::Current, None, None).await
     }
 }
 
@@ -174,20 +246,25 @@ impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
         value: T::SeekBothKey,
     ) -> anyhow::Result<Option<T::Value>> {
         Ok(self
-            .op(
+            .op_value(
                 Op::SeekBoth,
                 Some(key.encode().as_ref()),
                 Some(value.encode().as_ref()),
             )
-            .await?
-            .map(|(_, v)| v))
+            .await?)
     }
 
-    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::NextDup, None, None).await
+    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::NextDup, None, None).await
     }
-    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
-        self.op(Op::NextNoDup, None, None).await
+    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::NextNoDup, None, None).await
     }
 }
 

@@ -38,7 +38,7 @@ pub trait TableObject: TableEncode + TableDecode {}
 impl<T> TableObject for T where T: TableEncode + TableDecode {}
 
 pub trait Table: Send + Sync + Debug + 'static {
-    type Key: TableObject;
+    type Key: TableEncode;
     type Value: TableObject;
     type SeekKey: TableEncode;
 
@@ -70,12 +70,7 @@ pub trait Transaction<'db>: Send + Sync + Debug + Sized {
     async fn get<'tx, T>(&'tx self, table: &T, key: T::Key) -> anyhow::Result<Option<T::Value>>
     where
         'db: 'tx,
-        T: Table,
-    {
-        let mut cursor = self.cursor(table).await?;
-
-        Ok(cursor.seek_exact(key).await?.map(|(_, v)| v))
-    }
+        T: Table;
 
     async fn read_sequence<'tx, T>(&'tx self, table: &T) -> anyhow::Result<u64>
     where
@@ -146,13 +141,27 @@ pub trait Cursor<'tx, T>: Send + Debug
 where
     T: Table,
 {
-    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
-    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>>;
-    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>>;
-    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
-    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
-    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
-    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
+    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
 
     fn walk<'cur, F>(
         &'cur mut self,
@@ -160,6 +169,7 @@ where
         take_while: F,
     ) -> BoxStream<'cur, anyhow::Result<(T::Key, T::Value)>>
     where
+        T::Key: TableDecode,
         F: Fn(&T::Key, &T::Value) -> bool + Send + 'cur,
         'tx: 'cur,
     {
@@ -219,9 +229,13 @@ where
         value: T::SeekBothKey,
     ) -> anyhow::Result<Option<T::Value>>;
     /// Position at next data item of current key
-    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
+    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
     /// Position at first data item of next key
-    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>;
+    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
 }
 
 #[async_trait]

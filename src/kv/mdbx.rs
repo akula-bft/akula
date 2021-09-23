@@ -297,31 +297,52 @@ where
     K: TransactionKind,
     T: Table,
 {
-    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.first())?)
     }
 
-    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.set_range(key.encode().as_ref()))?)
     }
 
-    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.set_key(key.encode().as_ref()))?)
     }
 
-    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.next())?)
     }
 
-    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.prev())?)
     }
 
-    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.last())?)
     }
 
-    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.get_current())?)
     }
 }
@@ -343,11 +364,17 @@ where
             .map(|w: TableObjectWrapper<_>| w.0))
     }
 
-    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.next_dup())?)
     }
 
-    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>> {
+    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
         Ok(map_res_inner(self.inner.next_nodup())?)
     }
 }
