@@ -217,7 +217,7 @@ mod tests {
                 .unwrap();
 
             for (k, v) in StorageHistory::encode(1.into(), &ch) {
-                c.put(k, v).await.unwrap()
+                c.put((k, v)).await.unwrap()
             }
 
             for v in ch {
@@ -326,7 +326,7 @@ mod tests {
             .await
             .unwrap();
         for (k, v) in StorageHistory::encode(1.into(), &ch) {
-            c.put(k, v).await.unwrap()
+            c.put((k, v)).await.unwrap()
         }
 
         assert_eq!(

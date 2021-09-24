@@ -172,12 +172,15 @@ impl<'tx, T: Table> RemoteCursor<'tx, T> {
         op: Op,
         key: Option<&[u8]>,
         value: Option<&[u8]>,
-    ) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    ) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
         if let Some(rsp) = self.op(op, key, value).await? {
-            return Ok(Some((T::Key::decode(&*rsp.k)?, T::Value::decode(&*rsp.v)?)));
+            return Ok(Some(T::fuse_values(
+                T::Key::decode(&*rsp.k)?,
+                T::Value::decode(&*rsp.v)?,
+            )?));
         }
 
         Ok(None)
@@ -186,14 +189,14 @@ impl<'tx, T: Table> RemoteCursor<'tx, T> {
 
 #[async_trait]
 impl<'tx, T: Table> traits::Cursor<'tx, T> for RemoteCursor<'tx, T> {
-    async fn first(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn first(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
         self.op_kv(Op::First, None, None).await
     }
 
-    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn seek(&mut self, key: T::SeekKey) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
@@ -201,7 +204,7 @@ impl<'tx, T: Table> traits::Cursor<'tx, T> for RemoteCursor<'tx, T> {
             .await
     }
 
-    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn seek_exact(&mut self, key: T::Key) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
@@ -209,28 +212,28 @@ impl<'tx, T: Table> traits::Cursor<'tx, T> for RemoteCursor<'tx, T> {
             .await
     }
 
-    async fn next(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn next(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
         self.op_kv(Op::Next, None, None).await
     }
 
-    async fn prev(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn prev(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
         self.op_kv(Op::Prev, None, None).await
     }
 
-    async fn last(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn last(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
         self.op_kv(Op::Last, None, None).await
     }
 
-    async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn current(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
@@ -254,13 +257,13 @@ impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
             .await?)
     }
 
-    async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn next_dup(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {
         self.op_kv(Op::NextDup, None, None).await
     }
-    async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    async fn next_no_dup(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where
         T::Key: TableDecode,
     {

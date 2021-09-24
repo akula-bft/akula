@@ -199,7 +199,7 @@ mod tests {
         block_writer.write_history().await.unwrap();
 
         let mut cursor = tx.cursor(&tables::AccountChangeSet).await.unwrap();
-        let s = cursor.walk(None, |_, _| true);
+        let s = cursor.walk(None, |_| true);
 
         pin_mut!(s);
 
@@ -220,7 +220,7 @@ mod tests {
         let bn = BlockNumber(1);
         let s = cursor.walk(
             Some(StorageChangeSeekKey::Block(bn)),
-            |StorageChangeKey { block_number, .. }, _| *block_number == bn,
+            |(StorageChangeKey { block_number, .. }, _)| *block_number == bn,
         );
 
         pin_mut!(s);
@@ -280,7 +280,7 @@ mod tests {
 
             let prefix = plain_generate_storage_prefix(address, acc.incarnation).to_vec();
             let res_account_storage = plain_state
-                .walk(Some(prefix.clone()), |key, _| key.starts_with(&prefix))
+                .walk(Some(prefix.clone()), |(key, _)| key.starts_with(&prefix))
                 .fold(HashMap::new(), |mut accum, res| {
                     let (k, v) = res.unwrap();
                     accum.insert(
@@ -309,7 +309,7 @@ mod tests {
             .cursor(&tables::AccountChangeSet)
             .await
             .unwrap()
-            .walk(Some(bn), |key, _| *key == bn)
+            .walk(Some(bn), |(key, _)| *key == bn)
             .map(|res| {
                 let (k, v) = res.unwrap();
                 AccountHistory::decode(k, v).1
@@ -334,7 +334,7 @@ mod tests {
             .unwrap()
             .walk(
                 Some(StorageChangeSeekKey::Block(bn)),
-                |StorageChangeKey { block_number, .. }, _| *block_number == bn,
+                |(StorageChangeKey { block_number, .. }, _)| *block_number == bn,
             )
             .map(|res| {
                 let (k, v) = res.unwrap();

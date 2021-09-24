@@ -41,7 +41,7 @@ where
 
         let start_key = past_progress.to_be_bytes().to_vec();
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = bodies_cursor.walk(Some(start_key), |_, _| true);
+        let walker = bodies_cursor.walk(Some(start_key), |_| true);
         pin!(walker);
 
         while let Some((block_key, _)) = walker.try_next().await? {

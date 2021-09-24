@@ -23,9 +23,18 @@ where
     type Key = Vec<u8>;
     type Value = Vec<u8>;
     type SeekKey = Vec<u8>;
+    type FusedValue = (Self::Key, Self::Value);
 
     fn db_name(&self) -> string::String<StaticBytes> {
         self.0.db_name()
+    }
+
+    fn fuse_values(key: Self::Key, value: Self::Value) -> anyhow::Result<Self::FusedValue> {
+        Ok((key, value))
+    }
+
+    fn split_fused((key, value): Self::FusedValue) -> (Self::Key, Self::Value) {
+        (key, value)
     }
 }
 
@@ -66,6 +75,7 @@ macro_rules! decl_table {
             type Key = $key;
             type SeekKey = $seek_key;
             type Value = $value;
+            type FusedValue = (Self::Key, Self::Value);
 
             fn db_name(&self) -> string::String<static_bytes::Bytes> {
                 unsafe {
@@ -73,6 +83,14 @@ macro_rules! decl_table {
                         Self::const_db_name().as_bytes(),
                     ))
                 }
+            }
+
+            fn fuse_values(key: Self::Key, value: Self::Value) -> anyhow::Result<Self::FusedValue> {
+                Ok((key, value))
+            }
+
+            fn split_fused((key, value): Self::FusedValue) -> (Self::Key, Self::Value) {
+                (key, value)
             }
         }
 

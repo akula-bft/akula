@@ -34,7 +34,7 @@ pub mod canonical_hash {
         trace!("Writing canonical hash of {}", block_number);
 
         let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
-        cursor.put(block_number, hash).await.unwrap();
+        cursor.put((block_number, hash)).await.unwrap();
 
         Ok(())
     }
@@ -96,7 +96,7 @@ pub mod tx {
             let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
 
             let start_key = base_tx_id.to_be_bytes().to_vec();
-            let walker = cursor.walk(Some(start_key), |_, _| true);
+            let walker = cursor.walk(Some(start_key), |_| true);
 
             pin!(walker);
 
@@ -130,7 +130,7 @@ pub mod tx {
         for (i, eth_tx) in txs.iter().enumerate() {
             let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
             let data = rlp::encode(eth_tx).to_vec();
-            cursor.put(key, data).await.unwrap();
+            cursor.put((key, data)).await.unwrap();
         }
 
         Ok(())
@@ -158,7 +158,7 @@ pub mod tx_sender {
 
             let start_key = base_tx_id;
             cursor
-                .walk(Some(start_key), |_, _| true)
+                .walk(Some(start_key), |_| true)
                 .take(amount as usize)
                 .collect::<anyhow::Result<Vec<_>>>()
                 .await?
@@ -186,7 +186,7 @@ pub mod tx_sender {
 
         for (i, &sender) in senders.iter().enumerate() {
             cursor
-                .put(TxIndex(base_tx_id.0 + i as u64), sender)
+                .put((TxIndex(base_tx_id.0 + i as u64), sender))
                 .await
                 .unwrap();
         }
@@ -250,7 +250,7 @@ pub mod storage_body {
         let data = rlp::encode(body);
         let mut cursor = tx.mutable_cursor(&tables::BlockBody).await.unwrap();
         cursor
-            .put(header_key(number, hash).to_vec(), data.to_vec())
+            .put((header_key(number, hash).to_vec(), data.to_vec()))
             .await
             .unwrap();
 

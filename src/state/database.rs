@@ -246,11 +246,13 @@ where
         for (chunk_key, chunk) in bitmapdb::Chunks::new(index, bitmapdb::CHUNK_LIMIT).with_keys() {
             tx.set(
                 &K::IndexTable::default(),
-                BitmapKey {
-                    inner: k.clone(),
-                    block_number: chunk_key,
-                },
-                chunk,
+                (
+                    BitmapKey {
+                        inner: k.clone(),
+                        block_number: chunk_key,
+                    },
+                    chunk,
+                ),
             )
             .await?;
         }
@@ -279,9 +281,13 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
             for (k, v) in s {
                 let dup = prev_k.map(|prev_k| k == prev_k).unwrap_or(false);
                 if dup {
-                    cursor.append_dup(k.clone(), v).await?;
+                    cursor
+                        .append_dup(K::ChangeSetTable::fuse_values(k.clone(), v)?)
+                        .await?;
                 } else {
-                    cursor.append(k.clone(), v).await?;
+                    cursor
+                        .append(K::ChangeSetTable::fuse_values(k.clone(), v)?)
+                        .await?;
                 }
 
                 prev_k = Some(k);
@@ -359,7 +365,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         let value = account.encode_for_storage(false);
 
         self.tx
-            .set(&tables::PlainState, address.as_bytes().to_vec(), value)
+            .set(&tables::PlainState, (address.as_bytes().to_vec(), value))
             .await
     }
 
@@ -374,12 +380,16 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .update_account_code(address, incarnation, code_hash, code)
             .await?;
 
-        self.tx.set(&tables::Code, code_hash, code.to_vec()).await?;
+        self.tx
+            .set(&tables::Code, (code_hash, code.to_vec()))
+            .await?;
         self.tx
             .set(
                 &tables::PlainCodeHash,
-                dbutils::plain_generate_storage_prefix(address, incarnation).to_vec(),
-                code_hash,
+                (
+                    dbutils::plain_generate_storage_prefix(address, incarnation).to_vec(),
+                    code_hash,
+                ),
             )
             .await?;
 
@@ -392,14 +402,16 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         self.tx
             .mutable_cursor(&tables::PlainState)
             .await?
-            .delete(address.as_bytes().to_vec(), vec![])
+            .delete((address.as_bytes().to_vec(), vec![]))
             .await?;
         if original.incarnation.0 > 0 {
             self.tx
                 .set(
                     &tables::IncarnationMap,
-                    address.as_bytes().to_vec(),
-                    original.incarnation.to_be_bytes().to_vec(),
+                    (
+                        address.as_bytes().to_vec(),
+                        original.incarnation.to_be_bytes().to_vec(),
+                    ),
                 )
                 .await?;
         }
@@ -428,9 +440,9 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
 
         let mut c = self.tx.mutable_cursor(&tables::PlainState).await?;
         if value.is_zero() {
-            c.delete(composite_key, vec![]).await?;
+            c.delete((composite_key, vec![])).await?;
         } else {
-            c.put(composite_key, value.0.to_vec()).await?;
+            c.put((composite_key, value.0.to_vec())).await?;
         }
 
         Ok(())

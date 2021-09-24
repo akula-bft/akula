@@ -41,7 +41,7 @@ impl Collector {
         load_function: Option<fn(&mut C, Vec<u8>, Vec<u8>)>,
     ) -> anyhow::Result<()>
     where
-        T: Table<Key = Vec<u8>, Value = Vec<u8>>,
+        T: Table<Key = Vec<u8>, Value = Vec<u8>, FusedValue = (Vec<u8>, Vec<u8>)>,
         C: MutableCursor<'tx, T>,
     {
         // If only one data provider is found, then we we can write directly from memory to db without reading any files
@@ -51,7 +51,7 @@ impl Collector {
                 if let Some(f) = &load_function {
                     (f)(cursor, entry.key.to_vec(), entry.value.to_vec());
                 } else {
-                    cursor.put(entry.key.clone(), entry.value.clone()).await?;
+                    cursor.put((entry.key.clone(), entry.value.clone())).await?;
                 }
             }
             self.buffer.clear();
@@ -83,7 +83,7 @@ impl Collector {
             if let Some(f) = &load_function {
                 (f)(cursor, entry.key.to_vec(), entry.value.to_vec());
             } else {
-                cursor.put(entry.key, entry.value).await?;
+                cursor.put((entry.key, entry.value)).await?;
             }
             let (next_key, next_value) = self.data_providers[entry.id].to_next()?;
             if !next_key.is_empty() {
