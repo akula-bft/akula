@@ -232,7 +232,7 @@ impl TableEncode for ZerolessH256 {
 
     fn encode(self) -> Self::Encoded {
         let mut out = ArrayVec::new();
-        out.try_extend_from_slice(&zeroless_view(&self.0)).unwrap();
+        out.try_extend_from_slice(zeroless_view(&self.0)).unwrap();
         out
     }
 }
@@ -353,6 +353,7 @@ impl DupSort for CallTraceSet {
 
 pub type AccountChangeKey = BlockNumber;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct AccountChange {
     pub address: Address,
     pub account: Vec<u8>,
@@ -361,7 +362,7 @@ pub struct AccountChange {
 impl TableEncode for AccountChange {
     type Encoded = Vec<u8>;
 
-    fn encode(self) -> Self::Encoded {
+    fn encode(mut self) -> Self::Encoded {
         let mut out = Vec::with_capacity(BLOCK_NUMBER_LENGTH + self.account.len());
         out.extend_from_slice(&self.address.encode());
         out.append(&mut self.account);
@@ -382,6 +383,7 @@ impl TableDecode for AccountChange {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct StorageChangeKey {
     pub block_number: BlockNumber,
     pub address: Address,
@@ -422,6 +424,34 @@ impl TableDecode for StorageChangeKey {
     }
 }
 
+pub enum StorageChangeSeekKey {
+    Block(BlockNumber),
+    BlockAndAddress(BlockNumber, Address),
+    Full(StorageChangeKey),
+}
+
+impl TableEncode for StorageChangeSeekKey {
+    type Encoded = ArrayVec<u8, { BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH }>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = ArrayVec::new();
+        match self {
+            StorageChangeSeekKey::Block(block) => {
+                out.try_extend_from_slice(&block.encode()).unwrap();
+            }
+            StorageChangeSeekKey::BlockAndAddress(block, address) => {
+                out.try_extend_from_slice(&block.encode()).unwrap();
+                out.try_extend_from_slice(&address.encode()).unwrap();
+            }
+            StorageChangeSeekKey::Full(key) => {
+                out.try_extend_from_slice(&key.encode()).unwrap();
+            }
+        }
+        out
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct StorageChange {
     pub location: H256,
     pub value: ZerolessH256,
@@ -454,7 +484,7 @@ impl TableDecode for StorageChange {
 decl_table!(PlainState => Vec<u8> => Vec<u8>);
 decl_table!(PlainCodeHash => Vec<u8> => H256);
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
-decl_table!(StorageChangeSet => StorageChangeKey => StorageChange);
+decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => StorageChangeSeekKey);
 decl_table!(HashedAccount => H256 => Vec<u8>);
 decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);

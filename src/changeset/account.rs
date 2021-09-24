@@ -33,7 +33,7 @@ impl HistoryKind for AccountHistory {
         Ok(None)
     }
 
-    fn encode<'cs>(block_number: BlockNumber, s: &'cs ChangeSet<Self>) -> Self::EncodedStream<'cs> {
+    fn encode(block_number: BlockNumber, s: &ChangeSet<Self>) -> Self::EncodedStream<'_> {
         s.iter().map(move |(address, account)| {
             (
                 block_number,
@@ -45,7 +45,7 @@ impl HistoryKind for AccountHistory {
         })
     }
 
-    fn decode<'tx>(
+    fn decode(
         block_number: <Self::ChangeSetTable as Table>::Key,
         AccountChange { address, account }: <Self::ChangeSetTable as Table>::Value,
     ) -> (BlockNumber, Change<Self::Key, Self::Value>) {

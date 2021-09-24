@@ -44,10 +44,7 @@ impl HistoryKind for StorageHistory {
         Ok(None)
     }
 
-    fn encode<'cs>(
-        block_number: BlockNumber,
-        changes: &'cs ChangeSet<Self>,
-    ) -> Self::EncodedStream<'cs> {
+    fn encode(block_number: BlockNumber, changes: &ChangeSet<Self>) -> Self::EncodedStream<'_> {
         changes
             .iter()
             .map(move |&((address, incarnation, location), value)| {

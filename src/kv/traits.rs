@@ -163,7 +163,7 @@ where
 
     fn walk<'cur, F>(
         &'cur mut self,
-        start_key: T::SeekKey,
+        start_key: Option<T::SeekKey>,
         take_while: F,
     ) -> BoxStream<'cur, anyhow::Result<(T::Key, T::Value)>>
     where
@@ -172,7 +172,12 @@ where
         'tx: 'cur,
     {
         Box::pin(try_stream! {
-            if let Some((mut k, mut v)) = self.seek(start_key).await? {
+            let start = if let Some(start_key) = start_key {
+                self.seek(start_key).await?
+            } else {
+                self.first().await?
+            };
+            if let Some((mut k, mut v)) = start {
                 loop {
                     if !(take_while)(&k, &v) {
                         break;

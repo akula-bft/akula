@@ -4,7 +4,7 @@ use crate::{
     dbutils,
     kv::{
         tables::{self, BitmapKey},
-        TableDecode,
+        Table, TableDecode,
     },
     models::*,
     ChangeSet, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
@@ -66,8 +66,8 @@ pub trait StateWriter {
         address: Address,
         incarnation: Incarnation,
         key: H256,
-        original: U256,
-        value: U256,
+        original: H256,
+        value: H256,
     ) -> anyhow::Result<()>;
     async fn create_contract(&mut self, address: Address) -> anyhow::Result<()>;
 }
@@ -111,8 +111,8 @@ impl StateWriter for Noop {
         _: Address,
         _: Incarnation,
         _: H256,
-        _: U256,
-        _: U256,
+        _: H256,
+        _: H256,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -164,7 +164,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> ChangeSetWriter<'db, 'tx, Tx> {
     }
 
     pub fn get_storage_changes(&self) -> ChangeSet<StorageHistory> {
-        self.storage_changes.iter().copied().collect()
+        self.storage_changes.iter().map(|(&k, &v)| (k, v)).collect()
     }
 }
 
@@ -178,7 +178,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
     ) -> anyhow::Result<()> {
         if original != account || self.storage_changed.contains(&address) {
             self.account_changes
-                .insert(address, original.encode_for_storage(true).into());
+                .insert(address, original.encode_for_storage(true));
         }
 
         Ok(())
@@ -196,7 +196,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
 
     async fn delete_account(&mut self, address: Address, original: &Account) -> anyhow::Result<()> {
         self.account_changes
-            .insert(address, original.encode_for_storage(false).into());
+            .insert(address, original.encode_for_storage(false));
 
         Ok(())
     }
@@ -206,20 +206,15 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
         address: Address,
         incarnation: Incarnation,
         key: H256,
-        original: U256,
-        value: U256,
+        original: H256,
+        value: H256,
     ) -> anyhow::Result<()> {
         if original == value {
             return Ok(());
         }
 
-        let composite_key =
-            dbutils::plain_generate_composite_storage_key(address, incarnation, key);
-
-        let mut v = [0; 32];
-        original.to_big_endian(&mut v);
         self.storage_changes
-            .insert(composite_key, v.to_vec().into());
+            .insert((address, incarnation, key), original);
         self.storage_changed.insert(address);
 
         Ok(())
@@ -240,7 +235,7 @@ where
     BitmapKey<K::IndexChunkKey>: TableDecode,
     Tx: MutableTransaction<'db>,
 {
-    for (change_key, change_value) in changes {
+    for (change_key, _) in changes {
         let k = K::index_chunk_key(change_key);
         let mut index = bitmapdb::get(tx, &K::IndexTable::default(), k.clone(), 0, u64::MAX)
             .await
@@ -269,29 +264,24 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
     for ChangeSetWriter<'db, 'tx, Tx>
 {
     async fn write_changesets(&mut self) -> anyhow::Result<()> {
-        async fn w<
-            'cs,
-            'tx: 'cs,
-            K: HistoryKind,
-            C: MutableCursorDupSort<'tx, K::ChangeSetTable>,
-        >(
+        async fn w<'cs, 'tx: 'cs, K, C>(
             cursor: &mut C,
             block_number: BlockNumber,
             changes: &'cs ChangeSet<K>,
-        ) -> anyhow::Result<()> {
+        ) -> anyhow::Result<()>
+        where
+            K: HistoryKind,
+            <K::ChangeSetTable as Table>::Key: Clone + PartialEq,
+            C: MutableCursorDupSort<'tx, K::ChangeSetTable>,
+        {
             let mut prev_k = None;
-            // TODO: fix lifetimes to return collect
             let s = K::encode(block_number, changes).collect::<Vec<_>>();
             for (k, v) in s {
                 let dup = prev_k.map(|prev_k| k == prev_k).unwrap_or(false);
                 if dup {
-                    cursor
-                        .append_dup(k.as_ref().to_vec(), v.as_ref().to_vec())
-                        .await?;
+                    cursor.append_dup(k.clone(), v).await?;
                 } else {
-                    cursor
-                        .append(k.as_ref().to_vec(), v.as_ref().to_vec())
-                        .await?;
+                    cursor.append(k.clone(), v).await?;
                 }
 
                 prev_k = Some(k);
@@ -422,8 +412,8 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         address: Address,
         incarnation: Incarnation,
         key: H256,
-        original: U256,
-        value: U256,
+        original: H256,
+        value: H256,
     ) -> anyhow::Result<()> {
         self.csw
             .write_account_storage(address, incarnation, key, original, value)
@@ -440,7 +430,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         if value.is_zero() {
             c.delete(composite_key, vec![]).await?;
         } else {
-            c.put(composite_key, value_to_bytes(value).to_vec()).await?;
+            c.put(composite_key, value.0.to_vec()).await?;
         }
 
         Ok(())

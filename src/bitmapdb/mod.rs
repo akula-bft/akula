@@ -31,10 +31,10 @@ where
     let mut c = tx.cursor(table).await?;
 
     let s = c.walk(
-        BitmapKey {
+        Some(BitmapKey {
             inner: key.clone(),
             block_number: from,
-        },
+        }),
         move |BitmapKey { inner, .. }, _| *inner == key,
     );
 

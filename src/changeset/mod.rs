@@ -38,7 +38,7 @@ pub trait HistoryKind: Send {
     type Key: Eq + Ord + Sync;
     type Value: Debug + Sync;
     type ChangeSetTable: DupSort;
-    type IndexChunkKey: Clone + PartialEq;
+    type IndexChunkKey: Clone + PartialEq + Send + Sync;
     type IndexTable: Table<
             Key = BitmapKey<Self::IndexChunkKey>,
             Value = RoaringTreemap,
@@ -55,10 +55,7 @@ pub trait HistoryKind: Send {
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>;
     /// Encode changes into DB keys and values
-    fn encode<'cs>(
-        block_number: BlockNumber,
-        changes: &'cs ChangeSet<Self>,
-    ) -> Self::EncodedStream<'cs>;
+    fn encode(block_number: BlockNumber, changes: &ChangeSet<Self>) -> Self::EncodedStream<'_>;
     /// Decode `Change` from DB keys and values
     fn decode(
         k: <Self::ChangeSetTable as Table>::Key,

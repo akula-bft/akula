@@ -6,14 +6,13 @@ use crate::{
     models::*,
     Cursor, Transaction,
 };
-use bytes::Bytes;
 use ethereum_types::*;
 
 pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     timestamp: BlockNumber,
-) -> anyhow::Result<Option<Bytes<'tx>>> {
+) -> anyhow::Result<Option<Vec<u8>>> {
     if let Some(v) = find_data_by_history(tx, address, timestamp).await? {
         return Ok(Some(v));
     }
@@ -39,14 +38,14 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     let key = plain_generate_composite_storage_key(address, incarnation, location);
     tx.get(&tables::PlainState, key.to_vec())
         .await
-        .map(|opt| opt.map(From::from))
+        .map(|opt| opt.map(|b| H256::from_slice(&b)))
 }
 
 pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     block_number: BlockNumber,
-) -> anyhow::Result<Option<H256>> {
+) -> anyhow::Result<Option<Vec<u8>>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
         .seek(BitmapKey {
@@ -91,7 +90,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
                     let data = acc.encode_for_storage(false);
 
-                    return Ok(Some(data.into()));
+                    return Ok(Some(data));
                 }
             }
 
@@ -155,7 +154,10 @@ mod tests {
     use super::*;
     use crate::{
         bitmapdb, crypto,
-        kv::{tables::StorageChangeKey, traits::MutableKV},
+        kv::{
+            tables::{StorageChangeKey, StorageChangeSeekKey},
+            traits::MutableKV,
+        },
         state::database::*,
         MutableTransaction,
     };
@@ -197,7 +199,7 @@ mod tests {
         block_writer.write_history().await.unwrap();
 
         let mut cursor = tx.cursor(&tables::AccountChangeSet).await.unwrap();
-        let s = cursor.walk(vec![], |_, _| true);
+        let s = cursor.walk(None, |_, _| true);
 
         pin_mut!(s);
 
@@ -208,21 +210,18 @@ mod tests {
 
         assert_eq!(addrs.len(), i);
 
-        let index = bitmapdb::get(
-            &tx,
-            &tables::AccountHistory,
-            &addrs[0].to_fixed_bytes(),
-            0,
-            u64::MAX,
-        )
-        .await
-        .unwrap();
+        let index = bitmapdb::get(&tx, &tables::AccountHistory, addrs[0], 0, u64::MAX)
+            .await
+            .unwrap();
 
         assert_eq!(index.iter().next(), Some(1));
 
         let mut cursor = tx.cursor(&tables::StorageChangeSet).await.unwrap();
-        let bn = BlockNumber(1).db_key().to_vec();
-        let s = cursor.walk(bn.clone(), |key, _| key.starts_with(&bn));
+        let bn = BlockNumber(1);
+        let s = cursor.walk(
+            Some(StorageChangeSeekKey::Block(bn)),
+            |StorageChangeKey { block_number, .. }, _| *block_number == bn,
+        );
 
         pin_mut!(s);
 
@@ -234,9 +233,15 @@ mod tests {
         assert_eq!(count, 0, "changeset must be deleted");
 
         assert_eq!(
-            tx.get(&tables::AccountHistory, addrs[0].to_fixed_bytes().to_vec())
-                .await
-                .unwrap(),
+            tx.get(
+                &tables::AccountHistory,
+                BitmapKey {
+                    inner: addrs[0],
+                    block_number: bn
+                }
+            )
+            .await
+            .unwrap(),
             None,
             "account must be deleted"
         );
@@ -275,12 +280,12 @@ mod tests {
 
             let prefix = plain_generate_storage_prefix(address, acc.incarnation).to_vec();
             let res_account_storage = plain_state
-                .walk(prefix.clone(), |key, _| key.starts_with(&prefix))
+                .walk(Some(prefix.clone()), |key, _| key.starts_with(&prefix))
                 .fold(HashMap::new(), |mut accum, res| {
                     let (k, v) = res.unwrap();
                     accum.insert(
                         H256::from_slice(&k[ADDRESS_LENGTH + 8..]),
-                        U256::from_big_endian(&v),
+                        H256::from_slice(&v),
                     );
                     accum
                 })
@@ -299,15 +304,15 @@ mod tests {
             }
         }
 
-        let bn = encode_block_number(2).to_vec();
+        let bn = BlockNumber(2);
         let changeset_in_db = tx
             .cursor(&tables::AccountChangeSet)
             .await
             .unwrap()
-            .walk(bn.clone(), |key, _| key.starts_with(&bn))
+            .walk(Some(bn), |key, _| *key == bn)
             .map(|res| {
                 let (k, v) = res.unwrap();
-                AccountHistory::decode(k.into(), v.into()).1
+                AccountHistory::decode(k, v).1
             })
             .collect::<Vec<_>>()
             .await
@@ -317,7 +322,7 @@ mod tests {
         let mut expected_changeset = AccountChangeSet::new();
         for i in 0..num_of_accounts {
             let b = acc_history[i].encode_for_storage(true);
-            expected_changeset.insert(Change::new(addrs[i], b.into()));
+            expected_changeset.insert((addrs[i], b));
         }
 
         assert_eq!(changeset_in_db, expected_changeset);
@@ -327,10 +332,13 @@ mod tests {
             .cursor(&tables::StorageChangeSet)
             .await
             .unwrap()
-            .walk(bn, |StorageChangeKey { key, .. }, _| *key == bn)
+            .walk(
+                Some(StorageChangeSeekKey::Block(bn)),
+                |StorageChangeKey { block_number, .. }, _| *block_number == bn,
+            )
             .map(|res| {
                 let (k, v) = res.unwrap();
-                StorageHistory::decode(k.into(), v.into()).1
+                StorageHistory::decode(k, v).1
             })
             .collect::<Vec<_>>()
             .await
@@ -344,12 +352,9 @@ mod tests {
         for (i, &address) in addrs.iter().enumerate() {
             for j in 0..num_of_state_keys {
                 let key = H256::from_slice(&hex::decode(format!("{:0>64}", i * 100 + j)).unwrap());
-                let value = value_to_bytes(U256::from(10 + j as u64)).to_vec().into();
+                let value = H256::from_low_u64_be(10 + j as u64);
 
-                expected_changeset.insert(Change::new(
-                    plain_generate_composite_storage_key(address, acc_history[i].incarnation, key),
-                    value,
-                ));
+                expected_changeset.insert(((address, acc_history[i].incarnation, key), value));
             }
         }
 
@@ -367,9 +372,9 @@ mod tests {
     ) -> (
         Vec<Address>,
         Vec<Account>,
-        Vec<HashMap<H256, U256>>,
+        Vec<HashMap<H256, H256>>,
         Vec<Account>,
-        Vec<HashMap<H256, U256>>,
+        Vec<HashMap<H256, H256>>,
     ) {
         let mut addrs = vec![];
         let mut acc_state = vec![];
@@ -398,13 +403,13 @@ mod tests {
             acc_history_state_storage.push(HashMap::new());
             for j in 0..num_of_state_keys {
                 let key = H256::from_slice(&hex::decode(format!("{:0>64}", i * 100 + j)).unwrap());
-                let new_value = U256::from(j as usize);
+                let new_value = H256::from_low_u64_be(j as u64);
                 if !new_value.is_zero() {
                     // Empty value is not considered to be present
                     acc_state_storage[i].insert(key, new_value);
                 }
 
-                let value = (10 + j as u64).into();
+                let value = H256::from_low_u64_be(10 + j as u64);
                 acc_history_state_storage[i].insert(key, value);
                 block_writer
                     .write_account_storage(
