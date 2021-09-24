@@ -1,5 +1,5 @@
 use crate::{
-    kv::{tables::BitmapKey, Table, TableDecode},
+    kv::{tables::BitmapKey, traits::ttw, Table, TableDecode},
     models::*,
     Cursor, Transaction,
 };
@@ -35,13 +35,12 @@ where
 
     let mut c = tx.cursor(table).await?;
 
-    let s = c.walk(
-        Some(BitmapKey {
+    let s = c
+        .walk(Some(BitmapKey {
             inner: key.clone(),
             block_number: from,
-        }),
-        move |(BitmapKey { inner, .. }, _)| *inner == key,
-    );
+        }))
+        .take_while(ttw(|(BitmapKey { inner, .. }, _)| *inner == key));
 
     pin_mut!(s);
 

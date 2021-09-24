@@ -96,7 +96,7 @@ pub mod tx {
             let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
 
             let start_key = base_tx_id.to_be_bytes().to_vec();
-            let walker = cursor.walk(Some(start_key), |_| true);
+            let walker = cursor.walk(Some(start_key));
 
             pin!(walker);
 
@@ -158,7 +158,7 @@ pub mod tx_sender {
 
             let start_key = base_tx_id;
             cursor
-                .walk(Some(start_key), |_| true)
+                .walk(Some(start_key))
                 .take(amount as usize)
                 .collect::<anyhow::Result<Vec<_>>>()
                 .await?

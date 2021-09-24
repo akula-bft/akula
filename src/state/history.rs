@@ -156,7 +156,7 @@ mod tests {
         bitmapdb, crypto,
         kv::{
             tables::{StorageChangeKey, StorageChangeSeekKey},
-            traits::MutableKV,
+            traits::{ttw, MutableKV},
         },
         state::database::*,
         MutableTransaction,
@@ -199,7 +199,7 @@ mod tests {
         block_writer.write_history().await.unwrap();
 
         let mut cursor = tx.cursor(&tables::AccountChangeSet).await.unwrap();
-        let s = cursor.walk(None, |_| true);
+        let s = cursor.walk(None);
 
         pin_mut!(s);
 
@@ -218,10 +218,11 @@ mod tests {
 
         let mut cursor = tx.cursor(&tables::StorageChangeSet).await.unwrap();
         let bn = BlockNumber(1);
-        let s = cursor.walk(
-            Some(StorageChangeSeekKey::Block(bn)),
-            |(StorageChangeKey { block_number, .. }, _)| *block_number == bn,
-        );
+        let s = cursor
+            .walk(Some(StorageChangeSeekKey::Block(bn)))
+            .take_while(ttw(|(StorageChangeKey { block_number, .. }, _)| {
+                *block_number == bn
+            }));
 
         pin_mut!(s);
 
@@ -280,7 +281,8 @@ mod tests {
 
             let prefix = plain_generate_storage_prefix(address, acc.incarnation).to_vec();
             let res_account_storage = plain_state
-                .walk(Some(prefix.clone()), |(key, _)| key.starts_with(&prefix))
+                .walk(Some(prefix.clone()))
+                .take_while(ttw(|fv: &(Vec<u8>, Vec<u8>)| fv.0.starts_with(&prefix)))
                 .fold(HashMap::new(), |mut accum, res| {
                     let (k, v) = res.unwrap();
                     accum.insert(
@@ -309,7 +311,8 @@ mod tests {
             .cursor(&tables::AccountChangeSet)
             .await
             .unwrap()
-            .walk(Some(bn), |(key, _)| *key == bn)
+            .walk(Some(bn))
+            .take_while(ttw(|(key, _)| *key == bn))
             .map(|res| {
                 let (k, v) = res.unwrap();
                 AccountHistory::decode(k, v).1
@@ -332,10 +335,10 @@ mod tests {
             .cursor(&tables::StorageChangeSet)
             .await
             .unwrap()
-            .walk(
-                Some(StorageChangeSeekKey::Block(bn)),
-                |(StorageChangeKey { block_number, .. }, _)| *block_number == bn,
-            )
+            .walk(Some(StorageChangeSeekKey::Block(bn)))
+            .take_while(ttw(|(StorageChangeKey { block_number, .. }, _)| {
+                *block_number == bn
+            }))
             .map(|res| {
                 let (k, v) = res.unwrap();
                 StorageHistory::decode(k, v).1

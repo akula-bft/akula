@@ -165,14 +165,12 @@ where
     where
         T::Key: TableDecode;
 
-    fn walk<'cur, F>(
+    fn walk<'cur>(
         &'cur mut self,
         start_key: Option<T::SeekKey>,
-        take_while: F,
     ) -> BoxStream<'cur, anyhow::Result<T::FusedValue>>
     where
         T::Key: TableDecode,
-        F: Fn(&T::FusedValue) -> bool + Send + 'cur,
         'tx: 'cur,
     {
         Box::pin(try_stream! {
@@ -183,11 +181,7 @@ where
             };
             if let Some(mut fv) = start {
                 loop {
-                    if !(take_while)(&fv) {
-                        break;
-                    }
-
-                    yield (fv);
+                    yield fv;
 
                     match self.next().await? {
                         Some(fv1) => {
@@ -198,6 +192,13 @@ where
                 }
             }
         })
+    }
+}
+
+pub fn ttw<'a, T, E>(f: impl Fn(&T) -> bool + 'a) -> impl Fn(&Result<T, E>) -> bool + 'a {
+    move |res| match res {
+        Ok(v) => (f)(v),
+        Err(_) => true,
     }
 }
 
