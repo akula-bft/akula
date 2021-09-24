@@ -1,6 +1,6 @@
 use crate::{
     bitmapdb,
-    changeset::{AccountHistory, Change, HistoryKind, StorageHistory},
+    changeset::{AccountHistory, HistoryKind, StorageHistory},
     dbutils,
     kv::{
         tables::{self, BitmapKey},
@@ -135,9 +135,11 @@ impl WriterWithChangesets for Noop {
 
 pub struct ChangeSetWriter<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
     tx: &'tx Tx,
-    account_changes: HashMap<<AccountHistory as HistoryKind>::Key, Bytes<'static>>,
+    account_changes:
+        HashMap<<AccountHistory as HistoryKind>::Key, <AccountHistory as HistoryKind>::Value>,
     storage_changed: HashSet<Address>,
-    storage_changes: HashMap<<StorageHistory as HistoryKind>::Key, Bytes<'static>>,
+    storage_changes:
+        HashMap<<StorageHistory as HistoryKind>::Key, <StorageHistory as HistoryKind>::Value>,
     block_number: BlockNumber,
     _marker: PhantomData<&'db ()>,
 }
@@ -154,18 +156,15 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> ChangeSetWriter<'db, 'tx, Tx> {
         }
     }
 
-    pub fn get_account_changes(&self) -> ChangeSet<'static, AccountHistory> {
+    pub fn get_account_changes(&self) -> ChangeSet<AccountHistory> {
         self.account_changes
             .iter()
-            .map(|(k, v)| Change::new(*k, v.clone()))
+            .map(|(k, v)| (*k, v.clone()))
             .collect()
     }
 
-    pub fn get_storage_changes(&self) -> ChangeSet<'static, StorageHistory> {
-        self.storage_changes
-            .iter()
-            .map(|(k, v)| Change::new(*k, v.clone()))
-            .collect()
+    pub fn get_storage_changes(&self) -> ChangeSet<StorageHistory> {
+        self.storage_changes.iter().copied().collect()
     }
 }
 
@@ -234,15 +233,15 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for ChangeSetWriter
 async fn write_index<'db: 'tx, 'tx, K, Tx>(
     tx: &'tx Tx,
     block_number: BlockNumber,
-    changes: ChangeSet<'tx, K>,
+    changes: ChangeSet<K>,
 ) -> anyhow::Result<()>
 where
     K: HistoryKind,
     BitmapKey<K::IndexChunkKey>: TableDecode,
     Tx: MutableTransaction<'db>,
 {
-    for change in changes {
-        let k = K::index_chunk_key(change.key);
+    for (change_key, change_value) in changes {
+        let k = K::index_chunk_key(change_key);
         let mut index = bitmapdb::get(tx, &K::IndexTable::default(), k.clone(), 0, u64::MAX)
             .await
             .context("failed to find chunk")?;
@@ -278,7 +277,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
         >(
             cursor: &mut C,
             block_number: BlockNumber,
-            changes: &'cs ChangeSet<'tx, K>,
+            changes: &'cs ChangeSet<K>,
         ) -> anyhow::Result<()> {
             let mut prev_k = None;
             // TODO: fix lifetimes to return collect

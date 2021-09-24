@@ -1,11 +1,14 @@
 use super::*;
-use crate::{models::*, StageId};
+use crate::{models::*, zeroless_view, StageId};
+use anyhow::bail;
 use arrayref::array_ref;
+use arrayvec::ArrayVec;
+use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
 use once_cell::sync::Lazy;
 use roaring::RoaringTreemap;
-use serde::Deserialize;
+use serde::{Deserialize, *};
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 #[derive(Debug)]
@@ -126,6 +129,19 @@ impl<const EXPECTED: usize> Display for InvalidLength<EXPECTED> {
 
 impl<const EXPECTED: usize> std::error::Error for InvalidLength<EXPECTED> {}
 
+#[derive(Clone, Debug)]
+pub struct TooShort<const MINIMUM: usize> {
+    pub got: usize,
+}
+
+impl<const MINIMUM: usize> Display for TooShort<MINIMUM> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Too short: {} < {}", self.got, MINIMUM)
+    }
+}
+
+impl<const MINIMUM: usize> std::error::Error for TooShort<MINIMUM> {}
+
 macro_rules! u64_table_object {
     ($ty:ident) => {
         impl TableDecode for $ty
@@ -188,6 +204,46 @@ where
             KECCAK_LENGTH => Ok(H256::from_slice(&*b)),
             other => Err(InvalidLength::<KECCAK_LENGTH> { got: other }.into()),
         }
+    }
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deref,
+    DerefMut,
+    Default,
+    Display,
+    PartialEq,
+    Eq,
+    From,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct ZerolessH256(pub H256);
+
+impl TableEncode for ZerolessH256 {
+    type Encoded = ArrayVec<u8, KECCAK_LENGTH>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = ArrayVec::new();
+        out.try_extend_from_slice(&zeroless_view(&self.0)).unwrap();
+        out
+    }
+}
+
+impl TableDecode for ZerolessH256 {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() > KECCAK_LENGTH {
+            bail!("too long: {} > {}", b.len(), KECCAK_LENGTH);
+        }
+
+        Ok(H256::from_uint(&U256::from_big_endian(b)).into())
     }
 }
 
@@ -283,10 +339,10 @@ impl DupSort for PlainState {
     type SeekBothKey = Vec<u8>;
 }
 impl DupSort for AccountChangeSet {
-    type SeekBothKey = Vec<u8>;
+    type SeekBothKey = Address;
 }
 impl DupSort for StorageChangeSet {
-    type SeekBothKey = Vec<u8>;
+    type SeekBothKey = H256;
 }
 impl DupSort for HashedStorage {
     type SeekBothKey = Vec<u8>;
@@ -302,15 +358,97 @@ pub struct AccountChange {
     pub account: Vec<u8>,
 }
 
+impl TableEncode for AccountChange {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = Vec::with_capacity(BLOCK_NUMBER_LENGTH + self.account.len());
+        out.extend_from_slice(&self.address.encode());
+        out.append(&mut self.account);
+        out
+    }
+}
+
+impl TableDecode for AccountChange {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() < ADDRESS_LENGTH + 1 {
+            return Err(TooShort::<{ ADDRESS_LENGTH + 1 }> { got: b.len() }.into());
+        }
+
+        Ok(Self {
+            address: Address::decode(&b[..ADDRESS_LENGTH])?,
+            account: b[ADDRESS_LENGTH..].to_vec(),
+        })
+    }
+}
+
 pub struct StorageChangeKey {
     pub block_number: BlockNumber,
     pub address: Address,
     pub incarnation: Incarnation,
 }
 
+impl TableEncode for StorageChangeKey {
+    type Encoded = [u8; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = [0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH];
+        out[..BLOCK_NUMBER_LENGTH].copy_from_slice(&self.block_number.encode());
+        out[BLOCK_NUMBER_LENGTH..BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH]
+            .copy_from_slice(&self.address.encode());
+        out[BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH..].copy_from_slice(&self.incarnation.encode());
+        out
+    }
+}
+
+impl TableDecode for StorageChangeKey {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH {
+            return Err(InvalidLength::<
+                { BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH },
+            > {
+                got: b.len(),
+            }
+            .into());
+        }
+
+        Ok(Self {
+            block_number: BlockNumber::decode(&b[..BLOCK_NUMBER_LENGTH])?,
+            address: Address::decode(
+                &b[BLOCK_NUMBER_LENGTH..BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH],
+            )?,
+            incarnation: Incarnation::decode(&b[BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH..])?,
+        })
+    }
+}
+
 pub struct StorageChange {
     pub location: H256,
-    pub value: H256,
+    pub value: ZerolessH256,
+}
+
+impl TableEncode for StorageChange {
+    type Encoded = ArrayVec<u8, { KECCAK_LENGTH + KECCAK_LENGTH }>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = ArrayVec::new();
+        out.try_extend_from_slice(&self.location.encode()).unwrap();
+        out.try_extend_from_slice(&self.value.encode()).unwrap();
+        out
+    }
+}
+
+impl TableDecode for StorageChange {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() < KECCAK_LENGTH {
+            return Err(TooShort::<KECCAK_LENGTH> { got: b.len() }.into());
+        }
+
+        Ok(Self {
+            location: H256::decode(&b[..KECCAK_LENGTH])?,
+            value: ZerolessH256::decode(&b[KECCAK_LENGTH..])?,
+        })
+    }
 }
 
 decl_table!(PlainState => Vec<u8> => Vec<u8>);

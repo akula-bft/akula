@@ -1,12 +1,15 @@
+use crate::kv::tables::AccountChange;
+
 use super::*;
 
 #[async_trait]
 impl HistoryKind for AccountHistory {
     type Key = Address;
+    type Value = Vec<u8>;
     type IndexChunkKey = Address;
     type IndexTable = tables::AccountHistory;
     type ChangeSetTable = tables::AccountChangeSet;
-    type EncodedStream<'tx: 'cs, 'cs> = impl EncodedStream<'tx, 'cs>;
+    type EncodedStream<'cs> = impl EncodedStream<'cs, Self::ChangeSetTable>;
 
     fn index_chunk_key(key: Self::Key) -> Self::IndexChunkKey {
         key
@@ -14,51 +17,39 @@ impl HistoryKind for AccountHistory {
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: BlockNumber,
-        needle: &Self::Key,
-    ) -> anyhow::Result<Option<Bytes<'tx>>>
+        needle: Self::Key,
+    ) -> anyhow::Result<Option<Self::Value>>
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
-        let k = dbutils::encode_block_number(block_number).to_vec();
-        if let Some(v) = cursor
-            .seek_both_range(k.clone(), needle.as_bytes().to_vec())
-            .await?
-        {
-            let (_, Change { key, value }) = Self::decode(k.to_vec().into(), v.into());
+        if let Some(v) = cursor.seek_both_range(block_number, needle).await? {
+            let (_, (address, account)) = Self::decode(block_number, v);
 
-            if key == *needle {
-                return Ok(Some(value));
+            if address == needle {
+                return Ok(Some(account));
             }
         }
 
         Ok(None)
     }
 
-    fn encode<'cs, 'tx: 'cs>(
-        block_number: BlockNumber,
-        s: &'cs ChangeSet<'tx, Self>,
-    ) -> Self::EncodedStream<'tx, 'cs> {
-        let k = dbutils::encode_block_number(block_number);
-
-        s.iter().map(move |cs| {
-            let mut new_v = vec![0; cs.key.as_ref().len() + cs.value.len()];
-            new_v[..cs.key.as_ref().len()].copy_from_slice(cs.key.as_ref());
-            new_v[cs.key.as_ref().len()..].copy_from_slice(&*cs.value);
-
-            (Bytes::from(k.to_vec()), new_v.into())
+    fn encode<'cs>(block_number: BlockNumber, s: &'cs ChangeSet<Self>) -> Self::EncodedStream<'cs> {
+        s.iter().map(move |(address, account)| {
+            (
+                block_number,
+                AccountChange {
+                    address: *address,
+                    account: account.clone(),
+                },
+            )
         })
     }
 
     fn decode<'tx>(
-        db_key: Bytes<'tx>,
-        db_value: Bytes<'tx>,
-    ) -> (BlockNumber, Change<'tx, Self::Key>) {
-        let block_n = u64::from_be_bytes(*array_ref!(db_key, 0, BLOCK_NUMBER_LENGTH)).into();
-
-        let mut k = db_value;
-        let value = k.split_off(ADDRESS_LENGTH);
-
-        (block_n, Change::new(Address::from_slice(&k), value))
+        block_number: <Self::ChangeSetTable as Table>::Key,
+        AccountChange { address, account }: <Self::ChangeSetTable as Table>::Value,
+    ) -> (BlockNumber, Change<Self::Key, Self::Value>) {
+        (block_number, (address, account))
     }
 }
 
@@ -83,7 +74,7 @@ mod tests {
                 .parse::<Address>()
                 .unwrap();
 
-            ch.insert(Change::new(address, val));
+            ch.insert((address, val));
         }
 
         let mut ch2 = AccountChangeSet::new();

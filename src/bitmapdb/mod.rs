@@ -3,7 +3,6 @@ use crate::{
     models::*,
     Cursor, Transaction,
 };
-use arrayref::array_ref;
 use pin_utils::pin_mut;
 use roaring::RoaringTreemap;
 use std::iter::Peekable;

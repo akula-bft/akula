@@ -29,7 +29,7 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     incarnation: Incarnation,
     location: H256,
     block_number: impl Into<BlockNumber>,
-) -> anyhow::Result<Option<Bytes<'tx>>> {
+) -> anyhow::Result<Option<H256>> {
     if let Some(v) =
         find_storage_by_history(tx, address, incarnation, location, block_number.into()).await?
     {
@@ -46,7 +46,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     block_number: BlockNumber,
-) -> anyhow::Result<Option<Bytes<'tx>>> {
+) -> anyhow::Result<Option<H256>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
         .seek(BitmapKey {
@@ -62,8 +62,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                 if let Some(change_set_block) = change_set_block {
                     let data = {
                         let mut c = tx.cursor_dup_sort(&tables::AccountChangeSet).await?;
-                        AccountHistory::find(&mut c, BlockNumber(change_set_block), &address)
-                            .await?
+                        AccountHistory::find(&mut c, BlockNumber(change_set_block), address).await?
                     };
 
                     if let Some(data) = data {
@@ -127,12 +126,10 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
             if let Some(change_set_block) = change_set_block {
                 let data = {
                     let mut c = tx.cursor_dup_sort(&tables::StorageChangeSet).await?;
-                    find_storage_with_incarnation(
+                    StorageHistory::find(
                         &mut c,
-                        BlockNumber(change_set_block),
-                        address,
-                        incarnation,
-                        location,
+                        change_set_block.into(),
+                        (address, incarnation, location),
                     )
                     .await?
                 };
@@ -156,7 +153,12 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{bitmapdb, crypto, kv::traits::MutableKV, state::database::*, MutableTransaction};
+    use crate::{
+        bitmapdb, crypto,
+        kv::{tables::StorageChangeKey, traits::MutableKV},
+        state::database::*,
+        MutableTransaction,
+    };
     use pin_utils::pin_mut;
     use std::collections::HashMap;
     use tokio_stream::StreamExt;
@@ -289,12 +291,10 @@ mod tests {
             for (&key, &v) in &acc_history_state_storage[i] {
                 assert_eq!(
                     v,
-                    U256::from_big_endian(
-                        &get_storage_as_of(&tx, address, acc.incarnation, key, 1)
-                            .await
-                            .unwrap()
-                            .unwrap()
-                    )
+                    get_storage_as_of(&tx, address, acc.incarnation, key, 1)
+                        .await
+                        .unwrap()
+                        .unwrap()
                 );
             }
         }
@@ -322,12 +322,12 @@ mod tests {
 
         assert_eq!(changeset_in_db, expected_changeset);
 
-        let bn = encode_block_number(2).to_vec();
+        let bn = BlockNumber(2);
         let cs = tx
             .cursor(&tables::StorageChangeSet)
             .await
             .unwrap()
-            .walk(bn.clone(), |key, _| key.starts_with(&bn))
+            .walk(bn, |StorageChangeKey { key, .. }, _| *key == bn)
             .map(|res| {
                 let (k, v) = res.unwrap();
                 StorageHistory::decode(k.into(), v.into()).1

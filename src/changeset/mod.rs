@@ -1,11 +1,9 @@
 use crate::{
     kv::{tables::BitmapKey, *},
     models::*,
-    CursorDupSort, *,
+    CursorDupSort,
 };
-use arrayref::array_ref;
 use async_trait::async_trait;
-use bytes::Bytes;
 use roaring::RoaringTreemap;
 use std::{collections::BTreeSet, fmt::Debug};
 
@@ -19,7 +17,6 @@ pub struct StorageHistory;
 
 pub type AccountChangeSet = ChangeSet<AccountHistory>;
 pub type StorageChangeSet = ChangeSet<StorageHistory>;
-pub use storage::find_with_incarnation as find_storage_with_incarnation;
 
 pub trait EncodedStream<'cs, T: Table>: Iterator<Item = (T::Key, T::Value)> + Send + 'cs {}
 impl<'cs, S, T> EncodedStream<'cs, T> for S
@@ -38,9 +35,9 @@ pub type ChangeSet<K> = BTreeSet<Change<<K as HistoryKind>::Key, <K as HistoryKi
 
 #[async_trait]
 pub trait HistoryKind: Send {
-    type ChangeSetTable: DupSort<Key = Vec<u8>, Value = Vec<u8>, SeekBothKey = Vec<u8>>;
-    type Key: Eq + Ord + AsRef<[u8]> + Sync;
+    type Key: Eq + Ord + Sync;
     type Value: Debug + Sync;
+    type ChangeSetTable: DupSort;
     type IndexChunkKey: Clone + PartialEq;
     type IndexTable: Table<
             Key = BitmapKey<Self::IndexChunkKey>,
@@ -53,7 +50,7 @@ pub trait HistoryKind: Send {
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: BlockNumber,
-        needle: &Self::Key,
+        needle: Self::Key,
     ) -> anyhow::Result<Option<Self::Value>>
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>;
