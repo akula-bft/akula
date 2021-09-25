@@ -209,6 +209,8 @@ where
 {
     /// Put based on order
     async fn put(&mut self, fused_value: T::FusedValue) -> anyhow::Result<()>;
+    /// Upsert value
+    async fn upsert(&mut self, fused_value: T::FusedValue) -> anyhow::Result<()>;
     /// Append the given key/data pair to the end of the database.
     /// This option allows fast bulk loading when keys are already known to be in the correct order.
     async fn append(&mut self, fused_value: T::FusedValue) -> anyhow::Result<()>;

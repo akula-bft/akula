@@ -402,6 +402,15 @@ where
         )?)
     }
 
+    async fn upsert(&mut self, fv: T::FusedValue) -> anyhow::Result<()> {
+        let (key, value) = T::split_fused(fv);
+        Ok(self.inner.put(
+            key.encode().as_ref(),
+            value.encode().as_ref(),
+            WriteFlags::UPSERT,
+        )?)
+    }
+
     async fn append(&mut self, fv: T::FusedValue) -> anyhow::Result<()> {
         let (key, value) = T::split_fused(fv);
         Ok(self.inner.put(
