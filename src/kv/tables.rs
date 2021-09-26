@@ -354,7 +354,7 @@ impl TableEncode for StageId {
 }
 
 impl DupSort for PlainState {
-    type SeekBothKey = Vec<u8>;
+    type SeekBothKey = H256;
 }
 impl DupSort for AccountChangeSet {
     type SeekBothKey = Address;
@@ -499,7 +499,130 @@ impl TableDecode for StorageChange {
     }
 }
 
-decl_table!(PlainState => Vec<u8> => Vec<u8>);
+#[derive(Clone, Debug)]
+pub enum PlainStateKey {
+    Account(Address),
+    Storage(Address, Incarnation),
+}
+
+impl TableEncode for PlainStateKey {
+    type Encoded = ArrayVec<u8, { ADDRESS_LENGTH + INCARNATION_LENGTH }>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = ArrayVec::new();
+        match self {
+            PlainStateKey::Account(address) => {
+                out.try_extend_from_slice(&address.encode());
+            }
+            PlainStateKey::Storage(address, incarnation) => {
+                out.try_extend_from_slice(&address.encode()).unwrap();
+                out.try_extend_from_slice(&incarnation.encode()).unwrap();
+            }
+        }
+        out
+    }
+}
+
+impl TableDecode for PlainStateKey {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        const STORAGE_KEY_LEN: usize = ADDRESS_LENGTH + INCARNATION_LENGTH;
+        Ok(match b.len() {
+            ADDRESS_LENGTH => Self::Account(Address::decode(b)?),
+            STORAGE_KEY_LEN => Self::Storage(
+                Address::decode(&b[..ADDRESS_LENGTH])?,
+                Incarnation::decode(&b[ADDRESS_LENGTH..])?,
+            ),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum PlainStateFusedValue {
+    Account {
+        address: Address,
+        account: EncodedAccount,
+    },
+    Storage {
+        address: Address,
+        incarnation: Incarnation,
+        location: H256,
+        value: H256,
+    },
+}
+
+impl PlainStateFusedValue {
+    pub fn as_account(&self) -> Option<(Address, EncodedAccount)> {
+        if let PlainStateFusedValue::Account { address, account } = self {
+            Some((*address, account.clone()))
+        } else {
+            None
+        }
+    }
+
+    pub fn as_storage(&self) -> Option<(Address, Incarnation, H256, H256)> {
+        if let Self::Storage {
+            address,
+            incarnation,
+            location,
+            value,
+        } = self
+        {
+            Some((*address, *incarnation, *location, *value))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlainState;
+
+impl Table for PlainState {
+    type Key = PlainStateKey;
+    type Value = Vec<u8>;
+    type SeekKey = Address;
+    type FusedValue = PlainStateFusedValue;
+
+    fn db_name(&self) -> string::String<static_bytes::Bytes> {
+        unsafe {
+            string::String::from_utf8_unchecked(static_bytes::Bytes::from_static(
+                Self::const_db_name().as_bytes(),
+            ))
+        }
+    }
+
+    fn fuse_values(key: Self::Key, value: Self::Value) -> anyhow::Result<Self::FusedValue> {
+        match key {
+            PlainStateKey::Account(address) => {
+                if value.len() > MAX_ACCOUNT_LEN {
+                    return Err(InvalidLength::<MAX_ACCOUNT_LEN> { got: value.len() }.into());
+                }
+            }
+            PlainStateKey::Storage(address, incarnation) => todo!(),
+        }
+    }
+
+    fn split_fused(_: Self::FusedValue) -> (Self::Key, Self::Value) {
+        todo!()
+    }
+}
+
+impl PlainState {
+    pub const fn const_db_name() -> &'static str {
+        "PlainState"
+    }
+
+    pub const fn erased(self) -> ErasedTable<Self> {
+        ErasedTable(self)
+    }
+}
+
+impl std::fmt::Display for PlainState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", Self::const_db_name())
+    }
+}
+
 decl_table!(PlainCodeHash => Vec<u8> => H256);
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
 decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => StorageChangeSeekKey);

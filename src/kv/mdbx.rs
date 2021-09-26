@@ -366,11 +366,17 @@ where
         &mut self,
         key: T::Key,
         value: T::SeekBothKey,
-    ) -> anyhow::Result<Option<T::Value>> {
-        Ok(self
-            .inner
-            .get_both_range(key.encode().as_ref(), value.encode().as_ref())?
-            .map(|w: TableObjectWrapper<_>| w.0))
+    ) -> anyhow::Result<Option<T::FusedValue>> {
+        let res = self.inner.get_both_range::<TableObjectWrapper<T::Value>>(
+            key.clone().encode().as_ref(),
+            value.encode().as_ref(),
+        )?;
+
+        if let Some(v) = res {
+            return Ok(Some(T::fuse_values(key, v.0)?));
+        }
+
+        Ok(None)
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<T::FusedValue>>

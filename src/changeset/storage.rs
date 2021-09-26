@@ -25,7 +25,7 @@ impl HistoryKind for StorageHistory {
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
-        if let Some(v) = cursor
+        if let Some((_, v)) = cursor
             .seek_both_range(
                 StorageChangeKey {
                     block_number,

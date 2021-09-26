@@ -247,9 +247,9 @@ impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
         &mut self,
         key: T::Key,
         value: T::SeekBothKey,
-    ) -> anyhow::Result<Option<T::Value>> {
+    ) -> anyhow::Result<Option<T::FusedValue>> {
         Ok(self
-            .op_value(
+            .op_kv(
                 Op::SeekBoth,
                 Some(key.encode().as_ref()),
                 Some(value.encode().as_ref()),
