@@ -1,6 +1,5 @@
 use crate::{
     changeset::*,
-    dbutils,
     kv::{tables::BitmapKey, *},
     models::*,
     read_account_storage, Cursor, Transaction,
@@ -74,11 +73,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
             if let Some(mut acc) = Account::decode_for_storage(&*data)? {
                 if acc.incarnation.0 > 0 && acc.code_hash == EMPTY_HASH {
                     if let Some(code_hash) = tx
-                        .get(
-                            &tables::PlainCodeHash,
-                            dbutils::plain_generate_storage_prefix(address, acc.incarnation)
-                                .to_vec(),
-                        )
+                        .get(&tables::PlainCodeHash, (address, acc.incarnation))
                         .await?
                     {
                         acc.code_hash = code_hash;

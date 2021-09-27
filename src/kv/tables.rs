@@ -528,6 +528,32 @@ impl TableDecode for StorageChange {
     }
 }
 
+impl TableEncode for (Address, Incarnation) {
+    type Encoded = [u8; ADDRESS_LENGTH + INCARNATION_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = [0; ADDRESS_LENGTH + INCARNATION_LENGTH];
+        out[..ADDRESS_LENGTH].copy_from_slice(&self.0.encode());
+        out[ADDRESS_LENGTH..].copy_from_slice(&self.1.encode());
+        out
+    }
+}
+
+impl TableDecode for (Address, Incarnation) {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != ADDRESS_LENGTH + INCARNATION_LENGTH {
+            return Err(
+                InvalidLength::<{ ADDRESS_LENGTH + INCARNATION_LENGTH }> { got: b.len() }.into(),
+            );
+        }
+
+        let address = Address::decode(&b[..ADDRESS_LENGTH])?;
+        let incarnation = Incarnation::decode(&b[ADDRESS_LENGTH..])?;
+
+        Ok((address, incarnation))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum PlainStateKey {
     Account(Address),
@@ -716,7 +742,7 @@ impl std::fmt::Display for PlainState {
     }
 }
 
-decl_table!(PlainCodeHash => Vec<u8> => H256);
+decl_table!(PlainCodeHash => (Address, Incarnation) => H256);
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
 decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => StorageChangeSeekKey);
 decl_table!(HashedAccount => H256 => Vec<u8>);

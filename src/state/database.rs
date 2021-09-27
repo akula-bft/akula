@@ -1,7 +1,6 @@
 use crate::{
     bitmapdb,
     changeset::{AccountHistory, HistoryKind, StorageHistory},
-    dbutils,
     kv::{
         tables::{self, BitmapKey},
         Table, TableDecode,
@@ -384,13 +383,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .set(&tables::Code, (code_hash, code.to_vec()))
             .await?;
         self.tx
-            .set(
-                &tables::PlainCodeHash,
-                (
-                    dbutils::plain_generate_storage_prefix(address, incarnation).to_vec(),
-                    code_hash,
-                ),
-            )
+            .set(&tables::PlainCodeHash, ((address, incarnation), code_hash))
             .await?;
 
         Ok(())
