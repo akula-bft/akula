@@ -36,8 +36,8 @@ pub trait TableObject: TableEncode + TableDecode {}
 impl<T> TableObject for T where T: TableEncode + TableDecode {}
 
 pub trait Table: Send + Sync + Debug + 'static {
-    type Key: TableEncode + Clone;
-    type Value: TableObject + Clone;
+    type Key: TableEncode;
+    type Value: TableObject;
     type SeekKey: TableEncode;
     type FusedValue: Send + Sync + Sized;
 
@@ -47,7 +47,7 @@ pub trait Table: Send + Sync + Debug + 'static {
     fn split_fused(_: Self::FusedValue) -> (Self::Key, Self::Value);
 }
 pub trait DupSort: Table {
-    type SeekBothKey: TableObject + Clone;
+    type SeekBothKey: TableObject;
 }
 
 #[async_trait]
@@ -237,7 +237,9 @@ where
         &mut self,
         key: T::Key,
         value: T::SeekBothKey,
-    ) -> anyhow::Result<Option<T::FusedValue>>;
+    ) -> anyhow::Result<Option<T::FusedValue>>
+    where
+        T::Key: Clone;
     /// Position at next data item of current key
     async fn next_dup(&mut self) -> anyhow::Result<Option<T::FusedValue>>
     where

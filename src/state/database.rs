@@ -7,7 +7,7 @@ use crate::{
         Table, TableDecode,
     },
     models::*,
-    ChangeSet, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
+    ChangeSet, CursorDupSort, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
 };
 use anyhow::Context;
 use arrayref::array_ref;
@@ -466,12 +466,12 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
     }
 }
 
-pub async fn read_account_data<'db: 'tx, 'tx, Tx: Transaction<'db>>(
-    tx: &'tx Tx,
+pub async fn read_account_data<'db, Tx: Transaction<'db>>(
+    tx: &Tx,
     address: Address,
 ) -> anyhow::Result<Option<Account>> {
     if let Some(encoded) = tx
-        .get(&tables::PlainState, address.as_bytes().to_vec())
+        .get(&tables::PlainState, tables::PlainStateKey::Account(address))
         .await?
     {
         return Account::decode_for_storage(&*encoded);
@@ -480,17 +480,29 @@ pub async fn read_account_data<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     Ok(None)
 }
 
-pub async fn read_account_storage<'db: 'tx, 'tx, Tx: Transaction<'db>>(
-    tx: &'tx Tx,
+pub async fn read_account_storage<'db, Tx: Transaction<'db>>(
+    tx: &Tx,
     address: Address,
     incarnation: Incarnation,
-    key: H256,
-) -> anyhow::Result<Option<Bytes<'tx>>> {
-    let composite_key =
-        dbutils::plain_generate_composite_storage_key(address, incarnation, key).to_vec();
-    tx.get(&tables::PlainState, composite_key)
-        .await
-        .map(|opt| opt.map(|v| v.into()))
+    location: H256,
+) -> anyhow::Result<Option<H256>> {
+    if let Some(v) = tx
+        .cursor_dup_sort(&tables::PlainState)
+        .await?
+        .seek_both_range(
+            tables::PlainStateKey::Storage(address, incarnation),
+            location,
+        )
+        .await?
+    {
+        if let Some((a, inc, l, v)) = v.as_storage() {
+            if a == address && inc == incarnation && l == location {
+                return Ok(Some(v));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -499,7 +511,7 @@ pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     _: Incarnation,
     code_hash: H256,
 ) -> anyhow::Result<Option<Bytes<'tx>>> {
-    tx.get(&tables::PlainState, code_hash.as_bytes().into())
+    tx.get(&tables::Code, code_hash)
         .await
         .map(|opt| opt.map(|v| v.into()))
 }

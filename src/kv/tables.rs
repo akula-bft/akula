@@ -134,6 +134,22 @@ impl traits::TableDecode for Vec<u8> {
     }
 }
 
+impl<const LEN: usize> traits::TableEncode for ArrayVec<u8, LEN> {
+    type Encoded = Self;
+
+    fn encode(self) -> Self::Encoded {
+        self
+    }
+}
+
+impl<const LEN: usize> traits::TableDecode for ArrayVec<u8, LEN> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        let mut out = Self::new();
+        out.try_extend_from_slice(b)?;
+        Ok(out)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct InvalidLength<const EXPECTED: usize> {
     pub got: usize,
@@ -159,6 +175,18 @@ impl<const MINIMUM: usize> Display for TooShort<MINIMUM> {
 }
 
 impl<const MINIMUM: usize> std::error::Error for TooShort<MINIMUM> {}
+
+#[derive(Clone, Debug)]
+pub struct TooLong<const MAXIMUM: usize> {
+    pub got: usize,
+}
+impl<const MAXIMUM: usize> Display for TooLong<MAXIMUM> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Too long: {} > {}", self.got, MAXIMUM)
+    }
+}
+
+impl<const MAXIMUM: usize> std::error::Error for TooLong<MAXIMUM> {}
 
 macro_rules! u64_table_object {
     ($ty:ident) => {
@@ -236,6 +264,7 @@ where
     PartialEq,
     Eq,
     From,
+    Into,
     PartialOrd,
     Ord,
     Hash,
@@ -546,7 +575,7 @@ pub enum PlainStateFusedValue {
         address: Address,
         incarnation: Incarnation,
         location: H256,
-        value: H256,
+        value: ZerolessH256,
     },
 }
 
@@ -567,7 +596,7 @@ impl PlainStateFusedValue {
             value,
         } = self
         {
-            Some((*address, *incarnation, *location, *value))
+            Some((*address, *incarnation, *location, (*value).into()))
         } else {
             None
         }
@@ -579,7 +608,7 @@ pub struct PlainState;
 
 impl Table for PlainState {
     type Key = PlainStateKey;
-    type Value = Vec<u8>;
+    type Value = ArrayVec<u8, MAX_ACCOUNT_LEN>;
     type SeekKey = Address;
     type FusedValue = PlainStateFusedValue;
 
@@ -592,18 +621,51 @@ impl Table for PlainState {
     }
 
     fn fuse_values(key: Self::Key, value: Self::Value) -> anyhow::Result<Self::FusedValue> {
-        match key {
+        Ok(match key {
             PlainStateKey::Account(address) => {
                 if value.len() > MAX_ACCOUNT_LEN {
                     return Err(InvalidLength::<MAX_ACCOUNT_LEN> { got: value.len() }.into());
                 }
+
+                PlainStateFusedValue::Account {
+                    address,
+                    account: value.into(),
+                }
             }
-            PlainStateKey::Storage(address, incarnation) => todo!(),
-        }
+            PlainStateKey::Storage(address, incarnation) => {
+                if value.len() > KECCAK_LENGTH + KECCAK_LENGTH {
+                    return Err(
+                        TooLong::<{ KECCAK_LENGTH + KECCAK_LENGTH }> { got: value.len() }.into(),
+                    );
+                }
+
+                PlainStateFusedValue::Storage {
+                    address,
+                    incarnation,
+                    location: H256::decode(&value[..KECCAK_LENGTH])?,
+                    value: ZerolessH256::decode(&value[KECCAK_LENGTH..])?,
+                }
+            }
+        })
     }
 
-    fn split_fused(_: Self::FusedValue) -> (Self::Key, Self::Value) {
-        todo!()
+    fn split_fused(fv: Self::FusedValue) -> (Self::Key, Self::Value) {
+        match fv {
+            PlainStateFusedValue::Account { address, account } => {
+                (PlainStateKey::Account(address), account)
+            }
+            PlainStateFusedValue::Storage {
+                address,
+                incarnation,
+                location,
+                value,
+            } => {
+                let mut v = Self::Value::new();
+                v.try_extend_from_slice(&location.encode()).unwrap();
+                v.try_extend_from_slice(&value.encode()).unwrap();
+                (PlainStateKey::Storage(address, incarnation), v)
+            }
+        }
     }
 }
 

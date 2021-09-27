@@ -247,14 +247,19 @@ impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
         &mut self,
         key: T::Key,
         value: T::SeekBothKey,
-    ) -> anyhow::Result<Option<T::FusedValue>> {
+    ) -> anyhow::Result<Option<T::FusedValue>>
+    where
+        T::Key: Clone,
+    {
         Ok(self
-            .op_kv(
+            .op_value(
                 Op::SeekBoth,
-                Some(key.encode().as_ref()),
+                Some(key.clone().encode().as_ref()),
                 Some(value.encode().as_ref()),
             )
-            .await?)
+            .await?
+            .map(move |value| T::fuse_values(key, value))
+            .transpose()?)
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<T::FusedValue>>

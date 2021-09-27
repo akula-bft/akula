@@ -366,7 +366,10 @@ where
         &mut self,
         key: T::Key,
         value: T::SeekBothKey,
-    ) -> anyhow::Result<Option<T::FusedValue>> {
+    ) -> anyhow::Result<Option<T::FusedValue>>
+    where
+        T::Key: Clone,
+    {
         let res = self.inner.get_both_range::<TableObjectWrapper<T::Value>>(
             key.clone().encode().as_ref(),
             value.encode().as_ref(),

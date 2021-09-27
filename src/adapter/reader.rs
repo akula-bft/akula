@@ -1,11 +1,8 @@
 use crate::{
-    dbutils,
     kv::{traits::CursorDupSort, *},
     models::*,
     Transaction,
 };
-use bytes::Bytes;
-use dbutils::plain_generate_composite_storage_key;
 use ethereum_types::{Address, H256};
 use std::marker::PhantomData;
 
