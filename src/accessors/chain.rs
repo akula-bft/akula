@@ -65,10 +65,7 @@ pub mod header {
         let number = number.into();
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        if let Some(b) = tx
-            .get(&tables::Header, header_key(number, hash).into())
-            .await?
-        {
+        if let Some(b) = tx.get(&tables::Header, (number, hash)).await? {
             return Ok(Some(rlp::decode(&b)?));
         }
 
@@ -248,9 +245,7 @@ pub mod storage_body {
         trace!("Writing storage body for block {}/{:?}", number, hash);
 
         let data = rlp::encode(body);
-        let mut cursor = tx.mutable_cursor(&tables::BlockBody).await.unwrap();
-        cursor
-            .put((header_key(number, hash).to_vec(), data.to_vec()))
+        tx.set(&tables::BlockBody, ((number, hash), data.to_vec()))
             .await
             .unwrap();
 
@@ -270,10 +265,7 @@ pub mod td {
         trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
         if let Some(b) = tx
-            .get(
-                &tables::HeadersTotalDifficulty,
-                header_key(number, hash).into(),
-            )
+            .get(&tables::HeadersTotalDifficulty, (number, hash))
             .await?
         {
             trace!("Reading TD RLP: {}", hex::encode(&b));

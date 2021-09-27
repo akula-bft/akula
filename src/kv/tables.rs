@@ -528,6 +528,34 @@ impl TableDecode for StorageChange {
     }
 }
 
+pub type HeaderKey = (BlockNumber, H256);
+
+impl TableEncode for (BlockNumber, H256) {
+    type Encoded = [u8; BLOCK_NUMBER_LENGTH + KECCAK_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = [0; BLOCK_NUMBER_LENGTH + KECCAK_LENGTH];
+        out[..BLOCK_NUMBER_LENGTH].copy_from_slice(&self.0.encode());
+        out[BLOCK_NUMBER_LENGTH..].copy_from_slice(&self.1.encode());
+        out
+    }
+}
+
+impl TableDecode for (BlockNumber, H256) {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != BLOCK_NUMBER_LENGTH + KECCAK_LENGTH {
+            return Err(
+                InvalidLength::<{ BLOCK_NUMBER_LENGTH + KECCAK_LENGTH }> { got: b.len() }.into(),
+            );
+        }
+
+        Ok((
+            BlockNumber::decode(&b[..BLOCK_NUMBER_LENGTH])?,
+            H256::decode(&b[BLOCK_NUMBER_LENGTH..])?,
+        ))
+    }
+}
+
 impl TableEncode for (Address, Incarnation) {
     type Encoded = [u8; ADDRESS_LENGTH + INCARNATION_LENGTH];
 
@@ -760,9 +788,9 @@ decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
-decl_table!(Header => Vec<u8> => Vec<u8>);
-decl_table!(HeadersTotalDifficulty => Vec<u8> => Vec<u8>);
-decl_table!(BlockBody => Vec<u8> => Vec<u8>);
+decl_table!(Header => HeaderKey => Vec<u8>);
+decl_table!(HeadersTotalDifficulty => HeaderKey => Vec<u8>);
+decl_table!(BlockBody => HeaderKey => Vec<u8>);
 decl_table!(BlockTransaction => Vec<u8> => Vec<u8>);
 decl_table!(Receipt => Vec<u8> => Vec<u8>);
 decl_table!(TransactionLog => Vec<u8> => Vec<u8>);
