@@ -9,7 +9,6 @@ use crate::{
     ChangeSet, CursorDupSort, MutableCursor, MutableCursorDupSort, MutableTransaction, Transaction,
 };
 use anyhow::Context;
-use arrayref::array_ref;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
@@ -401,13 +400,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .await?;
         if original.incarnation.0 > 0 {
             self.tx
-                .set(
-                    &tables::IncarnationMap,
-                    (
-                        address.as_bytes().to_vec(),
-                        original.incarnation.to_be_bytes().to_vec(),
-                    ),
-                )
+                .set(&tables::IncarnationMap, (address, original.incarnation))
                 .await?;
         }
 
@@ -561,9 +554,6 @@ pub async fn read_account_code_size<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 pub async fn read_previous_incarnation<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
-) -> anyhow::Result<Option<u64>> {
-    Ok(tx
-        .get(&tables::IncarnationMap, address.as_bytes().to_vec())
-        .await?
-        .map(|b| u64::from_be_bytes(*array_ref!(&*b, 0, 8))))
+) -> anyhow::Result<Option<Incarnation>> {
+    Ok(tx.get(&tables::IncarnationMap, address).await?)
 }

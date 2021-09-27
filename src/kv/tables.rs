@@ -751,7 +751,7 @@ decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Vec<u8>);
 decl_table!(HashedCodeHash => Vec<u8> => Vec<u8>);
-decl_table!(IncarnationMap => Vec<u8> => Vec<u8>);
+decl_table!(IncarnationMap => Address => Incarnation);
 decl_table!(TEVMCode => H256 => Vec<u8>);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
