@@ -1,22 +1,29 @@
-use crate::downloader::headers::header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices};
+use crate::{
+    downloader::headers::header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    kv,
+    kv::traits::MutableTransaction,
+};
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
+use sha3::Digest;
 use std::{cell::RefCell, ops::DerefMut, sync::Arc};
 use tokio::sync::watch;
 use tracing::*;
 
 /// Saves slices into the database, and sets Saved status.
-pub struct SaveStage {
+pub struct SaveStage<DB: kv::traits::MutableKV> {
     header_slices: Arc<HeaderSlices>,
     pending_watch: RefCell<watch::Receiver<usize>>,
+    db: Arc<DB>,
 }
 
-impl SaveStage {
-    pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
+impl<DB: kv::traits::MutableKV> SaveStage<DB> {
+    pub fn new(header_slices: Arc<HeaderSlices>, db: Arc<DB>) -> Self {
         let pending_watch = header_slices.watch_status_changes(HeaderSliceStatus::Verified);
 
         Self {
             header_slices,
             pending_watch: RefCell::new(pending_watch),
+            db,
         }
     }
 
@@ -43,24 +50,30 @@ impl SaveStage {
     }
 
     async fn save_pending(&self) -> anyhow::Result<()> {
-        self.header_slices.for_each(|slice_lock| {
+        while let Some(slice_lock) = self
+            .header_slices
+            .find_by_status(HeaderSliceStatus::Verified)
+        {
             let slice = slice_lock.upgradable_read();
-            if slice.status == HeaderSliceStatus::Verified {
-                let save_result = self.save_slice(&slice);
-                if save_result.is_err() {
-                    return Some(save_result);
-                }
+            self.save_slice(&slice).await?;
 
-                let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
-                self.header_slices
-                    .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Saved);
-            }
-            None
-        })
+            let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
+            self.header_slices
+                .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Saved);
+        }
+        Ok(())
     }
 
-    fn save_slice(&self, _slice: &HeaderSlice) -> anyhow::Result<()> {
-        // TODO: save verified headers to the DB
-        Ok(())
+    async fn save_slice(&self, slice: &HeaderSlice) -> anyhow::Result<()> {
+        let tx = self.db.begin_mutable().await?;
+        if let Some(headers) = slice.headers.as_ref() {
+            for header in headers {
+                let table = &kv::tables::Header;
+                let value = rlp::encode(header);
+                let key = sha3::Keccak256::digest(&value);
+                tx.set(table, &key, &value).await?;
+            }
+        }
+        tx.commit().await
     }
 }

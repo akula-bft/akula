@@ -2,7 +2,10 @@ use crate::models::{BlockHeader as Header, BlockNumber};
 use parking_lot::RwLock;
 use std::{
     collections::{HashMap, LinkedList},
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Arc,
+    },
     time,
 };
 use strum::IntoEnumIterator;
@@ -44,7 +47,7 @@ struct HeaderSliceStatusWatch {
 /// HeaderSlice 1: headers 192-384
 /// HeaderSlice 2: headers 384-576
 pub struct HeaderSlices {
-    slices: RwLock<LinkedList<RwLock<HeaderSlice>>>,
+    slices: RwLock<LinkedList<Arc<RwLock<HeaderSlice>>>>,
     max_slices: usize,
     max_block_num: AtomicU64,
     final_block_num: BlockNumber,
@@ -76,7 +79,7 @@ impl HeaderSlices {
                 request_time: None,
                 request_attempt: 0,
             };
-            slices.push_back(RwLock::new(slice));
+            slices.push_back(Arc::new(RwLock::new(slice)));
         }
 
         let mut state_watches = HashMap::<HeaderSliceStatus, HeaderSliceStatusWatch>::new();
@@ -127,15 +130,23 @@ impl HeaderSlices {
         Ok(())
     }
 
-    pub fn find<F>(&self, start_block_num: BlockNumber, f: F)
-    where
-        F: FnOnce(Option<&RwLock<HeaderSlice>>),
-    {
+    pub fn find_by_start_block_num(
+        &self,
+        start_block_num: BlockNumber,
+    ) -> Option<Arc<RwLock<HeaderSlice>>> {
         let slices = self.slices.read();
-        let slice_lock_opt = slices
+        slices
             .iter()
-            .find(|slice| slice.read().start_block_num == start_block_num);
-        f(slice_lock_opt);
+            .find(|slice| slice.read().start_block_num == start_block_num)
+            .map(Arc::clone)
+    }
+
+    pub fn find_by_status(&self, status: HeaderSliceStatus) -> Option<Arc<RwLock<HeaderSlice>>> {
+        let slices = self.slices.read();
+        slices
+            .iter()
+            .find(|slice| slice.read().status == status)
+            .map(Arc::clone)
     }
 
     pub fn remove(&self, status: HeaderSliceStatus) {
@@ -175,7 +186,7 @@ impl HeaderSlices {
                 request_time: None,
                 request_attempt: 0,
             };
-            slices.push_back(RwLock::new(slice));
+            slices.push_back(Arc::new(RwLock::new(slice)));
             self.max_block_num
                 .fetch_add(HEADER_SLICE_SIZE as u64, ATOMIC_ORDERING);
             count += 1;

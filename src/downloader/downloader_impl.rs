@@ -13,6 +13,7 @@ use crate::{
         sentry_client_impl::SentryClientImpl,
         sentry_client_reactor::SentryClientReactor,
     },
+    kv,
     models::BlockNumber,
 };
 use futures_core::Stream;
@@ -23,16 +24,21 @@ use tracing::*;
 
 type StageStream = Pin<Box<dyn Stream<Item = anyhow::Result<()>>>>;
 
-pub struct Downloader {
+pub struct Downloader<DB: kv::traits::MutableKV> {
     opts: Opts,
     chain_config: ChainConfig,
+    db: Arc<DB>,
 }
 
-impl Downloader {
-    pub fn new(opts: Opts, chains_config: ChainsConfig) -> Self {
+impl<DB: kv::traits::MutableKV> Downloader<DB> {
+    pub fn new(opts: Opts, chains_config: ChainsConfig, db: Arc<DB>) -> Self {
         let chain_config = chains_config.0[&opts.chain_name].clone();
 
-        Self { opts, chain_config }
+        Self {
+            opts,
+            chain_config,
+            db,
+        }
     }
 
     pub async fn run(
@@ -95,7 +101,7 @@ impl Downloader {
 
         let verify_stage = VerifyStage::new(Arc::clone(&header_slices), preverified_hashes_config);
 
-        let save_stage = SaveStage::new(Arc::clone(&header_slices));
+        let save_stage = SaveStage::new(Arc::clone(&header_slices), Arc::clone(&self.db));
 
         let refill_stage = RefillStage::new(Arc::clone(&header_slices));
 

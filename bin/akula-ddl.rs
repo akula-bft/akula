@@ -1,5 +1,7 @@
 use akula::downloader::{chain_config, opts::Opts, Downloader};
 
+use akula::kv;
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -10,6 +12,7 @@ async fn main() -> anyhow::Result<()> {
 
     let chains_config = chain_config::ChainsConfig::new()?;
     let opts = Opts::new(None, chains_config.chain_names().as_slice())?;
-    let downloader = Downloader::new(opts, chains_config);
+    let db = Arc::new(kv::new_database(&opts.data_dir)?);
+    let downloader = Downloader::new(opts, chains_config, db);
     downloader.run(None).await
 }

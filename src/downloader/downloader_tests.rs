@@ -1,12 +1,15 @@
-use crate::downloader::{
-    chain_config, opts::Opts, sentry_client_mock::SentryClientMock, Downloader,
+use crate::{
+    downloader::{chain_config, opts::Opts, sentry_client_mock::SentryClientMock, Downloader},
+    kv, new_mem_database,
 };
+use std::sync::Arc;
 
-fn make_downloader() -> Downloader {
+fn make_downloader() -> Downloader<impl kv::traits::MutableKV> {
     let chains_config = chain_config::ChainsConfig::new().unwrap();
     let args = Vec::<String>::new();
     let opts = Opts::new(Some(args), chains_config.chain_names().as_slice()).unwrap();
-    let downloader = Downloader::new(opts, chains_config);
+    let db = Arc::new(new_mem_database().unwrap());
+    let downloader = Downloader::new(opts, chains_config, db);
     let _ = downloader;
     downloader
 }
