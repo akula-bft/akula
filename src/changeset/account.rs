@@ -5,7 +5,7 @@ use super::*;
 #[async_trait]
 impl HistoryKind for AccountHistory {
     type Key = Address;
-    type Value = Vec<u8>;
+    type Value = EncodedAccount;
     type IndexChunkKey = Address;
     type IndexTable = tables::AccountHistory;
     type ChangeSetTable = tables::AccountChangeSet;
@@ -57,15 +57,16 @@ impl HistoryKind for AccountHistory {
 mod tests {
     use super::*;
     use ethereum_types::Address;
+    use hex_literal::hex;
 
     #[test]
     fn account_encoding() {
         let mut ch = ChangeSet::<AccountHistory>::default();
 
         for (i, val) in vec![
-            "f7f6db1eb17c6d582078e0ffdd0c".into(),
-            "b1e9b5c16355eede662031dd621d08faf4ea".into(),
-            "862cf52b74f1cea41ddd8ffa4b3e7c7790".into(),
+            &hex!("f7f6db1eb17c6d582078e0ffdd0c") as &[u8],
+            &hex!("b1e9b5c16355eede662031dd621d08faf4ea") as &[u8],
+            &hex!("862cf52b74f1cea41ddd8ffa4b3e7c7790") as &[u8],
         ]
         .into_iter()
         .enumerate()
@@ -74,7 +75,7 @@ mod tests {
                 .parse::<Address>()
                 .unwrap();
 
-            ch.insert((address, val));
+            ch.insert((address, val.iter().copied().collect()));
         }
 
         let mut ch2 = AccountChangeSet::new();

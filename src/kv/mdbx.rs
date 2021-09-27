@@ -264,6 +264,23 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
         )?)
     }
 
+    async fn del<T>(&self, table: &T, key: T::Key, value: Option<T::Value>) -> anyhow::Result<bool>
+    where
+        T: Table,
+    {
+        let mut vref = None;
+        let value = value.map(TableEncode::encode);
+
+        if let Some(v) = &value {
+            vref = Some(v.as_ref());
+        };
+        Ok(self.inner.del(
+            &self.inner.open_db(Some(table.db_name().as_ref()))?,
+            key.encode(),
+            vref,
+        )?)
+    }
+
     async fn commit(self) -> anyhow::Result<()> {
         self.inner.commit()?;
 

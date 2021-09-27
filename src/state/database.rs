@@ -328,12 +328,6 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
     }
 }
 
-impl Account {
-    fn account_data(&self, omit_hashes: bool) -> Bytes<'static> {
-        self.encode_for_storage(omit_hashes).into()
-    }
-}
-
 pub struct PlainStateWriter<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> {
     tx: &'tx Tx,
     csw: ChangeSetWriter<'db, 'tx, Tx>,
@@ -365,7 +359,13 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         let value = account.encode_for_storage(false);
 
         self.tx
-            .set(&tables::PlainState, (address.as_bytes().to_vec(), value))
+            .set(
+                &tables::PlainState,
+                tables::PlainStateFusedValue::Account {
+                    address,
+                    account: value,
+                },
+            )
             .await
     }
 
@@ -400,9 +400,11 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         self.csw.delete_account(address, original).await?;
 
         self.tx
-            .mutable_cursor(&tables::PlainState)
-            .await?
-            .delete((address.as_bytes().to_vec(), vec![]))
+            .del(
+                &tables::PlainState,
+                tables::PlainStateKey::Account(address),
+                None,
+            )
             .await?;
         if original.incarnation.0 > 0 {
             self.tx
@@ -423,26 +425,33 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         &mut self,
         address: Address,
         incarnation: Incarnation,
-        key: H256,
+        location: H256,
         original: H256,
         value: H256,
     ) -> anyhow::Result<()> {
         self.csw
-            .write_account_storage(address, incarnation, key, original, value)
+            .write_account_storage(address, incarnation, location, original, value)
             .await?;
 
         if original == value {
             return Ok(());
         }
 
-        let composite_key =
-            dbutils::plain_generate_composite_storage_key(address, incarnation, key).to_vec();
-
-        let mut c = self.tx.mutable_cursor(&tables::PlainState).await?;
-        if value.is_zero() {
-            c.delete((composite_key, vec![])).await?;
-        } else {
-            c.put((composite_key, value.0.to_vec())).await?;
+        let mut c = self.tx.mutable_cursor_dupsort(&tables::PlainState).await?;
+        if c.seek_storage_key(address, incarnation, location)
+            .await?
+            .is_some()
+        {
+            c.delete_current().await?;
+        }
+        if !value.is_zero() {
+            c.put(tables::PlainStateFusedValue::Storage {
+                address,
+                incarnation,
+                location,
+                value: value.into(),
+            })
+            .await?;
         }
 
         Ok(())
@@ -465,6 +474,34 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
         self.csw.write_history().await
     }
 }
+
+#[async_trait]
+pub trait PlainStateCursorExt<'tx>: CursorDupSort<'tx, tables::PlainState> {
+    async fn seek_storage_key(
+        &mut self,
+        address: Address,
+        incarnation: Incarnation,
+        location: H256,
+    ) -> anyhow::Result<Option<H256>> {
+        if let Some(v) = self
+            .seek_both_range(
+                tables::PlainStateKey::Storage(address, incarnation),
+                location,
+            )
+            .await?
+        {
+            if let Some((a, inc, l, v)) = v.as_storage() {
+                if a == address && inc == incarnation && l == location {
+                    return Ok(Some(v));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+impl<'tx, C: CursorDupSort<'tx, tables::PlainState>> PlainStateCursorExt<'tx> for C {}
 
 pub async fn read_account_data<'db, Tx: Transaction<'db>>(
     tx: &Tx,

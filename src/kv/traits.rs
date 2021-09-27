@@ -110,6 +110,13 @@ pub trait MutableTransaction<'db>: Transaction<'db> {
 
     async fn set<T: Table>(&self, table: &T, k: T::FusedValue) -> anyhow::Result<()>;
 
+    async fn del<T: Table>(
+        &self,
+        table: &T,
+        k: T::Key,
+        v: Option<T::Value>,
+    ) -> anyhow::Result<bool>;
+
     async fn commit(self) -> anyhow::Result<()>;
 
     /// Allows to create a linear sequence of unique positive integers for each table.

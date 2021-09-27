@@ -1,10 +1,9 @@
 use crate::{
     changeset::*,
     dbutils,
-    dbutils::*,
     kv::{tables::BitmapKey, *},
     models::*,
-    Cursor, Transaction,
+    read_account_storage, Cursor, Transaction,
 };
 use ethereum_types::*;
 
@@ -12,12 +11,12 @@ pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     timestamp: BlockNumber,
-) -> anyhow::Result<Option<Vec<u8>>> {
+) -> anyhow::Result<Option<EncodedAccount>> {
     if let Some(v) = find_data_by_history(tx, address, timestamp).await? {
         return Ok(Some(v));
     }
 
-    tx.get(&tables::PlainState, address.as_fixed_bytes().to_vec())
+    tx.get(&tables::PlainState, tables::PlainStateKey::Account(address))
         .await
         .map(|opt| opt.map(From::from))
 }
@@ -35,17 +34,14 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         return Ok(Some(v));
     }
 
-    let key = plain_generate_composite_storage_key(address, incarnation, location);
-    tx.get(&tables::PlainState, key.to_vec())
-        .await
-        .map(|opt| opt.map(|b| H256::from_slice(&b)))
+    read_account_storage(tx, address, incarnation, location).await
 }
 
 pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     block_number: BlockNumber,
-) -> anyhow::Result<Option<Vec<u8>>> {
+) -> anyhow::Result<Option<EncodedAccount>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
         .seek(BitmapKey {
@@ -267,28 +263,40 @@ mod tests {
         let mut plain_state = tx.cursor(&tables::PlainState).await.unwrap();
 
         for i in 0..num_of_accounts {
-            let address = addrs[i];
-            let acc = read_account_data(&tx, address).await.unwrap().unwrap();
+            let a = addrs[i];
+            let acc = read_account_data(&tx, a).await.unwrap().unwrap();
 
             assert_eq!(acc_state[i], acc);
 
-            let index = bitmapdb::get(&tx, &tables::AccountHistory, address, 0, u64::MAX)
+            let index = bitmapdb::get(&tx, &tables::AccountHistory, a, 0, u64::MAX)
                 .await
                 .unwrap();
 
             assert_eq!(index.iter().next().unwrap(), 2);
             assert_eq!(index.len(), 1);
 
-            let prefix = plain_generate_storage_prefix(address, acc.incarnation).to_vec();
             let res_account_storage = plain_state
-                .walk(Some(prefix.clone()))
-                .take_while(ttw(|fv: &(Vec<u8>, Vec<u8>)| fv.0.starts_with(&prefix)))
+                .walk(Some(tables::PlainStateSeekKey::StorageWithIncarnation(
+                    a,
+                    acc.incarnation,
+                )))
+                .take_while(ttw(|fv: &tables::PlainStateFusedValue| {
+                    if let tables::PlainStateFusedValue::Storage {
+                        address,
+                        incarnation,
+                        ..
+                    } = fv
+                    {
+                        if *address == a && *incarnation == acc.incarnation {
+                            return true;
+                        }
+                    }
+
+                    false
+                }))
                 .fold(HashMap::new(), |mut accum, res| {
-                    let (k, v) = res.unwrap();
-                    accum.insert(
-                        H256::from_slice(&k[ADDRESS_LENGTH + 8..]),
-                        H256::from_slice(&v),
-                    );
+                    let (_, _, location, value) = res.unwrap().as_storage().unwrap();
+                    accum.insert(location, value);
                     accum
                 })
                 .await;
@@ -298,7 +306,7 @@ mod tests {
             for (&key, &v) in &acc_history_state_storage[i] {
                 assert_eq!(
                     v,
-                    get_storage_as_of(&tx, address, acc.incarnation, key, 1)
+                    get_storage_as_of(&tx, a, acc.incarnation, key, 1)
                         .await
                         .unwrap()
                         .unwrap()

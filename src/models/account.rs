@@ -74,7 +74,7 @@ pub type EncodedAccount = ArrayVec<u8, MAX_ACCOUNT_LEN>;
 
 impl Account {
     fn write_compact<const LEN: usize>(input: &[u8; LEN]) -> ArrayVec<u8, LEN> {
-        input.into_iter().copied().skip_while(|v| *v == 0).collect()
+        input.iter().copied().skip_while(|v| *v == 0).collect()
     }
 
     pub fn encode_for_storage(&self, omit_code_hash: bool) -> EncodedAccount {

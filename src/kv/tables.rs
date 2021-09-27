@@ -403,16 +403,16 @@ pub type AccountChangeKey = BlockNumber;
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountChange {
     pub address: Address,
-    pub account: Vec<u8>,
+    pub account: EncodedAccount,
 }
 
 impl TableEncode for AccountChange {
-    type Encoded = Vec<u8>;
+    type Encoded = ArrayVec<u8, { ADDRESS_LENGTH + MAX_ACCOUNT_LEN }>;
 
-    fn encode(mut self) -> Self::Encoded {
-        let mut out = Vec::with_capacity(BLOCK_NUMBER_LENGTH + self.account.len());
-        out.extend_from_slice(&self.address.encode());
-        out.append(&mut self.account);
+    fn encode(self) -> Self::Encoded {
+        let mut out = ArrayVec::new();
+        out.try_extend_from_slice(&self.address.encode()).unwrap();
+        out.try_extend_from_slice(&self.account).unwrap();
         out
     }
 }
@@ -425,7 +425,7 @@ impl TableDecode for AccountChange {
 
         Ok(Self {
             address: Address::decode(&b[..ADDRESS_LENGTH])?,
-            account: b[ADDRESS_LENGTH..].to_vec(),
+            account: EncodedAccount::decode(&b[ADDRESS_LENGTH..])?,
         })
     }
 }
@@ -528,7 +528,7 @@ impl TableDecode for StorageChange {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum PlainStateKey {
     Account(Address),
     Storage(Address, Incarnation),
@@ -541,7 +541,7 @@ impl TableEncode for PlainStateKey {
         let mut out = ArrayVec::new();
         match self {
             PlainStateKey::Account(address) => {
-                out.try_extend_from_slice(&address.encode());
+                out.try_extend_from_slice(&address.encode()).unwrap();
             }
             PlainStateKey::Storage(address, incarnation) => {
                 out.try_extend_from_slice(&address.encode()).unwrap();
@@ -561,7 +561,38 @@ impl TableDecode for PlainStateKey {
                 Address::decode(&b[..ADDRESS_LENGTH])?,
                 Incarnation::decode(&b[ADDRESS_LENGTH..])?,
             ),
+            _ => bail!(
+                "invalid length: expected one of [{}, {}], got {}",
+                ADDRESS_LENGTH,
+                STORAGE_KEY_LEN,
+                b.len()
+            ),
         })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PlainStateSeekKey {
+    Account(Address),
+    StorageAllIncarnations(Address),
+    StorageWithIncarnation(Address, Incarnation),
+}
+
+impl TableEncode for PlainStateSeekKey {
+    type Encoded = ArrayVec<u8, { ADDRESS_LENGTH + INCARNATION_LENGTH }>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = ArrayVec::new();
+        match self {
+            Self::Account(address) | Self::StorageAllIncarnations(address) => {
+                out.try_extend_from_slice(&address.encode()).unwrap();
+            }
+            Self::StorageWithIncarnation(address, incarnation) => {
+                out.try_extend_from_slice(&address.encode()).unwrap();
+                out.try_extend_from_slice(&incarnation.encode()).unwrap();
+            }
+        }
+        out
     }
 }
 
@@ -609,7 +640,7 @@ pub struct PlainState;
 impl Table for PlainState {
     type Key = PlainStateKey;
     type Value = ArrayVec<u8, MAX_ACCOUNT_LEN>;
-    type SeekKey = Address;
+    type SeekKey = PlainStateSeekKey;
     type FusedValue = PlainStateFusedValue;
 
     fn db_name(&self) -> string::String<static_bytes::Bytes> {
@@ -629,7 +660,7 @@ impl Table for PlainState {
 
                 PlainStateFusedValue::Account {
                     address,
-                    account: value.into(),
+                    account: value,
                 }
             }
             PlainStateKey::Storage(address, incarnation) => {
