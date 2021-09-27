@@ -27,11 +27,11 @@ type StageStream = Pin<Box<dyn Stream<Item = anyhow::Result<()>>>>;
 pub struct Downloader<DB: kv::traits::MutableKV> {
     opts: Opts,
     chain_config: ChainConfig,
-    db: Rc<DB>,
+    db: Arc<DB>,
 }
 
 impl<DB: kv::traits::MutableKV> Downloader<DB> {
-    pub fn new(opts: Opts, chains_config: ChainsConfig, db: Rc<DB>) -> Self {
+    pub fn new(opts: Opts, chains_config: ChainsConfig, db: Arc<DB>) -> Self {
         let chain_config = chains_config.0[&opts.chain_name].clone();
 
         Self {
@@ -101,7 +101,7 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
 
         let verify_stage = VerifyStage::new(Arc::clone(&header_slices), preverified_hashes_config);
 
-        let save_stage = SaveStage::new(Arc::clone(&header_slices), Rc::clone(&self.db));
+        let save_stage = SaveStage::new(Arc::clone(&header_slices), Arc::clone(&self.db));
 
         let refill_stage = RefillStage::new(Arc::clone(&header_slices));
 

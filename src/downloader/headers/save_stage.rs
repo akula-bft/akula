@@ -5,7 +5,7 @@ use crate::{
 };
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use sha3::Digest;
-use std::{cell::RefCell, ops::DerefMut, rc::Rc, sync::Arc};
+use std::{cell::RefCell, ops::DerefMut, sync::Arc};
 use tokio::sync::watch;
 use tracing::*;
 
@@ -13,11 +13,11 @@ use tracing::*;
 pub struct SaveStage<DB: kv::traits::MutableKV> {
     header_slices: Arc<HeaderSlices>,
     pending_watch: RefCell<watch::Receiver<usize>>,
-    db: Rc<DB>,
+    db: Arc<DB>,
 }
 
 impl<DB: kv::traits::MutableKV> SaveStage<DB> {
-    pub fn new(header_slices: Arc<HeaderSlices>, db: Rc<DB>) -> Self {
+    pub fn new(header_slices: Arc<HeaderSlices>, db: Arc<DB>) -> Self {
         let pending_watch = header_slices.watch_status_changes(HeaderSliceStatus::Verified);
 
         Self {
