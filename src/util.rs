@@ -40,8 +40,9 @@ pub fn h256_to_u256(v: impl Borrow<H256>) -> U256 {
     U256::from_big_endian(&v.borrow().0)
 }
 
-pub fn zeroless_view(v: &H256) -> &[u8] {
-    &v.0[v.0.iter().take_while(|b| b.is_zero()).count()..]
+pub fn zeroless_view(v: &impl AsRef<[u8]>) -> &[u8] {
+    let v = v.as_ref();
+    &v[v.iter().take_while(|b| b.is_zero()).count()..]
 }
 
 pub fn write_hex_string<B: AsRef<[u8]>>(b: &B, f: &mut Formatter) -> fmt::Result {

@@ -4,13 +4,12 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::tables,
+    kv::{tables, traits::TableEncode},
     models::BodyForStorage,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     Cursor, MutableTransaction, StageId,
 };
 use async_trait::async_trait;
-use ethereum_types::U64;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -49,25 +48,18 @@ where
             .await?
             .last()
             .await?
-            .map(|(_, v)| v)
-            .unwrap_or_else(Vec::new);
+            .map(|(_, v)| v.0)
+            .unwrap_or_else(|| 0.into());
 
-        let start_block_number = (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
-            .as_u64()
-            .into();
+        let start_block_number = last_processed_block_number + 1;
 
         let walker_block_body = bodies_cursor.walk(Some(start_block_number));
         pin!(walker_block_body);
 
-        while let Some((block_body_key, ref block_body_value)) =
+        while let Some(((block_number, _), ref block_body_value)) =
             walker_block_body.try_next().await?
         {
-            let block_number = block_body_key[..8]
-                .iter()
-                .cloned()
-                // remove trailing zeros
-                .skip_while(|x| *x == 0)
-                .collect::<Vec<_>>();
+            let block_number = tables::TruncateStart(block_number).encode();
             let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
             let tx_base_id_as_bytes = tx_base_id.to_be_bytes().to_vec();
@@ -85,7 +77,7 @@ where
                 let hashed_tx_data = keccak256(tx_value);
                 collector.collect(Entry {
                     key: hashed_tx_data.as_bytes().to_vec(),
-                    value: block_number.clone(),
+                    value: block_number.to_vec(),
                     id: 0, // ?
                 });
                 num_txs += 1;
@@ -311,15 +303,15 @@ mod tests {
         );
 
         for (hashed_tx, block_number) in [
-            (hash1_1, vec![1]),
-            (hash1_2, vec![1]),
-            (hash2_1, vec![2]),
-            (hash2_2, vec![2]),
-            (hash2_3, vec![2]),
+            (hash1_1, 1),
+            (hash1_2, 1),
+            (hash2_1, 2),
+            (hash2_2, 2),
+            (hash2_3, 2),
         ] {
             assert_eq!(
                 dbg!(chain::tl::read(&tx, hashed_tx).await.unwrap().unwrap()),
-                block_number
+                block_number.into()
             );
         }
     }

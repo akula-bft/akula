@@ -190,23 +190,20 @@ impl<const MAXIMUM: usize> std::error::Error for TooLong<MAXIMUM> {}
 
 macro_rules! u64_table_object {
     ($ty:ident) => {
-        impl TableDecode for $ty
-        where
-            InvalidLength<8>: 'static,
-        {
-            fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                match b.len() {
-                    8 => Ok(Self(u64::from_be_bytes(*array_ref!(&*b, 0, 8)))),
-                    other => Err(InvalidLength::<8> { got: other }.into()),
-                }
-            }
-        }
-
         impl TableEncode for $ty {
             type Encoded = [u8; 8];
 
             fn encode(self) -> Self::Encoded {
                 self.0.to_be_bytes()
+            }
+        }
+
+        impl TableDecode for $ty {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                match b.len() {
+                    8 => Ok(Self(u64::from_be_bytes(*array_ref!(&*b, 0, 8)))),
+                    other => Err(InvalidLength::<8> { got: other }.into()),
+                }
             }
         }
     };
@@ -215,6 +212,76 @@ macro_rules! u64_table_object {
 u64_table_object!(BlockNumber);
 u64_table_object!(Incarnation);
 u64_table_object!(TxIndex);
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deref,
+    DerefMut,
+    Default,
+    Display,
+    PartialEq,
+    Eq,
+    From,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+)]
+#[serde(transparent)]
+pub struct TruncateStart<T>(pub T);
+
+impl<T, const LEN: usize> TableEncode for TruncateStart<T>
+where
+    T: TableEncode<Encoded = [u8; LEN]>,
+{
+    type Encoded = ArrayVec<u8, LEN>;
+
+    fn encode(self) -> Self::Encoded {
+        let arr = self.0.encode();
+
+        let mut out = ArrayVec::new();
+        out.try_extend_from_slice(zeroless_view(&arr)).unwrap();
+        out
+    }
+}
+
+impl<T, const LEN: usize> TableDecode for TruncateStart<T>
+where
+    T: TableEncode<Encoded = [u8; LEN]> + TableDecode,
+{
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() > LEN {
+            return Err(TooLong::<LEN> { got: b.len() }.into());
+        }
+
+        let mut arr = [0; LEN];
+        arr[LEN - b.len()..].copy_from_slice(b);
+        T::decode(&arr).map(Self)
+    }
+}
+
+macro_rules! rlp_table_object {
+    ($ty:ident) => {
+        impl TableEncode for $ty {
+            type Encoded = static_bytes::BytesMut;
+
+            fn encode(self) -> Self::Encoded {
+                rlp::encode(&self)
+            }
+        }
+
+        impl TableDecode for $ty {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                Ok(rlp::decode(b)?)
+            }
+        }
+    };
+}
+
+rlp_table_object!(U256);
 
 impl TableEncode for Address {
     type Encoded = [u8; ADDRESS_LENGTH];
@@ -789,7 +856,7 @@ decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => HeaderKey => Vec<u8>);
-decl_table!(HeadersTotalDifficulty => HeaderKey => Vec<u8>);
+decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => Vec<u8> => BlockNumber);
 decl_table!(BlockTransaction => Vec<u8> => Vec<u8>);
 decl_table!(Receipt => Vec<u8> => Vec<u8>);
@@ -799,7 +866,7 @@ decl_table!(LogAddressIndex => Vec<u8> => Vec<u8>);
 decl_table!(CallTraceSet => Vec<u8> => Vec<u8>);
 decl_table!(CallFromIndex => Vec<u8> => Vec<u8>);
 decl_table!(CallToIndex => Vec<u8> => Vec<u8>);
-decl_table!(BlockTransactionLookup => H256 => u64);
+decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => H256 => Vec<u8>);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(CliqueSeparate => Vec<u8> => Vec<u8>);

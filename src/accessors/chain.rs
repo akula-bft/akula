@@ -260,16 +260,8 @@ pub mod td {
         let number = number.into();
         trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
-        if let Some(b) = tx
-            .get(&tables::HeadersTotalDifficulty, (number, hash))
-            .await?
-        {
-            trace!("Reading TD RLP: {}", hex::encode(&b));
-
-            return Ok(Some(rlp::decode(&b)?));
-        }
-
-        Ok(None)
+        tx.get(&tables::HeadersTotalDifficulty, (number, hash))
+            .await
     }
 }
 
@@ -279,22 +271,13 @@ pub mod tl {
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         tx_hash: H256,
-    ) -> anyhow::Result<Option<Vec<u8>>> {
+    ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading Block number for a tx_hash {:?}", tx_hash);
 
-        if let Some(b) = tx
-            .get(
-                &tables::BlockTransactionLookup,
-                tx_hash.to_fixed_bytes().into(),
-            )
+        Ok(tx
+            .get(&tables::BlockTransactionLookup, tx_hash)
             .await?
-        {
-            trace!("Reading TL RLP: {}", hex::encode(&b));
-
-            return Ok(Some(rlp::decode(&b)?));
-        }
-
-        Ok(None)
+            .map(|b| b.0))
     }
 }
 
