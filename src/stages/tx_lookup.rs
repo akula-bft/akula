@@ -44,7 +44,6 @@ where
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
-        let mut start_block_number = [0; 8];
         let last_processed_block_number = tx
             .mutable_cursor(&tables::BlockTransactionLookup)
             .await?
@@ -53,10 +52,11 @@ where
             .map(|(_, v)| v)
             .unwrap_or_else(Vec::new);
 
-        (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
-            .to_big_endian(&mut start_block_number);
+        let start_block_number = (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
+            .as_u64()
+            .into();
 
-        let walker_block_body = bodies_cursor.walk(Some(start_block_number.to_vec()));
+        let walker_block_body = bodies_cursor.walk(Some(start_block_number));
         pin!(walker_block_body);
 
         while let Some((block_body_key, ref block_body_value)) =

@@ -1,5 +1,4 @@
 use crate::{
-    dbutils::*,
     kv::{
         tables,
         traits::{Cursor, MutableCursor},
@@ -205,10 +204,7 @@ pub mod storage_body {
         let number = number.into();
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
-        if let Some(b) = tx
-            .get(&tables::BlockBody, header_key(number, hash).into())
-            .await?
-        {
+        if let Some(b) = tx.get(&tables::BlockBody, (number, hash)).await? {
             return Ok(Some(b.into()));
         }
 
