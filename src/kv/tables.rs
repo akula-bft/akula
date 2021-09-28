@@ -282,6 +282,7 @@ macro_rules! rlp_table_object {
 }
 
 rlp_table_object!(U256);
+rlp_table_object!(Transaction);
 
 impl TableEncode for Address {
     type Encoded = [u8; ADDRESS_LENGTH];
@@ -858,7 +859,7 @@ decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => HeaderKey => Vec<u8>);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => Vec<u8> => BlockNumber);
-decl_table!(BlockTransaction => Vec<u8> => Vec<u8>);
+decl_table!(BlockTransaction => TxIndex => Transaction);
 decl_table!(Receipt => Vec<u8> => Vec<u8>);
 decl_table!(TransactionLog => Vec<u8> => Vec<u8>);
 decl_table!(LogTopicIndex => Vec<u8> => Vec<u8>);

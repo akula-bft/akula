@@ -1,5 +1,4 @@
 use crate::{
-    crypto::*,
     etl::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
@@ -62,25 +61,16 @@ where
             let block_number = tables::TruncateStart(block_number).encode();
             let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
-            let tx_base_id_as_bytes = tx_base_id.to_be_bytes().to_vec();
 
-            let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id_as_bytes));
+            let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id)).take(tx_count);
             pin!(walker_block_txs);
 
-            let mut num_txs = 1;
-
-            while let Some((_tx_key, ref tx_value)) = walker_block_txs.try_next().await? {
-                if num_txs > tx_count {
-                    break;
-                }
-
-                let hashed_tx_data = keccak256(tx_value);
+            while let Some((_, tx)) = walker_block_txs.try_next().await? {
                 collector.collect(Entry {
-                    key: hashed_tx_data.as_bytes().to_vec(),
+                    key: tx.hash().encode().to_vec(),
                     value: block_number.to_vec(),
                     id: 0, // ?
                 });
-                num_txs += 1;
             }
         }
 
@@ -127,7 +117,7 @@ mod tests {
         let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
-            base_tx_id: 1,
+            base_tx_id: 1.into(),
             tx_amount: 2,
             uncles: vec![],
         };
@@ -153,7 +143,7 @@ mod tests {
             )
             .unwrap(),
         };
-        let hash1_1 = keccak256(rlp::encode(&tx1_1));
+        let hash1_1 = tx1_1.hash();
 
         let tx1_2 = Transaction {
             message: TransactionMessage::Legacy {
@@ -176,10 +166,10 @@ mod tests {
             )
             .unwrap(),
         };
-        let hash1_2 = keccak256(rlp::encode(&tx1_2));
+        let hash1_2 = tx1_2.hash();
 
         let block2 = BodyForStorage {
-            base_tx_id: 3,
+            base_tx_id: 3.into(),
             tx_amount: 3,
             uncles: vec![],
         };
@@ -206,7 +196,7 @@ mod tests {
             .unwrap(),
         };
 
-        let hash2_1 = keccak256(rlp::encode(&tx2_1));
+        let hash2_1 = tx2_1.hash();
 
         let tx2_2 = Transaction {
             message: TransactionMessage::Legacy {
@@ -230,7 +220,7 @@ mod tests {
             .unwrap(),
         };
 
-        let hash2_2 = keccak256(rlp::encode(&tx2_2));
+        let hash2_2 = tx2_2.hash();
 
         let tx2_3 = Transaction {
             message: TransactionMessage::Legacy {
@@ -254,10 +244,10 @@ mod tests {
             .unwrap(),
         };
 
-        let hash2_3 = keccak256(rlp::encode(&tx2_3));
+        let hash2_3 = tx2_3.hash();
 
         let block3 = BodyForStorage {
-            base_tx_id: 6,
+            base_tx_id: 6.into(),
             tx_amount: 0,
             uncles: vec![],
         };

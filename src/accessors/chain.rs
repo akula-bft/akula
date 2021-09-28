@@ -6,7 +6,6 @@ use crate::{
     models::*,
     MutableTransaction, Transaction as ReadTransaction,
 };
-use anyhow::Context;
 use ethereum_types::{Address, H256, U256};
 use tokio::pin;
 use tokio_stream::StreamExt;
@@ -77,44 +76,38 @@ pub mod tx {
 
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
-        base_tx_id: u64,
-        amount: u32,
+        base_tx_id: impl Into<TxIndex>,
+        amount: usize,
     ) -> anyhow::Result<Vec<Transaction>> {
+        let base_tx_id = base_tx_id.into();
         trace!(
             "Reading {} transactions starting from {}",
             amount,
             base_tx_id
         );
 
-        Ok(if amount > 0 {
-            let mut out = Vec::with_capacity(amount as usize);
-
+        if amount > 0 {
             let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
 
-            let start_key = base_tx_id.to_be_bytes().to_vec();
-            let walker = cursor.walk(Some(start_key));
+            let walker = cursor.walk(Some(base_tx_id));
 
             pin!(walker);
 
-            while let Some((_, tx_rlp)) = walker.try_next().await? {
-                out.push(rlp::decode(&tx_rlp).context("broken tx rlp")?);
-
-                if out.len() >= amount as usize {
-                    break;
-                }
-            }
-
-            out
+            futures_util::TryStreamExt::try_collect(
+                walker.take(amount).map(|res| res.map(|(_, v)| v)),
+            )
+            .await
         } else {
-            vec![]
-        })
+            Ok(vec![])
+        }
     }
 
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
         tx: &'tx RwTx,
-        base_tx_id: u64,
+        base_tx_id: impl Into<TxIndex>,
         txs: &[Transaction],
     ) -> anyhow::Result<()> {
+        let base_tx_id = base_tx_id.into();
         trace!(
             "Writing {} transactions starting from {}",
             txs.len(),
@@ -124,9 +117,10 @@ pub mod tx {
         let mut cursor = tx.mutable_cursor(&tables::BlockTransaction).await.unwrap();
 
         for (i, eth_tx) in txs.iter().enumerate() {
-            let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
-            let data = rlp::encode(eth_tx).to_vec();
-            cursor.put((key, data)).await.unwrap();
+            cursor
+                .put((base_tx_id + i as u64, eth_tx.clone()))
+                .await
+                .unwrap();
         }
 
         Ok(())
@@ -139,7 +133,7 @@ pub mod tx_sender {
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         base_tx_id: impl Into<TxIndex>,
-        amount: u32,
+        amount: usize,
     ) -> anyhow::Result<Vec<Address>> {
         let base_tx_id = base_tx_id.into();
 
@@ -155,7 +149,7 @@ pub mod tx_sender {
             let start_key = base_tx_id;
             cursor
                 .walk(Some(start_key))
-                .take(amount as usize)
+                .take(amount)
                 .collect::<anyhow::Result<Vec<_>>>()
                 .await?
                 .into_iter()
@@ -323,7 +317,7 @@ mod tests {
 
         let block1_hash = H256::random();
         let body = BodyForStorage {
-            base_tx_id: 1,
+            base_tx_id: 1.into(),
             tx_amount: 2,
             uncles: vec![],
         };
