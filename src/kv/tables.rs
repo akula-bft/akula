@@ -282,6 +282,7 @@ macro_rules! rlp_table_object {
 }
 
 rlp_table_object!(U256);
+rlp_table_object!(BodyForStorage);
 rlp_table_object!(BlockHeader);
 rlp_table_object!(Transaction);
 
@@ -884,7 +885,7 @@ decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => HeaderKey => BlockHeader);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
-decl_table!(BlockBody => HeaderKey => Vec<u8> => BlockNumber);
+decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
 decl_table!(Receipt => Vec<u8> => Vec<u8>);
 decl_table!(TransactionLog => Vec<u8> => Vec<u8>);

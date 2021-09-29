@@ -182,35 +182,17 @@ pub mod tx_sender {
 }
 
 pub mod storage_body {
-    use bytes::Bytes;
-
     use super::*;
-
-    async fn read_raw<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
-        hash: H256,
-        number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        let number = number.into();
-        trace!("Reading storage body for block {}/{:?}", number, hash);
-
-        if let Some(b) = tx.get(&tables::BlockBody, (number, hash)).await? {
-            return Ok(Some(b.into()));
-        }
-
-        Ok(None)
-    }
 
     pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
         tx: &'tx Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BodyForStorage>> {
-        if let Some(b) = read_raw(tx, hash, number).await? {
-            return Ok(Some(rlp::decode(&b)?));
-        }
+        let number = number.into();
+        trace!("Reading storage body for block {}/{:?}", number, hash);
 
-        Ok(None)
+        tx.get(&tables::BlockBody, (number, hash)).await
     }
 
     pub async fn has<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
@@ -218,7 +200,7 @@ pub mod storage_body {
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<bool> {
-        Ok(read_raw(tx, hash, number).await?.is_some())
+        Ok(read(tx, hash, number).await?.is_some())
     }
 
     pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
@@ -230,8 +212,7 @@ pub mod storage_body {
         let number = number.into();
         trace!("Writing storage body for block {}/{:?}", number, hash);
 
-        let data = rlp::encode(body);
-        tx.set(&tables::BlockBody, ((number, hash), data.to_vec()))
+        tx.set(&tables::BlockBody, ((number, hash), body.clone()))
             .await
             .unwrap();
 

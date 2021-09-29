@@ -4,7 +4,6 @@ use crate::{
         data_provider::Entry,
     },
     kv::{tables, traits::TableEncode},
-    models::BodyForStorage,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     Cursor, MutableTransaction, StageId,
 };
@@ -55,11 +54,8 @@ where
         let walker_block_body = bodies_cursor.walk(Some(start_block_number));
         pin!(walker_block_body);
 
-        while let Some(((block_number, _), ref block_body_value)) =
-            walker_block_body.try_next().await?
-        {
+        while let Some(((block_number, _), ref body_rpl)) = walker_block_body.try_next().await? {
             let block_number = tables::TruncateStart(block_number).encode();
-            let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
 
             let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id)).take(tx_count);
