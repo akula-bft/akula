@@ -651,6 +651,32 @@ impl TableDecode for (Address, Incarnation) {
     }
 }
 
+impl TableEncode for (H256, Incarnation) {
+    type Encoded = [u8; KECCAK_LENGTH + INCARNATION_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = [0; KECCAK_LENGTH + INCARNATION_LENGTH];
+        out[..KECCAK_LENGTH].copy_from_slice(&self.0.encode());
+        out[KECCAK_LENGTH..].copy_from_slice(&self.1.encode());
+        out
+    }
+}
+
+impl TableDecode for (H256, Incarnation) {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != KECCAK_LENGTH + INCARNATION_LENGTH {
+            return Err(
+                InvalidLength::<{ KECCAK_LENGTH + INCARNATION_LENGTH }> { got: b.len() }.into(),
+            );
+        }
+
+        let hash = H256::decode(&b[..KECCAK_LENGTH])?;
+        let incarnation = Incarnation::decode(&b[KECCAK_LENGTH..])?;
+
+        Ok((hash, incarnation))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum PlainStateKey {
     Account(Address),
@@ -847,7 +873,7 @@ decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Vec<u8>);
-decl_table!(HashedCodeHash => Vec<u8> => Vec<u8>);
+decl_table!(HashedCodeHash => (H256, Incarnation) => H256);
 decl_table!(IncarnationMap => Address => Incarnation);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
