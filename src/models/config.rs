@@ -1,10 +1,10 @@
 use super::BlockNumber;
 use ethereum_types::*;
 use evmodin::Revision;
-use serde::Deserialize;
+use serde::*;
 use std::collections::{BTreeSet, HashSet};
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DaoConfig {
     pub block_number: BlockNumber,
     pub drain: HashSet<Address>,
@@ -12,7 +12,7 @@ pub struct DaoConfig {
 }
 
 #[allow(non_snake_case)]
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {
     pub chain_id: u64,

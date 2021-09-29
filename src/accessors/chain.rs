@@ -15,15 +15,15 @@ use BlockHeader as HeaderType;
 pub mod canonical_hash {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         block_number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<H256>> {
         tx.get(&tables::CanonicalHeader, block_number.into()).await
     }
 
-    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
-        tx: &'tx RwTx,
+    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
+        tx: &RwTx,
         block_number: impl Into<BlockNumber>,
         hash: H256,
     ) -> anyhow::Result<()> {
@@ -41,22 +41,21 @@ pub mod canonical_hash {
 pub mod header_number {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         hash: H256,
     ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading block number for hash {:?}", hash);
 
-        tx.get(&tables::HeaderNumber, hash.to_fixed_bytes().into())
-            .await
+        tx.get(&tables::HeaderNumber, hash).await
     }
 }
 
 pub mod header {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<HeaderType>> {
@@ -70,8 +69,8 @@ pub mod header {
 pub mod tx {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         base_tx_id: impl Into<TxIndex>,
         amount: usize,
     ) -> anyhow::Result<Vec<Transaction>> {
@@ -98,8 +97,8 @@ pub mod tx {
         }
     }
 
-    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
-        tx: &'tx RwTx,
+    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
+        tx: &RwTx,
         base_tx_id: impl Into<TxIndex>,
         txs: &[Transaction],
     ) -> anyhow::Result<()> {
@@ -126,8 +125,8 @@ pub mod tx {
 pub mod tx_sender {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         base_tx_id: impl Into<TxIndex>,
         amount: usize,
     ) -> anyhow::Result<Vec<Address>> {
@@ -156,8 +155,8 @@ pub mod tx_sender {
         })
     }
 
-    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
-        tx: &'tx RwTx,
+    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
+        tx: &RwTx,
         base_tx_id: impl Into<TxIndex>,
         senders: &[Address],
     ) -> anyhow::Result<()> {
@@ -184,8 +183,8 @@ pub mod tx_sender {
 pub mod storage_body {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BodyForStorage>> {
@@ -195,16 +194,16 @@ pub mod storage_body {
         tx.get(&tables::BlockBody, (number, hash)).await
     }
 
-    pub async fn has<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn has<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<bool> {
         Ok(read(tx, hash, number).await?.is_some())
     }
 
-    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
-        tx: &'tx RwTx,
+    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
+        tx: &RwTx,
         hash: H256,
         number: impl Into<BlockNumber>,
         body: &BodyForStorage,
@@ -223,8 +222,8 @@ pub mod storage_body {
 pub mod td {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<U256>> {
@@ -239,8 +238,8 @@ pub mod td {
 pub mod tl {
     use super::*;
 
-    pub async fn read<'db: 'tx, 'tx, Tx: ReadTransaction<'db>>(
-        tx: &'tx Tx,
+    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
         tx_hash: H256,
     ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading Block number for a tx_hash {:?}", tx_hash);
