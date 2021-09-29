@@ -23,7 +23,6 @@ mod bitmapdb;
 pub mod chain;
 mod changeset;
 pub mod crypto;
-mod dbutils;
 pub mod downloader;
 pub mod etl;
 pub mod execution;
