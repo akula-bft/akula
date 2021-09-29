@@ -63,11 +63,7 @@ pub mod header {
         let number = number.into();
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        if let Some(b) = tx.get(&tables::Header, (number, hash)).await? {
-            return Ok(Some(rlp::decode(&b)?));
-        }
-
-        Ok(None)
+        tx.get(&tables::Header, (number, hash)).await
     }
 }
 

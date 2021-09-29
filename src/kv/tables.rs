@@ -282,6 +282,7 @@ macro_rules! rlp_table_object {
 }
 
 rlp_table_object!(U256);
+rlp_table_object!(BlockHeader);
 rlp_table_object!(Transaction);
 
 impl TableEncode for Address {
@@ -848,7 +849,6 @@ decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Vec<u8>);
 decl_table!(HashedCodeHash => Vec<u8> => Vec<u8>);
 decl_table!(IncarnationMap => Address => Incarnation);
-decl_table!(TEVMCode => H256 => Vec<u8>);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(DbInfo => Vec<u8> => Vec<u8>);
@@ -856,7 +856,7 @@ decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
-decl_table!(Header => HeaderKey => Vec<u8>);
+decl_table!(Header => HeaderKey => BlockHeader);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => Vec<u8> => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
@@ -870,9 +870,6 @@ decl_table!(CallToIndex => Vec<u8> => Vec<u8>);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => H256 => Vec<u8>);
 decl_table!(SyncStage => StageId => BlockNumber);
-decl_table!(CliqueSeparate => Vec<u8> => Vec<u8>);
-decl_table!(CliqueSnapshot => Vec<u8> => Vec<u8>);
-decl_table!(CliqueLastSnapshot => Vec<u8> => Vec<u8>);
 decl_table!(TxSender => TxIndex => Address);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
@@ -903,7 +900,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         Code::const_db_name() => TableInfo::default(),
         HashedCodeHash::const_db_name() => TableInfo::default(),
         IncarnationMap::const_db_name() => TableInfo::default(),
-        TEVMCode::const_db_name() => TableInfo::default(),
         TrieAccount::const_db_name() => TableInfo::default(),
         TrieStorage::const_db_name() => TableInfo::default(),
         DbInfo::const_db_name() => TableInfo::default(),
@@ -927,9 +923,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         BlockTransactionLookup::const_db_name() => TableInfo::default(),
         Config::const_db_name() => TableInfo::default(),
         SyncStage::const_db_name() => TableInfo::default(),
-        CliqueSeparate::const_db_name() => TableInfo::default(),
-        CliqueSnapshot::const_db_name() => TableInfo::default(),
-        CliqueLastSnapshot::const_db_name() => TableInfo::default(),
         TxSender::const_db_name() => TableInfo::default(),
         LastBlock::const_db_name() => TableInfo::default(),
         Migration::const_db_name() => TableInfo::default(),
