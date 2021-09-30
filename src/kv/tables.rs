@@ -6,6 +6,7 @@ use arrayvec::ArrayVec;
 use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
+use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use roaring::RoaringTreemap;
 use serde::{Deserialize, *};
@@ -264,7 +265,7 @@ where
 }
 
 macro_rules! rlp_table_object {
-    ($ty:ident) => {
+    ($ty:ty) => {
         impl TableEncode for $ty {
             type Encoded = static_bytes::BytesMut;
 
@@ -651,6 +652,53 @@ impl TableDecode for StorageChange {
 
 pub type HeaderKey = (BlockNumber, H256);
 
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+struct CallTraceSetFlags {
+    flag_from: bool,
+    flag_to: bool,
+    #[skip]
+    unused: B6,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CallTraceSetEntry {
+    address: Address,
+    from: bool,
+    to: bool,
+}
+
+impl TableEncode for CallTraceSetEntry {
+    type Encoded = [u8; ADDRESS_LENGTH + 1];
+
+    fn encode(self) -> Self::Encoded {
+        let mut v = [0; ADDRESS_LENGTH + 1];
+        v[..ADDRESS_LENGTH].copy_from_slice(&self.address.encode());
+
+        let mut field_set = CallTraceSetFlags::default();
+        field_set.set_flag_from(self.from);
+        field_set.set_flag_to(self.to);
+        v[ADDRESS_LENGTH] = field_set.into_bytes()[0];
+
+        v
+    }
+}
+
+impl TableDecode for CallTraceSetEntry {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != ADDRESS_LENGTH + 1 {
+            return Err(InvalidLength::<{ ADDRESS_LENGTH + 1 }> { got: b.len() }.into());
+        }
+
+        let field_set = CallTraceSetFlags::from_bytes([b[ADDRESS_LENGTH]]);
+        Ok(Self {
+            address: Address::decode(&b[..ADDRESS_LENGTH])?,
+            from: field_set.flag_from(),
+            to: field_set.flag_to(),
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum PlainStateKey {
     Account(Address),
@@ -860,13 +908,13 @@ decl_table!(Header => HeaderKey => BlockHeader);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
-decl_table!(Receipt => Vec<u8> => Vec<u8>);
-decl_table!(TransactionLog => Vec<u8> => Vec<u8>);
-decl_table!(LogTopicIndex => Vec<u8> => Vec<u8>);
-decl_table!(LogAddressIndex => Vec<u8> => Vec<u8>);
-decl_table!(CallTraceSet => Vec<u8> => Vec<u8>);
-decl_table!(CallFromIndex => Vec<u8> => Vec<u8>);
-decl_table!(CallToIndex => Vec<u8> => Vec<u8>);
+decl_table!(Receipt => BlockNumber => Vec<u8>);
+decl_table!(TransactionLog => (BlockNumber, TxIndex) => Vec<u8>);
+decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
+decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
+decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
+decl_table!(CallFromIndex => Vec<u8> => RoaringTreemap);
+decl_table!(CallToIndex => Vec<u8> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => H256 => ChainConfig);
 decl_table!(SyncStage => StageId => BlockNumber);
