@@ -65,7 +65,8 @@ struct AccountStorageFlags {
     balance: bool,
     incarnation: bool,
     code_hash: bool,
-    dummy: B4,
+    #[skip]
+    unused: B4,
 }
 
 pub const MAX_ACCOUNT_LEN: usize = 1 + (1 + 32) + (1 + 8) + (1 + 32) + (1 + 8);
