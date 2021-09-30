@@ -127,8 +127,7 @@ impl Account {
 
         let mut a = Self::default();
 
-        let field_set_flag = enc.get_u8();
-        let field_set = AccountStorageFlags::from_bytes(field_set_flag.to_be_bytes());
+        let field_set = AccountStorageFlags::from_bytes([enc.get_u8()]);
 
         if field_set.nonce() {
             let decode_length = enc.get_u8() as usize;
