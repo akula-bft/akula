@@ -472,6 +472,37 @@ impl TableEncode for StageId {
     }
 }
 
+impl<A, B, const A_LEN: usize, const B_LEN: usize> TableEncode for (A, B)
+where
+    A: TableObject<Encoded = [u8; A_LEN]>,
+    B: TableObject<Encoded = [u8; B_LEN]>,
+{
+    type Encoded = ArrayVec<u8, 256>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut v = ArrayVec::new();
+        v.try_extend_from_slice(&self.0.encode()).unwrap();
+        v.try_extend_from_slice(&self.1.encode()).unwrap();
+        v
+    }
+}
+
+impl<A, B, const A_LEN: usize, const B_LEN: usize> TableDecode for (A, B)
+where
+    A: TableObject<Encoded = [u8; A_LEN]>,
+    B: TableObject<Encoded = [u8; B_LEN]>,
+{
+    fn decode(v: &[u8]) -> anyhow::Result<Self> {
+        if v.len() != A_LEN + B_LEN {
+            bail!("Invalid len: {} != {} + {}", v.len(), A_LEN, B_LEN);
+        }
+        Ok((
+            A::decode(&v[..A_LEN]).unwrap(),
+            B::decode(&v[A_LEN..]).unwrap(),
+        ))
+    }
+}
+
 impl DupSort for PlainState {
     type SeekBothKey = H256;
 }
@@ -619,84 +650,6 @@ impl TableDecode for StorageChange {
 }
 
 pub type HeaderKey = (BlockNumber, H256);
-
-impl TableEncode for (BlockNumber, H256) {
-    type Encoded = [u8; BLOCK_NUMBER_LENGTH + KECCAK_LENGTH];
-
-    fn encode(self) -> Self::Encoded {
-        let mut out = [0; BLOCK_NUMBER_LENGTH + KECCAK_LENGTH];
-        out[..BLOCK_NUMBER_LENGTH].copy_from_slice(&self.0.encode());
-        out[BLOCK_NUMBER_LENGTH..].copy_from_slice(&self.1.encode());
-        out
-    }
-}
-
-impl TableDecode for (BlockNumber, H256) {
-    fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        if b.len() != BLOCK_NUMBER_LENGTH + KECCAK_LENGTH {
-            return Err(
-                InvalidLength::<{ BLOCK_NUMBER_LENGTH + KECCAK_LENGTH }> { got: b.len() }.into(),
-            );
-        }
-
-        Ok((
-            BlockNumber::decode(&b[..BLOCK_NUMBER_LENGTH])?,
-            H256::decode(&b[BLOCK_NUMBER_LENGTH..])?,
-        ))
-    }
-}
-
-impl TableEncode for (Address, Incarnation) {
-    type Encoded = [u8; ADDRESS_LENGTH + INCARNATION_LENGTH];
-
-    fn encode(self) -> Self::Encoded {
-        let mut out = [0; ADDRESS_LENGTH + INCARNATION_LENGTH];
-        out[..ADDRESS_LENGTH].copy_from_slice(&self.0.encode());
-        out[ADDRESS_LENGTH..].copy_from_slice(&self.1.encode());
-        out
-    }
-}
-
-impl TableDecode for (Address, Incarnation) {
-    fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        if b.len() != ADDRESS_LENGTH + INCARNATION_LENGTH {
-            return Err(
-                InvalidLength::<{ ADDRESS_LENGTH + INCARNATION_LENGTH }> { got: b.len() }.into(),
-            );
-        }
-
-        let address = Address::decode(&b[..ADDRESS_LENGTH])?;
-        let incarnation = Incarnation::decode(&b[ADDRESS_LENGTH..])?;
-
-        Ok((address, incarnation))
-    }
-}
-
-impl TableEncode for (H256, Incarnation) {
-    type Encoded = [u8; KECCAK_LENGTH + INCARNATION_LENGTH];
-
-    fn encode(self) -> Self::Encoded {
-        let mut out = [0; KECCAK_LENGTH + INCARNATION_LENGTH];
-        out[..KECCAK_LENGTH].copy_from_slice(&self.0.encode());
-        out[KECCAK_LENGTH..].copy_from_slice(&self.1.encode());
-        out
-    }
-}
-
-impl TableDecode for (H256, Incarnation) {
-    fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        if b.len() != KECCAK_LENGTH + INCARNATION_LENGTH {
-            return Err(
-                InvalidLength::<{ KECCAK_LENGTH + INCARNATION_LENGTH }> { got: b.len() }.into(),
-            );
-        }
-
-        let hash = H256::decode(&b[..KECCAK_LENGTH])?;
-        let incarnation = Incarnation::decode(&b[KECCAK_LENGTH..])?;
-
-        Ok((hash, incarnation))
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub enum PlainStateKey {
