@@ -21,8 +21,6 @@ bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetim
 bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
-const-utils = "0.1"
-const_format = "0.2"
 crossterm = { version = "0.20", optional = true }
 derive_more = "0.99"
 educe = { version = "0.4", features = ["Debug"] }
