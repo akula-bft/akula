@@ -7,7 +7,6 @@ use crate::{
     MutableTransaction, Transaction as ReadTransaction,
 };
 use ethereum_types::{Address, H256, U256};
-use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 use BlockHeader as HeaderType;
@@ -82,16 +81,13 @@ pub mod tx {
         );
 
         if amount > 0 {
-            let mut cursor = tx.cursor(&tables::BlockTransaction).await?;
-
-            let walker = cursor.walk(Some(base_tx_id));
-
-            pin!(walker);
-
-            futures_util::TryStreamExt::try_collect(
-                walker.take(amount).map(|res| res.map(|(_, v)| v)),
-            )
-            .await
+            tx.cursor(&tables::BlockTransaction)
+                .await?
+                .walk(Some(base_tx_id))
+                .take(amount)
+                .map(|res| res.map(|(_, v)| v))
+                .collect()
+                .await
         } else {
             Ok(vec![])
         }
@@ -172,8 +168,7 @@ pub mod tx_sender {
         for (i, &sender) in senders.iter().enumerate() {
             cursor
                 .put((TxIndex(base_tx_id.0 + i as u64), sender))
-                .await
-                .unwrap();
+                .await?;
         }
 
         Ok(())

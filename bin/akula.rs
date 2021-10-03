@@ -9,6 +9,7 @@ pub struct Opt {
     pub tokio_console: bool,
 }
 
+#[allow(unreachable_code)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
@@ -45,4 +46,6 @@ async fn main() -> anyhow::Result<()> {
 
     // stagedsync::StagedSync::new(vec![], vec![]);
     staged_sync.run(&db).await?;
+
+    Ok(())
 }
