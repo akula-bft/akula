@@ -1,16 +1,13 @@
 use crate::{
-    crypto::*,
     etl::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::tables,
-    models::BodyForStorage,
+    kv::{tables, traits::TableEncode},
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     Cursor, MutableTransaction, StageId,
 };
 use async_trait::async_trait;
-use ethereum_types::U64;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -36,56 +33,40 @@ where
         'db: 'tx,
     {
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut tx_hash_cursor = tx.mutable_cursor(&tables::TxLookup).await?;
+        let mut tx_hash_cursor = tx
+            .mutable_cursor(&tables::BlockTransactionLookup.erased())
+            .await?;
 
         let mut block_txs_cursor = tx.cursor(&tables::BlockTransaction).await?;
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
-        let mut start_block_number = [0; 8];
-        let (_, last_processed_block_number) = tx
-            .mutable_cursor(&tables::TxLookup)
+        let last_processed_block_number = tx
+            .mutable_cursor(&tables::BlockTransactionLookup)
             .await?
             .last()
             .await?
-            .unwrap_or((bytes::Bytes::from(&[]), bytes::Bytes::from(&[])));
+            .map(|(_, v)| v.0)
+            .unwrap_or_else(|| 0.into());
 
-        (U64::from_big_endian(last_processed_block_number.as_ref()) + 1)
-            .to_big_endian(&mut start_block_number);
+        let start_block_number = last_processed_block_number + 1;
 
-        let walker_block_body = bodies_cursor.walk(&start_block_number, |_, _| true);
+        let walker_block_body = bodies_cursor.walk(Some(start_block_number));
         pin!(walker_block_body);
 
-        while let Some((block_body_key, ref block_body_value)) =
-            walker_block_body.try_next().await?
-        {
-            let block_number = block_body_key[..8]
-                .iter()
-                .cloned()
-                // remove trailing zeros
-                .skip_while(|x| *x == 0)
-                .collect::<Vec<_>>();
-            let body_rpl = rlp::decode::<BodyForStorage>(block_body_value)?;
+        while let Some(((block_number, _), ref body_rpl)) = walker_block_body.try_next().await? {
+            let block_number = tables::TruncateStart(block_number).encode();
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
-            let tx_base_id_as_bytes = tx_base_id.to_be_bytes();
 
-            let walker_block_txs = block_txs_cursor.walk(&tx_base_id_as_bytes, |_, _| true);
+            let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id)).take(tx_count);
             pin!(walker_block_txs);
 
-            let mut num_txs = 1;
-
-            while let Some((_tx_key, ref tx_value)) = walker_block_txs.try_next().await? {
-                if num_txs > tx_count {
-                    break;
-                }
-
-                let hashed_tx_data = keccak256(tx_value);
+            while let Some((_, tx)) = walker_block_txs.try_next().await? {
                 collector.collect(Entry {
-                    key: hashed_tx_data.as_bytes().to_vec(),
-                    value: block_number.clone(),
+                    key: tx.hash().encode().to_vec(),
+                    value: block_number.to_vec(),
                     id: 0, // ?
                 });
-                num_txs += 1;
             }
         }
 
@@ -132,7 +113,7 @@ mod tests {
         let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
-            base_tx_id: 1,
+            base_tx_id: 1.into(),
             tx_amount: 2,
             uncles: vec![],
         };
@@ -158,7 +139,7 @@ mod tests {
             )
             .unwrap(),
         };
-        let hash1_1 = keccak256(rlp::encode(&tx1_1));
+        let hash1_1 = tx1_1.hash();
 
         let tx1_2 = Transaction {
             message: TransactionMessage::Legacy {
@@ -181,10 +162,10 @@ mod tests {
             )
             .unwrap(),
         };
-        let hash1_2 = keccak256(rlp::encode(&tx1_2));
+        let hash1_2 = tx1_2.hash();
 
         let block2 = BodyForStorage {
-            base_tx_id: 3,
+            base_tx_id: 3.into(),
             tx_amount: 3,
             uncles: vec![],
         };
@@ -211,7 +192,7 @@ mod tests {
             .unwrap(),
         };
 
-        let hash2_1 = keccak256(rlp::encode(&tx2_1));
+        let hash2_1 = tx2_1.hash();
 
         let tx2_2 = Transaction {
             message: TransactionMessage::Legacy {
@@ -235,7 +216,7 @@ mod tests {
             .unwrap(),
         };
 
-        let hash2_2 = keccak256(rlp::encode(&tx2_2));
+        let hash2_2 = tx2_2.hash();
 
         let tx2_3 = Transaction {
             message: TransactionMessage::Legacy {
@@ -259,10 +240,10 @@ mod tests {
             .unwrap(),
         };
 
-        let hash2_3 = keccak256(rlp::encode(&tx2_3));
+        let hash2_3 = tx2_3.hash();
 
         let block3 = BodyForStorage {
-            base_tx_id: 6,
+            base_tx_id: 6.into(),
             tx_amount: 0,
             uncles: vec![],
         };
@@ -308,15 +289,15 @@ mod tests {
         );
 
         for (hashed_tx, block_number) in [
-            (hash1_1, vec![1]),
-            (hash1_2, vec![1]),
-            (hash2_1, vec![2]),
-            (hash2_2, vec![2]),
-            (hash2_3, vec![2]),
+            (hash1_1, 1),
+            (hash1_2, 1),
+            (hash2_1, 2),
+            (hash2_2, 2),
+            (hash2_3, 2),
         ] {
             assert_eq!(
                 dbg!(chain::tl::read(&tx, hashed_tx).await.unwrap().unwrap()),
-                block_number
+                block_number.into()
             );
         }
     }

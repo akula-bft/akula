@@ -9,6 +9,7 @@ pub struct Opt {
     pub tokio_console: bool,
 }
 
+#[allow(unreachable_code)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
@@ -41,4 +42,6 @@ async fn main() -> anyhow::Result<()> {
     let mut staged_sync = stagedsync::StagedSync::new();
     staged_sync.push(akula::stages::BlockHashes);
     staged_sync.run(&db).await?;
+
+    Ok(())
 }

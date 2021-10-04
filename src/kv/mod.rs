@@ -1,26 +1,37 @@
 pub mod mdbx;
 pub mod remote;
 pub mod server;
+pub mod tables;
 pub mod traits;
 
+pub use traits::{DupSort, Table, TableDecode, TableEncode, TableObject};
+
+use crate::kv::tables::CHAINDATA_TABLES;
 use ::mdbx::{Geometry, WriteMap};
 use async_trait::async_trait;
 use byte_unit::{n_mib_bytes, n_tib_bytes};
 use static_bytes::Bytes as StaticBytes;
-use std::fmt::Debug;
-
-pub trait Table: Send + Sync + Debug + 'static {
-    fn db_name(&self) -> string::String<StaticBytes>;
-}
-
-pub trait DupSort: Table {}
+use std::{fmt::Debug, ops::Deref};
 
 #[derive(Debug)]
 pub struct CustomTable(pub string::String<StaticBytes>);
 
 impl Table for CustomTable {
+    type Key = Vec<u8>;
+    type Value = Vec<u8>;
+    type SeekKey = Vec<u8>;
+    type FusedValue = (Self::Key, Self::Value);
+
     fn db_name(&self) -> string::String<StaticBytes> {
         self.0.clone()
+    }
+
+    fn fuse_values(key: Self::Key, value: Self::Value) -> anyhow::Result<Self::FusedValue> {
+        Ok((key, value))
+    }
+
+    fn split_fused((key, value): Self::FusedValue) -> (Self::Key, Self::Value) {
+        (key, value)
     }
 }
 
@@ -30,10 +41,8 @@ impl From<String> for CustomTable {
     }
 }
 
-impl DupSort for CustomTable {}
-
-pub mod tables {
-    include!(concat!(env!("OUT_DIR"), "/tables.rs"));
+impl DupSort for CustomTable {
+    type SeekBothKey = Vec<u8>;
 }
 
 pub struct MemoryKv {
@@ -85,12 +94,12 @@ fn new_environment(
     let size_upper_limit_sz = size_upper_limit as usize;
 
     let mut builder = ::mdbx::Environment::<WriteMap>::new();
-    builder.set_max_dbs(tables::TABLE_MAP.len());
+    builder.set_max_dbs(CHAINDATA_TABLES.len());
     builder.set_geometry(Geometry {
         size: Some(0..size_upper_limit_sz),
         growth_step: Some(growth_step as isize),
         shrink_threshold: None,
         page_size: None,
     });
-    mdbx::Environment::open_rw(builder, path, &tables::TABLE_MAP)
+    mdbx::Environment::open_rw(builder, path, CHAINDATA_TABLES.deref().clone())
 }

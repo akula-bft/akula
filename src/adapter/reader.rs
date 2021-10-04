@@ -1,6 +1,8 @@
-use crate::{dbutils, kv::*, models::*, Transaction};
-use bytes::Bytes;
-use dbutils::plain_generate_composite_storage_key;
+use crate::{
+    kv::{traits::CursorDupSort, *},
+    models::*,
+    Transaction,
+};
 use ethereum_types::{Address, H256};
 use std::marker::PhantomData;
 
@@ -33,9 +35,16 @@ impl<'db: 'tx, 'tx, Tx: Transaction<'db> + ?Sized> StateReader<'db, 'tx, Tx> {
         &mut self,
         address: Address,
         incarnation: Incarnation,
-        key: H256,
-    ) -> anyhow::Result<Option<Bytes<'tx>>> {
-        let composite_key = plain_generate_composite_storage_key(address, incarnation, key);
-        self.tx.get(&tables::PlainState, &composite_key).await
+        location: H256,
+    ) -> anyhow::Result<Option<H256>> {
+        self.tx
+            .cursor_dup_sort(&tables::PlainState)
+            .await?
+            .seek_both_range(
+                tables::PlainStateKey::Storage(address, incarnation),
+                location,
+            )
+            .await
+            .map(|opt| opt.map(|v| v.as_storage().unwrap().3))
     }
 }

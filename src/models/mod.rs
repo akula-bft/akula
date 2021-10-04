@@ -27,107 +27,67 @@ pub const ADDRESS_LENGTH: usize = Address::len_bytes();
 pub const BLOCK_NUMBER_LENGTH: usize = size_of::<u64>();
 pub const INCARNATION_LENGTH: usize = size_of::<u64>();
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Deref,
-    DerefMut,
-    Default,
-    Display,
-    PartialEq,
-    Eq,
-    From,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
-#[serde(transparent)]
-pub struct Incarnation(pub u64);
+macro_rules! u64_wrapper {
+    ($ty:ident) => {
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            Deref,
+            DerefMut,
+            Default,
+            Display,
+            PartialEq,
+            Eq,
+            From,
+            PartialOrd,
+            Ord,
+            Hash,
+            Serialize,
+            Deserialize,
+        )]
+        #[serde(transparent)]
+        pub struct $ty(pub u64);
 
-impl Add<u64> for Incarnation {
-    type Output = Self;
+        impl Encodable for $ty {
+            fn rlp_append(&self, s: &mut rlp::RlpStream) {
+                self.0.rlp_append(s)
+            }
+        }
 
-    fn add(self, rhs: u64) -> Self::Output {
-        Self(self.0 + rhs)
-    }
+        impl Decodable for $ty {
+            fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
+                u64::decode(rlp).map(Self)
+            }
+        }
+
+        impl Add<u64> for $ty {
+            type Output = Self;
+
+            fn add(self, rhs: u64) -> Self::Output {
+                Self(self.0 + rhs)
+            }
+        }
+
+        impl Step for $ty {
+            fn steps_between(start: &Self, end: &Self) -> Option<usize> {
+                u64::steps_between(&start.0, &end.0)
+            }
+
+            fn forward_checked(start: Self, count: usize) -> Option<Self> {
+                u64::forward_checked(start.0, count).map(Self)
+            }
+
+            fn backward_checked(start: Self, count: usize) -> Option<Self> {
+                u64::backward_checked(start.0, count).map(Self)
+            }
+        }
+    };
 }
 
-impl Step for Incarnation {
-    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
-        u64::steps_between(&start.0, &end.0)
-    }
-
-    fn forward_checked(start: Self, count: usize) -> Option<Self> {
-        u64::forward_checked(start.0, count).map(Self)
-    }
-
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        u64::backward_checked(start.0, count).map(Self)
-    }
-}
-
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Deref,
-    DerefMut,
-    Default,
-    Display,
-    PartialEq,
-    Eq,
-    From,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
-#[serde(transparent)]
-pub struct BlockNumber(pub u64);
-
-impl Encodable for BlockNumber {
-    fn rlp_append(&self, s: &mut rlp::RlpStream) {
-        self.0.rlp_append(s)
-    }
-}
-
-impl Decodable for BlockNumber {
-    fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
-        u64::decode(rlp).map(Self)
-    }
-}
-
-impl Add<u64> for BlockNumber {
-    type Output = Self;
-
-    fn add(self, rhs: u64) -> Self::Output {
-        Self(self.0 + rhs)
-    }
-}
-
-impl Step for BlockNumber {
-    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
-        u64::steps_between(&start.0, &end.0)
-    }
-
-    fn forward_checked(start: Self, count: usize) -> Option<Self> {
-        u64::forward_checked(start.0, count).map(Self)
-    }
-
-    fn backward_checked(start: Self, count: usize) -> Option<Self> {
-        u64::backward_checked(start.0, count).map(Self)
-    }
-}
-
-impl BlockNumber {
-    pub fn db_key(self) -> [u8; 8] {
-        self.0.to_be_bytes()
-    }
-}
+u64_wrapper!(BlockNumber);
+u64_wrapper!(Incarnation);
+u64_wrapper!(TxIndex);
 
 #[allow(non_upper_case_globals)]
 pub const value_to_bytes: fn(U256) -> [u8; 32] = From::<U256>::from;

@@ -114,7 +114,7 @@ mod tests {
         let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
-            base_tx_id: 1,
+            base_tx_id: 1.into(),
             tx_amount: 2,
             uncles: vec![],
         };
@@ -164,7 +164,7 @@ mod tests {
         };
 
         let block2 = BodyForStorage {
-            base_tx_id: 3,
+            base_tx_id: 3.into(),
             tx_amount: 3,
             uncles: vec![],
         };
@@ -236,7 +236,7 @@ mod tests {
         };
 
         let block3 = BodyForStorage {
-            base_tx_id: 6,
+            base_tx_id: 6.into(),
             tx_amount: 0,
             uncles: vec![],
         };

@@ -1,6 +1,4 @@
-use crate::{dbutils::encode_block_number, kv::*, models::*, MutableTransaction, Transaction};
-use anyhow::Context;
-use arrayref::array_ref;
+use crate::{kv::*, models::*, MutableTransaction, Transaction};
 use std::fmt::Display;
 use tracing::*;
 
@@ -46,16 +44,7 @@ impl StageId {
         &self,
         tx: &Tx,
     ) -> anyhow::Result<Option<BlockNumber>> {
-        if let Some(b) = tx.get(&tables::SyncStage, self.as_ref()).await? {
-            return Ok(Some(BlockNumber(u64::from_be_bytes(*array_ref![
-                b.get(0..BLOCK_NUMBER_LENGTH)
-                    .context("failed to read block number from bytes")?,
-                0,
-                BLOCK_NUMBER_LENGTH
-            ]))));
-        }
-
-        Ok(None)
+        tx.get(&tables::SyncStage, *self).await
     }
 
     #[instrument]
@@ -64,11 +53,6 @@ impl StageId {
         tx: &RwTx,
         block: BlockNumber,
     ) -> anyhow::Result<()> {
-        tx.set(
-            &tables::SyncStage,
-            self.as_ref(),
-            &encode_block_number(block),
-        )
-        .await
+        tx.set(&tables::SyncStage, (*self, block)).await
     }
 }

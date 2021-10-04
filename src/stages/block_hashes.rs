@@ -3,7 +3,7 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::tables,
+    kv::{tables, traits::TableEncode},
     models::*,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     Cursor, MutableTransaction, StageId,
@@ -36,19 +36,18 @@ where
         let past_progress = input.stage_progress.unwrap_or(BlockNumber(0));
 
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber).await?;
+        let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber.erased()).await?;
         let processed = BlockNumber(0);
 
-        let start_key = past_progress.to_be_bytes();
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = bodies_cursor.walk(&start_key, |_, _| true);
+        let walker = bodies_cursor.walk(Some(past_progress));
         pin!(walker);
 
-        while let Some((block_key, _)) = walker.try_next().await? {
+        while let Some(((block_number, block_hash), _)) = walker.try_next().await? {
             // BlockBody Key is block_number + hash, so we just separate and collect
             collector.collect(Entry {
-                key: block_key[8..].to_vec(),
-                value: block_key[..8].to_vec(),
+                key: block_hash.encode().to_vec(),
+                value: block_number.encode().to_vec(),
                 id: 0, // Irrelevant here, could be anything
             });
         }

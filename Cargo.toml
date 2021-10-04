@@ -8,9 +8,9 @@ license = "Apache-2.0"
 default-run = "akula"
 
 [dependencies]
-akula-table-defs = { path = "src/kv/table-defs" }
 anyhow = "1"
 arrayref = "0.3"
+arrayvec = "0.7"
 async-recursion = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
@@ -74,10 +74,6 @@ tracing-futures = "0.2"
 tracing-subscriber = "0.2"
 triehash = "0.8"
 walkdir = "2"
-
-[build-dependencies]
-akula-table-defs = { path = "src/kv/table-defs" }
-quote = "1"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
