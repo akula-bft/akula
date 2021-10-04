@@ -207,6 +207,18 @@ enum EventLoopStreamResult {
 
 type EventLoopStream = Pin<Box<dyn Stream<Item = anyhow::Result<EventLoopStreamResult>> + Send>>;
 
+// dropping this causes dropping the senders and triggers an end of stream event on the receivers end
+struct EventLoopReceiveMessagesSendersDropper {
+    receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
+}
+
+impl Drop for EventLoopReceiveMessagesSendersDropper {
+    fn drop(&mut self) {
+        // drop shared senders so that existing receive_messages() streams end
+        self.receive_messages_senders.write().clear();
+    }
+}
+
 impl SentryClientReactorEventLoop {
     async fn run(&mut self) -> anyhow::Result<()> {
         let mut sentry = self.sentry.take().unwrap();
@@ -215,13 +227,21 @@ impl SentryClientReactorEventLoop {
         let mut stream = sentry.receive_messages(&[]).await?;
         let receive_messages_senders = Arc::clone(&self.receive_messages_senders);
         let receive_stream = async_stream::stream! {
+            // When the stream ends (this normally happens during tests)
+            // we need to ensure unblocking the subscribers which called receive_messages().
+            let _receive_messages_senders_dropper = EventLoopReceiveMessagesSendersDropper { receive_messages_senders };
+
             while let Some(message_result) = stream.next().await {
                 yield message_result;
             }
 
             debug!("SentryClientReactor.EventLoop receive_messages stream ended");
-            // drop shared senders so that existing receive_messages streams end
-            receive_messages_senders.write().clear();
+        };
+
+        // When the reactor loop stops/aborts (e.g. after calling stop())
+        // we need to ensure unblocking the subscribers which called receive_messages().
+        let _receive_messages_senders_dropper = EventLoopReceiveMessagesSendersDropper {
+            receive_messages_senders: Arc::clone(&self.receive_messages_senders),
         };
 
         let mut send_message_receiver = self.send_message_receiver.take().unwrap();
@@ -308,9 +328,6 @@ impl SentryClientReactorEventLoop {
                 }
             }
         }
-
-        // drop shared senders so that existing receive_messages streams end
-        self.receive_messages_senders.write().clear();
 
         info!("SentryClientReactor stopped");
         Ok(())
