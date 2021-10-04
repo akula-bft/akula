@@ -277,13 +277,12 @@ impl SentryClientReactorEventLoop {
 
                             let receive_messages_senders = self.receive_messages_senders.read();
                             let sender_opt = receive_messages_senders.get(&id);
-                            if sender_opt.is_none() {
-                                anyhow::bail!(
+                            let sender = sender_opt.ok_or_else(|| {
+                                anyhow::anyhow!(
                                     "SentryClientReactor.EventLoop unexpected message id {:?}",
                                     id
-                                );
-                            }
-                            let sender = sender_opt.unwrap();
+                                )
+                            })?;
 
                             let send_sub_result = sender.send(message_from_peer.message);
                             if send_sub_result.is_err() {
