@@ -26,10 +26,10 @@ pub struct SentryClientReactor {
 }
 
 struct SentryClientReactorEventLoop {
-    sentry: Option<Box<dyn SentryClient>>,
-    send_message_receiver: Option<mpsc::Receiver<SendMessageCommand>>,
+    sentry: Box<dyn SentryClient>,
+    send_message_receiver: mpsc::Receiver<SendMessageCommand>,
     receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
-    stop_signal_receiver: Option<mpsc::Receiver<()>>,
+    stop_signal_receiver: mpsc::Receiver<()>,
 }
 
 #[derive(Debug)]
@@ -67,10 +67,10 @@ impl SentryClientReactor {
         let (stop_signal_sender, stop_signal_receiver) = mpsc::channel::<()>(1);
 
         let event_loop = SentryClientReactorEventLoop {
-            sentry: Some(sentry),
-            send_message_receiver: Some(send_message_receiver),
+            sentry,
+            send_message_receiver,
             receive_messages_senders: Arc::clone(&receive_messages_senders),
-            stop_signal_receiver: Some(stop_signal_receiver),
+            stop_signal_receiver,
         };
 
         Self {
@@ -82,8 +82,11 @@ impl SentryClientReactor {
         }
     }
 
-    pub fn start(&mut self) {
-        let mut event_loop = self.event_loop.take().unwrap();
+    pub fn start(&mut self) -> anyhow::Result<()> {
+        let event_loop = self
+            .event_loop
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("already started once"))?;
         let handle = tokio::spawn(async move {
             let result = event_loop.run().await;
             if let Err(error) = result {
@@ -91,6 +94,7 @@ impl SentryClientReactor {
             }
         });
         self.event_loop_handle = Some(handle);
+        Ok(())
     }
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
@@ -220,8 +224,8 @@ impl Drop for EventLoopReceiveMessagesSendersDropper {
 }
 
 impl SentryClientReactorEventLoop {
-    async fn run(&mut self) -> anyhow::Result<()> {
-        let mut sentry = self.sentry.take().unwrap();
+    async fn run(self) -> anyhow::Result<()> {
+        let mut sentry = self.sentry;
 
         // subscribe to incoming messages
         let mut stream = sentry.receive_messages(&[]).await?;
@@ -244,7 +248,7 @@ impl SentryClientReactorEventLoop {
             receive_messages_senders: Arc::clone(&self.receive_messages_senders),
         };
 
-        let mut send_message_receiver = self.send_message_receiver.take().unwrap();
+        let mut send_message_receiver = self.send_message_receiver;
         let send_stream = async_stream::stream! {
             while let Some(command) = send_message_receiver.recv().await {
                 let send_result = sentry.send_message(command.message, command.peer_filter).await;
@@ -252,7 +256,7 @@ impl SentryClientReactorEventLoop {
             }
         };
 
-        let stop_stream = ReceiverStream::new(self.stop_signal_receiver.take().unwrap());
+        let stop_stream = ReceiverStream::new(self.stop_signal_receiver);
 
         let mut stream = StreamMap::<EventLoopStreamId, EventLoopStream>::new();
         stream.insert(

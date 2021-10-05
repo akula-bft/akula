@@ -35,8 +35,11 @@ impl UISystem {
         }
     }
 
-    pub fn start(&mut self) {
-        let mut event_loop = self.event_loop.take().unwrap();
+    pub fn start(&mut self) -> anyhow::Result<()> {
+        let event_loop = self
+            .event_loop
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("already started once"))?;
         let handle = tokio::spawn(async move {
             let result = event_loop.run().await;
             if let Err(error) = result {
@@ -44,6 +47,7 @@ impl UISystem {
             }
         });
         self.event_loop_handle = Some(handle);
+        Ok(())
     }
 
     pub async fn stop(&mut self) -> anyhow::Result<()> {
@@ -68,7 +72,9 @@ impl UISystem {
 }
 
 impl UISystemEventLoop {
-    async fn run(&mut self) -> anyhow::Result<()> {
+    async fn run(self) -> anyhow::Result<()> {
+        let mut stop_signal_receiver = self.stop_signal_receiver;
+
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
@@ -77,7 +83,7 @@ impl UISystemEventLoop {
                         _ = view.draw()?;
                     }
                 }
-                Some(_) = self.stop_signal_receiver.recv() => {
+                Some(_) = stop_signal_receiver.recv() => {
                     break;
                 }
                 else => {
