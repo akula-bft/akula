@@ -60,10 +60,10 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
         sentry_client.set_status(status).await?;
 
         let mut sentry_reactor = SentryClientReactor::new(sentry_client);
-        sentry_reactor.start();
+        sentry_reactor.start()?;
 
         let mut ui_system = crate::downloader::ui_system::UISystem::new();
-        ui_system.start();
+        ui_system.start()?;
 
         let preverified_hashes_config = PreverifiedHashesConfig::new(&self.opts.chain_name)?;
 

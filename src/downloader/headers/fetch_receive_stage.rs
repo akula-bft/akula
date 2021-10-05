@@ -97,13 +97,13 @@ impl FetchReceiveStage {
                             .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Downloaded);
                     }
                     unexpected_status => {
-                        warn!("FetchReceiveStage ignores a headers slice that we didn't request starting at: {}; status = {:?}", start_block_num, unexpected_status);
+                        debug!("FetchReceiveStage ignores a headers slice that we didn't request starting at: {:?}; status = {:?}", start_block_num, unexpected_status);
                     }
                 }
             }
             None => {
-                warn!(
-                    "FetchReceiveStage ignores a headers slice that we didn't request starting at: {}",
+                debug!(
+                    "FetchReceiveStage ignores a headers slice that we didn't request starting at: {:?}",
                     start_block_num
                 );
             }
