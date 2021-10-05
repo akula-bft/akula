@@ -174,11 +174,13 @@ pub mod tx_sender {
         Ok(())
     }
 
-    pub fn write_to_etl(collector: &mut Collector, base_tx_id: TxIndex, senders: &[Address]) {
-        for (i, sender) in senders.iter().enumerate() {
-            let key = (base_tx_id + i as u64).to_be_bytes().to_vec();
-            let value = sender.to_fixed_bytes().to_vec();
-            collector.collect(Entry { key, value, id: 0 });
+    pub fn write_to_etl(
+        collector: &mut Collector<tables::TxSender>,
+        base_tx_id: TxIndex,
+        senders: &[Address],
+    ) {
+        for (i, &sender) in senders.iter().enumerate() {
+            collector.collect(Entry::new(base_tx_id + i as u64, sender));
         }
     }
 }

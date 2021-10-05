@@ -1,4 +1,4 @@
-use crate::{models::*, util::*};
+use crate::{kv::tables::VariableVec, models::*, util::*};
 use anyhow::bail;
 use arrayvec::ArrayVec;
 use bytes::Bytes;
@@ -71,7 +71,7 @@ struct AccountStorageFlags {
 
 pub const MAX_ACCOUNT_LEN: usize = 1 + (1 + 32) + (1 + 8) + (1 + 32) + (1 + 8);
 
-pub type EncodedAccount = ArrayVec<u8, MAX_ACCOUNT_LEN>;
+pub type EncodedAccount = VariableVec<MAX_ACCOUNT_LEN>;
 
 impl Account {
     fn write_compact<const LEN: usize>(input: &[u8; LEN]) -> ArrayVec<u8, LEN> {
@@ -79,7 +79,7 @@ impl Account {
     }
 
     pub fn encode_for_storage(&self, omit_code_hash: bool) -> EncodedAccount {
-        let mut buffer = EncodedAccount::new();
+        let mut buffer = EncodedAccount::default();
 
         let mut field_set = AccountStorageFlags::default(); // start with first bit set to 0
         buffer.push(0);

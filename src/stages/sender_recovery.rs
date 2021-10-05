@@ -24,7 +24,7 @@ const BUFFER_SIZE: u64 = 5000;
 
 async fn process_block<'db: 'tx, 'tx, RwTx>(
     tx: &'tx mut RwTx,
-    collector: &mut Collector,
+    collector: &mut Collector<tables::TxSender>,
     height: BlockNumber,
 ) -> anyhow::Result<()>
 where
@@ -87,7 +87,7 @@ where
             }
 
             let mut write_cursor = tx.mutable_cursor(&tables::TxSender.erased()).await?;
-            collector.load(&mut write_cursor, None).await?;
+            collector.load(&mut write_cursor).await?;
         }
 
         Ok(ExecOutput::Progress {
