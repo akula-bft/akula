@@ -3,7 +3,7 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::{tables, traits::TableEncode},
+    kv::tables,
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     Cursor, MutableCursor, MutableTransaction, StageId,
 };
@@ -55,22 +55,17 @@ where
         pin!(walker_block_body);
 
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.try_next().await? {
-            let block_number = tables::TruncateStart(block_number).encode();
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
 
             let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id)).take(tx_count);
             pin!(walker_block_txs);
 
             while let Some((_, tx)) = walker_block_txs.try_next().await? {
-                collector.collect(Entry {
-                    key: tx.hash().encode().to_vec(),
-                    value: block_number.to_vec(),
-                    id: 0, // ?
-                });
+                collector.collect(Entry::new(tx.hash(), tables::TruncateStart(block_number)));
             }
         }
 
-        collector.load(&mut tx_hash_cursor, None).await?;
+        collector.load(&mut tx_hash_cursor).await?;
         info!("Processed");
         Ok(ExecOutput::Progress {
             stage_progress: input
