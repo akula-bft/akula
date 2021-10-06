@@ -252,6 +252,25 @@ pub mod tl {
             .await?
             .map(|b| b.0))
     }
+
+    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
+        tx: &'tx RwTx,
+        hashed_tx_data: H256,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<()> {
+        trace!("Writing tx_lookup for hash {}", hashed_tx_data);
+
+        let mut cursor = tx
+            .mutable_cursor(&tables::BlockTransactionLookup)
+            .await
+            .unwrap();
+        cursor
+            .put((hashed_tx_data, block_number.into()))
+            .await
+            .unwrap();
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
