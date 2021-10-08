@@ -1,7 +1,7 @@
+use bytes::Bytes;
 use ethereum_types::*;
 use rlp::*;
 use serde::*;
-use static_bytes::Bytes;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Log {

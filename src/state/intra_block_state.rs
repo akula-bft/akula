@@ -1,9 +1,9 @@
 use super::{delta::*, object::*, *};
 use crate::{crypto::*, models::*};
+use bytes::Bytes;
 use ethereum_types::*;
 use evmodin::host::AccessStatus;
 use hex_literal::hex;
-use static_bytes::Bytes;
 use std::collections::*;
 
 #[derive(Debug)]

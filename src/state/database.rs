@@ -27,13 +27,13 @@ pub trait StateReader<'storage> {
         address: Address,
         incarnation: Incarnation,
         key: H256,
-    ) -> anyhow::Result<Option<Bytes<'storage>>>;
+    ) -> anyhow::Result<Option<Bytes>>;
     async fn read_account_code(
         &self,
         address: Address,
         incarnation: Incarnation,
         code_hash: H256,
-    ) -> anyhow::Result<Option<Bytes<'storage>>>;
+    ) -> anyhow::Result<Option<Bytes>>;
     async fn read_account_code_size(
         &self,
         address: Address,
@@ -571,10 +571,8 @@ pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     _: Address,
     _: Incarnation,
     code_hash: H256,
-) -> anyhow::Result<Option<Bytes<'tx>>> {
-    tx.get(&tables::Code, code_hash)
-        .await
-        .map(|opt| opt.map(|v| v.into()))
+) -> anyhow::Result<Option<Bytes>> {
+    tx.get(&tables::Code, code_hash).await
 }
 
 pub async fn read_account_code_size<'db: 'tx, 'tx, Tx: Transaction<'db>>(

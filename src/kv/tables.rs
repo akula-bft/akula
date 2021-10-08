@@ -4,6 +4,7 @@ use anyhow::bail;
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
 use bincode::Options;
+use bytes::Bytes;
 use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
@@ -11,7 +12,6 @@ use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use roaring::RoaringTreemap;
 use serde::{Deserialize, *};
-use static_bytes::Bytes;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 #[derive(Debug)]
@@ -80,9 +80,9 @@ macro_rules! decl_table {
             type Value = $value;
             type FusedValue = (Self::Key, Self::Value);
 
-            fn db_name(&self) -> string::String<static_bytes::Bytes> {
+            fn db_name(&self) -> string::String<bytes::Bytes> {
                 unsafe {
-                    string::String::from_utf8_unchecked(static_bytes::Bytes::from_static(
+                    string::String::from_utf8_unchecked(bytes::Bytes::from_static(
                         Self::const_db_name().as_bytes(),
                     ))
                 }
@@ -309,7 +309,7 @@ where
 macro_rules! rlp_table_object {
     ($ty:ty) => {
         impl TableEncode for $ty {
-            type Encoded = static_bytes::BytesMut;
+            type Encoded = bytes::BytesMut;
 
             fn encode(self) -> Self::Encoded {
                 rlp::encode(&self)
@@ -878,9 +878,9 @@ impl Table for PlainState {
     type SeekKey = PlainStateSeekKey;
     type FusedValue = PlainStateFusedValue;
 
-    fn db_name(&self) -> string::String<static_bytes::Bytes> {
+    fn db_name(&self) -> string::String<bytes::Bytes> {
         unsafe {
-            string::String::from_utf8_unchecked(static_bytes::Bytes::from_static(
+            string::String::from_utf8_unchecked(bytes::Bytes::from_static(
                 Self::const_db_name().as_bytes(),
             ))
         }

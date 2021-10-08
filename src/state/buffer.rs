@@ -12,8 +12,8 @@ use crate::{
     MutableTransaction, State, Transaction,
 };
 use async_trait::async_trait;
+use bytes::Bytes;
 use ethereum_types::{Address, H256, *};
-use static_bytes::Bytes;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,

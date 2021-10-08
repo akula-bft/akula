@@ -39,7 +39,6 @@ dependencies = [
  "hex",
  "hex-literal",
  "http",
- "lifetimed-bytes",
  "maplit",
  "mdbx",
  "modular-bitfield",

@@ -1,6 +1,6 @@
 use crate::{chain::protocol_param::param, crypto::*, util::*};
 use arrayref::array_ref;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use ethereum_types::*;
 use evmodin::Revision;
 use num_bigint::BigUint;
@@ -12,7 +12,6 @@ use secp256k1::{
 };
 use sha2::*;
 use sha3::*;
-use static_bytes::Buf;
 use std::{
     cmp::min,
     convert::TryFrom,
@@ -21,8 +20,8 @@ use std::{
 };
 use substrate_bn::*;
 
-pub type GasFunction = fn(Bytes<'static>, Revision) -> Option<u64>;
-pub type RunFunction = fn(Bytes<'static>) -> Option<Bytes<'static>>;
+pub type GasFunction = fn(Bytes, Revision) -> Option<u64>;
+pub type RunFunction = fn(Bytes) -> Option<Bytes>;
 
 pub struct Contract {
     pub gas: GasFunction,
@@ -72,11 +71,11 @@ pub const NUM_OF_FRONTIER_CONTRACTS: usize = 4;
 pub const NUM_OF_BYZANTIUM_CONTRACTS: usize = 8;
 pub const NUM_OF_ISTANBUL_CONTRACTS: usize = 9;
 
-fn ecrecover_gas(_: Bytes<'static>, _: Revision) -> Option<u64> {
+fn ecrecover_gas(_: Bytes, _: Revision) -> Option<u64> {
     Some(3_000)
 }
 
-fn ecrecover_run_inner(mut input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn ecrecover_run_inner(mut input: Bytes) -> Option<Bytes> {
     if input.len() < 128 {
         let mut input2 = input.as_ref().to_vec();
         input2.resize(128, 0);
@@ -116,30 +115,30 @@ fn ecrecover_run_inner(mut input: Bytes<'static>) -> Option<Bytes<'static>> {
     Some(out.into())
 }
 
-fn ecrecover_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn ecrecover_run(input: Bytes) -> Option<Bytes> {
     Some(ecrecover_run_inner(input).unwrap_or_else(Bytes::new))
 }
 
-fn sha256_gas(input: Bytes<'static>, _: Revision) -> Option<u64> {
+fn sha256_gas(input: Bytes, _: Revision) -> Option<u64> {
     Some(60 + 12 * ((input.len() as u64 + 31) / 32))
 }
-fn sha256_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn sha256_run(input: Bytes) -> Option<Bytes> {
     Some(Sha256::digest(&input).to_vec().into())
 }
 
-fn ripemd160_gas(input: Bytes<'static>, _: Revision) -> Option<u64> {
+fn ripemd160_gas(input: Bytes, _: Revision) -> Option<u64> {
     Some(600 + 120 * ((input.len() as u64 + 31) / 32))
 }
-fn ripemd160_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn ripemd160_run(input: Bytes) -> Option<Bytes> {
     let mut b = [0; 32];
     b[12..].copy_from_slice(&Ripemd160::digest(&input)[..]);
     Some(b.to_vec().into())
 }
 
-fn id_gas(input: Bytes<'static>, _: Revision) -> Option<u64> {
+fn id_gas(input: Bytes, _: Revision) -> Option<u64> {
     Some(15 + 3 * ((input.len() as u64 + 31) / 32))
 }
-fn id_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn id_run(input: Bytes) -> Option<Bytes> {
     Some(input)
 }
 
@@ -159,7 +158,7 @@ fn mult_complexity_eip2565(max_length: U256) -> U256 {
     words * words
 }
 
-fn expmod_gas(mut input: Bytes<'static>, rev: Revision) -> Option<u64> {
+fn expmod_gas(mut input: Bytes, rev: Revision) -> Option<u64> {
     let min_gas = if rev < Revision::Berlin { 0 } else { 200 };
 
     input = right_pad(input, 3 * 32);
@@ -218,7 +217,7 @@ fn expmod_gas(mut input: Bytes<'static>, rev: Revision) -> Option<u64> {
     Some(std::cmp::max(min_gas, u64::try_from(gas).ok()?))
 }
 
-fn expmod_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn expmod_run(input: Bytes) -> Option<Bytes> {
     let mut input = right_pad(input, 3 * 32);
 
     let base_len = usize::try_from(u64::from_be_bytes(*array_ref!(input, 24, 8))).unwrap();
@@ -250,7 +249,7 @@ fn expmod_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
     Some(out.into())
 }
 
-fn bn_add_gas(_: Bytes<'static>, rev: Revision) -> Option<u64> {
+fn bn_add_gas(_: Bytes, rev: Revision) -> Option<u64> {
     Some({
         if rev >= Revision::Istanbul {
             150
@@ -287,7 +286,7 @@ fn parse_bn_point(r: &mut impl Read) -> Option<substrate_bn::G1> {
     })
 }
 
-fn bn_add_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn bn_add_run(input: Bytes) -> Option<Bytes> {
     let mut input = Read::chain(input.as_ref(), repeat(0));
 
     let a = parse_bn_point(&mut input)?;
@@ -302,7 +301,7 @@ fn bn_add_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
     Some(out.to_vec().into())
 }
 
-fn bn_mul_gas(_: Bytes<'static>, rev: Revision) -> Option<u64> {
+fn bn_mul_gas(_: Bytes, rev: Revision) -> Option<u64> {
     Some({
         if rev >= Revision::Istanbul {
             6_000
@@ -311,7 +310,7 @@ fn bn_mul_gas(_: Bytes<'static>, rev: Revision) -> Option<u64> {
         }
     })
 }
-fn bn_mul_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn bn_mul_run(input: Bytes) -> Option<Bytes> {
     let mut input = Read::chain(input.as_ref(), repeat(0));
 
     let a = parse_bn_point(&mut input)?;
@@ -328,7 +327,7 @@ fn bn_mul_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
 
 const SNARKV_STRIDE: u8 = 192;
 
-fn snarkv_gas(input: Bytes<'static>, rev: Revision) -> Option<u64> {
+fn snarkv_gas(input: Bytes, rev: Revision) -> Option<u64> {
     let k = input.len() as u64 / SNARKV_STRIDE as u64;
     Some({
         if rev >= Revision::Istanbul {
@@ -338,7 +337,7 @@ fn snarkv_gas(input: Bytes<'static>, rev: Revision) -> Option<u64> {
         }
     })
 }
-fn snarkv_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn snarkv_run(input: Bytes) -> Option<Bytes> {
     if input.len() % usize::from(SNARKV_STRIDE) != 0 {
         return None;
     }
@@ -384,7 +383,7 @@ fn snarkv_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
     Some(buf.to_vec().into())
 }
 
-fn blake2_f_gas(input: Bytes<'static>, _: Revision) -> Option<u64> {
+fn blake2_f_gas(input: Bytes, _: Revision) -> Option<u64> {
     if input.len() < 4 {
         // blake2_f_run will fail anyway
         return Some(0);
@@ -392,7 +391,7 @@ fn blake2_f_gas(input: Bytes<'static>, _: Revision) -> Option<u64> {
     Some(u32::from_be_bytes(*array_ref!(input, 0, 4)).into())
 }
 
-fn blake2_f_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
+fn blake2_f_run(input: Bytes) -> Option<Bytes> {
     const BLAKE2_F_ARG_LEN: usize = 213;
 
     if input.len() != BLAKE2_F_ARG_LEN {
@@ -456,6 +455,7 @@ fn blake2_f_run(input: Bytes<'static>) -> Option<Bytes<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes_literal::bytes;
     use hex_literal::hex;
 
     #[test]
@@ -520,7 +520,7 @@ mod tests {
 
         assert_eq!(
             expmod_run(input.to_vec().into()).unwrap(),
-            hex!("0000000000000000000000000000000000000000000000000000000000000001")
+            bytes!("0000000000000000000000000000000000000000000000000000000000000001")
         );
 
         let input = hex!(
@@ -533,7 +533,7 @@ mod tests {
 
         assert_eq!(
             expmod_run(input.to_vec().into()).unwrap(),
-            hex!("0000000000000000000000000000000000000000000000000000000000000000")
+            bytes!("0000000000000000000000000000000000000000000000000000000000000000")
         );
 
         let input = hex!(
@@ -581,7 +581,7 @@ mod tests {
             "00000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000"
             "000000010000000000000000000000000000000000000000000000000000000000000002"
         );
-        assert_eq!(bn_add_run(input.to_vec().into()).unwrap(), hex!("030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd315ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4"));
+        assert_eq!(bn_add_run(input.to_vec().into()).unwrap(), bytes!("030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd315ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4"));
     }
 
     #[test]
@@ -589,7 +589,7 @@ mod tests {
         let input = hex!(
             "1a87b0584ce92f4593d161480614f2989035225609f08058ccfa3d0f940febe31a2f3c951f6dadcc7ee9007dff81504b0fcd6d7cf59996efdc33d92bf7f9f8f60000000000000000000000000000000000000000000000000000000000000009"
         );
-        assert_eq!(bn_mul_run(input.to_vec().into()).unwrap(), hex!("1dbad7d39dbc56379f78fac1bca147dc8e66de1b9d183c7b167351bfe0aeab742cd757d51289cd8dbd0acf9e673ad67d0f0a89f912af47ed1be53664f5692575"));
+        assert_eq!(bn_mul_run(input.to_vec().into()).unwrap(), bytes!("1dbad7d39dbc56379f78fac1bca147dc8e66de1b9d183c7b167351bfe0aeab742cd757d51289cd8dbd0acf9e673ad67d0f0a89f912af47ed1be53664f5692575"));
     }
 
     #[test]
@@ -597,7 +597,7 @@ mod tests {
         // empty input
         assert_eq!(
             snarkv_run(Bytes::new()).unwrap(),
-            hex!("0000000000000000000000000000000000000000000000000000000000000001")
+            bytes!("0000000000000000000000000000000000000000000000000000000000000001")
         );
 
         // input size is not a multiple of 192
@@ -616,7 +616,7 @@ mod tests {
         );
         assert_eq!(
             snarkv_run(input.to_vec().into()).unwrap(),
-            hex!("0000000000000000000000000000000000000000000000000000000000000001")
+            bytes!("0000000000000000000000000000000000000000000000000000000000000001")
         );
 
         let input = hex!(
@@ -628,7 +628,7 @@ mod tests {
         );
         assert_eq!(
             snarkv_run(input.to_vec().into()).unwrap(),
-            hex!("0000000000000000000000000000000000000000000000000000000000000000")
+            bytes!("0000000000000000000000000000000000000000000000000000000000000000")
         );
     }
 
@@ -671,9 +671,8 @@ mod tests {
         );
         assert_eq!(
             blake2_f_run(input.to_vec().into()).unwrap(),
-            hex!(
-                "08c9bcf367e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d282e6ad7f520e511f6c3e2b8c"
-                "68059b9442be0454267ce079217e1319cde05b"
+            bytes!(
+                "08c9bcf367e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d282e6ad7f520e511f6c3e2b8c68059b9442be0454267ce079217e1319cde05b"
             )
         );
 
@@ -686,9 +685,8 @@ mod tests {
         );
         assert_eq!(
             blake2_f_run(input.to_vec().into()).unwrap(),
-            hex!(
-                "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de45"
-                "33cc9518d38aa8dbf1925ab92386edd4009923"
+            bytes!(
+                "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923"
             )
         );
 
@@ -701,9 +699,8 @@ mod tests {
         );
         assert_eq!(
             blake2_f_run(input.to_vec().into()).unwrap(),
-            hex!(
-                "75ab69d3190a562c51aef8d88f1c2775876944407270c42c9844252c26d2875298743e7f6d5ea2f2d3e8d22603"
-                "9cd31b4e426ac4f2d3d666a610c2116fde4735"
+            bytes!(
+                "75ab69d3190a562c51aef8d88f1c2775876944407270c42c9844252c26d2875298743e7f6d5ea2f2d3e8d226039cd31b4e426ac4f2d3d666a610c2116fde4735"
             )
         );
 
@@ -716,9 +713,8 @@ mod tests {
         );
         assert_eq!(
             blake2_f_run(input.to_vec().into()).unwrap(),
-            hex!(
-                "b63a380cb2897d521994a85234ee2c181b5f844d2c624c002677e9703449d2fba551b3a8333bcdf5f2f7e08993"
-                "d53923de3d64fcc68c034e717b9293fed7a421"
+            bytes!(
+                "b63a380cb2897d521994a85234ee2c181b5f844d2c624c002677e9703449d2fba551b3a8333bcdf5f2f7e08993d53923de3d64fcc68c034e717b9293fed7a421"
             )
         );
     }

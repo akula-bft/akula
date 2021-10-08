@@ -1,7 +1,7 @@
 use crate::{crypto::*, models::*, util::*, State};
 use async_trait::async_trait;
+use bytes::Bytes;
 use ethereum_types::*;
-use static_bytes::Bytes;
 use std::{collections::HashMap, convert::TryInto};
 
 // address -> initial value

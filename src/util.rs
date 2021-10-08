@@ -1,17 +1,16 @@
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use ethereum_types::*;
 use num_traits::Zero;
 use serde::{
     de::{self, Error},
     Deserialize,
 };
-use static_bytes::BytesMut;
 use std::{
     borrow::Borrow,
     fmt::{self, Formatter},
 };
 
-fn pad<const LEFT: bool>(buffer: Bytes<'_>, min_size: usize) -> Bytes<'_> {
+fn pad<const LEFT: bool>(buffer: Bytes, min_size: usize) -> Bytes {
     if buffer.len() >= min_size {
         return buffer;
     }
@@ -21,14 +20,14 @@ fn pad<const LEFT: bool>(buffer: Bytes<'_>, min_size: usize) -> Bytes<'_> {
     let mut b = BytesMut::with_capacity(min_size);
     b.resize(min_size, 0);
     b[point..point + buffer.len()].copy_from_slice(&buffer[..]);
-    b.freeze().into()
+    b.freeze()
 }
 
-pub fn left_pad(buffer: Bytes<'_>, min_size: usize) -> Bytes<'_> {
+pub fn left_pad(buffer: Bytes, min_size: usize) -> Bytes {
     pad::<true>(buffer, min_size)
 }
 
-pub fn right_pad(buffer: Bytes<'_>, min_size: usize) -> Bytes<'_> {
+pub fn right_pad(buffer: Bytes, min_size: usize) -> Bytes {
     pad::<false>(buffer, min_size)
 }
 
@@ -49,7 +48,7 @@ pub fn write_hex_string<B: AsRef<[u8]>>(b: &B, f: &mut Formatter) -> fmt::Result
     write!(f, "0x{}", hex::encode(b))
 }
 
-pub fn deserialize_str_as_bytes<'de, D>(deserializer: D) -> Result<Bytes<'static>, D::Error>
+pub fn deserialize_str_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
 where
     D: de::Deserializer<'de>,
 {
@@ -79,35 +78,36 @@ pub mod test_util {
 mod tests {
     use super::*;
     use bytes::Buf;
+    use bytes_literal::bytes;
     use hex_literal::hex;
 
     #[test]
     fn padding() {
-        assert_eq!(right_pad(hex!("a5").to_vec().into(), 3), hex!("a50000"));
+        assert_eq!(right_pad(bytes!("a5").to_vec().into(), 3), bytes!("a50000"));
         assert_eq!(
-            right_pad(hex!("5a0b54d5dc17e0aadc383d2db4").to_vec().into(), 3),
-            hex!("5a0b54d5dc17e0aadc383d2db4")
+            right_pad(bytes!("5a0b54d5dc17e0aadc383d2db4").to_vec().into(), 3),
+            bytes!("5a0b54d5dc17e0aadc383d2db4")
         );
 
-        assert_eq!(left_pad(hex!("a5").to_vec().into(), 3), hex!("0000a5"));
+        assert_eq!(left_pad(bytes!("a5").to_vec().into(), 3), bytes!("0000a5"));
         assert_eq!(
-            left_pad(hex!("5a0b54d5dc17e0aadc383d2db4").to_vec().into(), 3),
-            hex!("5a0b54d5dc17e0aadc383d2db4")
+            left_pad(bytes!("5a0b54d5dc17e0aadc383d2db4").to_vec().into(), 3),
+            bytes!("5a0b54d5dc17e0aadc383d2db4")
         );
 
-        let mut repeatedly_padded = right_pad(hex!("b8c4").to_vec().into(), 3);
-        assert_eq!(repeatedly_padded, hex!("b8c400"));
+        let mut repeatedly_padded = right_pad(bytes!("b8c4").to_vec().into(), 3);
+        assert_eq!(repeatedly_padded, bytes!("b8c400"));
         repeatedly_padded.advance(1);
-        assert_eq!(repeatedly_padded, hex!("c400"));
+        assert_eq!(repeatedly_padded, bytes!("c400"));
         repeatedly_padded = right_pad(repeatedly_padded, 4);
-        assert_eq!(repeatedly_padded, hex!("c4000000"));
+        assert_eq!(repeatedly_padded, bytes!("c4000000"));
 
-        repeatedly_padded = left_pad(hex!("b8c4").to_vec().into(), 3);
-        assert_eq!(repeatedly_padded, hex!("00b8c4"));
+        repeatedly_padded = left_pad(bytes!("b8c4").to_vec().into(), 3);
+        assert_eq!(repeatedly_padded, bytes!("00b8c4"));
         repeatedly_padded.truncate(repeatedly_padded.len() - 1);
-        assert_eq!(repeatedly_padded, hex!("00b8"));
+        assert_eq!(repeatedly_padded, bytes!("00b8"));
         repeatedly_padded = left_pad(repeatedly_padded, 4);
-        assert_eq!(repeatedly_padded, hex!("000000b8"));
+        assert_eq!(repeatedly_padded, bytes!("000000b8"));
     }
 
     #[test]
@@ -116,13 +116,13 @@ mod tests {
             zeroless_view(&H256::from(hex!(
                 "0000000000000000000000000000000000000000000000000000000000000000"
             ))),
-            &hex!("") as &[u8]
+            &bytes!("") as &[u8]
         );
         assert_eq!(
             zeroless_view(&H256::from(hex!(
                 "000000000000000000000000000000000000000000000000000000000004bc00"
             ))),
-            &hex!("04bc00") as &[u8]
+            &bytes!("04bc00") as &[u8]
         );
     }
 }

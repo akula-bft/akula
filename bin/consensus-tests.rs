@@ -302,7 +302,7 @@ pub struct AccountState {
     pub balance: U256,
     #[serde(deserialize_with = "deserialize_str_as_bytes")]
     #[educe(Debug(method = "write_hex_string"))]
-    pub code: Bytes<'static>,
+    pub code: Bytes,
     pub nonce: U64,
     pub storage: HashMap<U256, U256>,
 }
@@ -387,7 +387,7 @@ struct BlockchainTest {
     pre: HashMap<Address, AccountState>,
     #[serde(rename = "genesisRLP", deserialize_with = "deserialize_str_as_bytes")]
     #[educe(Debug(method = "write_hex_string"))]
-    genesis_rlp: Bytes<'static>,
+    genesis_rlp: Bytes,
     blocks: Vec<Map<String, Value>>,
     #[serde(default)]
     post_state_hash: Option<H256>,
@@ -433,7 +433,7 @@ async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &
                     *address,
                     account.incarnation,
                     account.code_hash,
-                    j.code.clone().into(),
+                    j.code.clone(),
                 )
                 .await
                 .unwrap();
@@ -467,7 +467,7 @@ struct BlockCommon {
     expect_exception: Option<String>,
     #[educe(Debug(method = "write_hex_string"))]
     #[serde(deserialize_with = "deserialize_str_as_bytes")]
-    rlp: Bytes<'static>,
+    rlp: Bytes,
 }
 
 #[instrument(skip(block_common, blockchain))]

@@ -10,7 +10,7 @@ use crate::kv::tables::CHAINDATA_TABLES;
 use ::mdbx::{Geometry, WriteMap};
 use async_trait::async_trait;
 use byte_unit::{n_mib_bytes, n_tib_bytes};
-use static_bytes::Bytes as StaticBytes;
+use bytes::Bytes as StaticBytes;
 use std::{fmt::Debug, ops::Deref};
 
 #[derive(Debug)]

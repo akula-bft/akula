@@ -1,5 +1,5 @@
 use crate::{crypto::is_valid_signature, util::*};
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::Deref;
 use educe::Educe;
 use ethereum_types::*;
@@ -10,7 +10,6 @@ use secp256k1::{
 };
 use serde::*;
 use sha3::*;
-use static_bytes::{BufMut, BytesMut};
 use std::{borrow::Cow, cmp::min};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -171,7 +170,7 @@ pub enum TransactionMessage {
         action: TransactionAction,
         value: U256,
         #[educe(Debug(method = "write_hex_string"))]
-        input: Bytes<'static>,
+        input: Bytes,
     },
     EIP2930 {
         chain_id: u64,
@@ -181,7 +180,7 @@ pub enum TransactionMessage {
         action: TransactionAction,
         value: U256,
         #[educe(Debug(method = "write_hex_string"))]
-        input: Bytes<'static>,
+        input: Bytes,
         access_list: Vec<AccessListItem>,
     },
     EIP1559 {
@@ -193,7 +192,7 @@ pub enum TransactionMessage {
         action: TransactionAction,
         value: U256,
         #[educe(Debug(method = "write_hex_string"))]
-        input: Bytes<'static>,
+        input: Bytes,
         access_list: Vec<AccessListItem>,
     },
 }
@@ -397,10 +396,10 @@ impl Transaction {
         }
     }
 
-    pub fn encode(&self) -> Bytes<'static> {
+    pub fn encode(&self) -> Bytes {
         let mut s = RlpStream::new();
         self.encode_inner(&mut s, true);
-        s.out().freeze().into()
+        s.out().freeze()
     }
 }
 
@@ -596,7 +595,7 @@ impl TransactionMessage {
         }
     }
 
-    pub const fn input(&self) -> &Bytes<'static> {
+    pub const fn input(&self) -> &Bytes {
         match self {
             Self::Legacy { input, .. }
             | Self::EIP2930 { input, .. }
