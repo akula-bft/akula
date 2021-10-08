@@ -1,7 +1,14 @@
 use crate::{
     accessors,
-    kv::tables,
+    kv::{
+        tables::{
+            self, AccountChange, PlainStateFusedValue, PlainStateKey, StorageChange,
+            StorageChangeKey,
+        },
+        traits::*,
+    },
     models::{Receipt, *},
+    state::database::PlainStateMutableCursorExt,
     MutableTransaction, State, Transaction,
 };
 use async_trait::async_trait;
@@ -42,7 +49,7 @@ where
     hash_to_code: BTreeMap<H256, Bytes>,
     storage_prefix_to_code_hash: BTreeMap<(Address, Incarnation), H256>,
     receipts: BTreeMap<BlockNumber, Vec<Receipt>>,
-    logs: BTreeMap<(BlockNumber, u64), Vec<Log>>,
+    logs: BTreeMap<(BlockNumber, TxIndex), Vec<Log>>,
 
     // Current block stuff
     block_number: BlockNumber,
@@ -189,7 +196,7 @@ where
         for (i, receipt) in receipts.iter().enumerate() {
             if !receipt.logs.is_empty() {
                 self.logs
-                    .insert((block_number, i as u64), receipt.logs.clone());
+                    .insert((block_number, TxIndex(i as u64)), receipt.logs.clone());
             }
         }
 
@@ -305,7 +312,106 @@ where
     Tx: MutableTransaction<'db>,
 {
     pub async fn write_to_db(self) -> anyhow::Result<()> {
-        todo!()
+        // Write to state table
+        let mut state_table = self.txn.mutable_cursor_dupsort(&tables::PlainState).await?;
+
+        let addresses = self.accounts.keys().chain(self.storage.keys());
+
+        let mut storage_keys = Vec::new();
+
+        for &address in addresses {
+            if let Some(account) = self.accounts.get(&address) {
+                if state_table
+                    .seek_exact(PlainStateKey::Account(address))
+                    .await?
+                    .is_some()
+                {
+                    state_table.delete_current().await?;
+                }
+
+                if let Some(account) = account {
+                    state_table
+                        .upsert(PlainStateFusedValue::Account {
+                            address,
+                            account: account.encode_for_storage(false),
+                        })
+                        .await?;
+                }
+            }
+
+            if let Some(storage) = self.storage.get(&address) {
+                for (&incarnation, contract_storage) in storage {
+                    storage_keys.clear();
+
+                    for &x in contract_storage.keys() {
+                        storage_keys.push(x);
+                    }
+                    storage_keys.sort_unstable();
+
+                    for &k in &storage_keys {
+                        state_table
+                            .upsert_storage_value(address, incarnation, k, contract_storage[&k])
+                            .await?;
+                    }
+                }
+            }
+        }
+
+        let mut incarnation_table = self.txn.mutable_cursor(&tables::IncarnationMap).await?;
+        for fv in self.incarnations {
+            incarnation_table.upsert(fv).await?;
+        }
+
+        let mut code_table = self.txn.mutable_cursor(&tables::Code).await?;
+        for fv in self.hash_to_code {
+            code_table.upsert(fv).await?;
+        }
+
+        let mut code_hash_table = self.txn.mutable_cursor(&tables::PlainCodeHash).await?;
+        for fv in self.storage_prefix_to_code_hash {
+            code_hash_table.upsert(fv).await?;
+        }
+
+        let mut account_change_table = self.txn.mutable_cursor(&tables::AccountChangeSet).await?;
+        for (block_number, account_entries) in self.account_changes {
+            for (address, account) in account_entries {
+                account_change_table
+                    .upsert((block_number, AccountChange { address, account }))
+                    .await?;
+            }
+        }
+
+        let mut storage_change_table = self.txn.mutable_cursor(&tables::StorageChangeSet).await?;
+        for (block_number, storage_entries) in self.storage_changes {
+            for (address, incarnation_entries) in storage_entries {
+                for (incarnation, storage_entries) in incarnation_entries {
+                    for (location, value) in storage_entries {
+                        storage_change_table
+                            .upsert((
+                                StorageChangeKey {
+                                    block_number,
+                                    address,
+                                    incarnation,
+                                },
+                                StorageChange { location, value },
+                            ))
+                            .await?;
+                    }
+                }
+            }
+        }
+
+        let mut receipt_table = self.txn.mutable_cursor(&tables::Receipt).await?;
+        for entry in self.receipts {
+            receipt_table.upsert(entry).await?;
+        }
+
+        let mut log_table = self.txn.mutable_cursor(&tables::TransactionLog).await?;
+        for entry in self.logs {
+            log_table.upsert(entry).await?;
+        }
+
+        Ok(())
     }
 }
 

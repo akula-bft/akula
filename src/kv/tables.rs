@@ -3,6 +3,7 @@ use crate::{models::*, zeroless_view, StageId};
 use anyhow::bail;
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
+use bincode::Options;
 use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
@@ -10,6 +11,7 @@ use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use roaring::RoaringTreemap;
 use serde::{Deserialize, *};
+use static_bytes::Bytes;
 use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 #[derive(Debug)]
@@ -132,6 +134,20 @@ impl traits::TableEncode for Vec<u8> {
 impl traits::TableDecode for Vec<u8> {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
         Ok(b.to_vec())
+    }
+}
+
+impl traits::TableEncode for Bytes {
+    type Encoded = Self;
+
+    fn encode(self) -> Self::Encoded {
+        self
+    }
+}
+
+impl traits::TableDecode for Bytes {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        Ok(b.to_vec().into())
     }
 }
 
@@ -312,6 +328,27 @@ rlp_table_object!(U256);
 rlp_table_object!(BodyForStorage);
 rlp_table_object!(BlockHeader);
 rlp_table_object!(Transaction);
+
+macro_rules! bincode_table_object {
+    ($ty:ty) => {
+        impl TableEncode for $ty {
+            type Encoded = Vec<u8>;
+
+            fn encode(self) -> Self::Encoded {
+                bincode::DefaultOptions::new().serialize(&self).unwrap()
+            }
+        }
+
+        impl TableDecode for $ty {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                Ok(bincode::DefaultOptions::new().deserialize(b)?)
+            }
+        }
+    };
+}
+
+bincode_table_object!(Vec<crate::models::Receipt>);
+bincode_table_object!(Vec<crate::models::Log>);
 
 macro_rules! json_table_object {
     ($ty:ident) => {
@@ -649,7 +686,7 @@ impl TableEncode for StorageChangeSeekKey {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StorageChange {
     pub location: H256,
-    pub value: ZerolessH256,
+    pub value: H256,
 }
 
 impl TableEncode for StorageChange {
@@ -658,7 +695,8 @@ impl TableEncode for StorageChange {
     fn encode(self) -> Self::Encoded {
         let mut out = Self::Encoded::default();
         out.try_extend_from_slice(&self.location.encode()).unwrap();
-        out.try_extend_from_slice(&self.value.encode()).unwrap();
+        out.try_extend_from_slice(&ZerolessH256(self.value).encode())
+            .unwrap();
         out
     }
 }
@@ -671,7 +709,7 @@ impl TableDecode for StorageChange {
 
         Ok(Self {
             location: H256::decode(&b[..KECCAK_LENGTH])?,
-            value: ZerolessH256::decode(&b[KECCAK_LENGTH..])?,
+            value: ZerolessH256::decode(&b[KECCAK_LENGTH..])?.0,
         })
     }
 }
@@ -921,7 +959,7 @@ decl_table!(HashedAccount => H256 => Vec<u8>);
 decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
-decl_table!(Code => H256 => Vec<u8>);
+decl_table!(Code => H256 => Bytes);
 decl_table!(HashedCodeHash => (H256, Incarnation) => H256);
 decl_table!(IncarnationMap => Address => Incarnation);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
@@ -935,8 +973,8 @@ decl_table!(Header => HeaderKey => BlockHeader);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
-decl_table!(Receipt => BlockNumber => Vec<u8>);
-decl_table!(TransactionLog => (BlockNumber, TxIndex) => Vec<u8>);
+decl_table!(Receipt => BlockNumber => Vec<crate::models::Receipt>);
+decl_table!(TransactionLog => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);

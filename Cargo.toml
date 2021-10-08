@@ -15,6 +15,7 @@ async-recursion = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "0.4"
+bincode = "1"
 byte-unit = "4"
 static-bytes = { package = "bytes", version = "1" }
 bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }

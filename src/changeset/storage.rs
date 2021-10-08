@@ -37,7 +37,7 @@ impl HistoryKind for StorageHistory {
             .await?
         {
             if v.location == location {
-                return Ok(Some(v.value.0));
+                return Ok(Some(v.value));
             }
         }
 
@@ -54,10 +54,7 @@ impl HistoryKind for StorageHistory {
                         address,
                         incarnation,
                     },
-                    StorageChange {
-                        location,
-                        value: value.into(),
-                    },
+                    StorageChange { location, value },
                 )
             })
     }
@@ -70,7 +67,7 @@ impl HistoryKind for StorageHistory {
         }: <Self::ChangeSetTable as Table>::Key,
         StorageChange { location, value }: <Self::ChangeSetTable as Table>::Value,
     ) -> (BlockNumber, Change<Self::Key, Self::Value>) {
-        (block_number, ((address, incarnation, location), value.0))
+        (block_number, ((address, incarnation, location), value))
     }
 }
 

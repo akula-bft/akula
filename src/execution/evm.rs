@@ -538,7 +538,7 @@ where
                     self.state.add_log(Log {
                         address: i.data().address,
                         topics: i.data().topics.as_slice().into(),
-                        data: i.data().data.clone().into(),
+                        data: i.data().data.clone(),
                     });
 
                     i.resume(())

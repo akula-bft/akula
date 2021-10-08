@@ -3,9 +3,10 @@ use crate::crypto::*;
 use bytes::Bytes;
 use ethereum_types::Bloom;
 use rlp::{Encodable, RlpStream};
+use serde::*;
 use static_bytes::{BufMut, BytesMut};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Receipt {
     pub tx_type: TxType,
     pub success: bool,

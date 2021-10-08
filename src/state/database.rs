@@ -2,7 +2,7 @@ use crate::{
     bitmapdb,
     changeset::{AccountHistory, HistoryKind, StorageHistory},
     kv::{
-        tables::{self, BitmapKey},
+        tables::{self, BitmapKey, PlainStateFusedValue},
         Table, TableDecode,
     },
     models::*,
@@ -379,7 +379,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
             .await?;
 
         self.tx
-            .set(&tables::Code, (code_hash, code.to_vec()))
+            .set(&tables::Code, (code_hash, code.to_vec().into()))
             .await?;
         self.tx
             .set(&tables::PlainCodeHash, ((address, incarnation), code_hash))
@@ -488,6 +488,44 @@ pub trait PlainStateCursorExt<'tx>: CursorDupSort<'tx, tables::PlainState> {
 }
 
 impl<'tx, C: CursorDupSort<'tx, tables::PlainState>> PlainStateCursorExt<'tx> for C {}
+
+#[async_trait]
+pub trait PlainStateMutableCursorExt<'tx>:
+    PlainStateCursorExt<'tx> + MutableCursorDupSort<'tx, tables::PlainState>
+{
+    async fn upsert_storage_value(
+        &mut self,
+        address: Address,
+        incarnation: Incarnation,
+        location: H256,
+        value: H256,
+    ) -> anyhow::Result<()> {
+        if self
+            .seek_storage_key(address, incarnation, location)
+            .await?
+            .is_some()
+        {
+            self.delete_current().await?;
+        }
+
+        if !value.is_zero() {
+            self.upsert(PlainStateFusedValue::Storage {
+                address,
+                incarnation,
+                location,
+                value,
+            })
+            .await?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<'tx, C: MutableCursorDupSort<'tx, tables::PlainState> + PlainStateCursorExt<'tx>>
+    PlainStateMutableCursorExt<'tx> for C
+{
+}
 
 pub async fn read_account_data<'db, Tx: Transaction<'db>>(
     tx: &Tx,

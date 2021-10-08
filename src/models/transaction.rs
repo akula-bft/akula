@@ -8,11 +8,12 @@ use secp256k1::{
     recovery::{RecoverableSignature, RecoveryId},
     Message, SECP256K1,
 };
+use serde::*;
 use sha3::*;
 use static_bytes::{BufMut, BytesMut};
 use std::{borrow::Cow, cmp::min};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TxType {
     Legacy = 0,
     EIP2930 = 1,
