@@ -1,4 +1,4 @@
-use crate::{models::*, Transaction};
+use crate::{kv::tables, models::*, Transaction};
 use ethereum_types::H256;
 
 pub mod storage {
@@ -30,6 +30,19 @@ pub mod storage {
                 .unwrap_or_default(),
         )
     }
+}
+
+pub async fn read_previous_incarnation<'db, Tx: Transaction<'db>>(
+    txn: &Tx,
+    address: Address,
+    block_num: Option<BlockNumber>,
+) -> anyhow::Result<Option<Incarnation>> {
+    if block_num.is_some() {
+        // TODO
+        return Ok(None);
+    }
+
+    txn.get(&tables::IncarnationMap, address).await
 }
 
 #[cfg(test)]
@@ -72,7 +85,7 @@ pub mod tests {
                 address,
                 location: loc1,
                 incarnation: DEFAULT_INCARNATION,
-                value: val1.into(),
+                value: val1,
             },
         )
         .await
@@ -83,7 +96,7 @@ pub mod tests {
                 address,
                 location: loc2,
                 incarnation: DEFAULT_INCARNATION,
-                value: val2.into(),
+                value: val2,
             },
         )
         .await
@@ -94,7 +107,7 @@ pub mod tests {
                 address,
                 location: loc3,
                 incarnation: DEFAULT_INCARNATION,
-                value: val3.into(),
+                value: val3,
             },
         )
         .await

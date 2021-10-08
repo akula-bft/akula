@@ -30,10 +30,6 @@ where
     prune_from: BlockNumber,
     historical_block: Option<BlockNumber>,
 
-    headers: BTreeMap<(BlockNumber, H256), BlockHeader>,
-    bodies: BTreeMap<(BlockNumber, H256), BlockBody>,
-    difficulty: BTreeMap<(BlockNumber, H256), U256>,
-
     accounts: HashMap<Address, Option<Account>>,
 
     // address -> incarnation -> location -> value
@@ -47,8 +43,6 @@ where
     storage_prefix_to_code_hash: BTreeMap<(Address, Incarnation), H256>,
     receipts: BTreeMap<BlockNumber, Vec<Receipt>>,
     logs: BTreeMap<(BlockNumber, u64), Vec<Log>>,
-
-    batch_size: usize,
 
     // Current block stuff
     block_number: BlockNumber,
@@ -70,9 +64,6 @@ where
             prune_from,
             historical_block,
             _marker: PhantomData,
-            headers: Default::default(),
-            bodies: Default::default(),
-            difficulty: Default::default(),
             accounts: Default::default(),
             storage: Default::default(),
             account_changes: Default::default(),
@@ -82,7 +73,6 @@ where
             storage_prefix_to_code_hash: Default::default(),
             receipts: Default::default(),
             logs: Default::default(),
-            batch_size: Default::default(),
             block_number: Default::default(),
             changed_storage: Default::default(),
         }
@@ -95,16 +85,6 @@ where
     'db: 'tx,
     Tx: Transaction<'db>,
 {
-    async fn number_of_accounts(&self) -> anyhow::Result<u64> {
-        todo!()
-    }
-
-    async fn storage_size(&self, _: Address, _: Incarnation) -> anyhow::Result<u64> {
-        todo!()
-    }
-
-    // Readers
-
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
         if let Some(account) = self.accounts.get(&address) {
             return Ok(account.clone());
@@ -158,7 +138,15 @@ where
 
     // Previous non-zero incarnation of an account; 0 if none exists.
     async fn previous_incarnation(&self, address: Address) -> anyhow::Result<Incarnation> {
-        todo!()
+        if let Some(inc) = self.incarnations.get(&address).copied() {
+            return Ok(inc);
+        }
+
+        Ok(
+            accessors::state::read_previous_incarnation(self.txn, address, self.historical_block)
+                .await?
+                .unwrap_or_else(|| 0.into()),
+        )
     }
 
     async fn read_header(
@@ -166,7 +154,7 @@ where
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockHeader>> {
-        todo!()
+        accessors::chain::header::read(self.txn, block_hash, block_number).await
     }
 
     async fn read_body(
@@ -174,7 +162,7 @@ where
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockBody>> {
-        todo!()
+        accessors::chain::block_body::read_without_senders(self.txn, block_hash, block_number).await
     }
 
     async fn read_body_with_senders(
@@ -182,7 +170,7 @@ where
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
-        todo!()
+        accessors::chain::block_body::read_with_senders(self.txn, block_hash, block_number).await
     }
 
     async fn total_difficulty(
@@ -190,35 +178,7 @@ where
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<U256>> {
-        todo!()
-    }
-
-    async fn state_root_hash(&self) -> anyhow::Result<H256> {
-        todo!()
-    }
-
-    async fn current_canonical_block(&self) -> anyhow::Result<BlockNumber> {
-        todo!()
-    }
-
-    async fn canonical_hash(&self, block_number: BlockNumber) -> anyhow::Result<Option<H256>> {
-        todo!()
-    }
-
-    async fn insert_block(&mut self, block: Block, hash: H256) -> anyhow::Result<()> {
-        todo!()
-    }
-
-    async fn canonize_block(
-        &mut self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<()> {
-        todo!()
-    }
-
-    async fn decanonize_block(&mut self, block_number: BlockNumber) -> anyhow::Result<()> {
-        todo!()
+        accessors::chain::td::read(self.txn, block_hash, block_number).await
     }
 
     async fn insert_receipts(
@@ -297,7 +257,11 @@ where
         code_hash: H256,
         code: Bytes,
     ) -> anyhow::Result<()> {
-        todo!()
+        self.hash_to_code.insert(code_hash, code);
+        self.storage_prefix_to_code_hash
+            .insert((address, incarnation), code_hash);
+
+        Ok(())
     }
 
     async fn update_storage(
@@ -333,10 +297,6 @@ where
 
         Ok(())
     }
-
-    async fn unwind_state_changes(&mut self, block_number: BlockNumber) -> anyhow::Result<()> {
-        todo!()
-    }
 }
 
 impl<'db, 'tx, Tx> Buffer<'db, 'tx, Tx>
@@ -346,5 +306,100 @@ where
 {
     pub async fn write_to_db(self) -> anyhow::Result<()> {
         todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        kv::{tables::PlainStateFusedValue, traits::*},
+        new_mem_database,
+        state::database::PlainStateCursorExt,
+        DEFAULT_INCARNATION,
+    };
+    use hex_literal::hex;
+
+    #[tokio::test]
+    async fn storage_update() {
+        let db = new_mem_database().unwrap();
+        let txn = db.begin_mutable().await.unwrap();
+
+        let address: Address = hex!("be00000000000000000000000000000000000000").into();
+
+        let location_a =
+            hex!("0000000000000000000000000000000000000000000000000000000000000013").into();
+        let value_a1 =
+            hex!("000000000000000000000000000000000000000000000000000000000000006b").into();
+        let value_a2 =
+            hex!("0000000000000000000000000000000000000000000000000000000000000085").into();
+
+        let location_b =
+            hex!("0000000000000000000000000000000000000000000000000000000000000002").into();
+        let value_b =
+            hex!("0000000000000000000000000000000000000000000000000000000000000132").into();
+
+        txn.set(
+            &tables::PlainState,
+            PlainStateFusedValue::Storage {
+                address,
+                incarnation: DEFAULT_INCARNATION,
+                location: location_a,
+                value: value_a1,
+            },
+        )
+        .await
+        .unwrap();
+
+        txn.set(
+            &tables::PlainState,
+            PlainStateFusedValue::Storage {
+                address,
+                incarnation: DEFAULT_INCARNATION,
+                location: location_b,
+                value: value_b,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut buffer = Buffer::new(&txn, 0.into(), None);
+
+        assert_eq!(
+            buffer
+                .read_storage(address, DEFAULT_INCARNATION, location_a)
+                .await
+                .unwrap(),
+            value_a1
+        );
+
+        // Update only location A
+        buffer
+            .update_storage(address, DEFAULT_INCARNATION, location_a, value_a1, value_a2)
+            .await
+            .unwrap();
+        buffer.write_to_db().await.unwrap();
+
+        // Location A should have the new value
+        let db_value_a = txn
+            .cursor_dup_sort(&tables::PlainState)
+            .await
+            .unwrap()
+            .seek_storage_key(address, DEFAULT_INCARNATION, location_a)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(db_value_a, value_a2);
+
+        // Location B should not change
+        let db_value_b = txn
+            .cursor_dup_sort(&tables::PlainState)
+            .await
+            .unwrap()
+            .seek_storage_key(address, DEFAULT_INCARNATION, location_b)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(db_value_b, value_b);
     }
 }

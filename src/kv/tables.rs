@@ -793,7 +793,7 @@ impl TableEncode for PlainStateSeekKey {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlainStateFusedValue {
     Account {
         address: Address,
@@ -803,7 +803,7 @@ pub enum PlainStateFusedValue {
         address: Address,
         incarnation: Incarnation,
         location: H256,
-        value: ZerolessH256,
+        value: H256,
     },
 }
 
@@ -824,7 +824,7 @@ impl PlainStateFusedValue {
             value,
         } = self
         {
-            Some((*address, *incarnation, *location, (*value).into()))
+            Some((*address, *incarnation, *location, *value))
         } else {
             None
         }
@@ -871,7 +871,7 @@ impl Table for PlainState {
                     address,
                     incarnation,
                     location: H256::decode(&value[..KECCAK_LENGTH])?,
-                    value: ZerolessH256::decode(&value[KECCAK_LENGTH..])?,
+                    value: ZerolessH256::decode(&value[KECCAK_LENGTH..])?.0,
                 }
             }
         })
@@ -890,7 +890,8 @@ impl Table for PlainState {
             } => {
                 let mut v = Self::Value::default();
                 v.try_extend_from_slice(&location.encode()).unwrap();
-                v.try_extend_from_slice(&value.encode()).unwrap();
+                v.try_extend_from_slice(&ZerolessH256(value).encode())
+                    .unwrap();
                 (PlainStateKey::Storage(address, incarnation), v)
             }
         }

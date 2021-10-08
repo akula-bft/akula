@@ -435,7 +435,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
                 address,
                 incarnation,
                 location,
-                value: value.into(),
+                value,
             })
             .await?;
         }
