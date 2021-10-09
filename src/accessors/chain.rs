@@ -227,7 +227,7 @@ pub mod storage_body {
 pub mod block_body {
     use super::*;
 
-    pub async fn read_base<'db, Tx: ReadTransaction<'db>>(
+    async fn read_base<'db, Tx: ReadTransaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
