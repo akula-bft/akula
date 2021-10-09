@@ -19,7 +19,7 @@ pub enum TxType {
     EIP1559 = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransactionAction {
     Call(Address),
     Create,
@@ -88,7 +88,7 @@ impl YParityAndChainId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionSignature {
     odd_y_parity: bool,
     r: H256,
@@ -134,7 +134,7 @@ impl TransactionSignature {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccessListItem {
     pub address: Address,
     pub slots: Vec<H256>,
@@ -159,7 +159,7 @@ impl Decodable for AccessListItem {
 
 pub type AccessList = Vec<AccessListItem>;
 
-#[derive(Clone, Educe, PartialEq, Eq)]
+#[derive(Clone, Educe, PartialEq, Eq, Serialize, Deserialize)]
 #[educe(Debug)]
 pub enum TransactionMessage {
     Legacy {
@@ -288,7 +288,7 @@ impl TransactionMessage {
     }
 }
 
-#[derive(Clone, Debug, Deref, PartialEq, Eq)]
+#[derive(Clone, Debug, Deref, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transaction {
     #[deref]
     pub message: TransactionMessage,

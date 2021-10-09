@@ -3,8 +3,9 @@ use crate::crypto::*;
 use bytes::Bytes;
 use ethereum_types::*;
 use rlp::*;
+use serde::*;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// Ethereum block header definition.
 pub struct BlockHeader {
     pub parent_hash: H256,

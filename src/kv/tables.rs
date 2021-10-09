@@ -306,29 +306,6 @@ where
     }
 }
 
-macro_rules! rlp_table_object {
-    ($ty:ty) => {
-        impl TableEncode for $ty {
-            type Encoded = bytes::BytesMut;
-
-            fn encode(self) -> Self::Encoded {
-                rlp::encode(&self)
-            }
-        }
-
-        impl TableDecode for $ty {
-            fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(rlp::decode(b)?)
-            }
-        }
-    };
-}
-
-rlp_table_object!(U256);
-rlp_table_object!(BodyForStorage);
-rlp_table_object!(BlockHeader);
-rlp_table_object!(Transaction);
-
 macro_rules! bincode_table_object {
     ($ty:ty) => {
         impl TableEncode for $ty {
@@ -347,6 +324,10 @@ macro_rules! bincode_table_object {
     };
 }
 
+bincode_table_object!(U256);
+bincode_table_object!(BodyForStorage);
+bincode_table_object!(BlockHeader);
+bincode_table_object!(Transaction);
 bincode_table_object!(Vec<crate::models::Receipt>);
 bincode_table_object!(Vec<crate::models::Log>);
 
