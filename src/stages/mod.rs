@@ -1,6 +1,7 @@
 mod block_hashes;
 mod downloader;
 mod execution;
+mod interhashes;
 mod sender_recovery;
 mod tx_lookup;
 
