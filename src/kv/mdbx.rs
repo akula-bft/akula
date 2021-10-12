@@ -37,9 +37,7 @@ impl<E: EnvironmentKind> Environment<E> {
         chart: DatabaseChart,
         ro: bool,
     ) -> anyhow::Result<Self> {
-        if !chart.is_empty() {
-            b.set_max_dbs(chart.len());
-        }
+        b.set_max_dbs(std::cmp::max(chart.len(), 1));
         if ro {
             b.set_flags(::mdbx::EnvironmentFlags {
                 mode: ::mdbx::Mode::ReadOnly,
