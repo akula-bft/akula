@@ -90,7 +90,7 @@ pub struct BlockBodyWithSenders {
     pub ommers: Vec<BlockHeader>,
 }
 
-#[derive(RlpDecodable, RlpEncodable, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BodyForStorage {
     pub base_tx_id: TxIndex,
     pub tx_amount: usize,

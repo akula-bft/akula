@@ -122,7 +122,7 @@ impl SentryClient for SentryClientImpl {
                     let message_id = EthMessageId::try_from(grpc_message_id)?;
                     let grpc_peer_id: Option<grpc_types::H512> = inbound_message.peer_id;
                     let peer_id: Option<ethereum_types::H512> = grpc_peer_id.map(ethereum_types::H512::from);
-                    let message_bytes: static_bytes::Bytes = inbound_message.data;
+                    let message_bytes: bytes::Bytes = inbound_message.data;
                     let message = message_decoder::decode_rlp_message(message_id, message_bytes.as_ref())?;
                     let message_from_peer = MessageFromPeer {
                         message,

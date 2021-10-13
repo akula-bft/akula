@@ -1,11 +1,11 @@
 use super::*;
 use crate::crypto::*;
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
 use ethereum_types::Bloom;
 use rlp::{Encodable, RlpStream};
-use static_bytes::{BufMut, BytesMut};
+use serde::*;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Receipt {
     pub tx_type: TxType,
     pub success: bool,
@@ -54,10 +54,10 @@ impl Receipt {
 }
 
 impl TrieEncode for Receipt {
-    fn trie_encode(&self) -> Bytes<'static> {
+    fn trie_encode(&self) -> Bytes {
         let mut s = RlpStream::new();
         self.encode_inner(&mut s, true);
-        s.out().freeze().into()
+        s.out().freeze()
     }
 }
 

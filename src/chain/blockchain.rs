@@ -8,40 +8,32 @@ use crate::{
 use anyhow::Context;
 use async_recursion::async_recursion;
 use ethereum_types::*;
-use std::{collections::HashMap, convert::TryFrom, marker::PhantomData};
+use std::{collections::HashMap, convert::TryFrom};
 
 #[derive(Debug)]
-pub struct Blockchain<'storage: 'state, 'state, S>
-where
-    S: State<'storage>,
-{
-    state: &'state mut S,
+pub struct Blockchain<'state> {
+    state: &'state mut InMemoryState,
     config: ChainConfig,
     bad_blocks: HashMap<H256, ValidationError>,
     receipts: Vec<Receipt>,
-    _marker: PhantomData<&'storage ()>,
 }
 
-impl<'storage: 'state, 'state, S> Blockchain<'storage, 'state, S>
-where
-    S: State<'storage>,
-{
+impl<'state> Blockchain<'state> {
     pub async fn new(
-        state: &'state mut S,
+        state: &'state mut InMemoryState,
         config: ChainConfig,
         genesis_block: Block,
-    ) -> anyhow::Result<Blockchain<'storage, 'state, S>> {
+    ) -> anyhow::Result<Blockchain<'state>> {
         let hash = genesis_block.header.hash();
         let number = genesis_block.header.number;
-        state.insert_block(genesis_block, hash).await?;
-        state.canonize_block(number, hash).await?;
+        state.insert_block(genesis_block, hash);
+        state.canonize_block(number, hash);
 
         Ok(Self {
             state,
             config,
             bad_blocks: Default::default(),
             receipts: Default::default(),
-            _marker: PhantomData,
         })
     }
 
@@ -65,7 +57,7 @@ where
 
         let ancestor = self.canonical_ancestor(&b.header, hash).await?;
 
-        let current_canonical_block = self.state.current_canonical_block().await?;
+        let current_canonical_block = self.state.current_canonical_block();
 
         self.unwind_last_changes(ancestor, current_canonical_block)
             .await?;
@@ -102,16 +94,13 @@ where
             num_of_executed_chain_blocks += 1;
         }
 
-        self.state.insert_block(block, hash).await?;
+        self.state.insert_block(block, hash);
 
         let current_total_difficulty = self
             .state
             .total_difficulty(
                 current_canonical_block,
-                self.state
-                    .canonical_hash(current_canonical_block)
-                    .await?
-                    .unwrap(),
+                self.state.canonical_hash(current_canonical_block).unwrap(),
             )
             .await?
             .unwrap();
@@ -125,11 +114,11 @@ where
         {
             // canonize the new chain
             for i in (ancestor + 1..=current_canonical_block).rev() {
-                self.state.decanonize_block(i).await?;
+                self.state.decanonize_block(i);
             }
 
             for x in chain {
-                self.state.canonize_block(x.header.number, x.hash).await?;
+                self.state.canonize_block(x.header.number, x.hash);
             }
         } else {
             self.unwind_last_changes(ancestor, ancestor + num_of_executed_chain_blocks)
@@ -156,9 +145,9 @@ where
         let _ = processor.execute_and_write_block().await?;
 
         if check_state_root {
-            let state_root = self.state.state_root_hash().await?;
+            let state_root = self.state.state_root_hash();
             if state_root != block.header.state_root {
-                self.state.unwind_state_changes(block.header.number).await?;
+                self.state.unwind_state_changes(block.header.number);
                 return Err(ValidationError::WrongStateRoot {
                     expected: block.header.state_root,
                     got: state_root,
@@ -179,7 +168,7 @@ where
         let tip = tip.into();
         assert!(ancestor <= tip);
         for block_number in ancestor + 1..=tip {
-            let hash = self.state.canonical_hash(block_number).await?.unwrap();
+            let hash = self.state.canonical_hash(block_number).unwrap();
             let body = self
                 .state
                 .read_body_with_senders(block_number, hash)
@@ -208,7 +197,7 @@ where
         let tip = tip.into();
         assert!(ancestor <= tip);
         for block_number in (ancestor + 1..=tip).rev() {
-            self.state.unwind_state_changes(block_number).await?;
+            self.state.unwind_state_changes(block_number);
         }
 
         Ok(())
@@ -262,7 +251,7 @@ where
         header: &PartialHeader,
         hash: H256,
     ) -> anyhow::Result<BlockNumber> {
-        if let Some(canonical_hash) = self.state.canonical_hash(header.number).await? {
+        if let Some(canonical_hash) = self.state.canonical_hash(header.number) {
             if canonical_hash == hash {
                 return Ok(header.number);
             }

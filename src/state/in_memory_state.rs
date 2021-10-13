@@ -16,7 +16,7 @@ pub struct InMemoryState {
     accounts: HashMap<Address, Account>,
 
     // hash -> code
-    code: HashMap<H256, Bytes<'static>>,
+    code: HashMap<H256, Bytes>,
     prev_incarnations: HashMap<Address, Incarnation>,
 
     // address -> incarnation -> location -> value
@@ -62,40 +62,139 @@ impl InMemoryState {
 
         EMPTY_ROOT
     }
-}
 
-#[async_trait]
-impl State<'static> for InMemoryState {
-    async fn number_of_accounts(&self) -> anyhow::Result<u64> {
-        Ok(self.accounts.len().try_into()?)
+    pub fn number_of_accounts(&self) -> u64 {
+        self.accounts.len().try_into().unwrap()
     }
 
-    async fn storage_size(
-        &self,
-        address: Address,
-        incarnation: Incarnation,
-    ) -> anyhow::Result<u64> {
+    pub fn storage_size(&self, address: Address, incarnation: Incarnation) -> u64 {
         if let Some(address_storage) = self.storage.get(&address) {
             if let Some(incarnation_storage) = address_storage.get(&incarnation) {
-                return Ok(incarnation_storage.len().try_into()?);
+                return incarnation_storage.len().try_into().unwrap();
             }
         }
 
-        Ok(0)
+        0
     }
 
+    pub fn state_root_hash(&self) -> H256 {
+        if self.accounts.is_empty() {
+            return EMPTY_ROOT;
+        }
+
+        trie_root(self.accounts.iter().map(|(&address, account)| {
+            let storage_root = self.account_storage_root(address, account.incarnation);
+            let account = account.to_rlp(storage_root);
+            (keccak256(address), rlp::encode(&account))
+        }))
+    }
+
+    pub fn current_canonical_block(&self) -> BlockNumber {
+        BlockNumber(self.canonical_hashes.len() as u64 - 1)
+    }
+
+    pub fn canonical_hash(&self, block_number: BlockNumber) -> Option<H256> {
+        self.canonical_hashes.get(block_number.0 as usize).copied()
+    }
+
+    pub fn insert_block(&mut self, block: Block, hash: H256) {
+        let Block {
+            header,
+            transactions,
+            ommers,
+        } = block;
+
+        let block_number = header.number.0 as usize;
+        let parent_hash = header.parent_hash;
+        let difficulty = header.difficulty;
+
+        if self.headers.len() <= block_number {
+            self.headers.resize_with(block_number + 1, Default::default);
+        }
+        self.headers[block_number].insert(hash, header);
+
+        if self.bodies.len() <= block_number {
+            self.bodies.resize_with(block_number + 1, Default::default);
+        }
+        self.bodies[block_number].insert(
+            hash,
+            BlockBody {
+                transactions,
+                ommers,
+            },
+        );
+
+        if self.difficulty.len() <= block_number {
+            self.difficulty
+                .resize_with(block_number + 1, Default::default);
+        }
+
+        let d = {
+            if block_number == 0 {
+                U256::zero()
+            } else {
+                *self.difficulty[block_number - 1]
+                    .entry(parent_hash)
+                    .or_default()
+            }
+        } + difficulty;
+        self.difficulty[block_number].entry(hash).insert(d);
+    }
+
+    pub fn canonize_block(&mut self, block_number: BlockNumber, block_hash: H256) {
+        let block_number = block_number.0 as usize;
+
+        if self.canonical_hashes.len() <= block_number {
+            self.canonical_hashes
+                .resize_with(block_number + 1, Default::default);
+        }
+
+        self.canonical_hashes[block_number] = block_hash;
+    }
+
+    pub fn decanonize_block(&mut self, block_number: BlockNumber) {
+        self.canonical_hashes.truncate(block_number.0 as usize);
+    }
+
+    pub fn unwind_state_changes(&mut self, block_number: BlockNumber) {
+        for (address, account) in self.account_changes.entry(block_number).or_default() {
+            if let Some(account) = account {
+                self.accounts.insert(*address, account.clone());
+            } else {
+                self.accounts.remove(address);
+            }
+        }
+
+        for (address, storage1) in self.storage_changes.entry(block_number).or_default() {
+            for (incarnation, storage2) in storage1 {
+                for (location, value) in storage2 {
+                    let e = self
+                        .storage
+                        .entry(*address)
+                        .or_default()
+                        .entry(*incarnation)
+                        .or_default();
+                    if value.is_zero() {
+                        e.remove(location);
+                    } else {
+                        e.insert(*location, *value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl State for InMemoryState {
     // Readers
 
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
         Ok(self.accounts.get(&address).cloned())
     }
 
-    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes<'static>> {
-        Ok(self
-            .code
-            .get(&code_hash)
-            .cloned()
-            .unwrap_or_else(Bytes::new))
+    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
+        Ok(self.code.get(&code_hash).cloned().unwrap_or_default())
     }
 
     async fn read_storage(
@@ -190,98 +289,7 @@ impl State<'static> for InMemoryState {
         Ok(None)
     }
 
-    async fn state_root_hash(&self) -> anyhow::Result<H256> {
-        if self.accounts.is_empty() {
-            return Ok(EMPTY_ROOT);
-        }
-
-        Ok(trie_root(self.accounts.iter().map(
-            |(&address, account)| {
-                let storage_root = self.account_storage_root(address, account.incarnation);
-                let account = account.to_rlp(storage_root);
-                (keccak256(address), rlp::encode(&account))
-            },
-        )))
-    }
-
-    async fn current_canonical_block(&self) -> anyhow::Result<BlockNumber> {
-        Ok(BlockNumber(self.canonical_hashes.len() as u64 - 1))
-    }
-
-    async fn canonical_hash(&self, block_number: BlockNumber) -> anyhow::Result<Option<H256>> {
-        Ok(self.canonical_hashes.get(block_number.0 as usize).copied())
-    }
-
-    async fn insert_block(&mut self, block: Block, hash: H256) -> anyhow::Result<()> {
-        let Block {
-            header,
-            transactions,
-            ommers,
-        } = block;
-
-        let block_number = header.number.0 as usize;
-        let parent_hash = header.parent_hash;
-        let difficulty = header.difficulty;
-
-        if self.headers.len() <= block_number {
-            self.headers.resize_with(block_number + 1, Default::default);
-        }
-        self.headers[block_number].insert(hash, header);
-
-        if self.bodies.len() <= block_number {
-            self.bodies.resize_with(block_number + 1, Default::default);
-        }
-        self.bodies[block_number].insert(
-            hash,
-            BlockBody {
-                transactions,
-                ommers,
-            },
-        );
-
-        if self.difficulty.len() <= block_number {
-            self.difficulty
-                .resize_with(block_number + 1, Default::default);
-        }
-
-        let d = {
-            if block_number == 0 {
-                U256::zero()
-            } else {
-                *self.difficulty[block_number - 1]
-                    .entry(parent_hash)
-                    .or_default()
-            }
-        } + difficulty;
-        self.difficulty[block_number].entry(hash).insert(d);
-
-        Ok(())
-    }
-
-    async fn canonize_block(
-        &mut self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<()> {
-        let block_number = block_number.0 as usize;
-
-        if self.canonical_hashes.len() <= block_number {
-            self.canonical_hashes
-                .resize_with(block_number + 1, Default::default);
-        }
-
-        self.canonical_hashes[block_number] = block_hash;
-
-        Ok(())
-    }
-
-    async fn decanonize_block(&mut self, block_number: BlockNumber) -> anyhow::Result<()> {
-        self.canonical_hashes.truncate(block_number.0 as usize);
-
-        Ok(())
-    }
-
-    async fn insert_receipts(&mut self, _: BlockNumber, _: &[Receipt]) -> anyhow::Result<()> {
+    async fn insert_receipts(&mut self, _: BlockNumber, _: Vec<Receipt>) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -324,11 +332,9 @@ impl State<'static> for InMemoryState {
         _: Address,
         _: Incarnation,
         code_hash: H256,
-        code: Bytes<'static>,
+        code: Bytes,
     ) -> anyhow::Result<()> {
-        // Don't overwrite already existing code so that views of it
-        // that were previously returned by read_code() are still valid.
-        self.code.entry(code_hash).or_insert(code);
+        self.code.insert(code_hash, code);
 
         Ok(())
     }
@@ -361,36 +367,6 @@ impl State<'static> for InMemoryState {
             e.remove(&location);
         } else {
             e.insert(location, current);
-        }
-
-        Ok(())
-    }
-
-    async fn unwind_state_changes(&mut self, block_number: BlockNumber) -> anyhow::Result<()> {
-        for (address, account) in self.account_changes.entry(block_number).or_default() {
-            if let Some(account) = account {
-                self.accounts.insert(*address, account.clone());
-            } else {
-                self.accounts.remove(address);
-            }
-        }
-
-        for (address, storage1) in self.storage_changes.entry(block_number).or_default() {
-            for (incarnation, storage2) in storage1 {
-                for (location, value) in storage2 {
-                    let e = self
-                        .storage
-                        .entry(*address)
-                        .or_default()
-                        .entry(*incarnation)
-                        .or_default();
-                    if value.is_zero() {
-                        e.remove(location);
-                    } else {
-                        e.insert(*location, *value);
-                    }
-                }
-            }
         }
 
         Ok(())
@@ -597,10 +573,7 @@ mod tests {
                     }
                 }
 
-                assert_eq!(
-                    hex::encode(state.state_root_hash().await.unwrap().0),
-                    hex::encode(state_root)
-                )
+                assert_eq!(state.state_root_hash(), H256(state_root))
             }
         })
     }

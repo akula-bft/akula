@@ -279,7 +279,7 @@ pub struct SubscribeReply;
 
 #[async_trait]
 pub trait Backend: Send {
-    async fn add_local(&self, v: Bytes) -> anyhow::Result<Bytes<'static>>;
+    async fn add_local(&self, v: Bytes) -> anyhow::Result<Bytes>;
     async fn etherbase(&self) -> anyhow::Result<Address>;
     async fn net_version(&self) -> anyhow::Result<u64>;
     async fn subscribe(&self) -> anyhow::Result<LocalBoxStream<'static, SubscribeReply>>;

@@ -31,7 +31,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use hex_literal::hex;
 
     #[test]
@@ -43,7 +42,7 @@ mod tests {
                     "04491edcd115127caedbd478e2e7895ed80c7847e903431f94f9cfa579cad47f"
                 )
                 .into()],
-                data: Bytes::new(),
+                data: vec![].into(),
             },
             Log {
                 address: hex!("e7fb22dfef11920312e4989a3a2b81e2ebf05986").into(),

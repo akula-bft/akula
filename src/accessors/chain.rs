@@ -224,6 +224,63 @@ pub mod storage_body {
     }
 }
 
+pub mod block_body {
+    use super::*;
+
+    async fn read_base<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
+        hash: H256,
+        number: impl Into<BlockNumber>,
+    ) -> anyhow::Result<Option<(BlockBody, TxIndex)>> {
+        if let Some(body) = super::storage_body::read(tx, hash, number).await? {
+            let transactions = super::tx::read(tx, body.base_tx_id, body.tx_amount).await?;
+
+            return Ok(Some((
+                BlockBody {
+                    transactions,
+                    ommers: body.uncles,
+                },
+                body.base_tx_id,
+            )));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn read_without_senders<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
+        hash: H256,
+        number: impl Into<BlockNumber>,
+    ) -> anyhow::Result<Option<BlockBody>> {
+        Ok(read_base(tx, hash, number).await?.map(|(v, _)| v))
+    }
+
+    pub async fn read_with_senders<'db, Tx: ReadTransaction<'db>>(
+        tx: &Tx,
+        hash: H256,
+        number: impl Into<BlockNumber>,
+    ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
+        if let Some((body, base_tx_id)) = read_base(tx, hash, number).await? {
+            let senders = super::tx_sender::read(tx, base_tx_id, body.transactions.len()).await?;
+
+            return Ok(Some(BlockBodyWithSenders {
+                transactions: body
+                    .transactions
+                    .into_iter()
+                    .zip(senders)
+                    .map(|(tx, sender)| TransactionWithSender {
+                        message: tx.message,
+                        sender,
+                    })
+                    .collect(),
+                ommers: body.ommers,
+            }));
+        }
+
+        Ok(None)
+    }
+}
+
 pub mod td {
     use super::*;
 

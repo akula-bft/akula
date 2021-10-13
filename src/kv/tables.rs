@@ -3,6 +3,8 @@ use crate::{models::*, zeroless_view, StageId};
 use anyhow::bail;
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
+use bincode::Options;
+use bytes::Bytes;
 use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
@@ -78,9 +80,9 @@ macro_rules! decl_table {
             type Value = $value;
             type FusedValue = (Self::Key, Self::Value);
 
-            fn db_name(&self) -> string::String<static_bytes::Bytes> {
+            fn db_name(&self) -> string::String<bytes::Bytes> {
                 unsafe {
-                    string::String::from_utf8_unchecked(static_bytes::Bytes::from_static(
+                    string::String::from_utf8_unchecked(bytes::Bytes::from_static(
                         Self::const_db_name().as_bytes(),
                     ))
                 }
@@ -132,6 +134,20 @@ impl traits::TableEncode for Vec<u8> {
 impl traits::TableDecode for Vec<u8> {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
         Ok(b.to_vec())
+    }
+}
+
+impl traits::TableEncode for Bytes {
+    type Encoded = Self;
+
+    fn encode(self) -> Self::Encoded {
+        self
+    }
+}
+
+impl traits::TableDecode for Bytes {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        Ok(b.to_vec().into())
     }
 }
 
@@ -290,28 +306,30 @@ where
     }
 }
 
-macro_rules! rlp_table_object {
+macro_rules! bincode_table_object {
     ($ty:ty) => {
         impl TableEncode for $ty {
-            type Encoded = static_bytes::BytesMut;
+            type Encoded = Vec<u8>;
 
             fn encode(self) -> Self::Encoded {
-                rlp::encode(&self)
+                bincode::DefaultOptions::new().serialize(&self).unwrap()
             }
         }
 
         impl TableDecode for $ty {
             fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(rlp::decode(b)?)
+                Ok(bincode::DefaultOptions::new().deserialize(b)?)
             }
         }
     };
 }
 
-rlp_table_object!(U256);
-rlp_table_object!(BodyForStorage);
-rlp_table_object!(BlockHeader);
-rlp_table_object!(Transaction);
+bincode_table_object!(U256);
+bincode_table_object!(BodyForStorage);
+bincode_table_object!(BlockHeader);
+bincode_table_object!(Transaction);
+bincode_table_object!(Vec<crate::models::Receipt>);
+bincode_table_object!(Vec<crate::models::Log>);
 
 macro_rules! json_table_object {
     ($ty:ident) => {
@@ -649,7 +667,7 @@ impl TableEncode for StorageChangeSeekKey {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StorageChange {
     pub location: H256,
-    pub value: ZerolessH256,
+    pub value: H256,
 }
 
 impl TableEncode for StorageChange {
@@ -658,7 +676,8 @@ impl TableEncode for StorageChange {
     fn encode(self) -> Self::Encoded {
         let mut out = Self::Encoded::default();
         out.try_extend_from_slice(&self.location.encode()).unwrap();
-        out.try_extend_from_slice(&self.value.encode()).unwrap();
+        out.try_extend_from_slice(&ZerolessH256(self.value).encode())
+            .unwrap();
         out
     }
 }
@@ -671,7 +690,7 @@ impl TableDecode for StorageChange {
 
         Ok(Self {
             location: H256::decode(&b[..KECCAK_LENGTH])?,
-            value: ZerolessH256::decode(&b[KECCAK_LENGTH..])?,
+            value: ZerolessH256::decode(&b[KECCAK_LENGTH..])?.0,
         })
     }
 }
@@ -793,7 +812,7 @@ impl TableEncode for PlainStateSeekKey {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlainStateFusedValue {
     Account {
         address: Address,
@@ -803,7 +822,7 @@ pub enum PlainStateFusedValue {
         address: Address,
         incarnation: Incarnation,
         location: H256,
-        value: ZerolessH256,
+        value: H256,
     },
 }
 
@@ -824,7 +843,7 @@ impl PlainStateFusedValue {
             value,
         } = self
         {
-            Some((*address, *incarnation, *location, (*value).into()))
+            Some((*address, *incarnation, *location, *value))
         } else {
             None
         }
@@ -840,9 +859,9 @@ impl Table for PlainState {
     type SeekKey = PlainStateSeekKey;
     type FusedValue = PlainStateFusedValue;
 
-    fn db_name(&self) -> string::String<static_bytes::Bytes> {
+    fn db_name(&self) -> string::String<bytes::Bytes> {
         unsafe {
-            string::String::from_utf8_unchecked(static_bytes::Bytes::from_static(
+            string::String::from_utf8_unchecked(bytes::Bytes::from_static(
                 Self::const_db_name().as_bytes(),
             ))
         }
@@ -871,7 +890,7 @@ impl Table for PlainState {
                     address,
                     incarnation,
                     location: H256::decode(&value[..KECCAK_LENGTH])?,
-                    value: ZerolessH256::decode(&value[KECCAK_LENGTH..])?,
+                    value: ZerolessH256::decode(&value[KECCAK_LENGTH..])?.0,
                 }
             }
         })
@@ -890,7 +909,8 @@ impl Table for PlainState {
             } => {
                 let mut v = Self::Value::default();
                 v.try_extend_from_slice(&location.encode()).unwrap();
-                v.try_extend_from_slice(&value.encode()).unwrap();
+                v.try_extend_from_slice(&ZerolessH256(value).encode())
+                    .unwrap();
                 (PlainStateKey::Storage(address, incarnation), v)
             }
         }
@@ -920,7 +940,7 @@ decl_table!(HashedAccount => H256 => Vec<u8>);
 decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
-decl_table!(Code => H256 => Vec<u8>);
+decl_table!(Code => H256 => Bytes);
 decl_table!(HashedCodeHash => (H256, Incarnation) => H256);
 decl_table!(IncarnationMap => Address => Incarnation);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
@@ -934,8 +954,8 @@ decl_table!(Header => HeaderKey => BlockHeader);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
-decl_table!(Receipt => BlockNumber => Vec<u8>);
-decl_table!(TransactionLog => (BlockNumber, TxIndex) => Vec<u8>);
+decl_table!(Receipt => BlockNumber => Vec<crate::models::Receipt>);
+decl_table!(TransactionLog => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);

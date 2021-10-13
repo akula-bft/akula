@@ -22,14 +22,14 @@ pub struct CallResult {
     /// How much gas was left after execution
     pub gas_left: i64,
     /// Output data returned.
-    pub output_data: Bytes<'static>,
+    pub output_data: Bytes,
 }
 
-struct Evm<'storage, 'r, 'state, 'h, 'c, 't, B>
+struct Evm<'r, 'state, 'h, 'c, 't, B>
 where
-    B: State<'storage>,
+    B: State,
 {
-    state: &'state mut IntraBlockState<'storage, 'r, B>,
+    state: &'state mut IntraBlockState<'r, B>,
     header: &'h PartialHeader,
     revision: Revision,
     chain_config: &'c ChainConfig,
@@ -37,8 +37,8 @@ where
     address_stack: Vec<Address>,
 }
 
-pub async fn execute<'storage, 'r, B: State<'storage>>(
-    state: &mut IntraBlockState<'storage, 'r, B>,
+pub async fn execute<B: State>(
+    state: &mut IntraBlockState<'_, B>,
     header: &PartialHeader,
     chain_config: &ChainConfig,
     txn: &TransactionWithSender,
@@ -60,7 +60,7 @@ pub async fn execute<'storage, 'r, B: State<'storage>>(
             is_static: false,
             depth: 0,
             sender: txn.sender,
-            input_data: txn.input().clone().into(),
+            input_data: txn.input().clone(),
             value: txn.value(),
             gas: gas as i64,
             destination: to,
@@ -71,7 +71,7 @@ pub async fn execute<'storage, 'r, B: State<'storage>>(
             depth: 0,
             gas: gas as i64,
             sender: txn.sender,
-            initcode: txn.input().clone().into(),
+            initcode: txn.input().clone(),
             endowment: txn.value(),
             salt: None,
         })
@@ -81,20 +81,20 @@ pub async fn execute<'storage, 'r, B: State<'storage>>(
     Ok(CallResult {
         status_code: res.status_code,
         gas_left: res.gas_left,
-        output_data: res.output_data.into(),
+        output_data: res.output_data,
     })
 }
 
-impl<'storage, 'r, 'state, 'h, 'c, 't, B> Evm<'storage, 'r, 'state, 'h, 'c, 't, B>
+impl<'r, 'state, 'h, 'c, 't, B> Evm<'r, 'state, 'h, 'c, 't, B>
 where
-    B: State<'storage>,
+    B: State,
 {
     #[async_recursion]
     async fn create(&mut self, message: CreateMessage) -> anyhow::Result<Output> {
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
-            output_data: Bytes::new().into(),
+            output_data: Bytes::new(),
             create_address: None,
         };
 
@@ -171,7 +171,7 @@ where
             } else if res.gas_left >= 0 && res.gas_left as u64 >= code_deploy_gas {
                 res.gas_left -= code_deploy_gas as i64;
                 self.state
-                    .set_code(contract_addr, res.output_data.clone().into())
+                    .set_code(contract_addr, res.output_data.clone())
                     .await?;
             } else if self.revision >= Revision::Homestead {
                 res.status_code = StatusCode::OutOfGas;
@@ -195,7 +195,7 @@ where
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
-            output_data: Bytes::new().into(),
+            output_data: Bytes::new(),
             create_address: None,
         };
 
@@ -242,15 +242,15 @@ where
             let num = code_address.0[ADDRESS_LENGTH - 1] as usize;
             let contract = &precompiled::CONTRACTS[num - 1];
             let input = message.input_data;
-            if let Some(gas) = (contract.gas)(input.clone().into(), self.revision)
-                .and_then(|g| i64::try_from(g).ok())
+            if let Some(gas) =
+                (contract.gas)(input.clone(), self.revision).and_then(|g| i64::try_from(g).ok())
             {
                 if gas > message.gas {
                     res.status_code = StatusCode::OutOfGas;
-                } else if let Some(output) = (contract.run)(input.into()) {
+                } else if let Some(output) = (contract.run)(input) {
                     res.status_code = StatusCode::Success;
                     res.gas_left = message.gas - gas;
-                    res.output_data = output.into();
+                    res.output_data = output;
                 } else {
                     res.status_code = StatusCode::PrecompileFailure;
                 }
@@ -443,11 +443,7 @@ where
 
                     let mut buffer = vec![0; max_size];
 
-                    let code = self
-                        .state
-                        .get_code(address)
-                        .await?
-                        .unwrap_or_else(bytes::Bytes::new);
+                    let code = self.state.get_code(address).await?.unwrap_or_default();
 
                     let mut copied = 0;
                     if offset < code.len() {
@@ -542,7 +538,7 @@ where
                     self.state.add_log(Log {
                         address: i.data().address,
                         topics: i.data().topics.as_slice().into(),
-                        data: i.data().data.clone().into(),
+                        data: i.data().data.clone(),
                     });
 
                     i.resume(())
@@ -567,7 +563,7 @@ where
                         Err(status_code) => Output {
                             status_code,
                             gas_left: 0,
-                            output_data: static_bytes::Bytes::new(),
+                            output_data: bytes::Bytes::new(),
                             create_address: None,
                         },
                     };
@@ -611,10 +607,11 @@ where
 mod tests {
     use super::*;
     use crate::{chain::config::MAINNET_CONFIG, util::test_util::run_test, InMemoryState};
+    use bytes_literal::bytes;
     use hex_literal::hex;
 
-    async fn execute<'storage, 'r, B: State<'storage>>(
-        state: &mut IntraBlockState<'storage, 'r, B>,
+    async fn execute<B: State>(
+        state: &mut IntraBlockState<'_, B>,
         header: &PartialHeader,
         txn: &TransactionWithSender,
         gas: u64,
@@ -660,13 +657,13 @@ mod tests {
 
             let res = execute(&mut state, &header, &txn, gas).await;
             assert_eq!(res.status_code, StatusCode::InsufficientBalance);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
 
             state.add_to_balance(sender, *ETHER).await.unwrap();
 
             let res = execute(&mut state, &header, &txn, gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
 
             assert_eq!(state.get_balance(sender).await.unwrap(), *ETHER - value);
             assert_eq!(state.get_balance(to).await.unwrap(), value);
@@ -727,12 +724,12 @@ mod tests {
             let gas = 0;
             let res = execute(&mut state, &header, &t, gas).await;
             assert_eq!(res.status_code, StatusCode::OutOfGas);
-            assert_eq!(res.output_data, Bytes::new());
+            assert_eq!(res.output_data, vec![]);
 
             let gas = 50_000;
             let res = execute(&mut state, &header, &t, gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, hex!("600035600055"));
+            assert_eq!(res.output_data, bytes!("600035600055"));
 
             let contract_address = create_address(caller, 1);
             let key0 = H256::zero();
@@ -757,7 +754,7 @@ mod tests {
             )
             .await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
             assert_eq!(
                 state
                     .get_current_storage(contract_address, key0)
@@ -836,7 +833,7 @@ mod tests {
             let gas = 1_000_000;
             let res = execute(&mut state, &header, &(txn)(Default::default()), gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
 
             let num_of_recursions = 0x0400;
             let res = execute(
@@ -847,7 +844,7 @@ mod tests {
             )
             .await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
 
             let num_of_recursions = 0x0401;
             let res = execute(
@@ -858,7 +855,7 @@ mod tests {
             )
             .await;
             assert_eq!(res.status_code, StatusCode::InvalidInstruction);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
         })
     }
 
@@ -920,7 +917,7 @@ mod tests {
             let gas = 1_000_000;
             let res = execute(&mut state, &header, &txn, gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
 
             let key0 = H256::zero();
             assert_eq!(
@@ -997,7 +994,7 @@ mod tests {
             let gas = 150_000;
             let res = execute(&mut state, &header, &txn, gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
 
             let contract_address = create_address(caller, 0);
             let key0 = H256::zero();
@@ -1053,7 +1050,7 @@ mod tests {
 
             assert_eq!(res.status_code, StatusCode::InvalidInstruction);
             assert_eq!(res.gas_left, 0);
-            assert_eq!(res.output_data, []);
+            assert_eq!(res.output_data, vec![]);
         })
     }
 

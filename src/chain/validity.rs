@@ -145,12 +145,9 @@ pub fn pre_validate_transaction(
     Ok(())
 }
 
-async fn get_parent<'storage, S>(
-    state: &S,
-    header: &BlockHeader,
-) -> anyhow::Result<Option<BlockHeader>>
+async fn get_parent<S>(state: &S, header: &BlockHeader) -> anyhow::Result<Option<BlockHeader>>
 where
-    S: State<'storage>,
+    S: State,
 {
     if let Some(parent_number) = header.number.0.checked_sub(1) {
         return state
@@ -204,7 +201,7 @@ fn expected_base_fee_per_gas(
     None
 }
 
-async fn validate_block_header<'storage, C: Consensus, S: State<'storage>>(
+async fn validate_block_header<C: Consensus, S: State>(
     consensus: &C,
     header: &BlockHeader,
     state: &S,
@@ -289,7 +286,7 @@ async fn validate_block_header<'storage, C: Consensus, S: State<'storage>>(
 
 // See [YP] Section 11.1 "Ommer Validation"
 #[async_recursion]
-async fn is_kin<'storage, S: State<'storage>>(
+async fn is_kin<S: State>(
     branch_header: &BlockHeader,
     mainline_header: &BlockHeader,
     mainline_hash: H256,
@@ -330,7 +327,7 @@ async fn is_kin<'storage, S: State<'storage>>(
     Ok(false)
 }
 
-pub async fn pre_validate_block<'storage, C: Consensus, S: State<'storage>>(
+pub async fn pre_validate_block<C: Consensus, S: State>(
     consensus: &C,
     block: &Block,
     state: &S,

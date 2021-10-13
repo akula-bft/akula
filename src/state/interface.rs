@@ -5,16 +5,10 @@ use ethereum_types::{Address, H256, U256};
 use std::fmt::Debug;
 
 #[async_trait]
-pub trait State<'storage>: Debug + Send + Sync {
-    async fn number_of_accounts(&self) -> anyhow::Result<u64>;
-    async fn storage_size(&self, address: Address, incarnation: Incarnation)
-        -> anyhow::Result<u64>;
-
-    // Readers
-
+pub trait State: Debug + Send + Sync {
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>>;
 
-    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes<'storage>>;
+    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes>;
 
     async fn read_storage(
         &self,
@@ -50,26 +44,10 @@ pub trait State<'storage>: Debug + Send + Sync {
         block_hash: H256,
     ) -> anyhow::Result<Option<U256>>;
 
-    async fn state_root_hash(&self) -> anyhow::Result<H256>;
-
-    async fn current_canonical_block(&self) -> anyhow::Result<BlockNumber>;
-
-    async fn canonical_hash(&self, block_number: BlockNumber) -> anyhow::Result<Option<H256>>;
-
-    async fn insert_block(&mut self, block: Block, hash: H256) -> anyhow::Result<()>;
-
-    async fn canonize_block(
-        &mut self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<()>;
-
-    async fn decanonize_block(&mut self, block_number: BlockNumber) -> anyhow::Result<()>;
-
     async fn insert_receipts(
         &mut self,
         block_number: BlockNumber,
-        receipts: &[Receipt],
+        receipts: Vec<Receipt>,
     ) -> anyhow::Result<()>;
 
     /// State changes
@@ -91,7 +69,7 @@ pub trait State<'storage>: Debug + Send + Sync {
         address: Address,
         incarnation: Incarnation,
         code_hash: H256,
-        code: Bytes<'storage>,
+        code: Bytes,
     ) -> anyhow::Result<()>;
 
     async fn update_storage(
@@ -102,6 +80,4 @@ pub trait State<'storage>: Debug + Send + Sync {
         initial: H256,
         current: H256,
     ) -> anyhow::Result<()>;
-
-    async fn unwind_state_changes(&mut self, block_number: BlockNumber) -> anyhow::Result<()>;
 }

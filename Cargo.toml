@@ -15,9 +15,10 @@ async-recursion = "0.3"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "0.4"
+bincode = "1"
 byte-unit = "4"
-static-bytes = { package = "bytes", version = "1" }
-bytes = { package = "lifetimed-bytes", git = "https://github.com/vorot93/lifetimed-bytes" }
+bytes = "1"
+bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }

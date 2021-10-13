@@ -14,18 +14,18 @@ pub struct Snapshot {
 }
 
 #[derive(Debug)]
-pub struct IntraBlockState<'storage, 'r, S>
+pub struct IntraBlockState<'db, S>
 where
-    S: State<'storage>,
+    S: State,
 {
-    db: &'r mut S,
+    db: &'db mut S,
 
     pub(crate) objects: HashMap<Address, Object>,
     pub(crate) storage: HashMap<Address, Storage>,
 
     // pointer stability?
-    pub(crate) existing_code: HashMap<H256, Bytes<'storage>>,
-    pub(crate) new_code: HashMap<H256, Bytes<'storage>>,
+    pub(crate) existing_code: HashMap<H256, Bytes>,
+    pub(crate) new_code: HashMap<H256, Bytes>,
 
     pub(crate) journal: Vec<Delta>,
 
@@ -39,7 +39,7 @@ where
     pub(crate) accessed_storage_keys: HashMap<Address, HashSet<H256>>,
 }
 
-async fn get_object<'m, 'storage, 'r, S: State<'storage>>(
+async fn get_object<'m, 'db, S: State>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
     address: Address,
@@ -61,7 +61,7 @@ async fn get_object<'m, 'storage, 'r, S: State<'storage>>(
     })
 }
 
-async fn ensure_object<'storage: 'm, 'm: 'j, 'j, S: State<'storage>>(
+async fn ensure_object<'m: 'j, 'j, S: State>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
     journal: &'j mut Vec<Delta>,
@@ -86,7 +86,7 @@ async fn ensure_object<'storage: 'm, 'm: 'j, 'j, S: State<'storage>>(
     Ok(())
 }
 
-async fn get_or_create_object<'storage: 'm, 'm: 'j, 'j, S: State<'storage>>(
+async fn get_or_create_object<'m: 'j, 'j, S: State>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
     journal: &'j mut Vec<Delta>,
@@ -96,7 +96,7 @@ async fn get_or_create_object<'storage: 'm, 'm: 'j, 'j, S: State<'storage>>(
     Ok(objects.get_mut(&address).unwrap())
 }
 
-impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
+impl<'storage, 'r, S: State> IntraBlockState<'r, S> {
     pub fn new(db: &'r mut S) -> Self {
         Self {
             db,
@@ -327,7 +327,7 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
         Ok(())
     }
 
-    pub async fn get_code(&mut self, address: Address) -> anyhow::Result<Option<Bytes<'storage>>> {
+    pub async fn get_code(&mut self, address: Address) -> anyhow::Result<Option<Bytes>> {
         let obj = get_object(self.db, &mut self.objects, address).await?;
 
         if let Some(obj) = obj {
@@ -362,11 +362,7 @@ impl<'storage, 'r, S: State<'storage>> IntraBlockState<'storage, 'r, S> {
         Ok(EMPTY_HASH)
     }
 
-    pub async fn set_code(
-        &mut self,
-        address: Address,
-        code: Bytes<'storage>,
-    ) -> anyhow::Result<()> {
+    pub async fn set_code(&mut self, address: Address, code: Bytes) -> anyhow::Result<()> {
         let obj =
             get_or_create_object(self.db, &mut self.objects, &mut self.journal, address).await?;
         self.journal.push(Delta::Update {

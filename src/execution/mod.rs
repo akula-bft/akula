@@ -6,7 +6,7 @@ pub mod evm;
 pub mod precompiled;
 pub mod processor;
 
-pub async fn execute_block<'storage, S: State<'storage>>(
+pub async fn execute_block<S: State>(
     state: &mut S,
     config: &ChainConfig,
     header: &PartialHeader,
