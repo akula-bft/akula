@@ -4,7 +4,7 @@ use crate::downloader::headers::{
     preverified_hashes_config::PreverifiedHashesConfig,
 };
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
-use std::{cell::RefCell, ops::DerefMut, sync::Arc};
+use std::{ops::DerefMut, sync::Arc};
 use tokio::sync::watch;
 use tracing::*;
 
@@ -12,7 +12,7 @@ use tracing::*;
 pub struct VerifyStage {
     header_slices: Arc<HeaderSlices>,
     preverified_hashes: PreverifiedHashesConfig,
-    pending_watch: RefCell<watch::Receiver<usize>>,
+    pending_watch: watch::Receiver<usize>,
 }
 
 impl VerifyStage {
@@ -20,12 +20,10 @@ impl VerifyStage {
         header_slices: Arc<HeaderSlices>,
         preverified_hashes: PreverifiedHashesConfig,
     ) -> Self {
-        let pending_watch = header_slices.watch_status_changes(HeaderSliceStatus::Downloaded);
-
         Self {
+            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Downloaded),
             header_slices,
             preverified_hashes,
-            pending_watch: RefCell::new(pending_watch),
         }
     }
 
@@ -34,13 +32,12 @@ impl VerifyStage {
             .count_slices_in_status(HeaderSliceStatus::Downloaded)
     }
 
-    pub async fn execute(&self) -> anyhow::Result<()> {
+    pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("VerifyStage: start");
         if self.pending_count() == 0 {
             debug!("VerifyStage: waiting pending");
-            let mut watch = self.pending_watch.borrow_mut();
-            while *watch.borrow_and_update() == 0 {
-                watch.changed().await?;
+            while *self.pending_watch.borrow_and_update() == 0 {
+                self.pending_watch.changed().await?;
             }
             debug!("VerifyStage: waiting pending done");
         }

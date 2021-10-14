@@ -13,9 +13,8 @@ use crate::{
 };
 use parking_lot::{lock_api::RwLockUpgradableReadGuard, RwLock};
 use std::{
-    cell::{Cell, RefCell},
     ops::DerefMut,
-    sync::Arc,
+    sync::{atomic::*, Arc},
     time,
 };
 use tokio::sync::watch;
@@ -25,19 +24,17 @@ use tracing::*;
 pub struct FetchRequestStage {
     header_slices: Arc<HeaderSlices>,
     sentry: Arc<RwLock<SentryClientReactor>>,
-    last_request_id: Cell<u64>,
-    pending_watch: RefCell<watch::Receiver<usize>>,
+    last_request_id: AtomicU64,
+    pending_watch: watch::Receiver<usize>,
 }
 
 impl FetchRequestStage {
     pub fn new(header_slices: Arc<HeaderSlices>, sentry: Arc<RwLock<SentryClientReactor>>) -> Self {
-        let pending_watch = header_slices.watch_status_changes(HeaderSliceStatus::Empty);
-
         Self {
+            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Empty),
+            last_request_id: 0.into(),
             header_slices,
             sentry,
-            last_request_id: Cell::new(0),
-            pending_watch: RefCell::new(pending_watch),
         }
     }
 
@@ -46,13 +43,12 @@ impl FetchRequestStage {
             .count_slices_in_status(HeaderSliceStatus::Empty)
     }
 
-    pub async fn execute(&self) -> anyhow::Result<()> {
+    pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("FetchRequestStage: start");
         if self.pending_count() == 0 {
             debug!("FetchRequestStage: waiting pending");
-            let mut watch = self.pending_watch.borrow_mut();
-            while *watch.borrow_and_update() == 0 {
-                watch.changed().await?;
+            while *self.pending_watch.borrow_and_update() == 0 {
+                self.pending_watch.changed().await?;
             }
             debug!("FetchRequestStage: waiting pending done");
         }
@@ -81,9 +77,7 @@ impl FetchRequestStage {
         self.header_slices.for_each(|slice_lock| {
             let slice = slice_lock.upgradable_read();
             if slice.status == HeaderSliceStatus::Empty {
-                let mut request_id = self.last_request_id.get();
-                request_id += 1;
-                self.last_request_id.set(request_id);
+                let request_id = self.last_request_id.fetch_add(1, Ordering::SeqCst);
 
                 let block_num = slice.start_block_num;
                 let limit = header_slices::HEADER_SLICE_SIZE as u64 + 1;

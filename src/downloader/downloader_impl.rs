@@ -6,6 +6,7 @@ use crate::{
             header_slices, header_slices::HeaderSlices,
             preverified_hashes_config::PreverifiedHashesConfig, refill_stage::RefillStage,
             retry_stage::RetryStage, save_stage::SaveStage, verify_stage::VerifyStage,
+            HeaderSlicesView,
         },
         opts::Opts,
         sentry_client,
@@ -18,7 +19,7 @@ use crate::{
 };
 use futures_core::Stream;
 use parking_lot::RwLock;
-use std::{pin::Pin, rc::Rc, sync::Arc};
+use std::{pin::Pin, sync::Arc};
 use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
@@ -78,9 +79,7 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
         ));
         let sentry = Arc::new(RwLock::new(sentry_reactor));
 
-        let header_slices_view =
-            crate::downloader::headers::HeaderSlicesView::new(Arc::clone(&header_slices));
-        ui_system.set_view(Some(Box::new(header_slices_view)));
+        ui_system.set_view(Some(Box::new(HeaderSlicesView::new(header_slices.clone()))));
 
         // Downloading happens with several stages where
         // each of the stages processes blocks in one status,
@@ -89,21 +88,14 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
         // although most of the time only one of the stages is actively running,
         // while the others are waiting for the status updates or timeouts.
 
-        let fetch_request_stage =
-            FetchRequestStage::new(Arc::clone(&header_slices), Arc::clone(&sentry));
+        let mut fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
+        let mut fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
+        let mut retry_stage = RetryStage::new(header_slices.clone());
+        let mut verify_stage = VerifyStage::new(header_slices.clone(), preverified_hashes_config);
+        let mut save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
+        let mut refill_stage = RefillStage::new(header_slices.clone());
 
-        let fetch_receive_stage =
-            FetchReceiveStage::new(Arc::clone(&header_slices), Arc::clone(&sentry));
-        let fetch_receive_stage = Rc::new(fetch_receive_stage);
-        let fetch_receive_stage_ref = Rc::clone(&fetch_receive_stage);
-
-        let retry_stage = RetryStage::new(Arc::clone(&header_slices));
-
-        let verify_stage = VerifyStage::new(Arc::clone(&header_slices), preverified_hashes_config);
-
-        let save_stage = SaveStage::new(Arc::clone(&header_slices), Arc::clone(&self.db));
-
-        let refill_stage = RefillStage::new(Arc::clone(&header_slices));
+        let can_proceed = fetch_receive_stage.can_proceed_checker();
 
         let fetch_request_stage_stream: StageStream = Box::pin(async_stream::stream! {
             loop {
@@ -150,7 +142,7 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
                 break;
             }
 
-            if !fetch_receive_stage_ref.can_proceed() {
+            if !can_proceed.can_proceed() {
                 break;
             }
             if header_slices.is_empty_at_final_position() {

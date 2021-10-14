@@ -71,14 +71,14 @@ impl traits::MutableKV for MemoryKv {
 pub fn new_mem_database() -> anyhow::Result<impl traits::MutableKV> {
     let tmpdir = tempfile::tempdir()?;
     Ok(MemoryKv {
-        inner: new_environment(tmpdir.path(), n_mib_bytes!(64), 0)?,
+        inner: new_environment(tmpdir.path(), n_mib_bytes!(64), None)?,
         _tmpdir: Some(tmpdir),
     })
 }
 
 pub fn new_database(path: &std::path::Path) -> anyhow::Result<impl traits::MutableKV> {
     Ok(MemoryKv {
-        inner: new_environment(path, n_tib_bytes!(64), n_mib_bytes!(8) as usize)?,
+        inner: new_environment(path, n_tib_bytes!(64), Some(n_mib_bytes!(8) as usize))?,
         _tmpdir: None,
     })
 }
@@ -86,18 +86,13 @@ pub fn new_database(path: &std::path::Path) -> anyhow::Result<impl traits::Mutab
 fn new_environment(
     path: &std::path::Path,
     size_upper_limit: u128,
-    growth_step: usize,
+    growth_step: Option<usize>,
 ) -> anyhow::Result<mdbx::Environment<WriteMap>> {
-    if size_upper_limit > usize::MAX as u128 {
-        anyhow::bail!("size_upper_limit too big")
-    }
-    let size_upper_limit_sz = size_upper_limit as usize;
-
     let mut builder = ::mdbx::Environment::<WriteMap>::new();
     builder.set_max_dbs(CHAINDATA_TABLES.len());
     builder.set_geometry(Geometry {
-        size: Some(0..size_upper_limit_sz),
-        growth_step: Some(growth_step as isize),
+        size: Some(0..size_upper_limit.try_into().unwrap_or(usize::MAX)),
+        growth_step: growth_step.map(|s| s.try_into().unwrap_or(isize::MAX)),
         shrink_threshold: None,
         page_size: None,
     });

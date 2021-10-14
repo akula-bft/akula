@@ -4,24 +4,22 @@ use crate::{
     kv::traits::MutableTransaction,
 };
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
-use std::{cell::RefCell, ops::DerefMut, sync::Arc};
+use std::{ops::DerefMut, sync::Arc};
 use tokio::sync::watch;
 use tracing::*;
 
 /// Saves slices into the database, and sets Saved status.
 pub struct SaveStage<DB: kv::traits::MutableKV> {
     header_slices: Arc<HeaderSlices>,
-    pending_watch: RefCell<watch::Receiver<usize>>,
+    pending_watch: watch::Receiver<usize>,
     db: Arc<DB>,
 }
 
 impl<DB: kv::traits::MutableKV> SaveStage<DB> {
     pub fn new(header_slices: Arc<HeaderSlices>, db: Arc<DB>) -> Self {
-        let pending_watch = header_slices.watch_status_changes(HeaderSliceStatus::Verified);
-
         Self {
+            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Verified),
             header_slices,
-            pending_watch: RefCell::new(pending_watch),
             db,
         }
     }
@@ -31,13 +29,12 @@ impl<DB: kv::traits::MutableKV> SaveStage<DB> {
             .count_slices_in_status(HeaderSliceStatus::Verified)
     }
 
-    pub async fn execute(&self) -> anyhow::Result<()> {
+    pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("SaveStage: start");
         if self.pending_count() == 0 {
             debug!("SaveStage: waiting pending");
-            let mut watch = self.pending_watch.borrow_mut();
-            while *watch.borrow_and_update() == 0 {
-                watch.changed().await?;
+            while *self.pending_watch.borrow_and_update() == 0 {
+                self.pending_watch.changed().await?;
             }
             debug!("SaveStage: waiting pending done");
         }
