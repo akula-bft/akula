@@ -71,6 +71,10 @@ where
         )
         .expect("Tx must have been prevalidated");
 
+        if self.state.get_code_hash(tx.sender).await? != EMPTY_HASH {
+            return Err(ValidationError::SenderNoEOA { sender: tx.sender }.into());
+        }
+
         let expected_nonce = self.state.get_nonce(tx.sender).await?;
         if expected_nonce != tx.nonce() {
             return Err(ValidationError::WrongNonce {
@@ -317,6 +321,8 @@ mod tests {
         chain::config::MAINNET_CONFIG, execution::address::create_address,
         util::test_util::run_test, InMemoryState,
     };
+    use bytes::Bytes;
+    use bytes_literal::bytes;
     use hex_literal::hex;
 
     #[test]
@@ -352,6 +358,53 @@ mod tests {
 
             let receipt = processor.execute_transaction(&txn).await.unwrap();
             assert!(receipt.success);
+        })
+    }
+
+    #[test]
+    fn eip3607_reject_transactions_from_senders_with_deployed_code() {
+        run_test(async {
+            let header = PartialHeader {
+                number: 1.into(),
+                gas_limit: 3_000_000,
+                ..PartialHeader::empty()
+            };
+
+            let sender = hex!("71562b71999873DB5b286dF957af199Ec94617F7").into();
+
+            let tx = TransactionWithSender {
+                sender,
+                message: TransactionMessage::Legacy {
+                    chain_id: None,
+                    nonce: 0,
+                    gas_price: U256::from(50) * GIGA,
+                    gas_limit: 90_000,
+                    action: TransactionAction::Call(
+                        hex!("e5ef458d37212a06e3f59d40c454e76150ae7c32").into(),
+                    ),
+                    value: U256::from(1_027_501_080) * U256::from(GIGA),
+                    input: Bytes::new(),
+                },
+            };
+
+            let block = Default::default();
+
+            let mut state = InMemoryState::default();
+            let mut processor =
+                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+
+            processor
+                .state
+                .add_to_balance(sender, U256::from(10) * *ETHER)
+                .await
+                .unwrap();
+            processor
+                .state
+                .set_code(sender, bytes!("B0B0FACE"))
+                .await
+                .unwrap();
+
+            processor.validate_transaction(&tx).await.unwrap_err();
         })
     }
 
@@ -457,6 +510,7 @@ mod tests {
             let block = Default::default();
             let suicidal_address = hex!("6d20c1c07e56b7098eb8c50ee03ba0f6f498a91d").into();
             let caller_address = hex!("4bf2054ffae7a454a35fd8cf4be21b23b1f25a6f").into();
+            let originator = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
 
             // The contract self-destructs if called with zero value.
             let suicidal_code = hex!("346007576000ff5b");
@@ -510,7 +564,7 @@ mod tests {
 
             processor
                 .state()
-                .add_to_balance(caller_address, *ETHER)
+                .add_to_balance(originator, *ETHER)
                 .await
                 .unwrap();
             processor
@@ -528,7 +582,7 @@ mod tests {
                 message: TransactionMessage::EIP1559 {
                     chain_id: MAINNET_CONFIG.chain_id,
                     nonce,
-                    max_priority_fee_per_gas: U256::zero(),
+                    max_priority_fee_per_gas: U256::from(20 * GIGA),
                     max_fee_per_gas: U256::from(20 * GIGA),
                     gas_limit: 100_000,
                     action,
@@ -536,7 +590,7 @@ mod tests {
                     input,
                     access_list: Default::default(),
                 },
-                sender: caller_address,
+                sender: originator,
             };
 
             let txn = (t)(

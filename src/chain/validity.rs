@@ -53,6 +53,9 @@ pub enum ValidationError {
 
     // See [YP] Section 6.2 "Execution", Eq (58)
     MissingSender, // S(T) = ∅
+    SenderNoEOA {
+        sender: Address,
+    }, // EIP-3607: σ[S(T)]c ≠ KEC( () )
     WrongNonce {
         account: Address,
         expected: u64,
