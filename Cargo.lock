@@ -597,7 +597,7 @@ dependencies = [
 [[package]]
 name = "evmodin"
 version = "0.1.0"
-source = "git+https://github.com/vorot93/evmodin?branch=nightly#933baab3c4914fc78eda459269c19cc871ccd868"
+source = "git+https://github.com/vorot93/evmodin?branch=nightly#a6352ba5031bf5af4d2bbd4e724c3c476be6e67c"
 dependencies = [
  "arrayvec 0.7.1",
  "bytes",

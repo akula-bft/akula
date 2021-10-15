@@ -34,7 +34,6 @@ where
     revision: Revision,
     chain_config: &'c ChainConfig,
     txn: &'t TransactionWithSender,
-    address_stack: Vec<Address>,
 }
 
 pub async fn execute<B: State>(
@@ -51,7 +50,6 @@ pub async fn execute<B: State>(
         revision,
         chain_config,
         txn,
-        address_stack: Vec::new(),
     };
 
     let res = if let TransactionAction::Call(to) = txn.action() {
@@ -63,7 +61,8 @@ pub async fn execute<B: State>(
             input_data: txn.input().clone(),
             value: txn.value(),
             gas: gas as i64,
-            destination: to,
+            recipient: to,
+            code_address: to,
         })
         .await?
     } else {
@@ -148,7 +147,8 @@ where
             is_static: false,
             depth: message.depth,
             gas: message.gas,
-            destination: contract_addr,
+            recipient: contract_addr,
+            code_address: Address::zero(),
             sender: message.sender,
             input_data: Default::default(),
             value: message.endowment,
@@ -207,18 +207,13 @@ where
             return Ok(res);
         }
 
-        // See Section 8 "Message Call" of the Yellow Paper for the difference between code & recipient.
-        // destination in evmc_message can mean either code or recipient, depending on the context.
-        let code_address = message.destination;
-        let recipient_address = self.recipient_of_call_message(&message);
-
-        let precompiled = self.is_precompiled(code_address);
+        let precompiled = self.is_precompiled(message.code_address);
 
         // https://eips.ethereum.org/EIPS/eip-161
         if value.is_zero()
             && self.revision >= Revision::Spurious
             && !precompiled
-            && !self.state.exists(code_address).await?
+            && !self.state.exists(message.code_address).await?
         {
             return Ok(res);
         }
@@ -229,17 +224,17 @@ where
             if message.is_static {
                 // Match geth logic
                 // https://github.com/ethereum/go-ethereum/blob/v1.9.25/core/vm/evm.go#L391
-                self.state.touch(recipient_address);
+                self.state.touch(message.recipient);
             } else {
                 self.state
                     .subtract_from_balance(message.sender, value)
                     .await?;
-                self.state.add_to_balance(recipient_address, value).await?;
+                self.state.add_to_balance(message.recipient, value).await?;
             }
         }
 
         if precompiled {
-            let num = code_address.0[ADDRESS_LENGTH - 1] as usize;
+            let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
             let contract = &precompiled::CONTRACTS[num - 1];
             let input = message.input_data;
             if let Some(gas) =
@@ -258,15 +253,16 @@ where
                 res.status_code = StatusCode::OutOfGas;
             }
         } else {
-            let code = self.state.get_code(code_address).await?.unwrap_or_default();
+            let code = self
+                .state
+                .get_code(message.code_address)
+                .await?
+                .unwrap_or_default();
             if code.is_empty() {
                 return Ok(res);
             }
 
-            let mut msg = message;
-            msg.destination = recipient_address;
-
-            res = self.execute(msg, code.as_ref().to_vec()).await?;
+            res = self.execute(message, code.as_ref().to_vec()).await?;
         }
 
         if res.status_code != StatusCode::Success {
@@ -279,24 +275,7 @@ where
         Ok(res)
     }
 
-    fn recipient_of_call_message(&self, message: &Message) -> Address {
-        match message.kind {
-            CallKind::CallCode => message.sender,
-            CallKind::DelegateCall => {
-                // An evmc_message contains only two addresses (sender and "destination").
-                // However, in case of DELEGATECALL we need 3 addresses (sender, code, and recipient),
-                // so we recover the missing recipient address from the address stack.
-                *self.address_stack.last().unwrap()
-            }
-            CallKind::Call => message.destination,
-            _ => unreachable!(),
-        }
-    }
-
     async fn execute(&mut self, msg: Message, code: Vec<u8>) -> anyhow::Result<Output> {
-        // msg.destination here means recipient (what ADDRESS opcode would return)
-        self.address_stack.push(msg.destination);
-
         let mut interrupt = evmodin::AnalyzedCode::analyze(code)
             .execute_resumable(false, msg, self.revision)
             .resume(());
@@ -572,8 +551,6 @@ where
                 }
             };
         };
-
-        self.address_stack.pop();
 
         Ok(output)
     }
