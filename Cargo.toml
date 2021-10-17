@@ -24,7 +24,7 @@ clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
 crossterm = { version = "0.21", optional = true }
 derive_more = "0.99"
-educe = { version = "0.4", features = ["Debug"] }
+educe = { version = "0.4", features = ["Debug", "Default"] }
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",
     "sentry",

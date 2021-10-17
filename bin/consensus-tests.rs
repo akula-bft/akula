@@ -1,12 +1,7 @@
 #![allow(clippy::suspicious_else_formatting)]
 use akula::{
-    chain::{
-        blockchain::Blockchain,
-        config::*,
-        consensus::{Consensus, NoProof},
-        difficulty::canonical_difficulty,
-        validity::pre_validate_transaction,
-    },
+    chain::{config::*, difficulty::canonical_difficulty},
+    consensus::*,
     crypto::keccak256,
     models::*,
     *,
@@ -128,21 +123,25 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
     hashmap! {
         Network::Frontier => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             ..ChainConfig::default()
         },
         Network::Homestead => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::EIP150 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             ..ChainConfig::default()
         },
         Network::EIP158 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -150,6 +149,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::Byzantium => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -158,6 +158,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::Constantinople => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -167,6 +168,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::ConstantinopleFix => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -177,6 +179,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::Istanbul => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -188,6 +191,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::Berlin => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -201,6 +205,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::London => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -215,17 +220,20 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::FrontierToHomesteadAt5 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::HomesteadToEIP150At5 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(5.into()),
             ..ChainConfig::default()
         },
         Network::HomesteadToDaoAt5 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             dao_fork: Some(DaoConfig {
                 block_number: 5.into(),
@@ -235,6 +243,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::EIP158ToByzantiumAt5 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -243,6 +252,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::ByzantiumToConstantinopleFixAt5 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -253,6 +263,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::BerlinToLondonAt5 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -267,6 +278,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
         },
         Network::EIP2384 => ChainConfig {
             chain_id: 1,
+            seal_engine: SealEngineType::NoProof,
             homestead_block: Some(0.into()),
             tangerine_block: Some(0.into()),
             spurious_block: Some(0.into()),
@@ -471,23 +483,17 @@ struct BlockCommon {
 }
 
 #[instrument(skip(block_common, blockchain))]
-async fn run_block<'state, C>(
-    consensus: &C,
+async fn run_block<'state>(
     block_common: &BlockCommon,
     blockchain: &mut Blockchain<'state>,
-) -> anyhow::Result<()>
-where
-    C: Consensus,
-{
+) -> anyhow::Result<()> {
     let block = rlp::decode::<Block>(&block_common.rlp)?;
 
     debug!("Running block {:?}", block);
 
     let check_state_root = true;
 
-    blockchain
-        .insert_block(consensus, block, check_state_root)
-        .await?;
+    blockchain.insert_block(block, check_state_root).await?;
 
     Ok(())
 }
@@ -588,8 +594,6 @@ async fn blockchain_test(testdata: BlockchainTest, _: Option<ChainConfig>) -> an
     let mut state = InMemoryState::default();
     let config = NETWORK_CONFIG[&testdata.network].clone();
 
-    let consensus = NoProof;
-
     init_pre_state(&testdata.pre, &mut state).await;
 
     let mut blockchain = Blockchain::new(&mut state, config, genesis_block)
@@ -600,7 +604,7 @@ async fn blockchain_test(testdata: BlockchainTest, _: Option<ChainConfig>) -> an
         let block_common =
             serde_json::from_value::<BlockCommon>(Value::Object(block.clone())).unwrap();
         result_is_expected(
-            run_block(&consensus, &block_common, &mut blockchain).await,
+            run_block(&block_common, &mut blockchain).await,
             block_common.expect_exception,
         )?;
     }

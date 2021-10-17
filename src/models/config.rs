@@ -1,8 +1,19 @@
 use super::BlockNumber;
+use educe::Educe;
 use ethereum_types::*;
 use evmodin::Revision;
 use serde::*;
 use std::collections::{BTreeSet, HashSet};
+
+#[derive(Clone, Copy, Debug, Educe, PartialEq, Serialize, Deserialize)]
+#[educe(Default)]
+pub enum SealEngineType {
+    #[educe(Default)]
+    NoProof,
+    Ethash,
+    Clique,
+    AuRa,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DaoConfig {
@@ -15,6 +26,7 @@ pub struct DaoConfig {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {
+    pub seal_engine: SealEngineType,
     pub chain_id: u64,
     pub homestead_block: Option<BlockNumber>,
     pub dao_fork: Option<DaoConfig>,

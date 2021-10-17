@@ -6,6 +6,7 @@ use once_cell::sync::Lazy;
 
 pub static MAINNET_CONFIG: Lazy<ChainConfig> = Lazy::new(|| ChainConfig {
     chain_id: 1,
+    seal_engine: SealEngineType::Ethash,
     homestead_block: Some(1_150_000.into()),
     dao_fork: Some(DaoConfig {
         block_number: 1_920_000.into(),
@@ -142,6 +143,7 @@ pub static MAINNET_CONFIG: Lazy<ChainConfig> = Lazy::new(|| ChainConfig {
 
 pub static ROPSTEN_CONFIG: Lazy<ChainConfig> = Lazy::new(|| ChainConfig {
     chain_id: 3,
+    seal_engine: SealEngineType::Ethash,
     homestead_block: Some(0.into()),
     dao_fork: None,
     tangerine_block: Some(0.into()),

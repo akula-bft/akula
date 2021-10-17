@@ -1,10 +1,12 @@
 use crate::models::*;
 use async_trait::async_trait;
+use auto_impl::auto_impl;
 use bytes::Bytes;
 use ethereum_types::{Address, H256, U256};
 use std::fmt::Debug;
 
 #[async_trait]
+#[auto_impl(&mut, Box)]
 pub trait State: Debug + Send + Sync {
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>>;
 
