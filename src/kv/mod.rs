@@ -45,6 +45,7 @@ impl DupSort for CustomTable {
     type SeekBothKey = Vec<u8>;
 }
 
+#[derive(Debug)]
 pub struct MemoryKv {
     inner: mdbx::Environment<WriteMap>,
     _tmpdir: Option<tempfile::TempDir>,

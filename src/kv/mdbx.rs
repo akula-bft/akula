@@ -25,6 +25,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct Environment<E: EnvironmentKind> {
     inner: ::mdbx::Environment<E>,
     chart: DatabaseChart,
