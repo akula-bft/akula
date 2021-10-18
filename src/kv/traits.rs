@@ -11,7 +11,7 @@ use std::fmt::Debug;
 pub trait KV: Send + Sync + 'static {
     type Tx<'db>: Transaction<'db>;
 
-    async fn begin(&self, flags: u8) -> anyhow::Result<Self::Tx<'_>>;
+    async fn begin(&self) -> anyhow::Result<Self::Tx<'_>>;
 }
 
 #[async_trait]

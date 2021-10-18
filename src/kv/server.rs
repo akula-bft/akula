@@ -40,7 +40,7 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
         let env = self.env.clone();
         let (tx, rx) = channel(1);
         tokio::spawn(async move {
-            let dbtx = env.begin(0).await.unwrap();
+            let dbtx = env.begin().await.unwrap();
 
             let mut cursors: Vec<
                 Option<<<DB as KV>::Tx<'_> as Transaction>::CursorDupSort<'_, CustomTable>>,

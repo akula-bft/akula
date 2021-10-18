@@ -54,8 +54,8 @@ pub struct MemoryKv {
 impl traits::KV for MemoryKv {
     type Tx<'tx> = <mdbx::Environment<WriteMap> as traits::KV>::Tx<'tx>;
 
-    async fn begin(&self, flags: u8) -> anyhow::Result<Self::Tx<'_>> {
-        self.inner.begin(flags).await
+    async fn begin(&self) -> anyhow::Result<Self::Tx<'_>> {
+        self.inner.begin().await
     }
 }
 
