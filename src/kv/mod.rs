@@ -78,7 +78,7 @@ pub fn new_mem_database() -> anyhow::Result<impl traits::MutableKV> {
 
 pub fn new_database(path: &std::path::Path) -> anyhow::Result<impl traits::MutableKV> {
     Ok(MemoryKv {
-        inner: new_environment(path, n_tib_bytes!(64), Some(n_mib_bytes!(8) as usize))?,
+        inner: new_environment(path, n_tib_bytes!(4), Some(n_mib_bytes!(8) as usize))?,
         _tmpdir: None,
     })
 }
