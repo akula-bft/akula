@@ -4,8 +4,8 @@ use crate::{
         dao,
         intrinsic_gas::*,
         protocol_param::{fee, param},
-        validity::{pre_validate_transaction, ValidationError},
     },
+    consensus::*,
     execution::evm,
     models::*,
     state::IntraBlockState,
@@ -17,11 +17,12 @@ use evmodin::{Revision, StatusCode};
 use std::cmp::min;
 use TransactionAction;
 
-pub struct ExecutionProcessor<'r, 'h, 'b, 'c, S>
+pub struct ExecutionProcessor<'r, 'e, 'h, 'b, 'c, S>
 where
     S: State,
 {
     state: IntraBlockState<'r, S>,
+    engine: &'e mut dyn Consensus,
     header: &'h PartialHeader,
     block: &'b BlockBodyWithSenders,
     revision: Revision,
@@ -29,12 +30,13 @@ where
     cumulative_gas_used: u64,
 }
 
-impl<'r, 'h, 'b, 'c, S> ExecutionProcessor<'r, 'h, 'b, 'c, S>
+impl<'r, 'e, 'h, 'b, 'c, S> ExecutionProcessor<'r, 'e, 'h, 'b, 'c, S>
 where
     S: State,
 {
     pub fn new(
         state: &'r mut S,
+        engine: &'e mut dyn Consensus,
         header: &'h PartialHeader,
         block: &'b BlockBodyWithSenders,
         chain_config: &'c ChainConfig,
@@ -42,6 +44,7 @@ where
         let revision = chain_config.revision(header.number);
         Self {
             state: IntraBlockState::new(state),
+            engine,
             header,
             block,
             revision,
@@ -209,7 +212,17 @@ where
             receipts.push(self.execute_transaction(txn).await?);
         }
 
-        self.apply_rewards().await?;
+        for change in self
+            .engine
+            .finalize(self.header, &self.block.ommers, self.revision)
+            .await?
+        {
+            match change {
+                FinalizationChange::Reward { address, amount } => {
+                    self.state.add_to_balance(address, amount).await?;
+                }
+            }
+        }
 
         Ok(receipts)
     }
@@ -283,35 +296,6 @@ where
 
         Ok(gas_left)
     }
-
-    pub async fn apply_rewards(&mut self) -> anyhow::Result<()> {
-        let block_reward = {
-            if self.revision >= Revision::Constantinople {
-                *param::BLOCK_REWARD_CONSTANTINOPLE
-            } else if self.revision >= Revision::Byzantium {
-                *param::BLOCK_REWARD_BYZANTIUM
-            } else {
-                *param::BLOCK_REWARD_FRONTIER
-            }
-        };
-
-        let block_number = self.header.number;
-        let mut miner_reward = block_reward;
-        for ommer in &self.block.ommers {
-            let ommer_reward =
-                (U256::from(8 + ommer.number.0 - block_number.0) * block_reward) >> 3;
-            self.state
-                .add_to_balance(ommer.beneficiary, ommer_reward)
-                .await?;
-            miner_reward += block_reward / 32;
-        }
-
-        self.state
-            .add_to_balance(self.header.beneficiary, miner_reward)
-            .await?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -353,8 +337,9 @@ mod tests {
             };
 
             let mut state = InMemoryState::default();
+            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
 
             let receipt = processor.execute_transaction(&txn).await.unwrap();
             assert!(receipt.success);
@@ -390,8 +375,9 @@ mod tests {
             let block = Default::default();
 
             let mut state = InMemoryState::default();
+            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
 
             processor
                 .state
@@ -444,8 +430,9 @@ mod tests {
             // 23     BALANCE
 
             let mut state = InMemoryState::default();
+            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
 
             let t = |action, input, nonce, gas_limit| TransactionWithSender {
                 message: TransactionMessage::EIP1559 {
@@ -559,8 +546,9 @@ mod tests {
             // 38     CALL
 
             let mut state = InMemoryState::default();
+            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
 
             processor
                 .state()
@@ -673,8 +661,9 @@ mod tests {
                 sender: caller,
             };
 
+            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
             processor
                 .state()
                 .add_to_balance(caller, *ETHER)
@@ -728,9 +717,9 @@ mod tests {
             };
 
             let mut state = InMemoryState::default();
-
+            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
 
             processor
                 .state()

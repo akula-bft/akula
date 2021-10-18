@@ -1,5 +1,6 @@
 use crate::{
     accessors,
+    consensus::engine_factory,
     execution::processor::ExecutionProcessor,
     kv::tables,
     models::*,
@@ -26,6 +27,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     prune_from: BlockNumber,
 ) -> anyhow::Result<BlockNumber> {
     let mut buffer = Buffer::new(tx, prune_from, None);
+    let mut consensus_engine = engine_factory(chain_config.clone())?;
 
     let mut block_number = starting_block;
     loop {
@@ -40,9 +42,15 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             .await?
             .ok_or_else(|| anyhow!("Block body not found: {}/{:?}", block_number, block_hash))?;
 
-        let receipts = ExecutionProcessor::new(&mut buffer, &header, &block, &chain_config)
-            .execute_and_write_block()
-            .await?;
+        let receipts = ExecutionProcessor::new(
+            &mut buffer,
+            &mut *consensus_engine,
+            &header,
+            &block,
+            &chain_config,
+        )
+        .execute_and_write_block()
+        .await?;
 
         if *block_number % 250 == 0 {
             info!("Executed block {}", block_number);

@@ -1,10 +1,4 @@
-use super::validity::ValidationError;
-use crate::{
-    chain::{consensus::Consensus, validity::pre_validate_block},
-    execution::processor::ExecutionProcessor,
-    models::*,
-    state::*,
-};
+use crate::{consensus::*, execution::processor::ExecutionProcessor, models::*, state::*};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use ethereum_types::*;
@@ -14,6 +8,7 @@ use std::{collections::HashMap, convert::TryFrom};
 pub struct Blockchain<'state> {
     state: &'state mut InMemoryState,
     config: ChainConfig,
+    engine: Box<dyn Consensus>,
     bad_blocks: HashMap<H256, ValidationError>,
     receipts: Vec<Receipt>,
 }
@@ -24,6 +19,21 @@ impl<'state> Blockchain<'state> {
         config: ChainConfig,
         genesis_block: Block,
     ) -> anyhow::Result<Blockchain<'state>> {
+        Self::new_with_consensus(
+            state,
+            engine_factory(config.clone())?,
+            config,
+            genesis_block,
+        )
+        .await
+    }
+
+    pub async fn new_with_consensus(
+        state: &'state mut InMemoryState,
+        engine: Box<dyn Consensus>,
+        config: ChainConfig,
+        genesis_block: Block,
+    ) -> anyhow::Result<Blockchain<'state>> {
         let hash = genesis_block.header.hash();
         let number = genesis_block.header.number;
         state.insert_block(genesis_block, hash);
@@ -31,22 +41,21 @@ impl<'state> Blockchain<'state> {
 
         Ok(Self {
             state,
+            engine,
             config,
             bad_blocks: Default::default(),
             receipts: Default::default(),
         })
     }
 
-    pub async fn insert_block<C>(
+    pub async fn insert_block(
         &mut self,
-        consensus: &C,
         block: Block,
         check_state_root: bool,
-    ) -> anyhow::Result<()>
-    where
-        C: Consensus,
-    {
-        pre_validate_block(consensus, &block, self.state, &self.config).await?;
+    ) -> anyhow::Result<()> {
+        self.engine
+            .pre_validate_block(&block, &mut self.state)
+            .await?;
 
         let hash = block.header.hash();
         if let Some(error) = self.bad_blocks.get(&hash) {
@@ -140,7 +149,13 @@ impl<'state> Blockchain<'state> {
             ommers: block.ommers.clone(),
         };
 
-        let processor = ExecutionProcessor::new(self.state, &block.header, &body, &self.config);
+        let processor = ExecutionProcessor::new(
+            self.state,
+            &mut *self.engine,
+            &block.header,
+            &body,
+            &self.config,
+        );
 
         let _ = processor.execute_and_write_block().await?;
 

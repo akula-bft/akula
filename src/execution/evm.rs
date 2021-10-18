@@ -34,6 +34,7 @@ where
     revision: Revision,
     chain_config: &'c ChainConfig,
     txn: &'t TransactionWithSender,
+    beneficiary: Address,
 }
 
 pub async fn execute<B: State>(
@@ -50,6 +51,7 @@ pub async fn execute<B: State>(
         revision,
         chain_config,
         txn,
+        beneficiary: header.beneficiary,
     };
 
     let res = if let TransactionAction::Call(to) = txn.action() {
@@ -470,7 +472,7 @@ where
                     let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or_else(U256::zero);
                     let tx_gas_price = self.txn.effective_gas_price(base_fee_per_gas);
                     let tx_origin = self.txn.sender;
-                    let block_coinbase = self.header.beneficiary;
+                    let block_coinbase = self.beneficiary;
                     let block_number = self.header.number.0;
                     let block_timestamp = self.header.timestamp;
                     let block_gas_limit = self.header.gas_limit;
