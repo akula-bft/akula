@@ -44,14 +44,16 @@ where
         pin!(walker);
 
         while let Some(((block_number, block_hash), _)) = walker.try_next().await? {
+            if block_number.0 % 50_000 == 0 {
+                info!("Processing block {}", block_number);
+            }
             // BlockBody Key is block_number + hash, so we just separate and collect
             collector.collect(Entry::new(block_hash, block_number));
         }
         collector.load(&mut blockhashes_cursor).await?;
-        info!("Processed");
         Ok(ExecOutput::Progress {
             stage_progress: processed,
-            done: false,
+            done: true,
             must_commit: true,
         })
     }

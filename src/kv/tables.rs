@@ -950,7 +950,7 @@ decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
-decl_table!(Header => HeaderKey => BlockHeader);
+decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
