@@ -4,7 +4,10 @@ use crate::{
     execution::processor::ExecutionProcessor,
     kv::tables,
     models::*,
-    stagedsync::stage::{ExecOutput, Stage, StageInput},
+    stagedsync::{
+        stage::{ExecOutput, Stage, StageInput},
+        stages::EXECUTION,
+    },
     state::State,
     Buffer, MutableTransaction,
 };
@@ -76,11 +79,11 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 #[async_trait]
 impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
     fn id(&self) -> crate::StageId {
-        todo!()
+        EXECUTION
     }
 
     fn description(&self) -> &'static str {
-        todo!()
+        "Execution of blocks through EVM"
     }
 
     async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
