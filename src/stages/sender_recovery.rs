@@ -8,6 +8,7 @@ use crate::{
 };
 use anyhow::Context;
 use async_trait::async_trait;
+use rayon::prelude::*;
 use std::cmp;
 use thiserror::Error;
 use tracing::error;
@@ -38,10 +39,10 @@ where
         .ok_or(SenderRecoveryError::BlockBodyNotFound(height))?;
     let txs = chain::tx::read(tx, body.base_tx_id, body.tx_amount).await?;
 
-    let mut senders = vec![];
-    for tx in &txs {
-        senders.push(tx.recover_sender()?);
-    }
+    let senders = txs
+        .into_par_iter()
+        .map(|tx| tx.recover_sender())
+        .collect::<anyhow::Result<Vec<_>>>()?;
 
     chain::tx_sender::write_to_etl(collector, body.base_tx_id, &senders);
 
