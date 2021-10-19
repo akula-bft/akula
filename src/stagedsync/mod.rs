@@ -137,9 +137,13 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                             // Nothing here, pass along.
                             match &output {
-                                ExecOutput::Progress { done, .. } => {
+                                ExecOutput::Progress {
+                                    done,
+                                    stage_progress,
+                                    ..
+                                } => {
                                     if *done {
-                                        info!("DONE");
+                                        info!("DONE @ {}", stage_progress);
                                     }
                                 }
                                 ExecOutput::Unwind { unwind_to } => {
