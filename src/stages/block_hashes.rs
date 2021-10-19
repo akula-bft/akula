@@ -37,7 +37,7 @@ where
 
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
         let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber.erased()).await?;
-        let processed = BlockNumber(0);
+        let mut processed = BlockNumber(0);
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
         let walker = bodies_cursor.walk(Some(past_progress));
@@ -49,6 +49,8 @@ where
             }
             // BlockBody Key is block_number + hash, so we just separate and collect
             collector.collect(Entry::new(block_hash, block_number));
+
+            processed = block_number;
         }
         collector.load(&mut blockhashes_cursor).await?;
         Ok(ExecOutput::Progress {
