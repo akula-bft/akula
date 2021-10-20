@@ -1,6 +1,8 @@
 pub mod stage;
 pub mod stages;
 
+use std::time::Duration;
+
 use self::stage::{Stage, StageInput, UnwindInput};
 use crate::{kv::traits::MutableKV, stagedsync::stage::ExecOutput, MutableTransaction};
 use tracing::*;
@@ -143,7 +145,12 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                     ..
                                 } => {
                                     if *done {
-                                        info!("DONE @ {}", stage_progress);
+                                        let time = std::time::Instant::now() - start_time;
+                                        info!(
+                                            "DONE @ {} in {}",
+                                            stage_progress,
+                                            format_duration(time)
+                                        );
                                     }
                                 }
                                 ExecOutput::Unwind { unwind_to } => {
@@ -205,10 +212,26 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                 let t = timings
                     .into_iter()
                     .fold(String::new(), |acc, (stage_id, time)| {
-                        format!("{} {}={}ms", acc, stage_id, time.as_millis())
+                        format!("{} {}={}", acc, stage_id, format_duration(time))
                     });
                 info!("Staged sync complete.{}", t);
             }
         }
     }
+}
+
+fn format_duration(dur: Duration) -> String {
+    let mut secs = dur.as_secs();
+    let mut minutes = secs / 60;
+    let hours = minutes / 60;
+
+    secs %= 60;
+    minutes %= 60;
+    format!(
+        "{:0>2}:{:0>2}:{:0>2}.{:0>3}",
+        hours,
+        minutes,
+        secs,
+        dur.subsec_millis()
+    )
 }
