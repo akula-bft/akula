@@ -445,6 +445,7 @@ impl TableDecode for RoaringTreemap {
     }
 }
 
+#[derive(Debug)]
 pub struct BitmapKey<K> {
     pub inner: K,
     pub block_number: BlockNumber,
