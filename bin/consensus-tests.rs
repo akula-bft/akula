@@ -312,35 +312,18 @@ pub static DIFFICULTY_CONFIG: Lazy<HashMap<String, ChainConfig>> = Lazy::new(|| 
 #[educe(Debug)]
 pub struct AccountState {
     pub balance: U256,
-    #[serde(deserialize_with = "deserialize_str_as_bytes")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_bytes")]
     #[educe(Debug(method = "write_hex_string"))]
     pub code: Bytes,
     pub nonce: U64,
     pub storage: HashMap<U256, U256>,
 }
 
-fn deserialize_str_as_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-
-    let d = if let Some(stripped) = s.strip_prefix("0x") {
-        u64::from_str_radix(stripped, 16)
-    } else {
-        s.parse()
-    }
-    .map_err(|e| format!("{}/{}", e, s))
-    .unwrap();
-
-    Ok(d)
-}
-
 fn deserialize_str_as_blocknumber<'de, D>(deserializer: D) -> Result<BlockNumber, D::Error>
 where
     D: de::Deserializer<'de>,
 {
-    deserialize_str_as_u64(deserializer).map(BlockNumber)
+    deserialize_hexstr_as_u64(deserializer).map(BlockNumber)
 }
 
 fn deserialize_str_as_u128<'de, D>(deserializer: D) -> Result<u128, D::Error>
@@ -364,13 +347,13 @@ where
 #[serde(rename_all = "camelCase")]
 struct DifficultyTest {
     /// Timestamp of a previous block
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     parent_timestamp: u64,
     /// Difficulty of a previous block
     #[serde(deserialize_with = "deserialize_str_as_u128")]
     parent_difficulty: u128,
     /// Timestamp of a current block
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     current_timestamp: u64,
     /// Number of a current block (previous block number = currentBlockNumber - 1)
     #[serde(deserialize_with = "deserialize_str_as_blocknumber")]
@@ -397,7 +380,10 @@ struct BlockchainTest {
     seal_engine: SealEngine,
     network: Network,
     pre: HashMap<Address, AccountState>,
-    #[serde(rename = "genesisRLP", deserialize_with = "deserialize_str_as_bytes")]
+    #[serde(
+        rename = "genesisRLP",
+        deserialize_with = "deserialize_hexstr_as_bytes"
+    )]
     #[educe(Debug(method = "write_hex_string"))]
     genesis_rlp: Bytes,
     blocks: Vec<Map<String, Value>>,
@@ -478,7 +464,7 @@ struct BlockCommon {
     #[serde(default)]
     expect_exception: Option<String>,
     #[educe(Debug(method = "write_hex_string"))]
-    #[serde(deserialize_with = "deserialize_str_as_bytes")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_bytes")]
     rlp: Bytes,
 }
 

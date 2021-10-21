@@ -968,7 +968,7 @@ decl_table!(TxSender => TxIndex => Address);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
 decl_table!(Sequence => Vec<u8> => Vec<u8>);
-decl_table!(LastHeader => Vec<u8> => Vec<u8>);
+decl_table!(LastHeader => VariableVec<0> => H256);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 
 pub type DatabaseChart = Arc<HashMap<&'static str, TableInfo>>;

@@ -48,7 +48,14 @@ pub fn write_hex_string<B: AsRef<[u8]>>(b: &B, f: &mut Formatter) -> fmt::Result
     write!(f, "0x{}", hex::encode(b))
 }
 
-pub fn deserialize_str_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
+pub fn deserialize_hexstr_as_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    U64::deserialize(deserializer).map(|num| num.as_u64())
+}
+
+pub fn deserialize_hexstr_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
 where
     D: de::Deserializer<'de>,
 {

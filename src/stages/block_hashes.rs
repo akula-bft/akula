@@ -40,7 +40,7 @@ where
         let mut processed = BlockNumber(0);
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = bodies_cursor.walk(Some(past_progress));
+        let walker = bodies_cursor.walk(Some(past_progress + 1));
         pin!(walker);
 
         while let Some(((block_number, block_hash), _)) = walker.try_next().await? {

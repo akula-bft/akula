@@ -1,7 +1,7 @@
-use std::{collections::HashMap, time::Duration};
-
+use crate::util::*;
 use ethereum_types::{H160, H256, U256, U64};
 use serde::{de, Deserialize};
+use std::{collections::HashMap, time::Duration};
 
 type NodeUrl = String;
 
@@ -38,74 +38,74 @@ struct EngineGenesis {
     signers: Vec<H160>,
 }
 
-// deserialize_str_as_u64
+// deserialize_hexstr_as_u64
 #[derive(Debug, Deserialize, PartialEq)]
 struct HardForks {
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip140: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip145: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip150: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip155: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip160: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip161abc: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip161d: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip211: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip214: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip658: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1014: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1052: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1283: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1283_disable: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1283_reenable: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1344: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1706: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip1884: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     eip2028: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     max_code_size: u64,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct Params {
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     account_start_nonce: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     chain_id: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     gas_limit_bound_divisor: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     max_code_size: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     maximum_extra_data_size: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     min_gas_limit: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     network_id: u64,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 struct Genesis {
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     gas_limit: u64,
-    #[serde(deserialize_with = "deserialize_str_as_u64")]
+    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
     timestamp: u64,
 }
 
@@ -155,12 +155,6 @@ where
     deserializer.deserialize_any(DeserializePeriodAsDuration)
 }
 
-fn deserialize_str_as_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    U64::deserialize(deserializer).map(|num| num.as_u64())
-}
 #[cfg(test)]
 mod tests {
     use super::*;
