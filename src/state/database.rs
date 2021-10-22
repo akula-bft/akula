@@ -424,7 +424,7 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> StateWriter for PlainStateWrite
         }
 
         let mut c = self.tx.mutable_cursor_dupsort(&tables::PlainState).await?;
-        if c.seek_storage_key(address, incarnation, location)
+        if seek_storage_key(&mut c, address, incarnation, location)
             .await?
             .is_some()
         {
@@ -461,70 +461,57 @@ impl<'db: 'tx, 'tx, Tx: MutableTransaction<'db>> WriterWithChangesets
     }
 }
 
-#[async_trait]
-pub trait PlainStateCursorExt<'tx>: CursorDupSort<'tx, tables::PlainState> {
-    async fn seek_storage_key(
-        &mut self,
-        address: Address,
-        incarnation: Incarnation,
-        location: H256,
-    ) -> anyhow::Result<Option<H256>> {
-        if let Some(v) = self
-            .seek_both_range(
-                tables::PlainStateKey::Storage(address, incarnation),
-                location,
-            )
-            .await?
-        {
-            if let Some((a, inc, l, v)) = v.as_storage() {
-                if a == address && inc == incarnation && l == location {
-                    return Ok(Some(v));
-                }
+pub async fn seek_storage_key<'tx, C: CursorDupSort<'tx, tables::PlainState>>(
+    cur: &mut C,
+    address: Address,
+    incarnation: Incarnation,
+    location: H256,
+) -> anyhow::Result<Option<H256>> {
+    if let Some(v) = cur
+        .seek_both_range(
+            tables::PlainStateKey::Storage(address, incarnation),
+            location,
+        )
+        .await?
+    {
+        if let Some((a, inc, l, v)) = v.as_storage() {
+            if a == address && inc == incarnation && l == location {
+                return Ok(Some(v));
             }
         }
-
-        Ok(None)
     }
+
+    Ok(None)
 }
 
-impl<'tx, C: CursorDupSort<'tx, tables::PlainState>> PlainStateCursorExt<'tx> for C {}
-
-#[async_trait]
-pub trait PlainStateMutableCursorExt<'tx>:
-    PlainStateCursorExt<'tx> + MutableCursorDupSort<'tx, tables::PlainState>
+pub async fn upsert_storage_value<'tx, C>(
+    cur: &mut C,
+    address: Address,
+    incarnation: Incarnation,
+    location: H256,
+    value: H256,
+) -> anyhow::Result<()>
+where
+    C: MutableCursorDupSort<'tx, tables::PlainState>,
 {
-    async fn upsert_storage_value(
-        &mut self,
-        address: Address,
-        incarnation: Incarnation,
-        location: H256,
-        value: H256,
-    ) -> anyhow::Result<()> {
-        if self
-            .seek_storage_key(address, incarnation, location)
-            .await?
-            .is_some()
-        {
-            self.delete_current().await?;
-        }
-
-        if !value.is_zero() {
-            self.upsert(PlainStateFusedValue::Storage {
-                address,
-                incarnation,
-                location,
-                value,
-            })
-            .await?;
-        }
-
-        Ok(())
+    if seek_storage_key(cur, address, incarnation, location)
+        .await?
+        .is_some()
+    {
+        cur.delete_current().await?;
     }
-}
 
-impl<'tx, C: MutableCursorDupSort<'tx, tables::PlainState> + PlainStateCursorExt<'tx>>
-    PlainStateMutableCursorExt<'tx> for C
-{
+    if !value.is_zero() {
+        cur.upsert(PlainStateFusedValue::Storage {
+            address,
+            incarnation,
+            location,
+            value,
+        })
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn read_account_data<'db, Tx: Transaction<'db>>(
