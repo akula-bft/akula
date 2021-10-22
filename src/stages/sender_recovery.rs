@@ -9,6 +9,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use rayon::prelude::*;
+use std::time::{Duration, Instant};
 use tokio_stream::StreamExt as _;
 use tracing::*;
 
@@ -44,6 +45,7 @@ where
         )));
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let mut recovered_senders = Vec::with_capacity(BUFFERING_FACTOR);
+        let mut last_message = Instant::now();
         loop {
             while let Some(((block_number, _), body)) = walker.try_next().await? {
                 let mut w = tx_cur
@@ -53,9 +55,14 @@ where
                     batch.push(t);
                 }
 
-                if batch.len() > BUFFERING_FACTOR {
-                    info!("Extracting senders from block {}", block_number);
+                let now = Instant::now();
+                let elapsed = now - last_message;
+                if elapsed > Duration::from_secs(30) {
+                    info!("Extracted senders from block {}", block_number);
+                    last_message = now;
+                }
 
+                if batch.len() > BUFFERING_FACTOR {
                     break;
                 }
 
