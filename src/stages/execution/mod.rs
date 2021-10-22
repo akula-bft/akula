@@ -13,6 +13,7 @@ use crate::{
 };
 use anyhow::anyhow;
 use async_trait::async_trait;
+use std::time::{Duration, Instant};
 use tracing::*;
 
 #[derive(Debug)]
@@ -33,6 +34,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut consensus_engine = engine_factory(chain_config.clone())?;
 
     let mut block_number = starting_block;
+    let mut next_message = Instant::now() + Duration::from_secs(5);
     loop {
         let block_hash = accessors::chain::canonical_hash::read(tx, block_number)
             .await?
@@ -55,8 +57,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         .execute_and_write_block()
         .await?;
 
-        if *block_number % 250 == 0 {
+        if Instant::now() > next_message {
             info!("Executed block {}", block_number);
+            next_message = Instant::now() + Duration::from_secs(5);
         }
 
         // TODO: implement pruning
