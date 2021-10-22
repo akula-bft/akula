@@ -52,7 +52,16 @@ pub fn deserialize_hexstr_as_u64<'de, D>(deserializer: D) -> Result<u64, D::Erro
 where
     D: de::Deserializer<'de>,
 {
-    U64::deserialize(deserializer).map(|num| num.as_u64())
+    let s = String::deserialize(deserializer)?;
+
+    let d = if let Some(stripped) = s.strip_prefix("0x") {
+        u64::from_str_radix(stripped, 16)
+    } else {
+        s.parse()
+    }
+    .map_err(|e| de::Error::custom(format!("{}/{}", e, s)))?;
+
+    Ok(d)
 }
 
 pub fn deserialize_hexstr_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
