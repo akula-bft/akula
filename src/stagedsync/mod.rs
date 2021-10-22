@@ -1,10 +1,9 @@
 pub mod stage;
 pub mod stages;
 
-use std::time::Duration;
-
 use self::stage::{Stage, StageInput, UnwindInput};
 use crate::{kv::traits::MutableKV, stagedsync::stage::ExecOutput, MutableTransaction};
+use std::time::{Duration, Instant};
 use tracing::*;
 
 /// Staged synchronization framework
@@ -115,7 +114,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                     let stage_id = stage.id();
 
-                    let start_time = std::time::Instant::now();
+                    let start_time = Instant::now();
 
                     // Re-invoke the stage until it reports `StageOutput::done`.
                     let done_progress = loop {
@@ -150,7 +149,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                     ..
                                 } => {
                                     if *done {
-                                        let time = std::time::Instant::now() - start_time;
+                                        let time = Instant::now() - start_time;
                                         info!(
                                             "DONE @ {} in {}",
                                             stage_progress,
@@ -208,7 +207,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             }
                         }
                     };
-                    timings.push((stage_id, std::time::Instant::now() - start_time));
+                    timings.push((stage_id, Instant::now() - start_time));
 
                     previous_stage = Some((stage_id, done_progress))
                 }

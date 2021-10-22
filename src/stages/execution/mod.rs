@@ -69,8 +69,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         let now = Instant::now();
         let elapsed = now - last_message;
         if elapsed > Duration::from_secs(5) {
-            let mgas_sec =
-                (gas_since_last_message as f64 / elapsed.subsec_millis() as f64) / 1_000_f64;
+            let mgas_sec = gas_since_last_message as f64
+                / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
+                / 1_000_000f64;
             info!("Executed block {}, Mgas/sec: {}", block_number, mgas_sec);
             last_message = now;
             gas_since_last_message = 0;
