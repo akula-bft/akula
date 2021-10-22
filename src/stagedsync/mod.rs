@@ -55,7 +55,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
                 // Unwind stages in reverse order.
-                for (stage_index, stage) in self.stages.iter().rev().enumerate() {
+                for (stage_index, stage) in self.stages.iter().enumerate().rev() {
                     let stage_id = stage.id();
 
                     // Unwind magic happens here.
