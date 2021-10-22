@@ -34,7 +34,8 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut consensus_engine = engine_factory(chain_config.clone())?;
 
     let mut block_number = starting_block;
-    let mut next_message = Instant::now() + Duration::from_secs(5);
+    let mut gas_since_last_message = 0;
+    let mut last_message = Instant::now();
     loop {
         let block_hash = accessors::chain::canonical_hash::read(tx, block_number)
             .await?
@@ -63,9 +64,16 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             )
         })?;
 
-        if Instant::now() > next_message {
-            info!("Executed block {}", block_number);
-            next_message = Instant::now() + Duration::from_secs(5);
+        gas_since_last_message += header.gas_used;
+
+        let now = Instant::now();
+        let elapsed = now - last_message;
+        if elapsed > Duration::from_secs(5) {
+            let mgas_sec =
+                (gas_since_last_message as f64 / elapsed.subsec_millis() as f64) / 1_000_f64;
+            info!("Executed block {}, Mgas/sec: {}", block_number, mgas_sec);
+            last_message = now;
+            gas_since_last_message = 0;
         }
 
         // TODO: implement pruning
