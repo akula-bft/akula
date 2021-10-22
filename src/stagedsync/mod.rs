@@ -123,7 +123,12 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                         let exec_output: anyhow::Result<_> = async {
                             if !restarted {
-                                info!("RUNNING");
+                                info!(
+                                    "RUNNING from {}",
+                                    stage_progress
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| "genesis".to_string())
+                                );
                             }
 
                             let output = stage
