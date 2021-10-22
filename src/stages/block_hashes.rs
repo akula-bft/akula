@@ -33,14 +33,12 @@ where
     where
         'db: 'tx,
     {
-        let past_progress = input.stage_progress.unwrap_or(BlockNumber(0));
-
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
         let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber.erased()).await?;
-        let mut processed = BlockNumber(0);
+        let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = bodies_cursor.walk(Some(past_progress + 1));
+        let walker = bodies_cursor.walk(Some(highest_block + 1));
         pin!(walker);
 
         while let Some(((block_number, block_hash), _)) = walker.try_next().await? {
@@ -50,11 +48,11 @@ where
             // BlockBody Key is block_number + hash, so we just separate and collect
             collector.collect(Entry::new(block_hash, block_number));
 
-            processed = block_number;
+            highest_block = block_number;
         }
         collector.load(&mut blockhashes_cursor).await?;
         Ok(ExecOutput::Progress {
-            stage_progress: processed,
+            stage_progress: highest_block,
             done: true,
             must_commit: true,
         })
