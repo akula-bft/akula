@@ -11,7 +11,7 @@ use crate::{
     state::State,
     Buffer, MutableTransaction,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::*;
@@ -55,7 +55,13 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             &chain_config,
         )
         .execute_and_write_block()
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to execute block #{} ({:?})",
+                block_number, block_hash
+            )
+        })?;
 
         if Instant::now() > next_message {
             info!("Executed block {}", block_number);
@@ -66,7 +72,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         buffer.insert_receipts(block_number, receipts).await?;
 
         if block_number == max_block
-            || starting_block.0 - block_number.0 == u64::try_from(batch_size)?
+            || block_number.0 - starting_block.0 == u64::try_from(batch_size)?
         {
             break;
         }
@@ -108,22 +114,30 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let max_block = input
             .previous_stage.ok_or_else(|| anyhow!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1;
 
-        let executed_to = execute_batch_of_blocks(
-            tx,
-            chain_config,
-            max_block,
-            self.batch_size,
-            starting_block,
-            self.prune_from,
-        )
-        .await?;
+        Ok(if max_block > starting_block {
+            let executed_to = execute_batch_of_blocks(
+                tx,
+                chain_config,
+                max_block,
+                self.batch_size,
+                starting_block,
+                self.prune_from,
+            )
+            .await?;
 
-        let done = executed_to == max_block;
+            let done = executed_to == max_block;
 
-        Ok(ExecOutput::Progress {
-            stage_progress: executed_to,
-            done,
-            must_commit: true,
+            ExecOutput::Progress {
+                stage_progress: executed_to,
+                done,
+                must_commit: true,
+            }
+        } else {
+            ExecOutput::Progress {
+                stage_progress: max_block,
+                done: true,
+                must_commit: false,
+            }
         })
     }
 
