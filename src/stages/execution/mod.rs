@@ -91,7 +91,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
     buffer.write_to_db().await?;
 
-    Ok(max_block)
+    Ok(block_number)
 }
 
 #[async_trait]
