@@ -48,7 +48,23 @@ pub fn write_hex_string<B: AsRef<[u8]>>(b: &B, f: &mut Formatter) -> fmt::Result
     write!(f, "0x{}", hex::encode(b))
 }
 
-pub fn deserialize_str_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
+pub fn deserialize_hexstr_as_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+
+    let d = if let Some(stripped) = s.strip_prefix("0x") {
+        u64::from_str_radix(stripped, 16)
+    } else {
+        s.parse()
+    }
+    .map_err(|e| de::Error::custom(format!("{}/{}", e, s)))?;
+
+    Ok(d)
+}
+
+pub fn deserialize_hexstr_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
 where
     D: de::Deserializer<'de>,
 {

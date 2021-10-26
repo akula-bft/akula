@@ -445,6 +445,7 @@ impl TableDecode for RoaringTreemap {
     }
 }
 
+#[derive(Debug)]
 pub struct BitmapKey<K> {
     pub inner: K,
     pub block_number: BlockNumber,
@@ -950,7 +951,7 @@ decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
 decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
-decl_table!(Header => HeaderKey => BlockHeader);
+decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
@@ -968,7 +969,7 @@ decl_table!(TxSender => TxIndex => Address);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
 decl_table!(Sequence => Vec<u8> => Vec<u8>);
-decl_table!(LastHeader => Vec<u8> => Vec<u8>);
+decl_table!(LastHeader => VariableVec<0> => H256);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 
 pub type DatabaseChart = Arc<HashMap<&'static str, TableInfo>>;

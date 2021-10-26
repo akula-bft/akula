@@ -25,6 +25,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct Environment<E: EnvironmentKind> {
     inner: ::mdbx::Environment<E>,
     chart: DatabaseChart,
@@ -95,7 +96,7 @@ impl<E: EnvironmentKind> Deref for Environment<E> {
 impl<E: EnvironmentKind> traits::KV for Environment<E> {
     type Tx<'tx> = MdbxTransaction<'tx, RO, E>;
 
-    async fn begin(&self, _flags: u8) -> anyhow::Result<Self::Tx<'_>> {
+    async fn begin(&self) -> anyhow::Result<Self::Tx<'_>> {
         Ok(MdbxTransaction {
             inner: self.inner.begin_ro_txn()?,
             chart: self.chart.clone(),

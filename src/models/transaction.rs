@@ -3,6 +3,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::Deref;
 use educe::Educe;
 use ethereum_types::*;
+use hex_literal::hex;
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 use secp256k1::{
     recovery::{RecoverableSignature, RecoveryId},
@@ -100,11 +101,19 @@ impl TransactionSignature {
     pub fn new(odd_y_parity: bool, r: impl Into<H256>, s: impl Into<H256>) -> Option<Self> {
         let r = r.into();
         let s = s.into();
-        if is_valid_signature(r, s, true) {
+        if is_valid_signature(r, s) {
             Some(Self { odd_y_parity, r, s })
         } else {
             None
         }
+    }
+
+    #[must_use]
+    pub fn malleable(&self) -> bool {
+        const HALF_N: H256 = H256(hex!(
+            "7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0"
+        ));
+        self.s > HALF_N
     }
 
     #[must_use]

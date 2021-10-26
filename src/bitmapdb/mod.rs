@@ -152,7 +152,7 @@ mod tests {
             let mut bm = RoaringTreemap::new();
 
             for j in (0..10_000).filter(|j| j % 20 == 0) {
-                bm.append(j..j + 10);
+                bm.append(j..j + 10).unwrap();
             }
 
             while !bm.is_empty() {

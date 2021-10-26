@@ -8,7 +8,7 @@ use crate::{
         traits::*,
     },
     models::{Receipt, *},
-    state::database::PlainStateMutableCursorExt,
+    state::database::*,
     MutableTransaction, State, Transaction,
 };
 use async_trait::async_trait;
@@ -349,9 +349,14 @@ where
                     storage_keys.sort_unstable();
 
                     for &k in &storage_keys {
-                        state_table
-                            .upsert_storage_value(address, incarnation, k, contract_storage[&k])
-                            .await?;
+                        upsert_storage_value(
+                            &mut state_table,
+                            address,
+                            incarnation,
+                            k,
+                            contract_storage[&k],
+                        )
+                        .await?;
                     }
                 }
             }
@@ -420,9 +425,7 @@ mod tests {
     use super::*;
     use crate::{
         kv::{tables::PlainStateFusedValue, traits::*},
-        new_mem_database,
-        state::database::PlainStateCursorExt,
-        DEFAULT_INCARNATION,
+        new_mem_database, DEFAULT_INCARNATION,
     };
     use hex_literal::hex;
 
@@ -487,25 +490,27 @@ mod tests {
         buffer.write_to_db().await.unwrap();
 
         // Location A should have the new value
-        let db_value_a = txn
-            .cursor_dup_sort(&tables::PlainState)
-            .await
-            .unwrap()
-            .seek_storage_key(address, DEFAULT_INCARNATION, location_a)
-            .await
-            .unwrap()
-            .unwrap();
+        let db_value_a = seek_storage_key(
+            &mut txn.cursor_dup_sort(&tables::PlainState).await.unwrap(),
+            address,
+            DEFAULT_INCARNATION,
+            location_a,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(db_value_a, value_a2);
 
         // Location B should not change
-        let db_value_b = txn
-            .cursor_dup_sort(&tables::PlainState)
-            .await
-            .unwrap()
-            .seek_storage_key(address, DEFAULT_INCARNATION, location_b)
-            .await
-            .unwrap()
-            .unwrap();
+        let db_value_b = seek_storage_key(
+            &mut txn.cursor_dup_sort(&tables::PlainState).await.unwrap(),
+            address,
+            DEFAULT_INCARNATION,
+            location_b,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(db_value_b, value_b);
     }
 }

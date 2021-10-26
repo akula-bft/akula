@@ -4,12 +4,16 @@ use crate::{
     execution::processor::ExecutionProcessor,
     kv::tables,
     models::*,
-    stagedsync::stage::{ExecOutput, Stage, StageInput},
+    stagedsync::{
+        stage::{ExecOutput, Stage, StageInput},
+        stages::EXECUTION,
+    },
     state::State,
     Buffer, MutableTransaction,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
+use std::time::{Duration, Instant};
 use tracing::*;
 
 #[derive(Debug)]
@@ -30,6 +34,8 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut consensus_engine = engine_factory(chain_config.clone())?;
 
     let mut block_number = starting_block;
+    let mut gas_since_last_message = 0;
+    let mut last_message = Instant::now();
     loop {
         let block_hash = accessors::chain::canonical_hash::read(tx, block_number)
             .await?
@@ -50,17 +56,32 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             &chain_config,
         )
         .execute_and_write_block()
-        .await?;
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to execute block #{} ({:?})",
+                block_number, block_hash
+            )
+        })?;
 
-        if *block_number % 250 == 0 {
-            info!("Executed block {}", block_number);
+        gas_since_last_message += header.gas_used;
+
+        let now = Instant::now();
+        let elapsed = now - last_message;
+        if elapsed > Duration::from_secs(5) {
+            let mgas_sec = gas_since_last_message as f64
+                / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
+                / 1_000_000f64;
+            info!("Executed block {}, Mgas/sec: {}", block_number, mgas_sec);
+            last_message = now;
+            gas_since_last_message = 0;
         }
 
         // TODO: implement pruning
         buffer.insert_receipts(block_number, receipts).await?;
 
         if block_number == max_block
-            || starting_block.0 - block_number.0 == u64::try_from(batch_size)?
+            || block_number.0 - starting_block.0 == u64::try_from(batch_size)?
         {
             break;
         }
@@ -70,17 +91,17 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
     buffer.write_to_db().await?;
 
-    Ok(max_block)
+    Ok(block_number)
 }
 
 #[async_trait]
 impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
     fn id(&self) -> crate::StageId {
-        todo!()
+        EXECUTION
     }
 
     fn description(&self) -> &'static str {
-        todo!()
+        "Execution of blocks through EVM"
     }
 
     async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
@@ -102,22 +123,30 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let max_block = input
             .previous_stage.ok_or_else(|| anyhow!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1;
 
-        let executed_to = execute_batch_of_blocks(
-            tx,
-            chain_config,
-            max_block,
-            self.batch_size,
-            starting_block,
-            self.prune_from,
-        )
-        .await?;
+        Ok(if max_block > starting_block {
+            let executed_to = execute_batch_of_blocks(
+                tx,
+                chain_config,
+                max_block,
+                self.batch_size,
+                starting_block,
+                self.prune_from,
+            )
+            .await?;
 
-        let done = executed_to == max_block;
+            let done = executed_to == max_block;
 
-        Ok(ExecOutput::Progress {
-            stage_progress: executed_to,
-            done,
-            must_commit: true,
+            ExecOutput::Progress {
+                stage_progress: executed_to,
+                done,
+                must_commit: true,
+            }
+        } else {
+            ExecOutput::Progress {
+                stage_progress: max_block,
+                done: true,
+                must_commit: false,
+            }
         })
     }
 

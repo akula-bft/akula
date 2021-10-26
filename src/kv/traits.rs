@@ -8,10 +8,10 @@ use futures_core::stream::{BoxStream, LocalBoxStream};
 use std::fmt::Debug;
 
 #[async_trait]
-pub trait KV: Send + Sync + 'static {
+pub trait KV: Debug + Send + Sync + 'static {
     type Tx<'db>: Transaction<'db>;
 
-    async fn begin(&self, flags: u8) -> anyhow::Result<Self::Tx<'_>>;
+    async fn begin(&self) -> anyhow::Result<Self::Tx<'_>>;
 }
 
 #[async_trait]

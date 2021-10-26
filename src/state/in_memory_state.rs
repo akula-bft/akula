@@ -41,6 +41,14 @@ pub struct InMemoryState {
 }
 
 impl InMemoryState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn accounts(&self) -> impl Iterator<Item = (Address, &Account)> {
+        self.accounts.iter().map(|(&k, v)| (k, v))
+    }
+
     pub fn account_addresses(&self) -> impl Iterator<Item = Address> + '_ {
         self.accounts.keys().copied()
     }

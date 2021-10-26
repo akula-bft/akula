@@ -3,6 +3,7 @@ pub mod stages;
 
 use self::stage::{Stage, StageInput, UnwindInput};
 use crate::{kv::traits::MutableKV, stagedsync::stage::ExecOutput, MutableTransaction};
+use std::time::{Duration, Instant};
 use tracing::*;
 
 /// Staged synchronization framework
@@ -53,7 +54,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
                 // Unwind stages in reverse order.
-                for (stage_index, stage) in self.stages.iter().rev().enumerate() {
+                for (stage_index, stage) in self.stages.iter().enumerate().rev() {
                     let stage_id = stage.id();
 
                     // Unwind magic happens here.
@@ -113,7 +114,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                     let stage_id = stage.id();
 
-                    let start_time = std::time::Instant::now();
+                    let start_time = Instant::now();
 
                     // Re-invoke the stage until it reports `StageOutput::done`.
                     let done_progress = loop {
@@ -121,7 +122,12 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                         let exec_output: anyhow::Result<_> = async {
                             if !restarted {
-                                info!("RUNNING");
+                                info!(
+                                    "RUNNING from {}",
+                                    stage_progress
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| "genesis".to_string())
+                                );
                             }
 
                             let output = stage
@@ -137,9 +143,18 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                             // Nothing here, pass along.
                             match &output {
-                                ExecOutput::Progress { done, .. } => {
+                                ExecOutput::Progress {
+                                    done,
+                                    stage_progress,
+                                    ..
+                                } => {
                                     if *done {
-                                        info!("DONE");
+                                        let time = Instant::now() - start_time;
+                                        info!(
+                                            "DONE @ {} in {}",
+                                            stage_progress,
+                                            format_duration(time)
+                                        );
                                     }
                                 }
                                 ExecOutput::Unwind { unwind_to } => {
@@ -192,7 +207,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             }
                         }
                     };
-                    timings.push((stage_id, std::time::Instant::now() - start_time));
+                    timings.push((stage_id, Instant::now() - start_time));
 
                     previous_stage = Some((stage_id, done_progress))
                 }
@@ -201,10 +216,26 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                 let t = timings
                     .into_iter()
                     .fold(String::new(), |acc, (stage_id, time)| {
-                        format!("{} {}={}ms", acc, stage_id, time.as_millis())
+                        format!("{} {}={}", acc, stage_id, format_duration(time))
                     });
                 info!("Staged sync complete.{}", t);
             }
         }
     }
+}
+
+fn format_duration(dur: Duration) -> String {
+    let mut secs = dur.as_secs();
+    let mut minutes = secs / 60;
+    let hours = minutes / 60;
+
+    secs %= 60;
+    minutes %= 60;
+    format!(
+        "{:0>2}:{:0>2}:{:0>2}.{:0>3}",
+        hours,
+        minutes,
+        secs,
+        dur.subsec_millis()
+    )
 }

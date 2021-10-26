@@ -86,7 +86,7 @@ fn ecrecover_run_inner(mut input: Bytes) -> Option<Bytes> {
     let r = H256::from_slice(&input[64..96]);
     let s = H256::from_slice(&input[96..128]);
 
-    if !is_valid_signature(r, s, false) {
+    if !is_valid_signature(r, s) {
         return None;
     }
 

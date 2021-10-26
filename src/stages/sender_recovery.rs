@@ -1,52 +1,17 @@
 use crate::{
-    accessors::chain,
-    etl::collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
-    kv::tables,
+    kv::{
+        tables::{self, ErasedTable},
+        traits::{Cursor, MutableCursor, TableEncode},
+    },
     models::*,
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     MutableTransaction, StageId,
 };
-use anyhow::Context;
 use async_trait::async_trait;
-use std::cmp;
-use thiserror::Error;
-use tracing::error;
-
-#[derive(Error, Debug)]
-pub enum SenderRecoveryError {
-    #[error("Canonical hash for block {0} not found")]
-    HashNotFound(BlockNumber),
-    #[error("Block body for block {0} not found")]
-    BlockBodyNotFound(BlockNumber),
-}
-
-const BUFFER_SIZE: u64 = 5000;
-
-async fn process_block<'db: 'tx, 'tx, RwTx>(
-    tx: &'tx mut RwTx,
-    collector: &mut Collector<tables::TxSender>,
-    height: BlockNumber,
-) -> anyhow::Result<()>
-where
-    RwTx: MutableTransaction<'db>,
-{
-    let hash = chain::canonical_hash::read(tx, height)
-        .await?
-        .ok_or(SenderRecoveryError::HashNotFound(height))?;
-    let body = chain::storage_body::read(tx, hash, height)
-        .await?
-        .ok_or(SenderRecoveryError::BlockBodyNotFound(height))?;
-    let txs = chain::tx::read(tx, body.base_tx_id, body.tx_amount).await?;
-
-    let mut senders = vec![];
-    for tx in &txs {
-        senders.push(tx.recover_sender()?);
-    }
-
-    chain::tx_sender::write_to_etl(collector, body.base_tx_id, &senders);
-
-    Ok(())
-}
+use rayon::prelude::*;
+use std::time::{Duration, Instant};
+use tokio_stream::StreamExt as _;
+use tracing::*;
 
 #[derive(Debug)]
 pub struct SenderRecovery;
@@ -68,32 +33,70 @@ where
     where
         'db: 'tx,
     {
-        let from_height = input.stage_progress.unwrap_or_default();
-        let max_height = input
-            .previous_stage
-            .map(|(_, height)| height)
-            .unwrap_or_default();
-        let to_height = cmp::min(max_height, from_height + BUFFER_SIZE);
+        const BUFFERING_FACTOR: usize = 2_000_000;
+        let mut body_cur = tx.cursor(&tables::BlockBody).await?;
+        let mut tx_cur = tx.cursor(&tables::BlockTransaction.erased()).await?;
+        let mut senders_cur = tx.mutable_cursor(&tables::TxSender.erased()).await?;
+        senders_cur.last().await?;
 
-        let made_progress = to_height > from_height;
+        let mut highest_block = input.stage_progress;
+        let mut walker = body_cur.walk(Some(BlockNumber(
+            input.stage_progress.unwrap_or(BlockNumber(0)).0 + 1,
+        )));
+        let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
+        let mut recovered_senders = Vec::with_capacity(BUFFERING_FACTOR);
+        let mut last_message = Instant::now();
+        loop {
+            while let Some(((block_number, _), body)) = walker.try_next().await? {
+                let mut w = tx_cur
+                    .walk(Some(body.base_tx_id.encode().to_vec()))
+                    .take(body.tx_amount);
+                while let Some(t) = w.try_next().await? {
+                    batch.push(t);
+                }
 
-        if made_progress {
-            let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+                let now = Instant::now();
+                let elapsed = now - last_message;
+                if elapsed > Duration::from_secs(30) {
+                    info!("Extracted senders from block {}", block_number);
+                    last_message = now;
+                }
 
-            for height in from_height + 1..=to_height {
-                process_block(tx, &mut collector, height)
-                    .await
-                    .with_context(|| format!("Failed to recover senders for block {}", height))?;
+                if batch.len() > BUFFERING_FACTOR {
+                    break;
+                }
+
+                highest_block = Some(block_number);
             }
 
-            let mut write_cursor = tx.mutable_cursor(&tables::TxSender.erased()).await?;
-            collector.load(&mut write_cursor).await?;
+            if batch.is_empty() {
+                break;
+            }
+
+            batch
+                .par_drain(..)
+                .map(move |(encoded_index, encoded_tx)| {
+                    let tx = ErasedTable::<tables::BlockTransaction>::decode_value(&encoded_tx)?;
+                    let sender = tx.recover_sender()?;
+                    Ok::<_, anyhow::Error>((encoded_index, sender.encode().to_vec()))
+                })
+                .collect_into_vec(&mut recovered_senders);
+
+            for res in recovered_senders.drain(..) {
+                let (index, tx) = res?;
+                senders_cur.append((index, tx)).await?;
+            }
         }
 
         Ok(ExecOutput::Progress {
-            stage_progress: to_height,
-            done: !made_progress,
-            must_commit: made_progress,
+            stage_progress: highest_block.unwrap_or_else(|| {
+                input
+                    .previous_stage
+                    .map(|(_, v)| v)
+                    .unwrap_or(BlockNumber(0))
+            }),
+            done: true,
+            must_commit: true,
         })
     }
 
@@ -108,7 +111,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{kv::traits::MutableKV, new_mem_database};
+    use crate::{accessors::*, kv::traits::MutableKV, new_mem_database};
     use bytes::Bytes;
     use ethereum_types::*;
     use hex_literal::hex;
@@ -291,7 +294,7 @@ mod tests {
             output,
             ExecOutput::Progress {
                 stage_progress: 3.into(),
-                done: false,
+                done: true,
                 must_commit: true,
             }
         );

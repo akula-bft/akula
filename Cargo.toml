@@ -22,7 +22,7 @@ bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
-crossterm = { version = "0.21", optional = true }
+crossterm = { version = "0.22", optional = true }
 derive_more = "0.99"
 educe = { version = "0.4", features = ["Debug", "Default"] }
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
@@ -47,10 +47,11 @@ once_cell = "1"
 parking_lot = "0.11"
 pin-utils = "0.1"
 rand = "0.8"
+rayon = "1"
 ripemd160 = "0.9"
 rlp = "0.5"
 rlp-derive = "0.1"
-roaring = "0.7"
+roaring = "0.8"
 secp256k1 = { version = "0.20", features = ["global-context", "recovery"] }
 serde = "1"
 serde_json = "1"

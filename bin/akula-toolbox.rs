@@ -41,7 +41,7 @@ async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()> {
         Default::default(),
     )?;
     let mut sizes = env
-        .begin(0)
+        .begin()
         .await?
         .table_sizes()?
         .into_iter()

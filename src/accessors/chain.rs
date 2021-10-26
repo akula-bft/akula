@@ -1,5 +1,4 @@
 use crate::{
-    etl::{collector::Collector, data_provider::Entry},
     kv::{
         tables,
         traits::{Cursor, MutableCursor},
@@ -172,16 +171,6 @@ pub mod tx_sender {
         }
 
         Ok(())
-    }
-
-    pub fn write_to_etl(
-        collector: &mut Collector<tables::TxSender>,
-        base_tx_id: TxIndex,
-        senders: &[Address],
-    ) {
-        for (i, &sender) in senders.iter().enumerate() {
-            collector.collect(Entry::new(base_tx_id + i as u64, sender));
-        }
     }
 }
 
