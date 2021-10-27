@@ -233,9 +233,22 @@ where
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
         if gas_used != self.header.gas_used {
+            let transactions = receipts
+                .into_iter()
+                .enumerate()
+                .fold(
+                    (Vec::new(), 0),
+                    |(mut receipts, last_gas_used), (i, receipt)| {
+                        let gas_used = receipt.cumulative_gas_used - last_gas_used;
+                        receipts.push((i, gas_used));
+                        (receipts, receipt.cumulative_gas_used)
+                    },
+                )
+                .0;
             return Err(ValidationError::WrongBlockGas {
                 expected: self.header.gas_used,
                 got: gas_used,
+                transactions,
             }
             .into());
         }
