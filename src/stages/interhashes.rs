@@ -1,5 +1,5 @@
 use crate::{
-    crypto::{keccak256, trie_root},
+    crypto::keccak256,
     etl::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
@@ -68,13 +68,34 @@ struct BranchInProgress {
     is_leaf: bool,
 }
 
+fn keccak256_or_self(stream: RlpStream) -> Vec<u8> {
+    let out = stream.out();
+    if out.len() >= 32 {
+        keccak256(out).as_ref().to_vec()
+    } else {
+        out.to_vec()
+    }
+}
+
 impl BranchInProgress {
-    fn hash(&self) -> H256 {
+    fn stream(&self) -> RlpStream {
         let encoded_key_part = hex_prefix(&self.key_part, self.is_leaf);
         let mut stream = RlpStream::new_list(2);
         stream.append(&encoded_key_part);
-        stream.append(&self.data);
-        keccak256(stream.out())
+        if !self.is_leaf && self.data.len() < 32 {
+            stream.append_raw(&self.data, 1);
+        } else {
+            stream.append(&self.data);
+        }
+        stream
+    }
+
+    fn hash(&self) -> H256 {
+        keccak256(self.stream().out())
+    }
+
+    fn hash_or_self(&self) -> Vec<u8> {
+        keccak256_or_self(self.stream())
     }
 }
 
@@ -109,8 +130,8 @@ impl NodeInProgress {
         self.branches.len() > 1
     }
 
-    fn get_single_branch(&self) -> &BranchInProgress {
-        &self.branches[0]
+    fn get_single_branch(&mut self) -> BranchInProgress {
+        self.branches.pop().unwrap()
     }
 
     fn get_root_branch(&mut self) -> &BranchInProgress {
@@ -122,7 +143,7 @@ impl NodeInProgress {
 
 #[derive(Debug, PartialEq)]
 struct BranchNode {
-    hashes: Vec<Option<H256>>,
+    hashes: Vec<Option<Vec<u8>>>,
 }
 
 impl BranchNode {
@@ -132,18 +153,18 @@ impl BranchNode {
         }
     }
 
-    fn new_with_hashes(hashes: Vec<Option<H256>>) -> Self {
+    fn new_with_hashes(hashes: Vec<Option<Vec<u8>>>) -> Self {
         Self { hashes }
     }
 
     fn from(node: &NodeInProgress) -> Self {
         let mut new_node = Self::new();
-        for ref branch in &node.branches {
+        for branch in &node.branches {
             let child_is_branch_node = branch.key_part.is_empty() && !branch.is_leaf;
             let hash = if child_is_branch_node {
-                H256::from_slice(branch.data.as_slice())
+                branch.data.clone()
             } else {
-                branch.hash()
+                branch.hash_or_self()
             };
             new_node.hashes[branch.slot as usize] = Some(hash);
         }
@@ -151,12 +172,13 @@ impl BranchNode {
     }
 
     fn serialize(&self) -> Vec<u8> {
+        // TODO handle the case of non-hash entries (affects storage trie only)
         let mut flags = 0u16;
         let mut result = vec![0u8, 0u8];
         for (slot, ref maybe_hash) in self.hashes.iter().enumerate() {
             if let Some(hash) = maybe_hash {
                 flags += 1u16.checked_shl(slot as u32).unwrap();
-                result.append(&mut hash.as_ref().to_vec());
+                result.extend_from_slice(hash);
             }
         }
         let flag_bytes = flags.to_be_bytes();
@@ -171,32 +193,229 @@ impl BranchNode {
         let mut node = Self::new();
         for i in 0..16 {
             if flags & 1u16.checked_shl(i).unwrap() != 0 {
-                node.hashes[i as usize] = Some(H256::from_slice(&data[index..index + 32]));
+                node.hashes[i as usize] = Some(data[index..index + 32].to_vec());
                 index += 32;
             }
         }
         Ok(node)
     }
 
-    fn hash(&self) -> H256 {
+    fn stream(&self) -> RlpStream {
         let mut stream = RlpStream::new_list(17);
         for maybe_hash in &self.hashes {
             match maybe_hash {
-                Some(ref hash) => stream.append(hash),
+                Some(ref hash) => {
+                    if hash.len() == 32 {
+                        stream.append(hash)
+                    } else {
+                        stream.append_raw(hash, 1)
+                    }
+                }
                 None => stream.append_empty_data(),
             };
         }
         stream.append_empty_data();
-        keccak256(stream.out())
+        stream
+    }
+
+    fn hash(&self) -> H256 {
+        keccak256(self.stream().out())
+    }
+
+    fn hash_or_self(&self) -> Vec<u8> {
+        keccak256_or_self(self.stream())
     }
 }
 
-fn storage_root(storage: Vec<Vec<u8>>) -> anyhow::Result<H256> {
-    Ok(if storage.is_empty() {
-        EMPTY_ROOT
-    } else {
-        trie_root(storage.iter().map(|entry| (&entry[..32], &entry[32..])))
-    })
+trait CollectToTrie {
+    fn collect(&mut self, key: Vec<u8>, value: Vec<u8>);
+}
+
+struct StateTrieCollector<'co> {
+    collector: &'co mut Collector<tables::TrieAccount>,
+}
+
+impl<'co> CollectToTrie for StateTrieCollector<'co> {
+    fn collect(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.collector.collect(Entry::new(key, value));
+    }
+}
+
+struct StorageTrieCollector<'co> {
+    collector: &'co mut Collector<tables::TrieStorage>,
+    path_prefix: Vec<u8>,
+}
+
+impl<'co> StorageTrieCollector<'co> {
+    fn new(collector: &'co mut Collector<tables::TrieStorage>, path_prefix: Vec<u8>) -> Self {
+        Self {
+            collector,
+            path_prefix,
+        }
+    }
+}
+
+impl<'co> CollectToTrie for StorageTrieCollector<'co> {
+    fn collect(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        let mut full_key = self.path_prefix.clone();
+        full_key.extend_from_slice(&key);
+        self.collector.collect(Entry::new(full_key, value));
+    }
+}
+
+struct TrieBuilder<C>
+where
+    C: CollectToTrie,
+{
+    in_progress: BTreeMap<Vec<u8>, NodeInProgress>,
+    visited: Vec<u8>,
+    last_prefix_length: usize,
+    collect: C,
+}
+
+impl<C> TrieBuilder<C>
+where
+    C: CollectToTrie,
+{
+    fn new(collect: C) -> Self {
+        Self {
+            in_progress: BTreeMap::new(),
+            visited: vec![],
+            last_prefix_length: 63,
+            collect,
+        }
+    }
+
+    fn add_branch(
+        &mut self,
+        at: Vec<u8>,
+        slot: u8,
+        key_part: Vec<u8>,
+        data: Vec<u8>,
+        is_leaf: bool,
+    ) {
+        if let Some(node) = self.in_progress.get_mut(&at) {
+            node.set(slot, key_part, data, is_leaf);
+        } else {
+            let new_node = NodeInProgress::new_with_branch(slot, key_part, data, is_leaf);
+            self.in_progress.insert(at, new_node);
+        }
+    }
+
+    fn node_in_range(&mut self, prev_key: &[u8]) -> Option<(Vec<u8>, NodeInProgress)> {
+        if let Some(key) = self.in_progress.keys().last() {
+            if key.as_slice() > prev_key {
+                return self.in_progress.pop_last();
+            }
+        }
+        None
+    }
+
+    fn prefix_length(&mut self, current_key: &[u8], prev_key: &[u8]) -> usize {
+        if prev_key.is_empty() {
+            return self.last_prefix_length;
+        }
+        let mut i = 0;
+        while current_key[i] == prev_key[i] {
+            i += 1;
+        }
+        let length = cmp::max(i, self.last_prefix_length);
+        self.last_prefix_length = i;
+        length
+    }
+
+    fn visit_leaf(&mut self, key: &[u8], data: Vec<u8>, prefix_length: usize) {
+        let prefix_length = if prefix_length < 63 {
+            prefix_length + 1
+        } else {
+            prefix_length
+        };
+        let prefix = key[..prefix_length].to_vec();
+        let infix = key[prefix_length];
+        let suffix = key[prefix_length + 1..].to_vec();
+        self.add_branch(prefix, infix, suffix, data, true);
+    }
+
+    fn finalize_branch_node(&mut self, key: &[u8], node: &NodeInProgress) -> Vec<u8> {
+        let branch_node = BranchNode::from(node);
+        let serialized = branch_node.serialize();
+        self.collect.collect(key.to_vec(), serialized);
+        branch_node.hash_or_self()
+    }
+
+    fn visit_node(&mut self, key: Vec<u8>, mut node: NodeInProgress) {
+        let mut parent_key = key.clone();
+        let parent_slot = parent_key.pop().unwrap();
+        if node.is_branch_node() {
+            let hash = self.finalize_branch_node(&key, &node);
+            self.add_branch(parent_key, parent_slot, vec![], hash, false);
+        } else {
+            let BranchInProgress {
+                slot,
+                mut key_part,
+                data,
+                is_leaf,
+            } = node.get_single_branch();
+            key_part.insert(0, slot);
+            self.add_branch(parent_key, parent_slot, key_part, data, is_leaf);
+        }
+    }
+
+    fn handle_range(&mut self, current_key: &[u8], current_value: Vec<u8>, prev_key: &[u8]) {
+        let prefix_length = self.prefix_length(current_key, prev_key);
+        self.visit_leaf(current_key, current_value, prefix_length);
+        while let Some((key, node)) = self.node_in_range(prev_key) {
+            self.visit_node(key, node);
+        }
+    }
+
+    fn get_root(&mut self) -> H256 {
+        if let Some(root_node) = self.in_progress.get_mut(&vec![]) {
+            if root_node.is_branch_node() {
+                BranchNode::from(root_node).hash()
+            } else {
+                root_node.get_root_branch().hash()
+            }
+        } else {
+            EMPTY_ROOT
+        }
+    }
+}
+
+fn build_storage_trie(
+    collector: &mut Collector<tables::TrieStorage>,
+    path_prefix: Vec<u8>,
+    storage: &[Vec<u8>],
+) -> H256 {
+    if storage.is_empty() {
+        return EMPTY_ROOT;
+    }
+
+    let wrapped_collector = StorageTrieCollector::new(collector, path_prefix);
+    let mut builder = TrieBuilder::new(wrapped_collector);
+
+    let mut storage_iter = storage.iter().rev();
+    let mut current = storage_iter.next();
+
+    while let Some(ref mut item) = current {
+        let current_value = item[32..].to_vec();
+        let current_key = to_nibbles(&item[..32]);
+        let prev = storage_iter.next();
+
+        let prev_key = if let Some(prev_item) = prev {
+            to_nibbles(&prev_item[..32])
+        } else {
+            vec![]
+        };
+
+        let data = rlp::encode(&current_value).to_vec();
+
+        builder.handle_range(&current_key, data, &prev_key);
+
+        current = prev;
+    }
+
+    builder.get_root()
 }
 
 struct GenerateWalker<'db: 'tx, 'tx: 'co, 'co, RwTx>
@@ -205,10 +424,8 @@ where
 {
     cursor: RwTx::Cursor<'tx, tables::HashedAccount>,
     storage_cursor: RwTx::CursorDupSort<'tx, tables::HashedStorage>,
-    collector: &'co mut Collector<tables::TrieAccount>,
-    in_progress: BTreeMap<Vec<u8>, NodeInProgress>,
-    visited: Vec<u8>,
-    last_prefix_length: usize,
+    trie_builder: TrieBuilder<StateTrieCollector<'co>>,
+    storage_collector: &'co mut Collector<tables::TrieStorage>,
 }
 
 impl<'db: 'tx, 'tx: 'co, 'co, RwTx> GenerateWalker<'db, 'tx, 'co, RwTx>
@@ -218,6 +435,7 @@ where
     async fn new(
         tx: &'tx mut RwTx,
         collector: &'co mut Collector<tables::TrieAccount>,
+        storage_collector: &'co mut Collector<tables::TrieStorage>,
     ) -> anyhow::Result<GenerateWalker<'db, 'tx, 'co, RwTx>>
     where
         RwTx: MutableTransaction<'db>,
@@ -225,16 +443,13 @@ where
         let mut cursor = tx.cursor(&tables::HashedAccount).await?;
         let storage_cursor = tx.cursor_dup_sort(&tables::HashedStorage).await?;
         cursor.last().await?;
-        let in_progress = Default::default();
-        let visited = vec![];
+        let trie_builder = TrieBuilder::new(StateTrieCollector { collector });
 
         Ok(GenerateWalker {
             cursor,
             storage_cursor,
-            collector,
-            in_progress,
-            visited,
-            last_prefix_length: 63,
+            trie_builder,
+            storage_collector,
         })
     }
 
@@ -264,19 +479,6 @@ where
         self.do_get_prev_account(init_value).await
     }
 
-    fn visit_account(&mut self, key: &Vec<u8>, account: &RlpAccount, prefix_length: usize) {
-        let data = rlp::encode(account).to_vec();
-        let prefix_length = if prefix_length < 63 {
-            prefix_length + 1
-        } else {
-            prefix_length
-        };
-        let prefix = key[..prefix_length].to_vec();
-        let infix = key[prefix_length];
-        let suffix = key[prefix_length + 1..].to_vec();
-        self.add_branch(prefix, infix, suffix, data, true);
-    }
-
     async fn storage_for_account(&mut self, key: Vec<u8>) -> anyhow::Result<Vec<Vec<u8>>> {
         let mut storage = Vec::<Vec<u8>>::new();
         let mut found = self.storage_cursor.seek(key).await?;
@@ -293,105 +495,30 @@ where
         incarnation: &Incarnation,
     ) -> anyhow::Result<H256> {
         let key = storage_seek_key(address_hash, incarnation);
-        let storage = self.storage_for_account(key).await?;
-        Ok(storage_root(storage)?)
+        let storage = self.storage_for_account(key.clone()).await?;
+        let storage_root = build_storage_trie(self.storage_collector, key, &storage);
+        Ok(storage_root)
     }
 
-    fn add_branch(
-        &mut self,
-        at: Vec<u8>,
-        slot: u8,
-        key_part: Vec<u8>,
-        data: Vec<u8>,
-        is_leaf: bool,
-    ) {
-        if let Some(node) = self.in_progress.get_mut(&at) {
-            node.set(slot, key_part, data, is_leaf);
-        } else {
-            let new_node = NodeInProgress::new_with_branch(slot, key_part, data, is_leaf);
-            self.in_progress.insert(at, new_node);
-        }
-    }
-
-    fn finalize_branch_node(&mut self, key: &[u8], node: &NodeInProgress) -> H256 {
-        let branch_node = BranchNode::from(node);
-        let serialized = branch_node.serialize();
-        self.collector.collect(Entry::new(key.to_vec(), serialized));
-        branch_node.hash()
-    }
-
-    fn visit_node(&mut self, key: Vec<u8>, node: NodeInProgress) {
-        let mut parent_key = key.clone();
-        let slot = parent_key.pop().unwrap();
-        if node.is_branch_node() {
-            let hash = self.finalize_branch_node(&key, &node);
-            let hash = hash.as_ref().to_vec();
-            self.add_branch(parent_key, slot, vec![], hash, false);
-        } else {
-            let branch = node.get_single_branch();
-            let mut key_part = branch.key_part.clone();
-            key_part.insert(0, branch.slot);
-            self.add_branch(
-                parent_key,
-                slot,
-                key_part,
-                branch.data.clone(),
-                branch.is_leaf,
-            );
-        }
-    }
-
-    fn node_in_range(&mut self, prev_key: &Vec<u8>) -> Option<(Vec<u8>, NodeInProgress)> {
-        if let Some(key) = self.in_progress.keys().last() {
-            if key > prev_key {
-                return self.in_progress.pop_last();
-            }
-        }
-        None
-    }
-
-    fn prefix_length(&mut self, current_key: &[u8], prev_key: &[u8]) -> usize {
-        if prev_key.is_empty() {
-            return self.last_prefix_length;
-        }
-        let mut i = 0;
-        while current_key[i] == prev_key[i] {
-            i += 1;
-        }
-        let length = cmp::max(i, self.last_prefix_length);
-        self.last_prefix_length = i;
-        length
-    }
-
-    fn handle_range(&mut self, current_key: &Vec<u8>, account: &RlpAccount, prev_key: &Vec<u8>) {
-        let prefix_length = self.prefix_length(current_key, prev_key);
-        self.visit_account(&current_key, account, prefix_length);
-        while let Some((key, node)) = self.node_in_range(&prev_key) {
-            self.visit_node(key, node);
-        }
+    fn handle_range(&mut self, current_key: &[u8], account: &RlpAccount, prev_key: &[u8]) {
+        self.trie_builder
+            .handle_range(current_key, rlp::encode(account).to_vec(), prev_key);
     }
 
     fn get_root(&mut self) -> H256 {
-        if let Some(root_node) = self.in_progress.get_mut(&vec![]) {
-            if root_node.is_branch_node() {
-                BranchNode::from(root_node).hash()
-            } else {
-                root_node.get_root_branch().hash()
-            }
-        } else {
-            EMPTY_ROOT
-        }
+        self.trie_builder.get_root()
     }
 }
 
 async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(
     tx: &mut RwTx,
     collector: &mut Collector<tables::TrieAccount>,
+    storage_collector: &mut Collector<tables::TrieStorage>,
 ) -> anyhow::Result<H256>
 where
     RwTx: MutableTransaction<'db>,
 {
-    let mut walker = GenerateWalker::new(tx, collector).await?;
+    let mut walker = GenerateWalker::new(tx, collector, storage_collector).await?;
     let mut current = walker.get_last_account().await?;
 
     while let Some(value) = current {
@@ -448,9 +575,10 @@ where
 
         if prev_progress > past_progress {
             let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+            let mut storage_collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
             let _trie_root = if past_progress == BlockNumber(0) {
-                generate_interhashes(tx, &mut collector)
+                generate_interhashes(tx, &mut collector, &mut storage_collector)
                     .await
                     .with_context(|| "Failed to generate interhashes")?
             } else {
@@ -460,7 +588,9 @@ where
             };
 
             let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
-            collector.load(&mut write_cursor).await?
+            collector.load(&mut write_cursor).await?;
+            let mut storage_write_cursor = tx.mutable_cursor(&tables::TrieStorage.erased()).await?;
+            storage_collector.load(&mut storage_write_cursor).await?
         };
 
         info!("Processed");
@@ -486,7 +616,7 @@ mod tests {
     use super::*;
     use crate::{
         crypto::trie_root,
-        kv::traits::{MutableCursor, MutableKV, Transaction},
+        kv::traits::{MutableCursor, MutableKV},
         models::EMPTY_HASH,
         new_mem_database,
     };
@@ -560,7 +690,8 @@ mod tests {
         let mut tx = db.begin_mutable().await.unwrap();
 
         let mut _collector = Collector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
-        let root = generate_interhashes(&mut tx, &mut _collector)
+        let mut _storage_collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+        let root = generate_interhashes(&mut tx, &mut _collector, &mut _storage_collector)
             .await
             .unwrap();
         assert_eq!(root, expected);
@@ -634,14 +765,62 @@ mod tests {
         do_root_matches(accounts).await;
     }
 
-    fn branch_hash_sets() -> impl Strategy<Value = Vec<Option<H256>>> {
-        prop::collection::vec(prop::option::of(h256s()), 16)
+    type Storage = BTreeMap<H256, Vec<u8>>;
+
+    fn account_storages() -> impl Strategy<Value = Storage> {
+        prop::collection::btree_map(
+            h256s(),
+            prop::collection::vec(any::<u8>(), 1..=32).prop_filter(
+                "Storage values are represented with no leading zeroes.",
+                |v| v[0] != 0,
+            ),
+            0..100,
+        )
+    }
+
+    fn expected_storage_root(storage: Storage) -> H256 {
+        if storage.is_empty() {
+            EMPTY_ROOT
+        } else {
+            trie_root(
+                storage
+                    .iter()
+                    .map(|(k, v)| (k.to_fixed_bytes(), rlp::encode(v))),
+            )
+        }
+    }
+
+    fn do_storage_root_matches(storage: Storage, path_prefix: Vec<u8>) {
+        let mut _collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut vec_storage = vec![];
+        for (k, v) in &storage {
+            let mut kv = k.to_fixed_bytes().to_vec();
+            kv.append(&mut v.clone());
+            vec_storage.push(kv);
+        }
+        let actual = build_storage_trie(&mut _collector, path_prefix, &vec_storage);
+        let expected = expected_storage_root(storage);
+        assert_eq!(expected, actual);
     }
 
     proptest! {
         #[test]
-        fn branch_node_roundtrip(hash_set in branch_hash_sets()) {
-            let node = BranchNode::new_with_hashes(hash_set);
+        fn storage_root_matches(
+            storage in account_storages(),
+            path_prefix in prop::collection::vec(any::<u8>(), 40)
+        ) {
+            do_storage_root_matches(storage, path_prefix);
+        }
+    }
+
+    fn branch_data_sets() -> impl Strategy<Value = Vec<Option<Vec<u8>>>> {
+        prop::collection::vec(prop::option::of(prop::collection::vec(any::<u8>(), 32)), 16)
+    }
+
+    proptest! {
+        #[test]
+        fn branch_node_roundtrip(data_set in branch_data_sets()) {
+            let node = BranchNode::new_with_hashes(data_set);
             let serialized = node.serialize();
             let recovered = BranchNode::deserialize(&serialized).unwrap();
             assert_eq!(node, recovered);
