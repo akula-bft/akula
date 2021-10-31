@@ -8,6 +8,7 @@ use std::pin::Pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
+#[derive(Debug)]
 pub struct SentryClientImpl {
     client: grpc_sentry::sentry_client::SentryClient<tonic::transport::channel::Channel>,
 }
@@ -101,7 +102,7 @@ impl SentryClient for SentryClientImpl {
     async fn receive_messages(
         &mut self,
         filter_ids: &[EthMessageId],
-    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<MessageFromPeer>> + Send>>> {
+    ) -> anyhow::Result<MessageFromPeerStream> {
         let grpc_ids = filter_ids
             .iter()
             .map(|id| grpc_sentry::MessageId::from(*id) as i32)

@@ -1,6 +1,7 @@
 use crate::downloader::{
     messages::{EthMessageId, Message},
     sentry_client::*,
+    sentry_client_connector,
 };
 use futures_core::{Future, Stream};
 use futures_util::{FutureExt, TryStreamExt};
@@ -8,7 +9,7 @@ use parking_lot::RwLock;
 use std::{collections::HashMap, fmt, pin::Pin, sync::Arc};
 use strum::IntoEnumIterator;
 use tokio::{
-    sync::{broadcast, mpsc},
+    sync::{broadcast, mpsc, Mutex},
     task::JoinHandle,
 };
 use tokio_stream::{
@@ -26,13 +27,13 @@ pub struct SentryClientReactor {
 }
 
 struct SentryClientReactorEventLoop {
-    sentry: Box<dyn SentryClient>,
+    sentry_connector: sentry_client_connector::SentryClientConnectorStream,
     send_message_receiver: mpsc::Receiver<SendMessageCommand>,
     receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
     stop_signal_receiver: mpsc::Receiver<()>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct SendMessageCommand {
     message: Message,
     peer_filter: PeerFilter,
@@ -53,7 +54,7 @@ impl fmt::Display for SendMessageError {
 impl std::error::Error for SendMessageError {}
 
 impl SentryClientReactor {
-    pub fn new(sentry: Box<dyn SentryClient>) -> Self {
+    pub fn new(sentry_connector: sentry_client_connector::SentryClientConnectorStream) -> Self {
         let (send_message_sender, send_message_receiver) = mpsc::channel::<SendMessageCommand>(1);
 
         let mut receive_messages_senders =
@@ -67,7 +68,7 @@ impl SentryClientReactor {
         let (stop_signal_sender, stop_signal_receiver) = mpsc::channel::<()>(1);
 
         let event_loop = SentryClientReactorEventLoop {
-            sentry,
+            sentry_connector,
             send_message_receiver,
             receive_messages_senders: Arc::clone(&receive_messages_senders),
             stop_signal_receiver,
@@ -197,6 +198,7 @@ impl Drop for SentryClientReactor {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum EventLoopStreamId {
+    Sentry,
     Send,
     Receive,
     Stop,
@@ -204,6 +206,7 @@ enum EventLoopStreamId {
 
 #[derive(Debug)]
 enum EventLoopStreamResult {
+    Sentry(Box<dyn SentryClient>),
     Send(u32),
     Receive(MessageFromPeer),
     Stop(()),
@@ -212,68 +215,139 @@ enum EventLoopStreamResult {
 type EventLoopStream = Pin<Box<dyn Stream<Item = anyhow::Result<EventLoopStreamResult>> + Send>>;
 
 // dropping this causes dropping the senders and triggers an end of stream event on the receivers end
+#[derive(Clone)]
 struct EventLoopReceiveMessagesSendersDropper {
     receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
+    is_auto: bool,
+}
+
+impl EventLoopReceiveMessagesSendersDropper {
+    pub fn disable_auto_drop(&mut self) {
+        self.is_auto = false;
+    }
+
+    pub fn force_drop(&self) {
+        self.receive_messages_senders.write().clear();
+    }
 }
 
 impl Drop for EventLoopReceiveMessagesSendersDropper {
     fn drop(&mut self) {
         // drop shared senders so that existing receive_messages() streams end
-        self.receive_messages_senders.write().clear();
+        if self.is_auto {
+            self.force_drop();
+        }
     }
 }
 
-impl SentryClientReactorEventLoop {
-    async fn run(self) -> anyhow::Result<()> {
-        let mut sentry = self.sentry;
+mod stream_factory {
+    use crate::downloader::{sentry_client::MessageFromPeerStream, sentry_client_reactor::*};
+    use tokio::sync::Mutex;
 
-        // subscribe to incoming messages
-        let mut stream = sentry.receive_messages(&[]).await?;
-        let receive_messages_senders = Arc::clone(&self.receive_messages_senders);
+    fn make_receive_stream(
+        mut stream: MessageFromPeerStream,
+        mut receive_messages_senders_dropper: EventLoopReceiveMessagesSendersDropper,
+    ) -> EventLoopStream {
+        receive_messages_senders_dropper.disable_auto_drop();
+
         let receive_stream = async_stream::stream! {
-            // When the stream ends (this normally happens during tests)
-            // we need to ensure unblocking the subscribers which called receive_messages().
-            let _receive_messages_senders_dropper = EventLoopReceiveMessagesSendersDropper { receive_messages_senders };
-
             while let Some(message_result) = stream.next().await {
                 yield message_result;
             }
 
             debug!("SentryClientReactor.EventLoop receive_messages stream ended");
-        };
 
-        // When the reactor loop stops/aborts (e.g. after calling stop())
-        // we need to ensure unblocking the subscribers which called receive_messages().
-        let _receive_messages_senders_dropper = EventLoopReceiveMessagesSendersDropper {
-            receive_messages_senders: Arc::clone(&self.receive_messages_senders),
+            // When the stream ends (this normally happens during tests)
+            // we need to ensure unblocking the subscribers which called receive_messages().
+            receive_messages_senders_dropper.force_drop();
         };
+        Box::pin(receive_stream.map_ok(EventLoopStreamResult::Receive))
+    }
 
-        let mut send_message_receiver = self.send_message_receiver;
+    fn make_send_stream(
+        send_message_receiver: Arc<Mutex<mpsc::Receiver<SendMessageCommand>>>,
+        mut sentry: Box<dyn SentryClient>,
+    ) -> EventLoopStream {
         let send_stream = async_stream::stream! {
-            while let Some(command) = send_message_receiver.recv().await {
+            let receiver_lock_result = send_message_receiver.try_lock();
+            if receiver_lock_result.is_err() {
+                error!("SentryClientReactor.EventLoop send_stream failed to access send_message_receiver");
+                assert!(false);
+                return;
+            }
+
+            let mut receiver = receiver_lock_result.ok().unwrap();
+            while let Some(command) = receiver.recv().await {
                 let send_result = sentry.send_message(command.message, command.peer_filter).await;
                 yield send_result;
             }
         };
+        Box::pin(send_stream.map_ok(EventLoopStreamResult::Send))
+    }
 
-        let stop_stream = ReceiverStream::new(self.stop_signal_receiver);
+    pub(super) async fn make_sentry_streams(
+        mut sentry: Box<dyn SentryClient>,
+        send_message_receiver: Arc<Mutex<mpsc::Receiver<SendMessageCommand>>>,
+        receive_messages_senders_dropper: EventLoopReceiveMessagesSendersDropper,
+    ) -> anyhow::Result<(EventLoopStream, EventLoopStream)> {
+        // subscribe to incoming messages
+        let stream = sentry.receive_messages(&[]).await?;
+        let receive_stream = make_receive_stream(stream, receive_messages_senders_dropper);
+
+        let send_stream = make_send_stream(send_message_receiver, sentry);
+        Ok((send_stream, receive_stream))
+    }
+}
+
+impl SentryClientReactorEventLoop {
+    async fn run(self) -> anyhow::Result<()> {
+        // When the reactor loop stops/aborts (e.g. after calling stop())
+        // we need to ensure unblocking the subscribers which called receive_messages().
+        let receive_messages_senders_dropper = EventLoopReceiveMessagesSendersDropper {
+            receive_messages_senders: Arc::clone(&self.receive_messages_senders),
+            is_auto: true,
+        };
+
+        let send_message_receiver = Arc::new(Mutex::new(self.send_message_receiver));
+
+        let stop_stream = Box::pin(
+            ReceiverStream::new(self.stop_signal_receiver)
+                .map(|result| Ok(EventLoopStreamResult::Stop(result))),
+        );
+
+        let sentry_stream = Box::pin(self.sentry_connector.map_ok(EventLoopStreamResult::Sentry));
+        let mut sentry_stream_holder = Option::<EventLoopStream>::None;
 
         let mut stream = StreamMap::<EventLoopStreamId, EventLoopStream>::new();
-        stream.insert(
-            EventLoopStreamId::Send,
-            Box::pin(send_stream.map_ok(EventLoopStreamResult::Send)),
-        );
-        stream.insert(
-            EventLoopStreamId::Receive,
-            Box::pin(receive_stream.map_ok(EventLoopStreamResult::Receive)),
-        );
-        stream.insert(
-            EventLoopStreamId::Stop,
-            Box::pin(stop_stream.map(|result| Ok(EventLoopStreamResult::Stop(result)))),
-        );
+        stream.insert(EventLoopStreamId::Sentry, sentry_stream);
+        stream.insert(EventLoopStreamId::Stop, stop_stream);
 
         while let Some((stream_id, result)) = stream.next().await {
             match stream_id {
+                EventLoopStreamId::Sentry => match result {
+                    Ok(EventLoopStreamResult::Sentry(sentry)) => {
+                        // we have a working sentry, put on hold waiting for more sentries
+                        sentry_stream_holder =
+                            Some(stream.remove(&EventLoopStreamId::Sentry).unwrap());
+
+                        let (send_stream, receive_stream) = stream_factory::make_sentry_streams(
+                            sentry,
+                            send_message_receiver.clone(),
+                            receive_messages_senders_dropper.clone(),
+                        )
+                        .await?;
+
+                        stream.insert(EventLoopStreamId::Send, send_stream);
+                        stream.insert(EventLoopStreamId::Receive, receive_stream);
+                    }
+                    Ok(_) => panic!("unexpected result {:?}", result),
+                    Err(error) => {
+                        error!(
+                            "SentryClientReactor.EventLoop sentry connector error: {}",
+                            error
+                        );
+                    }
+                },
                 EventLoopStreamId::Send => {
                     // process an outgoing message that has been just sent
                     match result {
@@ -289,6 +363,19 @@ impl SentryClientReactorEventLoop {
                                 "SentryClientReactor.EventLoop sentry.send_message error: {}",
                                 error
                             );
+                            if sentry_client_connector::is_disconnect_error(&error) {
+                                info!("SentryClientReactor.EventLoop reconnecting sentry streams");
+                                stream.remove(&EventLoopStreamId::Send);
+                                stream.remove(&EventLoopStreamId::Receive);
+                                match sentry_stream_holder.take() {
+                                    Some(sentry_stream) => {
+                                        stream.insert(EventLoopStreamId::Sentry, sentry_stream);
+                                    }
+                                    None => {
+                                        error!("SentryClientReactor.EventLoop unexpected sentry_stream_holder - None");
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -319,9 +406,17 @@ impl SentryClientReactorEventLoop {
                                 "SentryClientReactor.EventLoop receive message error: {}",
                                 error
                             );
-                            if let Some(io_error) = error.downcast_ref::<std::io::Error>() {
-                                if io_error.kind() == std::io::ErrorKind::BrokenPipe {
-                                    info!("SentryClientReactor.EventLoop TODO: need to reconnect in_stream");
+                            if sentry_client_connector::is_disconnect_error(&error) {
+                                info!("SentryClientReactor.EventLoop reconnecting sentry streams");
+                                stream.remove(&EventLoopStreamId::Send);
+                                stream.remove(&EventLoopStreamId::Receive);
+                                match sentry_stream_holder.take() {
+                                    Some(sentry_stream) => {
+                                        stream.insert(EventLoopStreamId::Sentry, sentry_stream);
+                                    }
+                                    None => {
+                                        error!("SentryClientReactor.EventLoop unexpected sentry_stream_holder - None");
+                                    }
                                 }
                             }
                         }
