@@ -59,7 +59,7 @@ jobs:
           repository: ethereum/tests
           submodules: recursive
           path: ethereum-tests
-          ref: '9.0.5'
+          ref: '10.1.0'
 
       - run: |
           env RUST_LOG=error cargo run --release --bin consensus-tests -- --tests="./ethereum-tests"
