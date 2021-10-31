@@ -11,7 +11,7 @@ use crate::{
         opts::Opts,
         sentry_client,
         sentry_client::SentryClient,
-        sentry_client_impl::SentryClientImpl,
+        sentry_client_connector,
         sentry_client_reactor::SentryClientReactor,
     },
     kv,
@@ -53,14 +53,17 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
             max_block: 0,
         };
 
+        let sentry_api_addr = self.opts.sentry_api_addr.clone();
         let mut sentry_client = match sentry_client_opt {
             Some(v) => v,
-            None => Box::new(SentryClientImpl::new(self.opts.sentry_api_addr.clone()).await?),
+            None => sentry_client_connector::connect(sentry_api_addr.clone()).await?,
         };
 
         sentry_client.set_status(status).await?;
 
-        let mut sentry_reactor = SentryClientReactor::new(sentry_client);
+        let sentry_connector =
+            sentry_client_connector::make_connector_stream(sentry_client, sentry_api_addr);
+        let mut sentry_reactor = SentryClientReactor::new(sentry_connector);
         sentry_reactor.start()?;
 
         let mut ui_system = crate::downloader::ui_system::UISystem::new();

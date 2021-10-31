@@ -7,6 +7,7 @@ pub mod messages;
 pub mod opts;
 pub mod sentry_address;
 pub mod sentry_client;
+mod sentry_client_connector;
 pub mod sentry_client_impl;
 mod sentry_client_mock;
 
