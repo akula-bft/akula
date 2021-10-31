@@ -1,4 +1,7 @@
-use crate::{crypto::is_valid_signature, util::*};
+use crate::{
+    crypto::{is_valid_signature, TrieEncode},
+    util::*,
+};
 use bytes::{BufMut, Bytes, BytesMut};
 use derive_more::Deref;
 use educe::Educe;
@@ -404,8 +407,10 @@ impl Transaction {
             }
         }
     }
+}
 
-    pub fn encode(&self) -> Bytes {
+impl TrieEncode for Transaction {
+    fn trie_encode(&self) -> Bytes {
         let mut s = RlpStream::new();
         self.encode_inner(&mut s, true);
         s.out().freeze()
@@ -636,7 +641,7 @@ impl TransactionMessage {
 
 impl Transaction {
     pub fn hash(&self) -> H256 {
-        H256::from_slice(Keccak256::digest(&self.encode()).as_slice())
+        H256::from_slice(Keccak256::digest(&self.trie_encode()).as_slice())
     }
 
     pub fn v(&self) -> u8 {

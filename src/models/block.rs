@@ -35,7 +35,7 @@ impl Block {
     }
 
     pub fn transactions_root<I: IntoIterator<Item = T>, T: Borrow<Transaction>>(iter: I) -> H256 {
-        ordered_trie_root(iter.into_iter().map(|r| r.borrow().encode()))
+        ordered_trie_root(iter.into_iter().map(|r| r.borrow().trie_encode()))
     }
 }
 
