@@ -335,7 +335,7 @@ macro_rules! rlp_standalone_table_object {
 
         impl TableDecode for $ty {
             fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(rlp::decode(b)?)
+                Ok(Self::trie_decode(b)?)
             }
         }
     };

@@ -417,6 +417,123 @@ impl TrieEncode for Transaction {
     }
 }
 
+impl Transaction {
+    pub fn trie_decode(slice: &[u8]) -> Result<Transaction, DecoderError> {
+        let first = *slice.get(0).ok_or(DecoderError::Custom("empty slice"))?;
+
+        if first == 0x01 {
+            let s = slice.get(1..).ok_or(DecoderError::Custom("no tx body"))?;
+            let rlp = Rlp::new(s);
+            if rlp.item_count()? != 11 {
+                return Err(DecoderError::RlpIncorrectListLen);
+            }
+
+            return Ok(Self {
+                message: TransactionMessage::EIP2930 {
+                    chain_id: rlp.val_at(0)?,
+                    nonce: rlp.val_at(1)?,
+                    gas_price: rlp.val_at(2)?,
+                    gas_limit: rlp.val_at(3)?,
+                    action: rlp.val_at(4)?,
+                    value: rlp.val_at(5)?,
+                    input: rlp.val_at::<Vec<u8>>(6)?.into(),
+                    access_list: rlp.list_at(7)?,
+                },
+                signature: TransactionSignature::new(
+                    rlp.val_at(8)?,
+                    {
+                        let mut rarr = [0_u8; 32];
+                        rlp.val_at::<U256>(9)?.to_big_endian(&mut rarr);
+                        H256::from(rarr)
+                    },
+                    {
+                        let mut sarr = [0_u8; 32];
+                        rlp.val_at::<U256>(10)?.to_big_endian(&mut sarr);
+                        H256::from(sarr)
+                    },
+                )
+                .ok_or(DecoderError::Custom("Invalid transaction signature format"))?,
+            });
+        }
+
+        if first == 0x02 {
+            let s = slice.get(1..).ok_or(DecoderError::Custom("no tx body"))?;
+            let rlp = Rlp::new(s);
+            if rlp.item_count()? != 12 {
+                return Err(DecoderError::RlpIncorrectListLen);
+            }
+
+            return Ok(Self {
+                message: TransactionMessage::EIP1559 {
+                    chain_id: rlp.val_at(0)?,
+                    nonce: rlp.val_at(1)?,
+                    max_priority_fee_per_gas: rlp.val_at(2)?,
+                    max_fee_per_gas: rlp.val_at(3)?,
+                    gas_limit: rlp.val_at(4)?,
+                    action: rlp.val_at(5)?,
+                    value: rlp.val_at(6)?,
+                    input: rlp.val_at::<Vec<u8>>(7)?.into(),
+                    access_list: rlp.list_at(8)?,
+                },
+                signature: TransactionSignature::new(
+                    rlp.val_at(9)?,
+                    {
+                        let mut rarr = [0_u8; 32];
+                        rlp.val_at::<U256>(10)?.to_big_endian(&mut rarr);
+                        H256::from(rarr)
+                    },
+                    {
+                        let mut sarr = [0_u8; 32];
+                        rlp.val_at::<U256>(11)?.to_big_endian(&mut sarr);
+                        H256::from(sarr)
+                    },
+                )
+                .ok_or(DecoderError::Custom("Invalid transaction signature format"))?,
+            });
+        }
+
+        let rlp = Rlp::new(slice);
+        if rlp.is_list() {
+            if rlp.item_count()? != 9 {
+                return Err(DecoderError::RlpIncorrectListLen);
+            }
+
+            let YParityAndChainId {
+                odd_y_parity: odd,
+                chain_id,
+            } = YParityAndChainId::from_v(rlp.val_at(6)?)
+                .ok_or(DecoderError::Custom("Invalid recovery ID"))?;
+            let r = {
+                let mut rarr = [0_u8; 32];
+                rlp.val_at::<U256>(7)?.to_big_endian(&mut rarr);
+                H256::from(rarr)
+            };
+            let s = {
+                let mut sarr = [0_u8; 32];
+                rlp.val_at::<U256>(8)?.to_big_endian(&mut sarr);
+                H256::from(sarr)
+            };
+            let signature = TransactionSignature::new(odd, r, s)
+                .ok_or(DecoderError::Custom("Invalid transaction signature format"))?;
+
+            return Ok(Self {
+                message: TransactionMessage::Legacy {
+                    chain_id,
+                    nonce: rlp.val_at(0)?,
+                    gas_price: rlp.val_at(1)?,
+                    gas_limit: rlp.val_at(2)?,
+                    action: rlp.val_at(3)?,
+                    value: rlp.val_at(4)?,
+                    input: rlp.val_at::<Vec<u8>>(5)?.into(),
+                },
+                signature,
+            });
+        }
+
+        Err(DecoderError::Custom("invalid tx type"))
+    }
+}
+
 impl Encodable for Transaction {
     fn rlp_append(&self, s: &mut RlpStream) {
         self.encode_inner(s, false);
@@ -749,6 +866,7 @@ mod tests {
             };
 
         assert_eq!(tx, rlp::decode::<Transaction>(&rlp::encode(&tx)).unwrap());
+        assert_eq!(tx, Transaction::trie_decode(&tx.trie_encode()).unwrap());
     }
 
     #[test]
@@ -791,6 +909,7 @@ mod tests {
             };
 
         assert_eq!(tx, rlp::decode::<Transaction>(&rlp::encode(&tx)).unwrap());
+        assert_eq!(tx, Transaction::trie_decode(&tx.trie_encode()).unwrap());
     }
 
     #[test]
