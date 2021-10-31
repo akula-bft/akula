@@ -141,7 +141,7 @@ pub fn canonical_difficulty(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chain::config::MAINNET_CONFIG;
+    use crate::res::genesis::MAINNET;
 
     #[test]
     fn difficulty_test_34() {
@@ -157,7 +157,7 @@ mod tests {
             parent_difficulty,
             parent_timestamp,
             parent_has_uncles,
-            &MAINNET_CONFIG,
+            &MAINNET.config,
         );
         assert_eq!(difficulty, U256::from(0x72772897b619876a_u64));
     }

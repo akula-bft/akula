@@ -315,8 +315,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        chain::config::MAINNET_CONFIG, execution::address::create_address,
-        util::test_util::run_test, InMemoryState,
+        execution::address::create_address, res::genesis::MAINNET, util::test_util::run_test,
+        InMemoryState,
     };
     use bytes::Bytes;
     use bytes_literal::bytes;
@@ -350,9 +350,9 @@ mod tests {
             };
 
             let mut state = InMemoryState::default();
-            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
+            let mut engine = engine_factory(MAINNET.config.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET.config);
 
             let receipt = processor.execute_transaction(&txn).await.unwrap();
             assert!(receipt.success);
@@ -388,9 +388,9 @@ mod tests {
             let block = Default::default();
 
             let mut state = InMemoryState::default();
-            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
+            let mut engine = engine_factory(MAINNET.config.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET.config);
 
             processor
                 .state
@@ -443,13 +443,13 @@ mod tests {
             // 23     BALANCE
 
             let mut state = InMemoryState::default();
-            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
+            let mut engine = engine_factory(MAINNET.config.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET.config);
 
             let t = |action, input, nonce, gas_limit| TransactionWithSender {
                 message: TransactionMessage::EIP1559 {
-                    chain_id: MAINNET_CONFIG.chain_id,
+                    chain_id: MAINNET.config.chain_id,
                     nonce,
                     max_priority_fee_per_gas: U256::zero(),
                     max_fee_per_gas: U256::from(59 * GIGA),
@@ -559,9 +559,9 @@ mod tests {
             // 38     CALL
 
             let mut state = InMemoryState::default();
-            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
+            let mut engine = engine_factory(MAINNET.config.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET.config);
 
             processor
                 .state()
@@ -581,7 +581,7 @@ mod tests {
 
             let t = |action, input, nonce| TransactionWithSender {
                 message: TransactionMessage::EIP1559 {
-                    chain_id: MAINNET_CONFIG.chain_id,
+                    chain_id: MAINNET.config.chain_id,
                     nonce,
                     max_priority_fee_per_gas: U256::from(20 * GIGA),
                     max_fee_per_gas: U256::from(20 * GIGA),
@@ -659,7 +659,7 @@ mod tests {
 
             let txn = TransactionWithSender{
                 message: TransactionMessage::EIP1559 {
-                    chain_id: MAINNET_CONFIG.chain_id,
+                    chain_id: MAINNET.config.chain_id,
                     nonce,
                     max_priority_fee_per_gas: 0.into(),
                     max_fee_per_gas: U256::from(20 * GIGA),
@@ -674,9 +674,9 @@ mod tests {
                 sender: caller,
             };
 
-            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
+            let mut engine = engine_factory(MAINNET.config.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET.config);
             processor
                 .state()
                 .add_to_balance(caller, *ETHER)
@@ -714,7 +714,7 @@ mod tests {
 
             let txn = TransactionWithSender {
                 message: TransactionMessage::EIP1559 {
-                    chain_id: MAINNET_CONFIG.chain_id,
+                    chain_id: MAINNET.config.chain_id,
                     nonce: 0,
                     max_priority_fee_per_gas: U256::zero(),
                     max_fee_per_gas: U256::from(30 * GIGA),
@@ -730,9 +730,9 @@ mod tests {
             };
 
             let mut state = InMemoryState::default();
-            let mut engine = engine_factory(MAINNET_CONFIG.clone()).unwrap();
+            let mut engine = engine_factory(MAINNET.config.clone()).unwrap();
             let mut processor =
-                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET_CONFIG);
+                ExecutionProcessor::new(&mut state, &mut *engine, &header, &block, &MAINNET.config);
 
             processor
                 .state()

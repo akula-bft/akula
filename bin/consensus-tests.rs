@@ -1,10 +1,7 @@
 #![allow(clippy::suspicious_else_formatting)]
 use akula::{
-    chain::{config::*, difficulty::canonical_difficulty},
-    consensus::*,
-    crypto::keccak256,
-    models::*,
-    *,
+    chain::difficulty::canonical_difficulty, consensus::*, crypto::keccak256, models::*,
+    res::genesis, *,
 };
 use anyhow::*;
 use bytes::Bytes;
@@ -237,7 +234,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
             homestead_block: Some(0.into()),
             dao_fork: Some(DaoConfig {
                 block_number: 5.into(),
-                ..MAINNET_CONFIG.dao_fork.clone().unwrap()
+                ..genesis::MAINNET.config.dao_fork.clone().unwrap()
             }),
             ..ChainConfig::default()
         },
@@ -294,17 +291,17 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
 
 pub static DIFFICULTY_CONFIG: Lazy<HashMap<String, ChainConfig>> = Lazy::new(|| {
     hashmap! {
-        "difficulty.json".to_string() => MAINNET_CONFIG.clone(),
+        "difficulty.json".to_string() => genesis::MAINNET.config.clone(),
         "difficultyByzantium.json".to_string() => NETWORK_CONFIG[&Network::Byzantium].clone(),
         "difficultyConstantinople.json".to_string() => NETWORK_CONFIG[&Network::Constantinople].clone(),
-        "difficultyCustomMainNetwork.json".to_string() => MAINNET_CONFIG.clone(),
+        "difficultyCustomMainNetwork.json".to_string() => genesis::MAINNET.config.clone(),
         "difficultyEIP2384_random_to20M.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
         "difficultyEIP2384_random.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
         "difficultyEIP2384.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
         "difficultyFrontier.json".to_string() => NETWORK_CONFIG[&Network::Frontier].clone(),
         "difficultyHomestead.json".to_string() => NETWORK_CONFIG[&Network::Homestead].clone(),
-        "difficultyMainNetwork.json".to_string() => MAINNET_CONFIG.clone(),
-        "difficultyRopsten.json".to_string() => ROPSTEN_CONFIG.clone(),
+        "difficultyMainNetwork.json".to_string() => genesis::MAINNET.config.clone(),
+        "difficultyRopsten.json".to_string() => genesis::ROPSTEN.config.clone(),
     }
 });
 

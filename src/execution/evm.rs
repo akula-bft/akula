@@ -585,7 +585,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{chain::config::MAINNET_CONFIG, util::test_util::run_test, InMemoryState};
+    use crate::{res::genesis::MAINNET, util::test_util::run_test, InMemoryState};
     use bytes_literal::bytes;
     use hex_literal::hex;
 
@@ -595,7 +595,7 @@ mod tests {
         txn: &TransactionWithSender,
         gas: u64,
     ) -> CallResult {
-        super::execute(state, header, &MAINNET_CONFIG, txn, gas)
+        super::execute(state, header, &MAINNET.config, txn, gas)
             .await
             .unwrap()
     }
