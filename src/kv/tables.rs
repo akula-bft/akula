@@ -383,6 +383,35 @@ impl TableDecode for Address {
     }
 }
 
+impl TableEncode for Vec<Address> {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut v = Vec::with_capacity(self.len() * ADDRESS_LENGTH);
+        for addr in self {
+            v.extend_from_slice(&addr.encode());
+        }
+
+        v
+    }
+}
+
+impl TableDecode for Vec<Address> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() % ADDRESS_LENGTH != 0 {
+            bail!("Slice len should be divisible by {}", ADDRESS_LENGTH);
+        }
+
+        let mut v = Vec::with_capacity(b.len() / ADDRESS_LENGTH);
+        for i in 0..b.len() / ADDRESS_LENGTH {
+            let offset = i * ADDRESS_LENGTH;
+            v.push(Address::decode(&b[offset..offset + ADDRESS_LENGTH])?);
+        }
+
+        Ok(v)
+    }
+}
+
 impl TableEncode for H256 {
     type Encoded = [u8; KECCAK_LENGTH];
 
@@ -1006,7 +1035,7 @@ decl_table!(CallToIndex => Vec<u8> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => H256 => ChainConfig);
 decl_table!(SyncStage => StageId => BlockNumber);
-decl_table!(TxSender => TxIndex => Address);
+decl_table!(TxSender => HeaderKey => Vec<Address>);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
 decl_table!(Sequence => Vec<u8> => Vec<u8>);
