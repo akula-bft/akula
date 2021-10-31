@@ -297,10 +297,6 @@ impl State for InMemoryState {
         Ok(None)
     }
 
-    async fn insert_receipts(&mut self, _: BlockNumber, _: Vec<Receipt>) -> anyhow::Result<()> {
-        Ok(())
-    }
-
     /// State changes
     /// Change sets are backward changes of the state, i.e. account/storage values _at the beginning of a block_.
 

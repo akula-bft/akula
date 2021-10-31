@@ -328,8 +328,6 @@ bincode_table_object!(U256);
 bincode_table_object!(BodyForStorage);
 bincode_table_object!(BlockHeader);
 bincode_table_object!(Transaction);
-bincode_table_object!(Vec<crate::models::Receipt>);
-bincode_table_object!(Vec<crate::models::Log>);
 
 macro_rules! json_table_object {
     ($ty:ident) => {
@@ -983,8 +981,6 @@ decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
-decl_table!(Receipt => BlockNumber => Vec<crate::models::Receipt>);
-decl_table!(TransactionLog => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
@@ -1034,8 +1030,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         HeadersTotalDifficulty::const_db_name() => TableInfo::default(),
         BlockBody::const_db_name() => TableInfo::default(),
         BlockTransaction::const_db_name() => TableInfo::default(),
-        Receipt::const_db_name() => TableInfo::default(),
-        TransactionLog::const_db_name() => TableInfo::default(),
         LogTopicIndex::const_db_name() => TableInfo::default(),
         LogAddressIndex::const_db_name() => TableInfo::default(),
         CallTraceSet::const_db_name() => TableInfo {

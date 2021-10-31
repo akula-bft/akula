@@ -7,7 +7,7 @@ use crate::{
         },
         traits::*,
     },
-    models::{Receipt, *},
+    models::*,
     state::database::*,
     MutableTransaction, State, Transaction,
 };
@@ -48,8 +48,6 @@ where
     incarnations: BTreeMap<Address, Incarnation>,
     hash_to_code: BTreeMap<H256, Bytes>,
     storage_prefix_to_code_hash: BTreeMap<(Address, Incarnation), H256>,
-    receipts: BTreeMap<BlockNumber, Vec<Receipt>>,
-    logs: BTreeMap<(BlockNumber, TxIndex), Vec<Log>>,
 
     // Current block stuff
     block_number: BlockNumber,
@@ -78,8 +76,6 @@ where
             incarnations: Default::default(),
             hash_to_code: Default::default(),
             storage_prefix_to_code_hash: Default::default(),
-            receipts: Default::default(),
-            logs: Default::default(),
             block_number: Default::default(),
             changed_storage: Default::default(),
         }
@@ -186,23 +182,6 @@ where
         block_hash: H256,
     ) -> anyhow::Result<Option<U256>> {
         accessors::chain::td::read(self.txn, block_hash, block_number).await
-    }
-
-    async fn insert_receipts(
-        &mut self,
-        block_number: BlockNumber,
-        receipts: Vec<Receipt>,
-    ) -> anyhow::Result<()> {
-        for (i, receipt) in receipts.iter().enumerate() {
-            if !receipt.logs.is_empty() {
-                self.logs
-                    .insert((block_number, TxIndex(i as u64)), receipt.logs.clone());
-            }
-        }
-
-        self.receipts.insert(block_number, receipts);
-
-        Ok(())
     }
 
     /// State changes
@@ -404,16 +383,6 @@ where
                     }
                 }
             }
-        }
-
-        let mut receipt_table = self.txn.mutable_cursor(&tables::Receipt).await?;
-        for entry in self.receipts {
-            receipt_table.upsert(entry).await?;
-        }
-
-        let mut log_table = self.txn.mutable_cursor(&tables::TransactionLog).await?;
-        for entry in self.logs {
-            log_table.upsert(entry).await?;
         }
 
         Ok(())

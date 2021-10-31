@@ -46,12 +46,6 @@ pub trait State: Debug + Send + Sync {
         block_hash: H256,
     ) -> anyhow::Result<Option<U256>>;
 
-    async fn insert_receipts(
-        &mut self,
-        block_number: BlockNumber,
-        receipts: Vec<Receipt>,
-    ) -> anyhow::Result<()>;
-
     /// State changes
     /// Change sets are backward changes of the state, i.e. account/storage values _at the beginning of a block_.
 

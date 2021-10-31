@@ -8,7 +8,6 @@ use crate::{
         stage::{ExecOutput, Stage, StageInput},
         stages::EXECUTION,
     },
-    state::State,
     Buffer, MutableTransaction,
 };
 use anyhow::{anyhow, Context};
@@ -49,7 +48,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             .await?
             .ok_or_else(|| anyhow!("Block body not found: {}/{:?}", block_number, block_hash))?;
 
-        let receipts = ExecutionProcessor::new(
+        ExecutionProcessor::new(
             &mut buffer,
             &mut *consensus_engine,
             &header,
@@ -78,9 +77,6 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             last_message = now;
             gas_since_last_message = 0;
         }
-
-        // TODO: implement pruning
-        buffer.insert_receipts(block_number, receipts).await?;
 
         if block_number == max_block || gas_since_start > batch_size {
             break;
