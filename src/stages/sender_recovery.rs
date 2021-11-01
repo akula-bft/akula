@@ -42,13 +42,13 @@ where
         let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let mut walker = body_cur.walk(Some(BlockNumber(highest_block.0 + 1)));
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
-        let mut recovered_senders = Vec::with_capacity(BUFFERING_FACTOR);
         let started_at = Instant::now();
         let done = loop {
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = tx_cur
                     .walk(Some(body.base_tx_id.encode().to_vec()))
                     .take(body.tx_amount)
+                    .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()
                     .await?;
                 batch.push((block_number, hash, txs));
@@ -64,27 +64,35 @@ where
                 break true;
             }
 
-            batch
+            let mut recovered_senders = batch
                 .par_drain(..)
-                .map(move |(block_number, hash, txs)| {
-                    Ok::<_, anyhow::Error>((
-                        ErasedTable::<tables::TxSender>::encode_key((block_number, hash)).to_vec(),
-                        txs.into_iter()
-                            .map(|(_, encoded_tx)| {
+                .filter_map(move |(block_number, hash, txs)| {
+                    if !txs.is_empty() {
+                        let senders = txs
+                            .into_iter()
+                            .map(|encoded_tx| {
                                 let tx = ErasedTable::<tables::BlockTransaction>::decode_value(
                                     &encoded_tx,
                                 )?;
                                 let sender = tx.recover_sender()?;
                                 Ok::<_, anyhow::Error>(sender)
                             })
-                            .collect::<anyhow::Result<Vec<Address>>>()?
-                            .encode(),
-                    ))
-                })
-                .collect_into_vec(&mut recovered_senders);
+                            .collect::<anyhow::Result<Vec<Address>>>();
 
-            for res in recovered_senders.drain(..) {
-                let (db_key, db_value) = res?;
+                        Some(senders.map(|senders| {
+                            (
+                                ErasedTable::<tables::TxSender>::encode_key((block_number, hash))
+                                    .to_vec(),
+                                senders.encode(),
+                            )
+                        }))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            for (db_key, db_value) in recovered_senders.drain(..) {
                 senders_cur.append((db_key, db_value)).await?;
             }
 
