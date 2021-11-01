@@ -1,4 +1,5 @@
 use crate::{
+    accessors,
     crypto::keccak256,
     etl::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
@@ -12,7 +13,7 @@ use crate::{
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     MutableTransaction, StageId,
 };
-use anyhow::Context;
+use anyhow::*;
 use async_trait::async_trait;
 use ethereum_types::H256;
 use rlp::RlpStream;
@@ -577,7 +578,7 @@ where
             let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
             let mut storage_collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
-            let _trie_root = if past_progress == BlockNumber(0) {
+            let trie_root = if past_progress == BlockNumber(0) {
                 generate_interhashes(tx, &mut collector, &mut storage_collector)
                     .await
                     .with_context(|| "Failed to generate interhashes")?
@@ -586,6 +587,27 @@ where
                     .await
                     .with_context(|| "Failed to update interhashes")?
             };
+
+            let block_state_root = accessors::chain::header::read(
+                tx,
+                accessors::chain::canonical_hash::read(tx, past_progress)
+                    .await?
+                    .ok_or_else(|| anyhow!("No canonical hash for block {}", past_progress))?,
+                past_progress,
+            )
+            .await?
+            .ok_or_else(|| anyhow!("No header for block {}", past_progress))?
+            .state_root;
+
+            if block_state_root == trie_root {
+                info!("Block #{} state root OK: {:?}", past_progress, trie_root)
+            } else {
+                bail!(
+                    "State root mismatch: {:?} != {:?}",
+                    trie_root,
+                    block_state_root
+                )
+            }
 
             let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
             collector.load(&mut write_cursor).await?;
