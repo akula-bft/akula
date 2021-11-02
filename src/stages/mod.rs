@@ -2,6 +2,7 @@ mod block_hashes;
 mod cumulative_index;
 mod downloader;
 mod execution;
+mod hashstate;
 mod interhashes;
 mod sender_recovery;
 mod tx_lookup;

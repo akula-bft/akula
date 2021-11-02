@@ -514,6 +514,52 @@ where
     Ok(())
 }
 
+pub async fn seek_hashed_storage_key<'tx, C: CursorDupSort<'tx, tables::HashedStorage>>(
+    cur: &mut C,
+    hashed_address: H256,
+    incarnation: Incarnation,
+    hashed_location: H256,
+) -> anyhow::Result<Option<H256>> {
+    if let Some(((a, inc), (l, v))) = cur
+        .seek_both_range((hashed_address, incarnation), hashed_location)
+        .await?
+    {
+        if a == hashed_address && inc == incarnation && l == hashed_location {
+            return Ok(Some(*v));
+        }
+    }
+
+    Ok(None)
+}
+
+pub async fn upsert_hashed_storage_value<'tx, C>(
+    cur: &mut C,
+    hashed_address: H256,
+    incarnation: Incarnation,
+    hashed_location: H256,
+    value: H256,
+) -> anyhow::Result<()>
+where
+    C: MutableCursorDupSort<'tx, tables::HashedStorage>,
+{
+    if seek_hashed_storage_key(cur, hashed_address, incarnation, hashed_location)
+        .await?
+        .is_some()
+    {
+        cur.delete_current().await?;
+    }
+
+    if !value.is_zero() {
+        cur.upsert((
+            (hashed_address, incarnation),
+            (hashed_location, value.into()),
+        ))
+        .await?;
+    }
+
+    Ok(())
+}
+
 pub async fn read_account_data<'db, Tx: Transaction<'db>>(
     tx: &Tx,
     address: Address,
