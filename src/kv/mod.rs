@@ -46,13 +46,13 @@ impl DupSort for CustomTable {
 }
 
 #[derive(Debug)]
-pub struct MemoryKv {
+pub struct MdbxWithDirHandle {
     inner: mdbx::Environment<WriteMap>,
     _tmpdir: Option<tempfile::TempDir>,
 }
 
 #[async_trait]
-impl traits::KV for MemoryKv {
+impl traits::KV for MdbxWithDirHandle {
     type Tx<'tx> = <mdbx::Environment<WriteMap> as traits::KV>::Tx<'tx>;
 
     async fn begin(&self) -> anyhow::Result<Self::Tx<'_>> {
@@ -61,7 +61,7 @@ impl traits::KV for MemoryKv {
 }
 
 #[async_trait]
-impl traits::MutableKV for MemoryKv {
+impl traits::MutableKV for MdbxWithDirHandle {
     type MutableTx<'tx> = <mdbx::Environment<WriteMap> as traits::MutableKV>::MutableTx<'tx>;
 
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>> {
@@ -71,14 +71,14 @@ impl traits::MutableKV for MemoryKv {
 
 pub fn new_mem_database() -> anyhow::Result<impl traits::MutableKV> {
     let tmpdir = tempfile::tempdir()?;
-    Ok(MemoryKv {
+    Ok(MdbxWithDirHandle {
         inner: new_environment(tmpdir.path(), n_mib_bytes!(64), None)?,
         _tmpdir: Some(tmpdir),
     })
 }
 
 pub fn new_database(path: &std::path::Path) -> anyhow::Result<impl traits::MutableKV> {
-    Ok(MemoryKv {
+    Ok(MdbxWithDirHandle {
         inner: new_environment(path, n_tib_bytes!(4), Some(n_mib_bytes!(8) as usize))?,
         _tmpdir: None,
     })
