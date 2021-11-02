@@ -1,7 +1,7 @@
 use crate::{
     accessors,
     consensus::engine_factory,
-    execution::processor::ExecutionProcessor,
+    execution::{analysis_cache::AnalysisCache, processor::ExecutionProcessor},
     kv::tables,
     models::*,
     stagedsync::{
@@ -33,6 +33,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 ) -> anyhow::Result<BlockNumber> {
     let mut buffer = Buffer::new(tx, prune_from, None);
     let mut consensus_engine = engine_factory(chain_config.clone())?;
+    let mut analysis_cache = AnalysisCache::default();
 
     let mut block_number = starting_block;
     let mut gas_since_start = 0_u128;
@@ -54,6 +55,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
         ExecutionProcessor::new(
             &mut buffer,
+            &mut analysis_cache,
             &mut *consensus_engine,
             &header,
             &block,
