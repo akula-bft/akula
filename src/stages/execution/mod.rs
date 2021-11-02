@@ -18,6 +18,7 @@ use tracing::*;
 #[derive(Debug)]
 pub struct Execution {
     pub batch_size: u128,
+    pub commit_every: Option<Duration>,
     pub prune_from: BlockNumber,
 }
 
@@ -26,6 +27,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     chain_config: ChainConfig,
     max_block: BlockNumber,
     batch_size: u128,
+    commit_every: Option<Duration>,
     starting_block: BlockNumber,
     prune_from: BlockNumber,
 ) -> anyhow::Result<BlockNumber> {
@@ -35,7 +37,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut block_number = starting_block;
     let mut gas_since_start = 0_u128;
     let mut gas_since_last_message = 0;
+    let started_at = Instant::now();
     let mut last_message = Instant::now();
+    let mut printed_at_least_once = false;
     loop {
         let block_hash = accessors::chain::canonical_hash::read(tx, block_number)
             .await?
@@ -68,17 +72,25 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         gas_since_last_message += header.gas_used;
 
         let now = Instant::now();
+
+        let end_of_batch = block_number == max_block
+            || gas_since_start > batch_size
+            || commit_every
+                .map(|commit_every| now - started_at > commit_every)
+                .unwrap_or(false);
+
         let elapsed = now - last_message;
-        if elapsed > Duration::from_secs(5) {
+        if elapsed > Duration::from_secs(30) || (end_of_batch && !printed_at_least_once) {
             let mgas_sec = gas_since_last_message as f64
                 / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
                 / 1_000_000f64;
             info!("Executed block {}, Mgas/sec: {}", block_number, mgas_sec);
+            printed_at_least_once = true;
             last_message = now;
             gas_since_last_message = 0;
         }
 
-        if block_number == max_block || gas_since_start > batch_size {
+        if end_of_batch {
             break;
         }
 
@@ -125,6 +137,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 chain_config,
                 max_block,
                 self.batch_size,
+                self.commit_every,
                 starting_block,
                 self.prune_from,
             )
