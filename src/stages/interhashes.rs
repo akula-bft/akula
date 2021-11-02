@@ -12,13 +12,13 @@ use crate::{
     },
     models::{Account, BlockNumber, Incarnation, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
-    zeroless_view, MutableTransaction, StageId,
+    zeroless_view, MutableTransaction, StageId, Transaction,
 };
 use anyhow::*;
 use async_trait::async_trait;
 use ethereum_types::*;
 use rlp::RlpStream;
-use std::{cmp, collections::BTreeMap};
+use std::{cmp, collections::BTreeMap, marker::PhantomData};
 use tracing::*;
 
 fn hex_prefix(nibbles: &[u8], user_flag: bool) -> Vec<u8> {
@@ -224,6 +224,10 @@ impl BranchNode {
 
     fn hash_or_self(&self) -> Vec<u8> {
         keccak256_or_self(self.stream())
+    }
+
+    fn is_proper_branch_node(&self) -> bool {
+        self.hashes.iter().filter(|h| h.is_some()).count() > 1
     }
 }
 
@@ -524,6 +528,19 @@ where
             .handle_range(current_key, rlp::encode(account).to_vec(), prev_key);
     }
 
+    fn save_root(&mut self) {
+        let maybe_root_node = self
+            .trie_builder
+            .in_progress
+            .get(&vec![])
+            .map(BranchNode::from);
+        if let Some(node) = maybe_root_node {
+            if node.is_proper_branch_node() {
+                self.trie_builder.collect.collect(vec![], node.serialize());
+            }
+        }
+    }
+
     fn get_root(&mut self) -> H256 {
         self.trie_builder.get_root()
     }
@@ -548,11 +565,356 @@ where
         current = upcoming;
     }
 
+    walker.save_root();
     Ok(walker.get_root())
 }
 
+#[derive(Debug)]
+struct ChangedAccount {
+    new_value: RlpAccount,
+    created: bool,
+}
+
+impl ChangedAccount {
+    fn new(new_value: RlpAccount, created: bool) -> Self {
+        Self { new_value, created }
+    }
+}
+
+async fn collect_changed_accounts<'db: 'tx, 'tx, Tx>(
+    tx: &'tx Tx,
+    from: BlockNumber,
+    to: BlockNumber,
+) -> anyhow::Result<BTreeMap<Address, bool>>
+where
+    Tx: Transaction<'db>,
+{
+    let mut changed = BTreeMap::new();
+    let mut cursor = tx.cursor_dup_sort(&tables::AccountChangeSet).await?;
+
+    let mut fused = cursor.seek(from).await?;
+
+    while let Some((block_number, ref change)) = fused {
+        if block_number > to {
+            break;
+        }
+        changed
+            .entry(change.address)
+            .or_insert_with(|| change.account.is_empty());
+        fused = cursor.next().await?;
+    }
+
+    Ok(changed)
+}
+
+async fn collect_changes_to_accounts<'db: 'tx, 'tx, Tx>(
+    tx: &'tx Tx,
+    changed: BTreeMap<Address, bool>,
+) -> anyhow::Result<BTreeMap<H256, ChangedAccount>>
+where
+    Tx: Transaction<'db>,
+{
+    let mut result = BTreeMap::new();
+
+    for (address, created) in changed.iter() {
+        let address_hash = keccak256(address);
+        let account_raw = tx.get(&tables::HashedAccount, address_hash).await?.unwrap();
+        let account = Account::decode_for_storage(&account_raw)?.unwrap();
+        let storage_root = EMPTY_ROOT; // TODO
+        let account_change = ChangedAccount::new(account.to_rlp(storage_root), *created);
+        result.insert(address_hash, account_change);
+    }
+
+    Ok(result)
+}
+
+async fn collect_changes<'db: 'tx, 'tx, Tx>(
+    tx: &'tx Tx,
+    from: BlockNumber,
+    to: BlockNumber,
+) -> anyhow::Result<BTreeMap<H256, ChangedAccount>>
+where
+    Tx: Transaction<'db>,
+{
+    let changed = collect_changed_accounts(tx, from, to).await?;
+    collect_changes_to_accounts(tx, changed).await
+}
+
+struct TrieUpdater<C>
+where
+    C: CollectToTrie,
+{
+    in_progress: BTreeMap<Vec<u8>, BranchNode>,
+    collect: C,
+    root_hash: Option<H256>,
+}
+
+fn compute_root_hash(path: &[u8], node: &BranchNode) -> H256 {
+    if path.is_empty() {
+        node.hash()
+    } else {
+        let mut extension_root_node = NodeInProgress::new_with_branch(
+            path[0],
+            path[1..].to_vec(),
+            node.hash_or_self(),
+            false,
+        );
+        extension_root_node.get_root_branch().hash()
+    }
+}
+
+impl<C> TrieUpdater<C>
+where
+    C: CollectToTrie,
+{
+    fn new(collect: C) -> Self {
+        Self {
+            in_progress: BTreeMap::new(),
+            collect,
+            root_hash: None,
+        }
+    }
+
+    fn has_node(&self, at: &[u8]) -> bool {
+        self.in_progress.contains_key(at)
+    }
+
+    fn add_node(&mut self, at: Vec<u8>, node_raw: &[u8]) -> anyhow::Result<bool> {
+        let is_new = !self.has_node(&at);
+        if is_new {
+            self.in_progress
+                .insert(at, BranchNode::deserialize(node_raw)?);
+        }
+        Ok(is_new)
+    }
+
+    fn add_branch(&mut self, at: &[u8], branch: BranchInProgress) -> bool {
+        let node = self.in_progress.get_mut(at).unwrap();
+        let slot = branch.slot as usize;
+        let is_new_branch = node.hashes[slot].is_none();
+        if !is_new_branch {
+            let hash = if branch.key_part.is_empty() {
+                branch.data
+            } else {
+                branch.hash_or_self()
+            };
+            node.hashes[slot] = Some(hash);
+        }
+        is_new_branch
+    }
+
+    fn update_parent(&mut self, path: &[u8], changed_hash: H256) {
+        let mut parent_path = path.to_vec();
+        let mut key_part = vec![];
+        let slot = loop {
+            if let Some(last_nibble) = parent_path.pop() {
+                if self.in_progress.contains_key(&parent_path) {
+                    break last_nibble;
+                } else {
+                    key_part.insert(0, last_nibble);
+                }
+            } else {
+                return;
+            }
+        };
+        let branch = BranchInProgress {
+            slot,
+            key_part,
+            data: changed_hash.as_bytes().to_vec(),
+            is_leaf: false,
+        };
+        self.add_branch(&parent_path, branch);
+    }
+
+    fn find_in_range(&mut self, boundary: &[u8]) -> Option<(Vec<u8>, BranchNode)> {
+        if let Some(entry) = self.in_progress.last_entry() {
+            let path = entry.key();
+            if path.as_slice() >= boundary {
+                let path = path.to_vec();
+                return Some((path, entry.remove()));
+            }
+        }
+        None
+    }
+
+    fn finalize_range(&mut self, boundary: Option<Nibbles>) {
+        let boundary = boundary.as_ref().map(|n| n.as_bytes()).unwrap_or(&[]);
+        while let Some((path, node)) = self.find_in_range(boundary) {
+            self.update_parent(&path, node.hash());
+            if self.in_progress.is_empty() {
+                self.root_hash = Some(compute_root_hash(&path, &node));
+            }
+            self.collect.collect(path, node.serialize());
+        }
+    }
+
+    fn set_unchanged_root_hash(&mut self) {
+        let (path, node) = self.in_progress.first_key_value().unwrap();
+        self.root_hash = Some(compute_root_hash(path, node));
+    }
+}
+
+fn is_parent_key(maybe_parent: &[u8], child: Nibbles) -> bool {
+    &child.0[0..maybe_parent.len()] == maybe_parent
+}
+
+struct UpdateWalker<'db: 'tx, 'tx: 'co, 'co, RwTx>
+where
+    RwTx: MutableTransaction<'db>,
+{
+    tx: &'tx mut RwTx,
+    trie_updater: TrieUpdater<StateTrieCollector<'co>>,
+    _marker: PhantomData<&'db ()>,
+}
+
+impl<'db: 'tx, 'tx: 'co, 'co, RwTx> UpdateWalker<'db, 'tx, 'co, RwTx>
+where
+    RwTx: MutableTransaction<'db>,
+{
+    fn new(
+        tx: &'tx mut RwTx,
+        collector: &'co mut Collector<tables::TrieAccount>,
+    ) -> UpdateWalker<'db, 'tx, 'co, RwTx>
+    where
+        RwTx: MutableTransaction<'db>,
+    {
+        let trie_updater = TrieUpdater::new(StateTrieCollector { collector });
+        UpdateWalker {
+            tx,
+            trie_updater,
+            _marker: PhantomData,
+        }
+    }
+
+    fn insert(&mut self, path: Vec<u8>, node_raw: &[u8]) -> anyhow::Result<()> {
+        self.trie_updater.add_node(path, node_raw)?;
+        Ok(())
+    }
+
+    async fn retrieve_parent(&mut self, leaf_at: Nibbles) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+        let (parent_key, parent_data) = {
+            let mut cursor = self.tx.mutable_cursor(&tables::TrieAccount).await?;
+            cursor.seek(leaf_at.as_bytes().to_vec()).await?;
+            cursor.prev().await?.unwrap()
+        };
+
+        if !is_parent_key(&parent_key, leaf_at) {
+            let mut possible_parent = leaf_at.0[0..=parent_key.len()].to_vec();
+            while possible_parent.pop().is_some() {
+                if let Some(data) = self
+                    .tx
+                    .get(&tables::TrieAccount, possible_parent.clone())
+                    .await?
+                {
+                    return Ok((possible_parent, data));
+                }
+            }
+            unreachable!("At least root must be in TrieAccount table if this path is executed.");
+        }
+
+        Ok((parent_key, parent_data))
+    }
+
+    async fn retrieve_ancestors(&mut self, mut path: Vec<u8>) -> anyhow::Result<()> {
+        while !path.is_empty() {
+            path.pop();
+            if self.trie_updater.has_node(&path) {
+                continue;
+            }
+            if let Some(node_raw) = self.tx.get(&tables::TrieAccount, path.clone()).await? {
+                self.trie_updater.add_node(path.clone(), &node_raw)?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_range(
+        &mut self,
+        leaf_at: Nibbles,
+        data: Vec<u8>,
+        prev_leaf_at: Option<Nibbles>,
+    ) -> anyhow::Result<()> {
+        let (parent_path, parent_node) = self.retrieve_parent(leaf_at).await?;
+        let is_new_entry = self
+            .trie_updater
+            .add_node(parent_path.clone(), &parent_node)?;
+        let slot = leaf_at[parent_path.len()];
+        let changed_branch = BranchInProgress {
+            slot,
+            key_part: leaf_at[parent_path.len() + 1..].to_vec(),
+            data,
+            is_leaf: true,
+        };
+        self.trie_updater.add_branch(&parent_path, changed_branch);
+        if is_new_entry {
+            self.retrieve_ancestors(parent_path).await?;
+        }
+        self.trie_updater.finalize_range(prev_leaf_at);
+        Ok(())
+    }
+
+    fn root_hash(&self) -> Option<H256> {
+        self.trie_updater.root_hash
+    }
+}
+
+fn pop_last_change(
+    changes: &mut BTreeMap<H256, ChangedAccount>,
+) -> (Option<Nibbles>, Option<ChangedAccount>) {
+    match changes.pop_last() {
+        Some((p, c)) => (Some(Nibbles::from(p)), Some(c)),
+        None => (None, None),
+    }
+}
+
+async fn do_update_interhashes<'db: 'tx, 'tx, RwTx>(
+    tx: &'tx mut RwTx,
+    collector: &mut Collector<tables::TrieAccount>,
+    from: BlockNumber,
+    to: BlockNumber,
+    top_node_path: Vec<u8>,
+    top_node_raw: &[u8],
+) -> anyhow::Result<H256>
+where
+    RwTx: MutableTransaction<'db>,
+{
+    let mut changes = collect_changes(tx, from, to).await?;
+    let mut walker = UpdateWalker::new(tx, collector);
+    walker.insert(top_node_path, top_node_raw)?;
+
+    if changes.is_empty() {
+        walker.trie_updater.set_unchanged_root_hash();
+        return Ok(walker.root_hash().unwrap());
+    }
+
+    let (mut current_path, mut current_change) = pop_last_change(&mut changes);
+
+    loop {
+        let (previous_path, previous_change) = pop_last_change(&mut changes);
+
+        let change = current_change.unwrap();
+        let data = rlp::encode(&change.new_value).to_vec();
+        if change.created {
+            todo!();
+        } else {
+            walker
+                .handle_range(current_path.unwrap(), data, previous_path)
+                .await?;
+        }
+
+        if previous_path.is_none() {
+            break;
+        }
+
+        current_path = previous_path;
+        current_change = previous_change;
+    }
+
+    Ok(walker.root_hash().unwrap())
+}
+
 async fn update_interhashes<'db: 'tx, 'tx, RwTx>(
-    tx: &mut RwTx,
+    tx: &'tx mut RwTx,
     collector: &mut Collector<tables::TrieAccount>,
     storage_collector: &mut Collector<tables::TrieStorage>,
     from: BlockNumber,
@@ -568,6 +930,44 @@ where
     tx.clear_table(&tables::TrieStorage).await?;
 
     generate_interhashes(tx, collector, storage_collector).await
+}
+
+async fn update_interhashes2<'db: 'tx, 'tx, RwTx>(
+    tx: &'tx mut RwTx,
+    collector: &mut Collector<tables::TrieAccount>,
+    storage_collector: &mut Collector<tables::TrieStorage>,
+    from: BlockNumber,
+    to: BlockNumber,
+) -> anyhow::Result<H256>
+where
+    RwTx: MutableTransaction<'db>,
+{
+    let topmost_entry = {
+        let mut cursor = tx.cursor(&tables::TrieAccount).await?;
+        cursor.first().await?
+    };
+
+    match topmost_entry {
+        Some((path, raw_node)) => {
+            do_update_interhashes(tx, collector, from, to, path, &raw_node).await
+        }
+        None => generate_interhashes(tx, collector, storage_collector).await,
+    }
+}
+
+async fn load_results<'db: 'tx, 'tx: 'co, 'co, RwTx>(
+    tx: &'tx mut RwTx,
+    collector: &'co mut Collector<tables::TrieAccount>,
+    storage_collector: &'co mut Collector<tables::TrieStorage>,
+) -> anyhow::Result<()>
+where
+    RwTx: MutableTransaction<'db>,
+{
+    let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
+    collector.load(&mut write_cursor).await?;
+    let mut storage_write_cursor = tx.mutable_cursor(&tables::TrieStorage.erased()).await?;
+    storage_collector.load(&mut storage_write_cursor).await?;
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -638,10 +1038,7 @@ where
                 )
             }
 
-            let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
-            collector.load(&mut write_cursor).await?;
-            let mut storage_write_cursor = tx.mutable_cursor(&tables::TrieStorage.erased()).await?;
-            storage_collector.load(&mut storage_write_cursor).await?
+            load_results(tx, &mut collector, &mut storage_collector).await?;
         };
 
         Ok(ExecOutput::Progress {
@@ -666,13 +1063,17 @@ mod tests {
     use super::*;
     use crate::{
         crypto::trie_root,
-        kv::traits::{MutableCursor, MutableKV},
+        kv::{
+            tables::AccountChange,
+            traits::{MutableCursorDupSort, MutableKV},
+        },
         models::EMPTY_HASH,
         new_mem_database,
     };
-    use ethereum_types::{H256, U256};
+    use ethereum_types::{Address, H256, U256};
     use hex_literal::hex;
     use proptest::prelude::*;
+    use std::ops::Range;
 
     #[test]
     fn test_hex_prefix() {
@@ -690,6 +1091,10 @@ mod tests {
             hex_prefix(&[0x05, 0x08, 0x02, 0x02, 0x05, 0x01], true),
             [0x20, 0x58, 0x22, 0x51]
         );
+    }
+
+    fn addresses() -> impl Strategy<Value = Address> {
+        any::<[u8; 20]>().prop_map(Address::from)
     }
 
     fn h256s() -> impl Strategy<Value = H256> {
@@ -710,8 +1115,20 @@ mod tests {
         }
     }
 
+    fn maps_of_accounts_plain() -> impl Strategy<Value = BTreeMap<Address, Account>> {
+        prop::collection::btree_map(addresses(), accounts(), 1..500)
+    }
+
     fn maps_of_accounts() -> impl Strategy<Value = BTreeMap<H256, Account>> {
         prop::collection::btree_map(h256s(), accounts(), 1..500)
+    }
+
+    fn accounts_plain_to_hashed(plain: &BTreeMap<Address, Account>) -> BTreeMap<H256, Account> {
+        let mut hashed = BTreeMap::new();
+        for (address, account) in plain {
+            hashed.insert(keccak256(address), account.clone());
+        }
+        hashed
     }
 
     fn expected_root(accounts: &BTreeMap<H256, Account>) -> H256 {
@@ -721,30 +1138,52 @@ mod tests {
         }))
     }
 
-    async fn do_root_matches(accounts: BTreeMap<H256, Account>) {
-        let db = new_mem_database().unwrap();
+    async fn populate_hashed_accounts<Db>(db: &Db, accounts: &BTreeMap<H256, Account>)
+    where
+        Db: MutableKV,
+    {
         let tx = db.begin_mutable().await.unwrap();
-        let expected = expected_root(&accounts);
 
-        {
-            let mut cursor = tx.mutable_cursor(&tables::HashedAccount).await.unwrap();
-            for (address_hash, account_model) in accounts {
-                let account = account_model.encode_for_storage(false);
-                let fused_value = (address_hash, account);
-                cursor.append(fused_value).await.unwrap();
-            }
+        for (address_hash, account_model) in accounts {
+            let account = account_model.encode_for_storage(false);
+            let fused_value = (*address_hash, account);
+            tx.set(&tables::HashedAccount, fused_value).await.unwrap();
         }
 
         tx.commit().await.unwrap();
+    }
 
+    async fn call_generate_interhashes<Db>(db: &Db, results_are_used: bool) -> H256
+    where
+        Db: MutableKV,
+    {
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let mut _collector = Collector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
-        let mut _storage_collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
-        let root = generate_interhashes(&mut tx, &mut _collector, &mut _storage_collector)
+        let mut collector = Collector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut storage_collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+
+        let root = generate_interhashes(&mut tx, &mut collector, &mut storage_collector)
             .await
             .unwrap();
-        assert_eq!(root, expected);
+
+        if results_are_used {
+            load_results(&mut tx, &mut collector, &mut storage_collector)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        }
+
+        root
+    }
+
+    async fn do_root_matches(accounts: BTreeMap<H256, Account>) {
+        let db = new_mem_database().unwrap();
+        populate_hashed_accounts(&db, &accounts).await;
+
+        let actual = call_generate_interhashes(&db, false).await;
+        let expected = expected_root(&accounts);
+
+        assert_eq!(actual, expected);
     }
 
     proptest! {
@@ -863,6 +1302,200 @@ mod tests {
             let serialized = node.serialize();
             let recovered = BranchNode::deserialize(&serialized).unwrap();
             assert_eq!(node, recovered);
+        }
+    }
+
+    #[derive(Debug)]
+    struct ChangingAccount {
+        states: BTreeMap<u32, Account>,
+    }
+
+    impl ChangingAccount {
+        // TODO handle case of accounts being created within the block range too
+        fn new(states: BTreeMap<u32, Account>) -> Self {
+            Self { states }
+        }
+
+        fn at(&self, block_number: u32) -> &Account {
+            for (number, account) in self.states.iter().rev() {
+                if number < &block_number {
+                    return account;
+                }
+            }
+            self.states.first_key_value().unwrap().1
+            // all accounts are pre-existing, first block number is ignored
+        }
+
+        fn changed_between(&self, previous_block_number: u32, block_number: u32) -> Option<u32> {
+            for height in self.states.keys().skip(1) {
+                // again, first block number is treated as zero
+                if *height > previous_block_number && *height <= block_number {
+                    return Some(*height);
+                }
+            }
+            None
+        }
+    }
+
+    fn changing_accounts(block_range: &Range<u32>) -> impl Strategy<Value = ChangingAccount> {
+        prop::collection::btree_map(block_range.clone(), accounts(), 1..=3)
+            .prop_map(ChangingAccount::new)
+    }
+
+    fn sets_of_changing_accounts_accounts(
+        max_accounts: usize,
+        block_range: &Range<u32>,
+    ) -> impl Strategy<Value = BTreeMap<Address, ChangingAccount>> {
+        prop::collection::btree_map(
+            addresses(),
+            changing_accounts(block_range),
+            1..=max_accounts,
+        )
+    }
+
+    #[derive(Debug)]
+    struct SetOfChangingAccounts {
+        accounts: BTreeMap<Address, ChangingAccount>,
+        block_range: Range<u32>,
+    }
+
+    fn range_u32() -> impl Strategy<Value = Range<u32>> {
+        any::<[u32; 2]>().prop_map(|[a, b]| cmp::min(a, b)..cmp::max(a, b))
+    }
+
+    prop_compose! {
+        fn sets_of_changing_accounts(max_accounts: usize)(
+            block_range in range_u32()
+        )(
+            accounts in sets_of_changing_accounts_accounts(max_accounts, &block_range),
+            block_range in Just(block_range)
+        ) -> SetOfChangingAccounts {
+            SetOfChangingAccounts { accounts, block_range }
+        }
+    }
+
+    fn hashed_accounts_from_set_of_changing_accounts(
+        set: &SetOfChangingAccounts,
+        block_height: u32,
+    ) -> BTreeMap<H256, Account> {
+        let mut result = BTreeMap::new();
+        for (address, changing_account) in &set.accounts {
+            result.insert(
+                keccak256(address),
+                changing_account.at(block_height).clone(),
+            );
+        }
+        result
+    }
+
+    async fn populate_hashed_accounts_from_set_of_changing_accounts<Db>(
+        db: &Db,
+        block_height: u32,
+        set: &SetOfChangingAccounts,
+    ) where
+        Db: MutableKV,
+    {
+        let hash_to_account = hashed_accounts_from_set_of_changing_accounts(set, block_height);
+        populate_hashed_accounts(db, &hash_to_account).await;
+    }
+
+    async fn populate_account_change_set<Db>(
+        db: &Db,
+        range: &Range<u32>,
+        set: &SetOfChangingAccounts,
+    ) where
+        Db: MutableKV,
+    {
+        let mut changes = BTreeMap::new();
+        for (address, changing_account) in &set.accounts {
+            if let Some(height) = changing_account.changed_between(range.start, range.end) {
+                changes.entry(height).or_insert_with(BTreeMap::new);
+                let map = changes.get_mut(&height).unwrap();
+                map.insert(address, changing_account.at(height).clone());
+            }
+        }
+
+        let tx = db.begin_mutable().await.unwrap();
+
+        {
+            let mut cursor = tx
+                .mutable_cursor_dupsort(&tables::AccountChangeSet)
+                .await
+                .unwrap();
+            for (height, changes_at_height) in changes {
+                for (address, account) in changes_at_height {
+                    let account = account.encode_for_storage(false);
+                    let entry = AccountChange {
+                        address: *address,
+                        account,
+                    };
+                    let fused_value = (BlockNumber(height as u64), entry);
+                    cursor.append_dup(fused_value).await.unwrap();
+                }
+            }
+        }
+
+        tx.commit().await.unwrap();
+    }
+
+    async fn call_update_interhashes<Db>(db: &Db, from: u32, to: u32) -> H256
+    where
+        Db: MutableKV,
+    {
+        let mut tx = db.begin_mutable().await.unwrap();
+        let mut collector = Collector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut storage_collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+
+        update_interhashes2(
+            &mut tx,
+            &mut collector,
+            &mut storage_collector,
+            BlockNumber(from as u64),
+            BlockNumber(to as u64),
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn do_updated_root_matches(changing_accounts: SetOfChangingAccounts) {
+        let db = new_mem_database().unwrap();
+
+        populate_hashed_accounts_from_set_of_changing_accounts(
+            &db,
+            changing_accounts.block_range.start,
+            &changing_accounts,
+        )
+        .await;
+
+        call_generate_interhashes(&db, true).await;
+        populate_account_change_set(&db, &changing_accounts.block_range, &changing_accounts).await;
+
+        populate_hashed_accounts_from_set_of_changing_accounts(
+            &db,
+            changing_accounts.block_range.end,
+            &changing_accounts,
+        )
+        .await;
+
+        let actual = call_update_interhashes(
+            &db,
+            changing_accounts.block_range.start,
+            changing_accounts.block_range.end,
+        )
+        .await;
+        let updated_hashed_accounts = hashed_accounts_from_set_of_changing_accounts(
+            &changing_accounts,
+            changing_accounts.block_range.end,
+        );
+        let expected = expected_root(&updated_hashed_accounts);
+
+        assert_eq!(actual, expected);
+    }
+
+    proptest! {
+        #[test]
+        fn updated_root_matches(changing_accounts in sets_of_changing_accounts(500)) {
+            tokio_test::block_on(do_updated_root_matches(changing_accounts));
         }
     }
 }
