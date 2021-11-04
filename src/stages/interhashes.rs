@@ -44,14 +44,18 @@ fn hex_prefix(nibbles: &[u8], user_flag: bool) -> Vec<u8> {
     result
 }
 
-fn to_nibbles(b: impl Into<H256>) -> H512 {
-    let b = b.into();
-    let mut n = [0; 64];
-    for i in 0..b.as_fixed_bytes().len() {
-        n[i * 2] = b[i] / 0x10;
-        n[i * 2 + 1] = b[i] & 0x0f;
+#[derive(Clone, Copy, Debug, derive_more::Deref)]
+struct Nibbles(H512);
+
+impl From<H256> for Nibbles {
+    fn from(b: H256) -> Self {
+        let mut n = [0; 64];
+        for i in 0..b.as_fixed_bytes().len() {
+            n[i * 2] = b[i] / 0x10;
+            n[i * 2 + 1] = b[i] & 0x0f;
+        }
+        Self(n.into())
     }
-    n.into()
 }
 
 type HashedAccountFusedValue = <tables::HashedAccount as Table>::FusedValue;
@@ -302,7 +306,7 @@ where
         }
     }
 
-    fn node_in_range(&mut self, prev_key: Option<H512>) -> Option<(Vec<u8>, NodeInProgress)> {
+    fn node_in_range(&mut self, prev_key: Option<Nibbles>) -> Option<(Vec<u8>, NodeInProgress)> {
         if let Some(key) = self.in_progress.keys().last() {
             if key.as_slice() > prev_key.as_ref().map(|k| k.as_bytes()).unwrap_or(&[]) {
                 return self.in_progress.pop_last();
@@ -311,7 +315,7 @@ where
         None
     }
 
-    fn prefix_length(&mut self, current_key: H512, prev_key: Option<H512>) -> usize {
+    fn prefix_length(&mut self, current_key: Nibbles, prev_key: Option<Nibbles>) -> usize {
         if let Some(prev_key) = prev_key {
             let mut i = 0;
             while current_key[i] == prev_key[i] {
@@ -325,7 +329,7 @@ where
         }
     }
 
-    fn visit_leaf(&mut self, key: H512, data: Vec<u8>, prefix_length: usize) {
+    fn visit_leaf(&mut self, key: Nibbles, data: Vec<u8>, prefix_length: usize) {
         let prefix_length = if prefix_length < 63 {
             prefix_length + 1
         } else {
@@ -362,7 +366,12 @@ where
         }
     }
 
-    fn handle_range(&mut self, current_key: H512, current_value: Vec<u8>, prev_key: Option<H512>) {
+    fn handle_range(
+        &mut self,
+        current_key: Nibbles,
+        current_value: Vec<u8>,
+        prev_key: Option<Nibbles>,
+    ) {
         let prefix_length = self.prefix_length(current_key, prev_key);
         self.visit_leaf(current_key, current_value, prefix_length);
         while let Some((key, node)) = self.node_in_range(prev_key) {
@@ -399,12 +408,12 @@ fn build_storage_trie(
     let mut storage_iter = storage.iter().rev();
     let mut current = storage_iter.next();
 
-    while let Some((location, value)) = &mut current {
+    while let Some(&(location, value)) = &mut current {
         let current_value = zeroless_view(&value);
-        let current_key = to_nibbles(*location);
+        let current_key = location.into();
         let prev = storage_iter.next();
 
-        let prev_key = prev.map(|v| to_nibbles(v.0));
+        let prev_key = prev.map(|&(v, _)| v.into());
 
         let data = rlp::encode(&current_value).to_vec();
 
@@ -505,7 +514,12 @@ where
         Ok(storage_root)
     }
 
-    fn handle_range(&mut self, current_key: H512, account: &RlpAccount, prev_key: Option<H512>) {
+    fn handle_range(
+        &mut self,
+        current_key: Nibbles,
+        account: &RlpAccount,
+        prev_key: Option<Nibbles>,
+    ) {
         self.trie_builder
             .handle_range(current_key, rlp::encode(account).to_vec(), prev_key);
     }
@@ -528,8 +542,8 @@ where
 
     while let Some((hashed_account_key, account_data)) = current {
         let upcoming = walker.get_prev_account().await?;
-        let current_key = to_nibbles(hashed_account_key);
-        let upcoming_key = upcoming.as_ref().map(|(key, _)| to_nibbles(*key));
+        let current_key = hashed_account_key.into();
+        let upcoming_key = upcoming.as_ref().map(|&(key, _)| key.into());
         walker.handle_range(current_key, &account_data, upcoming_key);
         current = upcoming;
     }
