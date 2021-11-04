@@ -14,8 +14,9 @@ use crate::{
     MutableTransaction, StageId,
 };
 use anyhow::*;
+use arrayref::array_ref;
 use async_trait::async_trait;
-use ethereum_types::H256;
+use ethereum_types::*;
 use rlp::RlpStream;
 use std::{cmp, collections::BTreeMap};
 use tracing::*;
@@ -43,13 +44,14 @@ fn hex_prefix(nibbles: &[u8], user_flag: bool) -> Vec<u8> {
     result
 }
 
-fn to_nibbles(b: &[u8]) -> Vec<u8> {
-    let mut n = vec![];
-    for x in b {
-        n.push(x / 0x10);
-        n.push(x & 0x0f);
+fn to_nibbles(b: impl Into<H256>) -> H512 {
+    let b = b.into();
+    let mut n = [0; 64];
+    for i in 0..b.as_fixed_bytes().len() {
+        n[i * 2] = b[i] / 0x10;
+        n[i * 2 + 1] = b[i] & 0x0f;
     }
-    n
+    n.into()
 }
 
 fn storage_seek_key(address_hash: &H256, incarnation: &Incarnation) -> Vec<u8> {
@@ -303,29 +305,30 @@ where
         }
     }
 
-    fn node_in_range(&mut self, prev_key: &[u8]) -> Option<(Vec<u8>, NodeInProgress)> {
+    fn node_in_range(&mut self, prev_key: Option<H512>) -> Option<(Vec<u8>, NodeInProgress)> {
         if let Some(key) = self.in_progress.keys().last() {
-            if key.as_slice() > prev_key {
+            if key.as_slice() > prev_key.as_ref().map(|k| k.as_bytes()).unwrap_or(&[]) {
                 return self.in_progress.pop_last();
             }
         }
         None
     }
 
-    fn prefix_length(&mut self, current_key: &[u8], prev_key: &[u8]) -> usize {
-        if prev_key.is_empty() {
-            return self.last_prefix_length;
+    fn prefix_length(&mut self, current_key: H512, prev_key: Option<H512>) -> usize {
+        if let Some(prev_key) = prev_key {
+            let mut i = 0;
+            while current_key[i] == prev_key[i] {
+                i += 1;
+            }
+            let length = cmp::max(i, self.last_prefix_length);
+            self.last_prefix_length = i;
+            length
+        } else {
+            self.last_prefix_length
         }
-        let mut i = 0;
-        while current_key[i] == prev_key[i] {
-            i += 1;
-        }
-        let length = cmp::max(i, self.last_prefix_length);
-        self.last_prefix_length = i;
-        length
     }
 
-    fn visit_leaf(&mut self, key: &[u8], data: Vec<u8>, prefix_length: usize) {
+    fn visit_leaf(&mut self, key: H512, data: Vec<u8>, prefix_length: usize) {
         let prefix_length = if prefix_length < 63 {
             prefix_length + 1
         } else {
@@ -362,7 +365,7 @@ where
         }
     }
 
-    fn handle_range(&mut self, current_key: &[u8], current_value: Vec<u8>, prev_key: &[u8]) {
+    fn handle_range(&mut self, current_key: H512, current_value: Vec<u8>, prev_key: Option<H512>) {
         let prefix_length = self.prefix_length(current_key, prev_key);
         self.visit_leaf(current_key, current_value, prefix_length);
         while let Some((key, node)) = self.node_in_range(prev_key) {
@@ -400,17 +403,14 @@ fn build_storage_trie(
 
     while let Some(item) = &mut current {
         let current_value = item[32..].to_vec();
-        let current_key = to_nibbles(&item[..32]);
+        let current_key = to_nibbles(*array_ref!(&**item, 0, 32));
         let prev = storage_iter.next();
 
-        let prev_key = prev
-            .as_ref()
-            .map(|v| to_nibbles(&v[..32]))
-            .unwrap_or_else(Vec::new);
+        let prev_key = prev.as_ref().map(|v| to_nibbles(*array_ref!(*v, 0, 32)));
 
         let data = rlp::encode(&current_value).to_vec();
 
-        builder.handle_range(&current_key, data, &prev_key);
+        builder.handle_range(current_key, data, prev_key);
 
         current = prev;
     }
@@ -500,7 +500,7 @@ where
         Ok(storage_root)
     }
 
-    fn handle_range(&mut self, current_key: &[u8], account: &RlpAccount, prev_key: &[u8]) {
+    fn handle_range(&mut self, current_key: H512, account: &RlpAccount, prev_key: Option<H512>) {
         self.trie_builder
             .handle_range(current_key, rlp::encode(account).to_vec(), prev_key);
     }
@@ -523,12 +523,9 @@ where
 
     while let Some((hashed_account_key, account_data)) = current {
         let upcoming = walker.get_prev_account().await?;
-        let current_key = to_nibbles(hashed_account_key.as_bytes());
-        let upcoming_key = upcoming
-            .as_ref()
-            .map(|(key, _)| to_nibbles(key.as_bytes()))
-            .unwrap_or_else(Vec::new);
-        walker.handle_range(&current_key, &account_data, &upcoming_key);
+        let current_key = to_nibbles(hashed_account_key);
+        let upcoming_key = upcoming.as_ref().map(|(key, _)| to_nibbles(*key));
+        walker.handle_range(current_key, &account_data, upcoming_key);
         current = upcoming;
     }
 
