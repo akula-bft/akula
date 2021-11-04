@@ -1,38 +1,33 @@
-use crate::downloader::headers::header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices};
+use crate::downloader::headers::{
+    header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+};
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc, time, time::Duration};
-use tokio::sync::watch;
 use tracing::*;
 
 /// Handles timeouts. If a slice is Waiting for too long, we need to request it again.
 /// Status is updated to Empty (the slice will be processed by the FetchRequestStage again).
 pub struct RetryStage {
     header_slices: Arc<HeaderSlices>,
-    pending_watch: watch::Receiver<usize>,
+    pending_watch: HeaderSliceStatusWatch,
 }
 
 impl RetryStage {
     pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
         Self {
-            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Waiting),
-            header_slices,
+            header_slices: header_slices.clone(),
+            pending_watch: HeaderSliceStatusWatch::new(
+                HeaderSliceStatus::Waiting,
+                header_slices,
+                "RetryStage",
+            ),
         }
-    }
-
-    fn pending_count(&self) -> usize {
-        self.header_slices
-            .count_slices_in_status(HeaderSliceStatus::Waiting)
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("RetryStage: start");
-        if self.pending_count() == 0 {
-            debug!("RetryStage: waiting pending");
-            while *self.pending_watch.borrow_and_update() == 0 {
-                self.pending_watch.changed().await?;
-            }
-            debug!("RetryStage: waiting pending done");
-        }
+        self.pending_watch.wait().await?;
 
         // don't retry more often than once per 1 sec
         tokio::time::sleep(Duration::from_secs(1)).await;

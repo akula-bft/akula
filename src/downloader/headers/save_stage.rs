@@ -1,45 +1,43 @@
 use crate::{
-    downloader::headers::header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    downloader::headers::{
+        header_slice_status_watch::HeaderSliceStatusWatch,
+        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    },
     kv,
     kv::traits::MutableTransaction,
 };
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc};
-use tokio::sync::watch;
 use tracing::*;
 
 /// Saves slices into the database, and sets Saved status.
 pub struct SaveStage<DB: kv::traits::MutableKV> {
     header_slices: Arc<HeaderSlices>,
-    pending_watch: watch::Receiver<usize>,
+    pending_watch: HeaderSliceStatusWatch,
     db: Arc<DB>,
 }
 
 impl<DB: kv::traits::MutableKV> SaveStage<DB> {
     pub fn new(header_slices: Arc<HeaderSlices>, db: Arc<DB>) -> Self {
         Self {
-            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Verified),
-            header_slices,
+            header_slices: header_slices.clone(),
+            pending_watch: HeaderSliceStatusWatch::new(
+                HeaderSliceStatus::Verified,
+                header_slices,
+                "SaveStage",
+            ),
             db,
         }
     }
 
-    fn pending_count(&self) -> usize {
-        self.header_slices
-            .count_slices_in_status(HeaderSliceStatus::Verified)
-    }
-
     pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("SaveStage: start");
-        if self.pending_count() == 0 {
-            debug!("SaveStage: waiting pending");
-            while *self.pending_watch.borrow_and_update() == 0 {
-                self.pending_watch.changed().await?;
-            }
-            debug!("SaveStage: waiting pending done");
-        }
+        self.pending_watch.wait().await?;
 
-        info!("SaveStage: saving {} slices", self.pending_count());
+        info!(
+            "SaveStage: saving {} slices",
+            self.pending_watch.pending_count()
+        );
         self.save_pending().await?;
         debug!("SaveStage: done");
         Ok(())
