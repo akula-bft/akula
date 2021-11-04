@@ -1,18 +1,18 @@
 use crate::downloader::headers::{
+    header_slice_status_watch::HeaderSliceStatusWatch,
     header_slices,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
     preverified_hashes_config::PreverifiedHashesConfig,
 };
 use parking_lot::lock_api::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc};
-use tokio::sync::watch;
 use tracing::*;
 
 /// Checks that block hashes are matching the expected ones and sets Verified status.
 pub struct VerifyStage {
     header_slices: Arc<HeaderSlices>,
+    pending_watch: HeaderSliceStatusWatch,
     preverified_hashes: PreverifiedHashesConfig,
-    pending_watch: watch::Receiver<usize>,
 }
 
 impl VerifyStage {
@@ -21,28 +21,24 @@ impl VerifyStage {
         preverified_hashes: PreverifiedHashesConfig,
     ) -> Self {
         Self {
-            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Downloaded),
-            header_slices,
+            header_slices: header_slices.clone(),
+            pending_watch: HeaderSliceStatusWatch::new(
+                HeaderSliceStatus::Downloaded,
+                header_slices,
+                "VerifyStage",
+            ),
             preverified_hashes,
         }
     }
 
-    fn pending_count(&self) -> usize {
-        self.header_slices
-            .count_slices_in_status(HeaderSliceStatus::Downloaded)
-    }
-
     pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("VerifyStage: start");
-        if self.pending_count() == 0 {
-            debug!("VerifyStage: waiting pending");
-            while *self.pending_watch.borrow_and_update() == 0 {
-                self.pending_watch.changed().await?;
-            }
-            debug!("VerifyStage: waiting pending done");
-        }
+        self.pending_watch.wait().await?;
 
-        info!("VerifyStage: verifying {} slices", self.pending_count());
+        info!(
+            "VerifyStage: verifying {} slices",
+            self.pending_watch.pending_count()
+        );
         self.verify_pending()?;
         debug!("VerifyStage: done");
         Ok(())

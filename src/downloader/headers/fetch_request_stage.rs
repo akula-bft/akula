@@ -2,6 +2,7 @@ use crate::{
     downloader::{
         block_id,
         headers::{
+            header_slice_status_watch::HeaderSliceStatusWatch,
             header_slices,
             header_slices::{HeaderSliceStatus, HeaderSlices},
         },
@@ -17,50 +18,42 @@ use std::{
     sync::{atomic::*, Arc},
     time,
 };
-use tokio::sync::watch;
 use tracing::*;
 
 /// Sends requests to P2P via sentry to get the slices. Slices become Waiting.
 pub struct FetchRequestStage {
     header_slices: Arc<HeaderSlices>,
+    pending_watch: HeaderSliceStatusWatch,
     sentry: Arc<RwLock<SentryClientReactor>>,
     last_request_id: AtomicU64,
-    pending_watch: watch::Receiver<usize>,
 }
 
 impl FetchRequestStage {
     pub fn new(header_slices: Arc<HeaderSlices>, sentry: Arc<RwLock<SentryClientReactor>>) -> Self {
         Self {
-            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Empty),
-            last_request_id: 0.into(),
-            header_slices,
+            header_slices: header_slices.clone(),
+            pending_watch: HeaderSliceStatusWatch::new(
+                HeaderSliceStatus::Empty,
+                header_slices,
+                "FetchRequestStage",
+            ),
             sentry,
+            last_request_id: 0.into(),
         }
-    }
-
-    fn pending_count(&self) -> usize {
-        self.header_slices
-            .count_slices_in_status(HeaderSliceStatus::Empty)
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("FetchRequestStage: start");
-        if self.pending_count() == 0 {
-            debug!("FetchRequestStage: waiting pending");
-            while *self.pending_watch.borrow_and_update() == 0 {
-                self.pending_watch.changed().await?;
-            }
-            debug!("FetchRequestStage: waiting pending done");
-        }
+        self.pending_watch.wait().await?;
 
         info!(
             "FetchRequestStage: requesting {} slices",
-            self.pending_count()
+            self.pending_watch.pending_count()
         );
         self.request_pending()?;
 
         // in case of SendQueueFull, await for extra capacity
-        if self.pending_count() > 0 {
+        if self.pending_watch.pending_count() > 0 {
             // obtain the sentry lock, and release it before awaiting
             let capacity_future = {
                 let sentry = self.sentry.read();

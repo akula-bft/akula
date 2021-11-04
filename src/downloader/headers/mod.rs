@@ -1,3 +1,4 @@
+mod header_slice_status_watch;
 pub mod header_slices;
 
 pub mod fetch_receive_stage;

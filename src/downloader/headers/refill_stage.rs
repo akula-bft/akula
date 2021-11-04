@@ -1,39 +1,37 @@
-use crate::downloader::headers::header_slices::{HeaderSliceStatus, HeaderSlices};
+use crate::downloader::headers::{
+    header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slices::{HeaderSliceStatus, HeaderSlices},
+};
 use std::sync::Arc;
-use tokio::sync::watch;
 use tracing::*;
 
 /// Forgets the Saved slices from memory, and creates more Empty slices
 /// until we reach the end of pre-verified chain.
 pub struct RefillStage {
     header_slices: Arc<HeaderSlices>,
-    pending_watch: watch::Receiver<usize>,
+    pending_watch: HeaderSliceStatusWatch,
 }
 
 impl RefillStage {
     pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
         Self {
-            pending_watch: header_slices.watch_status_changes(HeaderSliceStatus::Saved),
-            header_slices,
+            header_slices: header_slices.clone(),
+            pending_watch: HeaderSliceStatusWatch::new(
+                HeaderSliceStatus::Saved,
+                header_slices,
+                "RefillStage",
+            ),
         }
-    }
-
-    fn pending_count(&self) -> usize {
-        self.header_slices
-            .count_slices_in_status(HeaderSliceStatus::Saved)
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
         debug!("RefillStage: start");
-        if self.pending_count() == 0 {
-            debug!("RefillStage: waiting pending");
-            while *self.pending_watch.borrow_and_update() == 0 {
-                self.pending_watch.changed().await?;
-            }
-            debug!("RefillStage: waiting pending done");
-        }
+        self.pending_watch.wait().await?;
 
-        info!("RefillStage: refilling {} slices", self.pending_count());
+        info!(
+            "RefillStage: refilling {} slices",
+            self.pending_watch.pending_count()
+        );
         self.refill_pending();
         debug!("RefillStage: done");
         Ok(())
