@@ -429,6 +429,34 @@ impl TableDecode for ZerolessH256 {
     }
 }
 
+impl TableEncode for (H256, ZerolessH256) {
+    type Encoded = VariableVec<{ KECCAK_LENGTH + KECCAK_LENGTH }>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = Self::Encoded::default();
+        out.try_extend_from_slice(&self.0.encode()).unwrap();
+        out.try_extend_from_slice(zeroless_view(&(self.1).0))
+            .unwrap();
+        out
+    }
+}
+
+impl TableDecode for (H256, ZerolessH256) {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() > KECCAK_LENGTH + KECCAK_LENGTH {
+            return Err(TooLong::<{ KECCAK_LENGTH + KECCAK_LENGTH }> { got: b.len() }.into());
+        }
+
+        if b.len() < KECCAK_LENGTH {
+            return Err(TooShort::<{ KECCAK_LENGTH }> { got: b.len() }.into());
+        }
+
+        let (location, value) = b.split_at(KECCAK_LENGTH);
+
+        Ok((H256::decode(location)?, ZerolessH256::decode(value)?))
+    }
+}
+
 impl TableEncode for RoaringTreemap {
     type Encoded = Vec<u8>;
 
@@ -938,7 +966,7 @@ decl_table!(PlainCodeHash => (Address, Incarnation) => H256);
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
 decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => StorageChangeSeekKey);
 decl_table!(HashedAccount => H256 => Vec<u8>);
-decl_table!(HashedStorage => Vec<u8> => Vec<u8>);
+decl_table!(HashedStorage => (H256, Incarnation) => (H256, ZerolessH256));
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Bytes);

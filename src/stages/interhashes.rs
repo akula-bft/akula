@@ -8,13 +8,13 @@ use crate::{
     kv::{
         tables,
         traits::{Cursor, CursorDupSort, Table},
+        TableEncode,
     },
     models::{Account, BlockNumber, Incarnation, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
-    MutableTransaction, StageId,
+    zeroless_view, MutableTransaction, StageId,
 };
 use anyhow::*;
-use arrayref::array_ref;
 use async_trait::async_trait;
 use ethereum_types::*;
 use rlp::RlpStream;
@@ -52,13 +52,6 @@ fn to_nibbles(b: impl Into<H256>) -> H512 {
         n[i * 2 + 1] = b[i] & 0x0f;
     }
     n.into()
-}
-
-fn storage_seek_key(address_hash: &H256, incarnation: &Incarnation) -> Vec<u8> {
-    let mut result = Vec::with_capacity(40);
-    result.append(&mut address_hash.to_fixed_bytes().to_vec());
-    result.append(&mut incarnation.to_be_bytes().to_vec());
-    result
 }
 
 type HashedAccountFusedValue = <tables::HashedAccount as Table>::FusedValue;
@@ -250,10 +243,14 @@ struct StorageTrieCollector<'co> {
 }
 
 impl<'co> StorageTrieCollector<'co> {
-    fn new(collector: &'co mut Collector<tables::TrieStorage>, path_prefix: Vec<u8>) -> Self {
+    fn new(
+        collector: &'co mut Collector<tables::TrieStorage>,
+        hashed_address: H256,
+        incarnation: Incarnation,
+    ) -> Self {
         Self {
             collector,
-            path_prefix,
+            path_prefix: TableEncode::encode((hashed_address, incarnation)).to_vec(),
         }
     }
 }
@@ -388,25 +385,26 @@ where
 
 fn build_storage_trie(
     collector: &mut Collector<tables::TrieStorage>,
-    path_prefix: Vec<u8>,
-    storage: &[Vec<u8>],
+    address_hash: H256,
+    incarnation: Incarnation,
+    storage: &[(H256, H256)],
 ) -> H256 {
     if storage.is_empty() {
         return EMPTY_ROOT;
     }
 
-    let wrapped_collector = StorageTrieCollector::new(collector, path_prefix);
+    let wrapped_collector = StorageTrieCollector::new(collector, address_hash, incarnation);
     let mut builder = TrieBuilder::new(wrapped_collector);
 
     let mut storage_iter = storage.iter().rev();
     let mut current = storage_iter.next();
 
-    while let Some(item) = &mut current {
-        let current_value = item[32..].to_vec();
-        let current_key = to_nibbles(*array_ref!(&**item, 0, 32));
+    while let Some((location, value)) = &mut current {
+        let current_value = zeroless_view(&value);
+        let current_key = to_nibbles(*location);
         let prev = storage_iter.next();
 
-        let prev_key = prev.as_ref().map(|v| to_nibbles(*array_ref!(*v, 0, 32)));
+        let prev_key = prev.map(|v| to_nibbles(v.0));
 
         let data = rlp::encode(&current_value).to_vec();
 
@@ -461,7 +459,7 @@ where
             let (address_hash, encoded_account) = fused_value;
             let account = Account::decode_for_storage(encoded_account.as_ref())?.unwrap();
             let storage_root = self
-                .visit_storage(&address_hash, &account.incarnation)
+                .visit_storage(address_hash, account.incarnation)
                 .await?;
             Ok(Some((address_hash, account.to_rlp(storage_root))))
         } else {
@@ -479,11 +477,18 @@ where
         self.do_get_prev_account(init_value).await
     }
 
-    async fn storage_for_account(&mut self, key: Vec<u8>) -> anyhow::Result<Vec<Vec<u8>>> {
-        let mut storage = Vec::<Vec<u8>>::new();
-        let mut found = self.storage_cursor.seek(key).await?;
-        while let Some(entry) = found {
-            storage.push(entry.1);
+    async fn storage_for_account(
+        &mut self,
+        address_hash: H256,
+        incarnation: Incarnation,
+    ) -> anyhow::Result<Vec<(H256, H256)>> {
+        let mut storage = Vec::<(H256, H256)>::new();
+        let mut found = self
+            .storage_cursor
+            .seek((address_hash, incarnation))
+            .await?;
+        while let Some((_, storage_entry)) = found {
+            storage.push((storage_entry.0, (storage_entry.1).0));
             found = self.storage_cursor.next_dup().await?;
         }
         Ok(storage)
@@ -491,12 +496,12 @@ where
 
     async fn visit_storage(
         &mut self,
-        address_hash: &H256,
-        incarnation: &Incarnation,
+        address_hash: H256,
+        incarnation: Incarnation,
     ) -> anyhow::Result<H256> {
-        let key = storage_seek_key(address_hash, incarnation);
-        let storage = self.storage_for_account(key.clone()).await?;
-        let storage_root = build_storage_trie(self.storage_collector, key, &storage);
+        let storage = self.storage_for_account(address_hash, incarnation).await?;
+        let storage_root =
+            build_storage_trie(self.storage_collector, address_hash, incarnation, &storage);
         Ok(storage_root)
     }
 
@@ -783,17 +788,10 @@ mod tests {
         do_root_matches(accounts).await;
     }
 
-    type Storage = BTreeMap<H256, Vec<u8>>;
+    type Storage = BTreeMap<H256, H256>;
 
     fn account_storages() -> impl Strategy<Value = Storage> {
-        prop::collection::btree_map(
-            h256s(),
-            prop::collection::vec(any::<u8>(), 1..=32).prop_filter(
-                "Storage values are represented with no leading zeroes.",
-                |v| v[0] != 0,
-            ),
-            0..100,
-        )
+        prop::collection::btree_map(h256s(), h256s(), 0..100)
     }
 
     fn expected_storage_root(storage: Storage) -> H256 {
@@ -803,20 +801,15 @@ mod tests {
             trie_root(
                 storage
                     .iter()
-                    .map(|(k, v)| (k.to_fixed_bytes(), rlp::encode(v))),
+                    .map(|(k, v)| (k.to_fixed_bytes(), rlp::encode(&zeroless_view(&v)))),
             )
         }
     }
 
-    fn do_storage_root_matches(storage: Storage, path_prefix: Vec<u8>) {
+    fn do_storage_root_matches(storage: Storage, hashed_address: H256, incarnation: Incarnation) {
         let mut _collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
-        let mut vec_storage = vec![];
-        for (k, v) in &storage {
-            let mut kv = k.to_fixed_bytes().to_vec();
-            kv.append(&mut v.clone());
-            vec_storage.push(kv);
-        }
-        let actual = build_storage_trie(&mut _collector, path_prefix, &vec_storage);
+        let vec_storage = storage.iter().map(|(&k, &v)| (k, v)).collect::<Vec<_>>();
+        let actual = build_storage_trie(&mut _collector, hashed_address, incarnation, &vec_storage);
         let expected = expected_storage_root(storage);
         assert_eq!(expected, actual);
     }
@@ -825,9 +818,10 @@ mod tests {
         #[test]
         fn storage_root_matches(
             storage in account_storages(),
-            path_prefix in prop::collection::vec(any::<u8>(), 40)
+            hashed_address in prop::array::uniform32(any::<u8>()),
+            incarnation in 0u64..
         ) {
-            do_storage_root_matches(storage, path_prefix);
+            do_storage_root_matches(storage, H256(hashed_address), Incarnation(incarnation));
         }
     }
 
