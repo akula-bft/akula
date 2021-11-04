@@ -1,6 +1,10 @@
 use crate::downloader::sentry_address::SentryAddress;
 use anyhow::anyhow;
+use directories::ProjectDirs;
+use std::str::FromStr;
 use structopt::StructOpt;
+
+pub struct DataDirOpt(pub std::path::PathBuf);
 
 #[derive(StructOpt)]
 #[structopt(name = "ddl", about = "test sentry client")]
@@ -17,12 +21,8 @@ pub struct Opts {
         default_value = "mainnet"
     )]
     pub chain_name: String,
-    #[structopt(
-        long = "datadir",
-        help = "Database directory path",
-        default_value = "data"
-    )]
-    pub data_dir: std::path::PathBuf,
+    #[structopt(long = "datadir", help = "Database directory path", default_value)]
+    pub data_dir: DataDirOpt,
 }
 
 impl Opts {
@@ -37,5 +37,29 @@ impl Opts {
         }
 
         Ok(instance)
+    }
+}
+
+impl Default for DataDirOpt {
+    fn default() -> Self {
+        if let Some(dirs) = ProjectDirs::from("com", "akula-bft", "akula") {
+            DataDirOpt(dirs.data_dir().to_path_buf())
+        } else {
+            DataDirOpt(std::path::PathBuf::from("data"))
+        }
+    }
+}
+
+impl ToString for DataDirOpt {
+    fn to_string(&self) -> String {
+        String::from(self.0.as_os_str().to_str().unwrap())
+    }
+}
+
+impl FromStr for DataDirOpt {
+    type Err = anyhow::Error;
+
+    fn from_str(path_str: &str) -> anyhow::Result<Self> {
+        Ok(DataDirOpt(std::path::PathBuf::from(path_str)))
     }
 }
