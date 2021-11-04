@@ -398,16 +398,15 @@ fn build_storage_trie(
     let mut storage_iter = storage.iter().rev();
     let mut current = storage_iter.next();
 
-    while let Some(ref mut item) = current {
+    while let Some(item) = &mut current {
         let current_value = item[32..].to_vec();
         let current_key = to_nibbles(&item[..32]);
         let prev = storage_iter.next();
 
-        let prev_key = if let Some(prev_item) = prev {
-            to_nibbles(&prev_item[..32])
-        } else {
-            vec![]
-        };
+        let prev_key = prev
+            .as_ref()
+            .map(|v| to_nibbles(&v[..32]))
+            .unwrap_or_else(Vec::new);
 
         let data = rlp::encode(&current_value).to_vec();
 
@@ -522,14 +521,14 @@ where
     let mut walker = GenerateWalker::new(tx, collector, storage_collector).await?;
     let mut current = walker.get_last_account().await?;
 
-    while let Some(value) = current {
+    while let Some((hashed_account_key, account_data)) = current {
         let upcoming = walker.get_prev_account().await?;
-        let current_key = to_nibbles(value.0.as_bytes());
-        let upcoming_key = match upcoming {
-            Some(ref v) => to_nibbles(v.0.as_bytes()),
-            None => vec![],
-        };
-        walker.handle_range(&current_key, &value.1, &upcoming_key);
+        let current_key = to_nibbles(hashed_account_key.as_bytes());
+        let upcoming_key = upcoming
+            .as_ref()
+            .map(|(key, _)| to_nibbles(key.as_bytes()))
+            .unwrap_or_else(Vec::new);
+        walker.handle_range(&current_key, &account_data, &upcoming_key);
         current = upcoming;
     }
 
