@@ -716,7 +716,7 @@ mod tests {
         {
             let mut cursor = tx.mutable_cursor(&tables::HashedAccount).await.unwrap();
             for (address_hash, account_model) in accounts {
-                let account = Vec::from(account_model.encode_for_storage(false));
+                let account = account_model.encode_for_storage(false);
                 let fused_value = (address_hash, account);
                 cursor.append(fused_value).await.unwrap();
             }
