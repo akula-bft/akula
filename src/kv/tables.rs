@@ -1009,7 +1009,7 @@ impl std::fmt::Display for PlainState {
 decl_table!(PlainCodeHash => (Address, Incarnation) => H256);
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
 decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => StorageChangeSeekKey);
-decl_table!(HashedAccount => H256 => Vec<u8>);
+decl_table!(HashedAccount => H256 => EncodedAccount);
 decl_table!(HashedStorage => (H256, Incarnation) => (H256, ZerolessH256));
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
