@@ -42,3 +42,10 @@ impl RefillStage {
         self.header_slices.refill();
     }
 }
+
+#[async_trait::async_trait]
+impl super::stage::Stage for RefillStage {
+    async fn execute(&mut self) -> anyhow::Result<()> {
+        RefillStage::execute(self).await
+    }
+}

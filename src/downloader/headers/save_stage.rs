@@ -6,18 +6,18 @@ use crate::{
     kv,
     kv::traits::MutableTransaction,
 };
-use parking_lot::lock_api::RwLockUpgradableReadGuard;
+use parking_lot::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
 /// Saves slices into the database, and sets Saved status.
-pub struct SaveStage<DB: kv::traits::MutableKV> {
+pub struct SaveStage<DB: kv::traits::MutableKV + Sync> {
     header_slices: Arc<HeaderSlices>,
     pending_watch: HeaderSliceStatusWatch,
     db: Arc<DB>,
 }
 
-impl<DB: kv::traits::MutableKV> SaveStage<DB> {
+impl<DB: kv::traits::MutableKV + Sync> SaveStage<DB> {
     pub fn new(header_slices: Arc<HeaderSlices>, db: Arc<DB>) -> Self {
         Self {
             header_slices: header_slices.clone(),
@@ -70,5 +70,12 @@ impl<DB: kv::traits::MutableKV> SaveStage<DB> {
             }
         }
         tx.commit().await
+    }
+}
+
+#[async_trait::async_trait]
+impl<DB: kv::traits::MutableKV + Sync> super::stage::Stage for SaveStage<DB> {
+    async fn execute(&mut self) -> anyhow::Result<()> {
+        SaveStage::<DB>::execute(self).await
     }
 }

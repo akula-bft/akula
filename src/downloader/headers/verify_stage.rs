@@ -4,7 +4,7 @@ use crate::downloader::headers::{
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
     preverified_hashes_config::PreverifiedHashesConfig,
 };
-use parking_lot::lock_api::RwLockUpgradableReadGuard;
+use parking_lot::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
@@ -122,5 +122,12 @@ impl VerifyStage {
         }
         let index = block_num / preverified_step_size;
         self.preverified_hashes.hashes.get(index as usize)
+    }
+}
+
+#[async_trait::async_trait]
+impl super::stage::Stage for VerifyStage {
+    async fn execute(&mut self) -> anyhow::Result<()> {
+        VerifyStage::execute(self).await
     }
 }
