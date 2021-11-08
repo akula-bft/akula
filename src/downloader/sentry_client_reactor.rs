@@ -152,7 +152,7 @@ impl SentryClientReactor {
 
     pub fn reserve_capacity_in_send_queue(
         &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>>>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
         let sender = self.send_message_sender.clone();
         Box::pin(sender.reserve_owned().map(|result| match result {
             Ok(_) => Ok(()),

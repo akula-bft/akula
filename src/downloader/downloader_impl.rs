@@ -25,13 +25,22 @@ use tracing::*;
 
 type StageStream = Pin<Box<dyn Stream<Item = anyhow::Result<()>>>>;
 
-pub struct Downloader<DB: kv::traits::MutableKV> {
+fn make_stage_stream(mut stage: Box<dyn crate::downloader::headers::stage::Stage>) -> StageStream {
+    let stream = async_stream::stream! {
+        loop {
+            yield stage.execute().await;
+        }
+    };
+    Box::pin(stream)
+}
+
+pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
     opts: Opts,
     chain_config: ChainConfig,
     db: Arc<DB>,
 }
 
-impl<DB: kv::traits::MutableKV> Downloader<DB> {
+impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
     pub fn new(opts: Opts, chains_config: ChainsConfig, db: Arc<DB>) -> Self {
         let chain_config = chains_config.0[&opts.chain_name].clone();
 
@@ -91,53 +100,28 @@ impl<DB: kv::traits::MutableKV> Downloader<DB> {
         // although most of the time only one of the stages is actively running,
         // while the others are waiting for the status updates or timeouts.
 
-        let mut fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
-        let mut fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
-        let mut retry_stage = RetryStage::new(header_slices.clone());
-        let mut verify_stage = VerifyStage::new(header_slices.clone(), preverified_hashes_config);
-        let mut save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
-        let mut refill_stage = RefillStage::new(header_slices.clone());
+        let fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
+        let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
+        let retry_stage = RetryStage::new(header_slices.clone());
+        let verify_stage = VerifyStage::new(header_slices.clone(), preverified_hashes_config);
+        let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
+        let refill_stage = RefillStage::new(header_slices.clone());
 
         let can_proceed = fetch_receive_stage.can_proceed_checker();
 
-        let fetch_request_stage_stream: StageStream = Box::pin(async_stream::stream! {
-            loop {
-                yield fetch_request_stage.execute().await;
-            }
-        });
-        let fetch_receive_stage_stream: StageStream = Box::pin(async_stream::stream! {
-            loop {
-                yield fetch_receive_stage.execute().await;
-            }
-        });
-        let retry_stage_stage_stream: StageStream = Box::pin(async_stream::stream! {
-            loop {
-                yield retry_stage.execute().await;
-            }
-        });
-        let verify_stage_stage_stream: StageStream = Box::pin(async_stream::stream! {
-            loop {
-                yield verify_stage.execute().await;
-            }
-        });
-        let save_stage_stage_stream: StageStream = Box::pin(async_stream::stream! {
-            loop {
-                yield save_stage.execute().await;
-            }
-        });
-        let refill_stage_stage_stream: StageStream = Box::pin(async_stream::stream! {
-            loop {
-                yield refill_stage.execute().await;
-            }
-        });
-
         let mut stream = StreamMap::<&str, StageStream>::new();
-        stream.insert("fetch_request_stage_stream", fetch_request_stage_stream);
-        stream.insert("fetch_receive_stage_stream", fetch_receive_stage_stream);
-        stream.insert("retry_stage_stage_stream", retry_stage_stage_stream);
-        stream.insert("verify_stage_stage_stream", verify_stage_stage_stream);
-        stream.insert("save_stage_stage_stream", save_stage_stage_stream);
-        stream.insert("refill_stage_stage_stream", refill_stage_stage_stream);
+        stream.insert(
+            "fetch_request_stage",
+            make_stage_stream(Box::new(fetch_request_stage)),
+        );
+        stream.insert(
+            "fetch_receive_stage",
+            make_stage_stream(Box::new(fetch_receive_stage)),
+        );
+        stream.insert("retry_stage", make_stage_stream(Box::new(retry_stage)));
+        stream.insert("verify_stage", make_stage_stream(Box::new(verify_stage)));
+        stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
+        stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));
 
         while let Some((key, result)) = stream.next().await {
             if result.is_err() {

@@ -12,7 +12,7 @@ use crate::{
     },
     models::BlockNumber,
 };
-use parking_lot::{lock_api::RwLockUpgradableReadGuard, RwLock};
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     ops::DerefMut,
     sync::{atomic::*, Arc},
@@ -110,5 +110,12 @@ impl FetchRequestStage {
         self.sentry
             .read()
             .try_send_message(Message::GetBlockHeaders(message), PeerFilter::Random(1))
+    }
+}
+
+#[async_trait::async_trait]
+impl super::stage::Stage for FetchRequestStage {
+    async fn execute(&mut self) -> anyhow::Result<()> {
+        FetchRequestStage::execute(self).await
     }
 }
