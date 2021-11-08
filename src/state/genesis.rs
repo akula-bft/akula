@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    kv::tables::{self, PlainStateFusedValue},
+    kv::tables::{self, CumulativeData, PlainStateFusedValue},
     models::{ChainConfig, *},
     util::*,
     InMemoryState, MutableCursor, MutableTransaction,
@@ -120,6 +120,12 @@ where
                 uncles: vec![],
             },
         ),
+    )
+    .await?;
+
+    txn.set(
+        &tables::CumulativeIndex,
+        (0.into(), CumulativeData { gas: 0, tx_num: 0 }),
     )
     .await?;
 

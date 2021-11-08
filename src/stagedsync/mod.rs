@@ -224,7 +224,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
     }
 }
 
-fn format_duration(dur: Duration) -> String {
+pub fn format_duration(dur: Duration) -> String {
     let mut secs = dur.as_secs();
     let mut minutes = secs / 60;
     let hours = minutes / 60;

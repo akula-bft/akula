@@ -5,10 +5,11 @@ use crate::{
     kv::tables,
     models::*,
     stagedsync::{
+        format_duration,
         stage::{ExecOutput, Stage, StageInput},
         stages::EXECUTION,
     },
-    Buffer, MutableTransaction,
+    Buffer, Cursor, MutableTransaction,
 };
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
@@ -39,6 +40,11 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut gas_since_start = 0_u128;
     let mut gas_since_last_message = 0;
     let started_at = Instant::now();
+    let started_at_gas = tx
+        .get(&tables::CumulativeIndex, block_number)
+        .await?
+        .unwrap()
+        .gas;
     let mut last_message = Instant::now();
     let mut printed_at_least_once = false;
     loop {
@@ -75,7 +81,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
         let now = Instant::now();
 
-        let end_of_batch = block_number == max_block
+        let stage_complete = block_number == max_block;
+
+        let end_of_batch = stage_complete
             || gas_since_start > batch_size
             || commit_every
                 .map(|commit_every| now - started_at > commit_every)
@@ -83,10 +91,42 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
         let elapsed = now - last_message;
         if elapsed > Duration::from_secs(30) || (end_of_batch && !printed_at_least_once) {
+            let current_total_gas = tx
+                .get(&tables::CumulativeIndex, block_number)
+                .await?
+                .unwrap()
+                .gas;
+
+            let total_gas = tx
+                .cursor(&tables::CumulativeIndex)
+                .await?
+                .last()
+                .await?
+                .unwrap()
+                .1
+                .gas;
             let mgas_sec = gas_since_last_message as f64
                 / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
                 / 1_000_000f64;
-            info!("Executed block {}, Mgas/sec: {}", block_number, mgas_sec);
+            info!(
+                "Executed block {}, Mgas/sec: {}{}",
+                block_number,
+                mgas_sec,
+                if stage_complete {
+                    String::new()
+                } else {
+                    format!(
+                        ", progress: {:.2}%, {} remaining",
+                        (current_total_gas as f64 / total_gas as f64) * 100_f64,
+                        format_duration(
+                            elapsed
+                                * ((total_gas - current_total_gas) as f64
+                                    / (current_total_gas - started_at_gas) as f64)
+                                    as u32
+                        )
+                    )
+                }
+            );
             printed_at_least_once = true;
             last_message = now;
             gas_since_last_message = 0;

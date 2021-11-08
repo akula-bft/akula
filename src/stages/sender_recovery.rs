@@ -4,7 +4,10 @@ use crate::{
         traits::{Cursor, MutableCursor, TableEncode},
     },
     models::*,
-    stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
+    stagedsync::{
+        format_duration,
+        stage::{ExecOutput, Stage, StageInput, UnwindInput},
+    },
     MutableTransaction, StageId,
 };
 use async_trait::async_trait;
@@ -43,6 +46,11 @@ where
         let mut walker = body_cur.walk(Some(BlockNumber(highest_block.0 + 1)));
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let started_at = Instant::now();
+        let started_at_txnum = tx
+            .get(&tables::CumulativeIndex, highest_block)
+            .await?
+            .unwrap()
+            .tx_num;
         let done = loop {
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = tx_cur
@@ -99,7 +107,30 @@ where
             let now = Instant::now();
             let elapsed = now - started_at;
             if elapsed > Duration::from_secs(30) {
-                info!("Extracted senders from block {}", highest_block);
+                let current_txnum = tx
+                    .get(&tables::CumulativeIndex, highest_block)
+                    .await?
+                    .unwrap()
+                    .tx_num;
+                let total_txnum = tx
+                    .cursor(&tables::CumulativeIndex)
+                    .await?
+                    .last()
+                    .await?
+                    .unwrap()
+                    .1
+                    .tx_num;
+                info!(
+                    "Extracted senders from block {}, progress: {:.2}%, {} remaining",
+                    highest_block,
+                    (current_txnum as f64 / total_txnum as f64) * 100_f64,
+                    format_duration(
+                        elapsed
+                            * ((total_txnum - current_txnum) as f64
+                                / (current_txnum - started_at_txnum) as f64)
+                                as u32
+                    )
+                );
                 break false;
             }
         };

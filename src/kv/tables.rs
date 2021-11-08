@@ -11,7 +11,7 @@ use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use roaring::RoaringTreemap;
 use serde::{Deserialize, *};
-use std::{collections::HashMap, fmt::Display, sync::Arc};
+use std::{collections::HashMap, fmt::Display, mem::size_of, sync::Arc};
 
 #[derive(Debug)]
 pub struct ErasedTable<T>(pub T)
@@ -770,6 +770,38 @@ impl TableDecode for StorageChange {
 
 pub type HeaderKey = (BlockNumber, H256);
 
+#[derive(Clone, Debug)]
+pub struct CumulativeData {
+    pub tx_num: u64,
+    pub gas: u64,
+}
+
+impl TableEncode for CumulativeData {
+    type Encoded = [u8; size_of::<u64>() + size_of::<u64>()];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = Self::Encoded::default();
+        out[..size_of::<u64>()].copy_from_slice(&self.tx_num.encode());
+        out[size_of::<u64>()..].copy_from_slice(&self.gas.encode());
+        out
+    }
+}
+
+impl TableDecode for CumulativeData {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != size_of::<u64>() + size_of::<u64>() {
+            return Err(
+                InvalidLength::<{ size_of::<u64>() + size_of::<u64>() }> { got: b.len() }.into(),
+            );
+        }
+
+        Ok(Self {
+            tx_num: u64::decode(&b[..size_of::<u64>()])?,
+            gas: u64::decode(&b[size_of::<u64>()..])?,
+        })
+    }
+}
+
 #[bitfield]
 #[derive(Clone, Copy, Debug, Default)]
 struct CallTraceSetFlags {
@@ -1027,6 +1059,7 @@ decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => Transaction);
+decl_table!(CumulativeIndex => BlockNumber => CumulativeData);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
@@ -1076,6 +1109,7 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         HeadersTotalDifficulty::const_db_name() => TableInfo::default(),
         BlockBody::const_db_name() => TableInfo::default(),
         BlockTransaction::const_db_name() => TableInfo::default(),
+        CumulativeIndex::const_db_name() => TableInfo::default(),
         LogTopicIndex::const_db_name() => TableInfo::default(),
         LogAddressIndex::const_db_name() => TableInfo::default(),
         CallTraceSet::const_db_name() => TableInfo {
