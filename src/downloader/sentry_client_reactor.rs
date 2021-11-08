@@ -21,7 +21,7 @@ use tracing::*;
 pub struct SentryClientReactor {
     send_message_sender: mpsc::Sender<SendMessageCommand>,
     receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
-    event_loop: Option<SentryClientReactorEventLoop>,
+    event_loop: Mutex<Option<SentryClientReactorEventLoop>>,
     event_loop_handle: Option<JoinHandle<()>>,
     stop_signal_sender: mpsc::Sender<()>,
 }
@@ -77,7 +77,7 @@ impl SentryClientReactor {
         Self {
             send_message_sender,
             receive_messages_senders: Arc::clone(&receive_messages_senders),
-            event_loop: Some(event_loop),
+            event_loop: Mutex::new(Some(event_loop)),
             event_loop_handle: None,
             stop_signal_sender,
         }
@@ -86,6 +86,7 @@ impl SentryClientReactor {
     pub fn start(&mut self) -> anyhow::Result<()> {
         let event_loop = self
             .event_loop
+            .try_lock()?
             .take()
             .ok_or_else(|| anyhow::anyhow!("already started once"))?;
         let handle = tokio::spawn(async move {
@@ -430,5 +431,16 @@ impl SentryClientReactorEventLoop {
 
         info!("SentryClientReactor stopped");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct SyncTester<T: Sync>(T);
+
+    fn assert_sync(sentry: SentryClientReactor) {
+        let _ = SyncTester(sentry);
     }
 }
