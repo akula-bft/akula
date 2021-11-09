@@ -21,6 +21,7 @@ use tracing::*;
 
 pub struct DownloaderLinear<DB: kv::traits::MutableKV + Sync> {
     chain_name: String,
+    start_block_num: BlockNumber,
     mem_limit: usize,
     sentry: Arc<RwLock<SentryClientReactor>>,
     db: Arc<DB>,
@@ -30,6 +31,7 @@ pub struct DownloaderLinear<DB: kv::traits::MutableKV + Sync> {
 impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
     pub fn new(
         chain_name: String,
+        start_block_num: BlockNumber,
         mem_limit: usize,
         sentry: Arc<RwLock<SentryClientReactor>>,
         db: Arc<DB>,
@@ -37,6 +39,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
     ) -> Self {
         Self {
             chain_name,
+            start_block_num,
             mem_limit,
             sentry,
             db,
@@ -54,6 +57,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         );
         let header_slices = Arc::new(HeaderSlices::new(
             header_slices_mem_limit,
+            self.start_block_num,
             header_slices_final_block_num,
         ));
         let sentry = self.sentry.clone();

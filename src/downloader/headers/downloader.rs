@@ -43,10 +43,11 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
             self.ui_system.clone(),
         );
 
-        downloader_preverified.run().await?;
+        let final_preverified_block_num = downloader_preverified.run().await?;
 
         let _downloader_linear = downloader_linear::DownloaderLinear::new(
             self.chain_name.clone(),
+            final_preverified_block_num,
             mem_limit,
             self.sentry.clone(),
             self.db.clone(),

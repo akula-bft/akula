@@ -59,21 +59,31 @@ pub const HEADER_SLICE_SIZE: usize = 192;
 const ATOMIC_ORDERING: Ordering = Ordering::SeqCst;
 
 impl HeaderSlices {
-    pub fn new(mem_limit: usize, final_block_num: BlockNumber) -> Self {
+    pub fn new(
+        mem_limit: usize,
+        start_block_num: BlockNumber,
+        final_block_num: BlockNumber,
+    ) -> Self {
         let max_slices = mem_limit / std::mem::size_of::<Header>() / HEADER_SLICE_SIZE;
 
+        assert_eq!(
+            (start_block_num.0 as usize) % HEADER_SLICE_SIZE,
+            0,
+            "start_block_num must be at the slice boundary"
+        );
         assert_eq!(
             (final_block_num.0 as usize) % HEADER_SLICE_SIZE,
             0,
             "final_block_num must be at the slice boundary"
         );
-        let max_slices =
-            std::cmp::min(max_slices, (final_block_num.0 as usize) / HEADER_SLICE_SIZE);
+
+        let total_block_num = final_block_num.0 as usize - start_block_num.0 as usize;
+        let max_slices = std::cmp::min(max_slices, total_block_num / HEADER_SLICE_SIZE);
 
         let mut slices = LinkedList::new();
         for i in 0..max_slices {
             let slice = HeaderSlice {
-                start_block_num: BlockNumber((i * HEADER_SLICE_SIZE) as u64),
+                start_block_num: BlockNumber(start_block_num.0 + (i * HEADER_SLICE_SIZE) as u64),
                 status: HeaderSliceStatus::Empty,
                 headers: None,
                 request_time: None,
@@ -82,6 +92,20 @@ impl HeaderSlices {
             slices.push_back(Arc::new(RwLock::new(slice)));
         }
 
+        let max_block_num = start_block_num.0 + (max_slices * HEADER_SLICE_SIZE) as u64;
+
+        let state_watches = Self::make_state_watches(max_slices);
+
+        Self {
+            slices: RwLock::new(slices),
+            max_slices,
+            max_block_num: AtomicU64::new(max_block_num),
+            final_block_num,
+            state_watches,
+        }
+    }
+
+    fn make_state_watches(max_slices: usize) -> HashMap<HeaderSliceStatus, HeaderSliceStatusWatch> {
         let mut state_watches = HashMap::<HeaderSliceStatus, HeaderSliceStatusWatch>::new();
         for id in HeaderSliceStatus::iter() {
             let initial_count = if id == HeaderSliceStatus::Empty {
@@ -99,14 +123,7 @@ impl HeaderSlices {
 
             state_watches.insert(id, channel);
         }
-
-        Self {
-            slices: RwLock::new(slices),
-            max_slices,
-            max_block_num: AtomicU64::new((max_slices * HEADER_SLICE_SIZE) as u64),
-            final_block_num,
-            state_watches,
-        }
+        state_watches
     }
 
     pub fn clone_statuses(&self) -> Vec<HeaderSliceStatus> {

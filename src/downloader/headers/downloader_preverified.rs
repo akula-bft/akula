@@ -44,7 +44,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         }
     }
 
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run(&self) -> anyhow::Result<BlockNumber> {
         let preverified_hashes_config = PreverifiedHashesConfig::new(&self.chain_name)?;
 
         let header_slices_mem_limit = self.mem_limit;
@@ -54,6 +54,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         );
         let header_slices = Arc::new(HeaderSlices::new(
             header_slices_mem_limit,
+            BlockNumber(0),
             header_slices_final_block_num,
         ));
         let sentry = self.sentry.clone();
@@ -109,6 +110,6 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
             header_slices.notify_status_watchers();
         }
 
-        Ok(())
+        Ok(header_slices_final_block_num)
     }
 }
