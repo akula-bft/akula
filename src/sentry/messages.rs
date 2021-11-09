@@ -1,7 +1,5 @@
-use crate::{
-    downloader::block_id::BlockId,
-    models::{Block as BlockType, BlockHeader as HeaderType},
-};
+use super::block_id::BlockId;
+use crate::models::{Block as BlockType, BlockHeader as HeaderType};
 use ethereum_types::H256;
 use rlp_derive::*;
 

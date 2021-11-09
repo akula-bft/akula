@@ -1,4 +1,7 @@
-use akula::downloader::{chain_config, opts::Opts, Downloader};
+use akula::{
+    downloader::{opts::Opts, Downloader},
+    sentry::chain_config,
+};
 
 use akula::kv;
 use std::sync::Arc;

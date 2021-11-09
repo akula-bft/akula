@@ -1,6 +1,5 @@
 use crate::{
     downloader::{
-        chain_config::{ChainConfig, ChainsConfig},
         headers::{
             fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage,
             header_slices, header_slices::HeaderSlices,
@@ -9,13 +8,16 @@ use crate::{
             HeaderSlicesView,
         },
         opts::Opts,
+    },
+    kv,
+    models::BlockNumber,
+    sentry::{
+        chain_config::{ChainConfig, ChainsConfig},
         sentry_client,
         sentry_client::SentryClient,
         sentry_client_connector,
         sentry_client_reactor::SentryClientReactor,
     },
-    kv,
-    models::BlockNumber,
 };
 use futures_core::Stream;
 use parking_lot::RwLock;

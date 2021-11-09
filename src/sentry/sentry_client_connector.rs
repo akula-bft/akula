@@ -1,4 +1,4 @@
-use crate::downloader::{
+use super::{
     sentry_address::SentryAddress, sentry_client::SentryClient,
     sentry_client_impl::SentryClientImpl,
 };

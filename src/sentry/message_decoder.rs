@@ -1,4 +1,4 @@
-use crate::downloader::messages::*;
+use super::messages::*;
 
 pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Result<Message> {
     let message: Message = match id {
@@ -34,7 +34,7 @@ impl rlp::Encodable for Message {
 
 #[cfg(test)]
 mod tests {
-    use crate::downloader::{
+    use super::super::{
         block_id::BlockId,
         message_decoder::decode_rlp_message,
         messages::{

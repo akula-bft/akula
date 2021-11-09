@@ -1,6 +1,4 @@
-use crate::downloader::{
-    message_decoder, messages::*, sentry_address::SentryAddress, sentry_client::*,
-};
+use super::{message_decoder, messages::*, sentry_address::SentryAddress, sentry_client::*};
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
