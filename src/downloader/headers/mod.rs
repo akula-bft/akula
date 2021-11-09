@@ -1,6 +1,10 @@
+pub mod downloader;
+mod downloader_linear;
+mod downloader_preverified;
 mod header_slice_status_watch;
 pub mod header_slices;
 pub mod stage;
+mod stage_stream;
 
 pub mod fetch_receive_stage;
 pub mod fetch_request_stage;

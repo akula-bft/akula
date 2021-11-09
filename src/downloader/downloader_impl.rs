@@ -1,16 +1,6 @@
 use crate::{
-    downloader::{
-        headers::{
-            fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage,
-            header_slices, header_slices::HeaderSlices,
-            preverified_hashes_config::PreverifiedHashesConfig, refill_stage::RefillStage,
-            retry_stage::RetryStage, save_stage::SaveStage, verify_stage::VerifyStage,
-            HeaderSlicesView,
-        },
-        opts::Opts,
-    },
+    downloader::opts::Opts,
     kv,
-    models::BlockNumber,
     sentry::{
         chain_config::{ChainConfig, ChainsConfig},
         sentry_client,
@@ -19,22 +9,9 @@ use crate::{
         sentry_client_reactor::SentryClientReactor,
     },
 };
-use futures_core::Stream;
 use parking_lot::RwLock;
-use std::{pin::Pin, sync::Arc};
-use tokio_stream::{StreamExt, StreamMap};
-use tracing::*;
-
-type StageStream = Pin<Box<dyn Stream<Item = anyhow::Result<()>>>>;
-
-fn make_stage_stream(mut stage: Box<dyn crate::downloader::headers::stage::Stage>) -> StageStream {
-    let stream = async_stream::stream! {
-        loop {
-            yield stage.execute().await;
-        }
-    };
-    Box::pin(stream)
-}
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
     opts: Opts,
@@ -76,72 +53,21 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
             sentry_client_connector::make_connector_stream(sentry_client, sentry_api_addr);
         let mut sentry_reactor = SentryClientReactor::new(sentry_connector);
         sentry_reactor.start()?;
+        let sentry = Arc::new(RwLock::new(sentry_reactor));
 
         let mut ui_system = crate::downloader::ui_system::UISystem::new();
         ui_system.start()?;
+        let ui_system = Arc::new(Mutex::new(ui_system));
 
-        let preverified_hashes_config = PreverifiedHashesConfig::new(&self.opts.chain_name)?;
-
-        let header_slices_mem_limit = 50 << 20; /* 50 Mb */
-        let header_slices_final_block_num = BlockNumber(
-            ((preverified_hashes_config.hashes.len() - 1) * header_slices::HEADER_SLICE_SIZE)
-                as u64,
+        let headers_downloader = super::headers::downloader::Downloader::new(
+            self.opts.chain_name.clone(),
+            sentry.clone(),
+            self.db.clone(),
+            ui_system.clone(),
         );
-        let header_slices = Arc::new(HeaderSlices::new(
-            header_slices_mem_limit,
-            header_slices_final_block_num,
-        ));
-        let sentry = Arc::new(RwLock::new(sentry_reactor));
+        headers_downloader.run().await?;
 
-        ui_system.set_view(Some(Box::new(HeaderSlicesView::new(header_slices.clone()))));
-
-        // Downloading happens with several stages where
-        // each of the stages processes blocks in one status,
-        // and updates them to proceed to the next status.
-        // All stages runs in parallel,
-        // although most of the time only one of the stages is actively running,
-        // while the others are waiting for the status updates or timeouts.
-
-        let fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
-        let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
-        let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStage::new(header_slices.clone(), preverified_hashes_config);
-        let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
-        let refill_stage = RefillStage::new(header_slices.clone());
-
-        let can_proceed = fetch_receive_stage.can_proceed_checker();
-
-        let mut stream = StreamMap::<&str, StageStream>::new();
-        stream.insert(
-            "fetch_request_stage",
-            make_stage_stream(Box::new(fetch_request_stage)),
-        );
-        stream.insert(
-            "fetch_receive_stage",
-            make_stage_stream(Box::new(fetch_receive_stage)),
-        );
-        stream.insert("retry_stage", make_stage_stream(Box::new(retry_stage)));
-        stream.insert("verify_stage", make_stage_stream(Box::new(verify_stage)));
-        stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
-        stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));
-
-        while let Some((key, result)) = stream.next().await {
-            if result.is_err() {
-                error!("Downloader headers {} failure: {:?}", key, result);
-                break;
-            }
-
-            if !can_proceed.can_proceed() {
-                break;
-            }
-            if header_slices.is_empty_at_final_position() {
-                break;
-            }
-
-            header_slices.notify_status_watchers();
-        }
-
-        ui_system.stop().await?;
+        ui_system.try_lock()?.stop().await?;
 
         {
             let mut sentry_reactor = sentry.write();
