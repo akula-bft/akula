@@ -34,7 +34,7 @@ impl RetryStage {
 
         let count = self.reset_pending()?;
         if count > 0 {
-            info!("RetryStage: did reset {} slices for retry", count);
+            debug!("RetryStage: did reset {} slices for retry", count);
         }
         debug!("RetryStage: done");
         Ok(())

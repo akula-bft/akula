@@ -46,7 +46,7 @@ impl FetchRequestStage {
         debug!("FetchRequestStage: start");
         self.pending_watch.wait().await?;
 
-        info!(
+        debug!(
             "FetchRequestStage: requesting {} slices",
             self.pending_watch.pending_count()
         );

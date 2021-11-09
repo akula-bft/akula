@@ -35,7 +35,7 @@ impl VerifyStage {
         debug!("VerifyStage: start");
         self.pending_watch.wait().await?;
 
-        info!(
+        debug!(
             "VerifyStage: verifying {} slices",
             self.pending_watch.pending_count()
         );

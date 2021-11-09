@@ -11,7 +11,7 @@ use std::{
 use strum::IntoEnumIterator;
 use tokio::sync::watch;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, strum::EnumIter)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, strum::EnumIter, strum::Display)]
 pub enum HeaderSliceStatus {
     // initialized, needs to be obtained
     Empty,

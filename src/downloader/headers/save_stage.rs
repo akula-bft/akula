@@ -34,7 +34,7 @@ impl<DB: kv::traits::MutableKV + Sync> SaveStage<DB> {
         debug!("SaveStage: start");
         self.pending_watch.wait().await?;
 
-        info!(
+        debug!(
             "SaveStage: saving {} slices",
             self.pending_watch.pending_count()
         );
