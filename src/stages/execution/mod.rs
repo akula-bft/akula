@@ -121,7 +121,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                     String::new()
                 } else {
                     format!(
-                        ", progress: {:.2}%, {} remaining",
+                        ", progress: {:0>2.2}%, {} remaining",
                         (current_total_gas as f64 / total_gas as f64) * 100_f64,
                         format_duration(
                             (now - first_started_at.0)
