@@ -18,7 +18,7 @@ use tracing::*;
 
 #[derive(Debug)]
 pub struct Execution {
-    pub batch_size: u128,
+    pub batch_size: u64,
     pub commit_every: Option<Duration>,
     pub prune_from: BlockNumber,
 }
@@ -28,7 +28,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     tx: &Tx,
     chain_config: ChainConfig,
     max_block: BlockNumber,
-    batch_size: u128,
+    batch_size: u64,
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
@@ -39,10 +39,10 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut analysis_cache = AnalysisCache::default();
 
     let mut block_number = starting_block;
-    let mut gas_since_start = 0_u128;
+    let mut gas_since_start = 0;
     let mut gas_since_last_message = 0;
-    let started_at = Instant::now();
-    let started_at_gas = tx
+    let batch_started_at = Instant::now();
+    let first_started_at_gas = tx
         .get(
             &tables::CumulativeIndex,
             first_started_at.1.unwrap_or(BlockNumber(0)),
@@ -81,7 +81,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             )
         })?;
 
-        gas_since_start += u128::from(header.gas_used);
+        gas_since_start += header.gas_used;
         gas_since_last_message += header.gas_used;
 
         let now = Instant::now();
@@ -91,7 +91,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         let end_of_batch = stage_complete
             || gas_since_start > batch_size
             || commit_every
-                .map(|commit_every| now - started_at > commit_every)
+                .map(|commit_every| now - batch_started_at > commit_every)
                 .unwrap_or(false);
 
         let elapsed = now - last_message;
@@ -126,7 +126,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                         format_duration(
                             (now - first_started_at.0)
                                 * ((total_gas - current_total_gas) as f64
-                                    / (current_total_gas - started_at_gas) as f64)
+                                    / (current_total_gas - first_started_at_gas) as f64)
                                     as u32
                         )
                     )
