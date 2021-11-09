@@ -155,7 +155,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                         info!(
                                             "DONE @ {} in {}",
                                             stage_progress,
-                                            format_duration(time)
+                                            format_duration(time, true)
                                         );
                                     }
                                 }
@@ -218,7 +218,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                 let t = timings
                     .into_iter()
                     .fold(String::new(), |acc, (stage_id, time)| {
-                        format!("{} {}={}", acc, stage_id, format_duration(time))
+                        format!("{} {}={}", acc, stage_id, format_duration(time, true))
                     });
                 info!("Staged sync complete.{}", t);
             }
@@ -226,7 +226,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
     }
 }
 
-pub fn format_duration(dur: Duration) -> String {
+pub fn format_duration(dur: Duration, subsec_millis: bool) -> String {
     let mut secs = dur.as_secs();
     let mut minutes = secs / 60;
     let hours = minutes / 60;
@@ -234,10 +234,14 @@ pub fn format_duration(dur: Duration) -> String {
     secs %= 60;
     minutes %= 60;
     format!(
-        "{:0>2}:{:0>2}:{:0>2}.{:0>3}",
+        "{:0>2}:{:0>2}:{:0>2}{}",
         hours,
         minutes,
         secs,
-        dur.subsec_millis()
+        if subsec_millis {
+            format!(".{:0>3}", dur.subsec_millis())
+        } else {
+            String::new()
+        }
     )
 }

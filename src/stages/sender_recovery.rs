@@ -123,15 +123,20 @@ where
                     .unwrap()
                     .1
                     .tx_num;
+
+                let elapsed_since_start = now - input.first_started_at.0;
                 info!(
                     "Extracted senders from block {}, progress: {:.2}%, {} remaining",
                     highest_block,
                     (current_txnum as f64 / total_txnum as f64) * 100_f64,
                     format_duration(
-                        (now - input.first_started_at.0)
-                            * ((total_txnum - current_txnum) as f64
-                                / (current_txnum - started_at_txnum) as f64)
-                                as u32
+                        Duration::from_secs(
+                            (elapsed_since_start.as_secs() as f64
+                                * ((total_txnum - current_txnum) as f64
+                                    / (current_txnum - started_at_txnum) as f64))
+                                as u64
+                        ),
+                        false
                     )
                 );
                 break false;
