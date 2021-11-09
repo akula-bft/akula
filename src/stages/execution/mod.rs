@@ -114,7 +114,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                 / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
                 / 1_000_000f64;
             info!(
-                "Executed block {}, Mgas/sec: {}{}",
+                "Executed block {}, Mgas/sec: {:.2}{}",
                 block_number,
                 mgas_sec,
                 if stage_complete {
