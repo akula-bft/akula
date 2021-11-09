@@ -115,6 +115,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     let stage_id = stage.id();
 
                     let start_time = Instant::now();
+                    let start_progress = stage_id.get_progress(&tx).await?;
 
                     // Re-invoke the stage until it reports `StageOutput::done`.
                     let done_progress = loop {
@@ -135,6 +136,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                     &mut tx,
                                     StageInput {
                                         restarted,
+                                        first_started_at: (start_time, start_progress),
                                         previous_stage,
                                         stage_progress,
                                     },

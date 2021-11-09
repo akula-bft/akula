@@ -23,6 +23,7 @@ pub struct Execution {
     pub prune_from: BlockNumber,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     tx: &Tx,
     chain_config: ChainConfig,
@@ -30,6 +31,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     batch_size: u128,
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
+    first_started_at: (Instant, Option<BlockNumber>),
     prune_from: BlockNumber,
 ) -> anyhow::Result<BlockNumber> {
     let mut buffer = Buffer::new(tx, prune_from, None);
@@ -41,7 +43,10 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut gas_since_last_message = 0;
     let started_at = Instant::now();
     let started_at_gas = tx
-        .get(&tables::CumulativeIndex, block_number)
+        .get(
+            &tables::CumulativeIndex,
+            first_started_at.1.unwrap_or(BlockNumber(0)),
+        )
         .await?
         .unwrap()
         .gas;
@@ -119,7 +124,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                         ", progress: {:.2}%, {} remaining",
                         (current_total_gas as f64 / total_gas as f64) * 100_f64,
                         format_duration(
-                            elapsed
+                            (now - first_started_at.0)
                                 * ((total_gas - current_total_gas) as f64
                                     / (current_total_gas - started_at_gas) as f64)
                                     as u32
@@ -181,6 +186,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 self.batch_size,
                 self.commit_every,
                 starting_block,
+                input.first_started_at,
                 self.prune_from,
             )
             .await?;

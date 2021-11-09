@@ -124,6 +124,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
     use crate::{accessors::chain, kv::traits::MutableKV, models::*, new_mem_database};
     use bytes::Bytes;
@@ -299,6 +301,7 @@ mod tests {
 
         let stage_input = StageInput {
             restarted: false,
+            first_started_at: (Instant::now(), Some(BlockNumber(0))),
             previous_stage: Some((StageId("BodyDownload"), 3.into())),
             stage_progress: Some(0.into()),
         };
@@ -336,6 +339,7 @@ mod tests {
 
         let stage_input = StageInput {
             restarted: false,
+            first_started_at: (Instant::now(), Some(BlockNumber(0))),
             previous_stage: Some((StageId("BodyDownload"), 3.into())),
             stage_progress: Some(0.into()),
         };

@@ -2,7 +2,7 @@ use super::stages::StageId;
 use crate::{models::*, MutableTransaction};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Instant};
 
 #[derive(Debug, PartialEq)]
 pub enum ExecOutput {
@@ -40,6 +40,7 @@ pub trait Stage<'db, RwTx: MutableTransaction<'db>>: Send + Sync + Debug {
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
     pub restarted: bool,
+    pub first_started_at: (Instant, Option<BlockNumber>),
     pub previous_stage: Option<(StageId, BlockNumber)>,
     pub stage_progress: Option<BlockNumber>,
 }

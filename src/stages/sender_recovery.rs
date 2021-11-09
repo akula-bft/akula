@@ -47,7 +47,10 @@ where
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let started_at = Instant::now();
         let started_at_txnum = tx
-            .get(&tables::CumulativeIndex, highest_block)
+            .get(
+                &tables::CumulativeIndex,
+                input.first_started_at.1.unwrap_or(BlockNumber(0)),
+            )
             .await?
             .unwrap()
             .tx_num;
@@ -125,7 +128,7 @@ where
                     highest_block,
                     (current_txnum as f64 / total_txnum as f64) * 100_f64,
                     format_duration(
-                        elapsed
+                        (now - input.first_started_at.0)
                             * ((total_txnum - current_txnum) as f64
                                 / (current_txnum - started_at_txnum) as f64)
                                 as u32
@@ -326,6 +329,7 @@ mod tests {
 
         let stage_input = StageInput {
             restarted: false,
+            first_started_at: (Instant::now(), Some(BlockNumber(0))),
             previous_stage: Some((StageId("BodyDownload"), 3.into())),
             stage_progress: Some(0.into()),
         };
