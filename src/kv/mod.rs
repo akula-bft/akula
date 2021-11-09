@@ -9,7 +9,7 @@ pub use traits::{DupSort, Table, TableDecode, TableEncode, TableObject};
 use crate::kv::tables::CHAINDATA_TABLES;
 use ::mdbx::{Geometry, WriteMap};
 use async_trait::async_trait;
-use byte_unit::{n_mib_bytes, n_tib_bytes};
+use byte_unit::*;
 use bytes::Bytes as StaticBytes;
 use std::{fmt::Debug, ops::Deref};
 
@@ -79,7 +79,7 @@ pub fn new_mem_database() -> anyhow::Result<impl traits::MutableKV> {
 
 pub fn new_database(path: &std::path::Path) -> anyhow::Result<impl traits::MutableKV> {
     Ok(MdbxWithDirHandle {
-        inner: new_environment(path, n_tib_bytes!(4), Some(n_mib_bytes!(8) as usize))?,
+        inner: new_environment(path, n_tib_bytes!(4), Some(n_gib_bytes!(4) as usize))?,
         _tmpdir: None,
     })
 }
@@ -97,5 +97,6 @@ fn new_environment(
         shrink_threshold: None,
         page_size: None,
     });
+    builder.set_rp_augment_limit(16 * 256 * 1024);
     mdbx::Environment::open_rw(builder, path, CHAINDATA_TABLES.deref().clone())
 }
