@@ -1,4 +1,4 @@
-use crate::downloader::{
+use super::{
     chain_config::ChainConfig,
     messages::{EthMessageId, Message},
 };

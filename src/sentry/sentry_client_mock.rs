@@ -1,4 +1,4 @@
-use crate::downloader::{
+use super::{
     messages::{EthMessageId, Message},
     sentry_client::{MessageFromPeer, MessageFromPeerStream, PeerFilter, SentryClient, Status},
 };
@@ -62,5 +62,11 @@ impl SentryClient for SentryClientMock {
         } else {
             anyhow::bail!("SentryClientMock::receive_messages supports only one receiver")
         }
+    }
+}
+
+impl Default for SentryClientMock {
+    fn default() -> Self {
+        Self::new()
     }
 }

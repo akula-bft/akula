@@ -30,6 +30,7 @@ pub mod execution;
 pub mod kv;
 pub mod models;
 pub mod res;
+pub mod sentry;
 pub mod stagedsync;
 pub mod stages;
 mod state;

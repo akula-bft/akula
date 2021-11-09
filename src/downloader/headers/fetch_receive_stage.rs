@@ -1,13 +1,13 @@
 use crate::{
-    downloader::{
-        headers::{
-            header_slices,
-            header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
-        },
+    downloader::headers::{
+        header_slices,
+        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    },
+    models::{BlockHeader as Header, BlockNumber},
+    sentry::{
         messages::{BlockHeadersMessage, EthMessageId, Message},
         sentry_client_reactor::SentryClientReactor,
     },
-    models::{BlockHeader as Header, BlockNumber},
 };
 use futures_core::Stream;
 use parking_lot::RwLock;

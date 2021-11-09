@@ -1,4 +1,4 @@
-use crate::downloader::{
+use super::{
     messages::{EthMessageId, Message},
     sentry_client::*,
     sentry_client_connector,
@@ -242,7 +242,7 @@ impl Drop for EventLoopReceiveMessagesSendersDropper {
 }
 
 mod stream_factory {
-    use crate::downloader::{sentry_client::MessageFromPeerStream, sentry_client_reactor::*};
+    use super::super::{sentry_client::MessageFromPeerStream, sentry_client_reactor::*};
     use tokio::sync::Mutex;
 
     fn make_receive_stream(

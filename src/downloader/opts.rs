@@ -1,4 +1,4 @@
-use crate::downloader::sentry_address::SentryAddress;
+use crate::sentry::sentry_address::SentryAddress;
 use anyhow::anyhow;
 use directories::ProjectDirs;
 use std::str::FromStr;
