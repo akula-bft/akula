@@ -1,12 +1,13 @@
 use crate::{
     downloader::headers::{
         header_slice_status_watch::HeaderSliceStatusWatch,
-        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+        header_slices::{HeaderSliceStatus, HeaderSlices},
     },
     kv,
     kv::traits::MutableTransaction,
+    models::BlockHeader,
 };
-use parking_lot::RwLockUpgradableReadGuard;
+use anyhow::anyhow;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
@@ -48,26 +49,37 @@ impl<DB: kv::traits::MutableKV + Sync> SaveStage<DB> {
             .header_slices
             .find_by_status(HeaderSliceStatus::Verified)
         {
-            let slice = slice_lock.upgradable_read();
-            self.save_slice(&slice).await?;
+            // take out the headers, and unlock the slice while save_slice is in progress
+            let headers = {
+                let mut slice = slice_lock.write();
+                slice.headers.take().ok_or_else(|| {
+                    anyhow!("SaveStage: inconsistent state - Verified slice has no headers")
+                })?
+            };
 
-            let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
+            self.save_slice(&headers).await?;
+
+            let mut slice = slice_lock.write();
+
+            // put the detached headers back
+            slice.headers = Some(headers);
+
             self.header_slices
                 .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Saved);
         }
         Ok(())
     }
 
-    async fn save_slice(&self, slice: &HeaderSlice) -> anyhow::Result<()> {
+    async fn save_slice(&self, headers: &[BlockHeader]) -> anyhow::Result<()> {
         let tx = self.db.begin_mutable().await?;
-        if let Some(headers) = slice.headers.as_ref() {
-            for header in headers {
-                tx.set(
-                    &kv::tables::Header,
-                    ((header.number, header.hash()), header.clone()),
-                )
-                .await?;
-            }
+        for header_ref in headers {
+            // TODO: heavy clone - is it possible to avoid?
+            let header = header_ref.clone();
+            tx.set(
+                &kv::tables::Header,
+                ((header.number, header.hash()), header),
+            )
+            .await?;
         }
         tx.commit().await
     }
