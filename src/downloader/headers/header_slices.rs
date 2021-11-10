@@ -166,6 +166,16 @@ impl HeaderSlices {
             .map(Arc::clone)
     }
 
+    pub fn find_first(&self) -> Option<Arc<RwLock<HeaderSlice>>> {
+        let slices = self.slices.read();
+        slices.front().map(Arc::clone)
+    }
+
+    pub fn find_by_index(&self, index: usize) -> Option<Arc<RwLock<HeaderSlice>>> {
+        let slices = self.slices.read();
+        slices.iter().nth(index).map(Arc::clone)
+    }
+
     pub fn remove(&self, status: HeaderSliceStatus) {
         let mut slices = self.slices.write();
         let mut cursor = slices.cursor_front_mut();

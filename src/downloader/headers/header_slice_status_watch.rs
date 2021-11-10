@@ -25,9 +25,13 @@ impl HeaderSliceStatusWatch {
     }
 
     pub async fn wait(&mut self) -> anyhow::Result<()> {
-        if self.pending_count() == 0 {
+        self.wait_while(0).await
+    }
+
+    pub async fn wait_while(&mut self, value: usize) -> anyhow::Result<()> {
+        if self.pending_count() == value {
             debug!("{}: waiting pending", self.name);
-            while *self.pending_watch.borrow_and_update() == 0 {
+            while *self.pending_watch.borrow_and_update() == value {
                 self.pending_watch.changed().await?;
             }
             debug!("{}: waiting pending done", self.name);
