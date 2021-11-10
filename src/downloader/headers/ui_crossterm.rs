@@ -1,20 +1,26 @@
-use crate::downloader::{
-    headers::header_slices::{HeaderSliceStatus, HeaderSlices},
-    ui_view::UIView,
+use super::{
+    average_delta_counter::AverageDeltaCounter,
+    header_slices::{HeaderSliceStatus, HeaderSlices},
 };
+use crate::downloader::ui_view::UIView;
 use crossterm::{cursor, style, terminal, QueueableCommand};
 use std::{
+    cell::RefCell,
     io::{stdout, Write},
     sync::Arc,
 };
 
 pub struct HeaderSlicesView {
     header_slices: Arc<HeaderSlices>,
+    speed_counter: RefCell<AverageDeltaCounter>,
 }
 
 impl HeaderSlicesView {
     pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
-        Self { header_slices }
+        Self {
+            header_slices,
+            speed_counter: RefCell::new(AverageDeltaCounter::new(60)),
+        }
     }
 }
 
@@ -25,6 +31,11 @@ impl UIView for HeaderSlicesView {
         let min_block_num = self.header_slices.min_block_num();
         let max_block_num = self.header_slices.max_block_num();
         let final_block_num = self.header_slices.final_block_num();
+
+        // speed
+        let mut speed_counter = self.speed_counter.borrow_mut();
+        speed_counter.update(min_block_num.0);
+        let speed = speed_counter.average();
 
         let mut stdout = stdout();
 
@@ -37,10 +48,11 @@ impl UIView for HeaderSlicesView {
 
         // overall progress
         let progress_desc = std::format!(
-            "downloading headers {} - {} of {} ...",
+            "downloading headers {} - {} of {} at {} blk/sec ...",
             min_block_num.0,
             max_block_num.0,
             final_block_num.0,
+            speed,
         );
         stdout.queue(style::Print(progress_desc))?;
         stdout.queue(terminal::Clear(terminal::ClearType::UntilNewLine))?;
