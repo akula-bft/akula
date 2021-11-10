@@ -26813,6 +26813,7 @@
     "petersburgBlock": 7280000,
     "istanbulBlock": 9069000,
     "muirGlacierBlock": 9200000,
+    "arrowGlacierBlock": 13773000,
     "berlinBlock": 12244000,
     "londonBlock": 12965000,
     "sealEngine": "Ethash"
