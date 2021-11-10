@@ -19,6 +19,7 @@ use tracing::*;
 #[derive(Debug)]
 pub struct Execution {
     pub batch_size: u64,
+    pub exit_after_batch: bool,
     pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
     pub prune_from: BlockNumber,
@@ -204,7 +205,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
             )
             .await?;
 
-            let done = executed_to == max_block;
+            let done = executed_to == max_block || self.exit_after_batch;
 
             ExecOutput::Progress {
                 stage_progress: executed_to,
