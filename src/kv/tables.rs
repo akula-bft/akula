@@ -3,8 +3,7 @@ use crate::{models::*, zeroless_view, StageId};
 use anyhow::bail;
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
-use bincode::Options;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
@@ -306,28 +305,46 @@ where
     }
 }
 
-macro_rules! bincode_table_object {
+macro_rules! rlp_table_object {
     ($ty:ty) => {
         impl TableEncode for $ty {
-            type Encoded = Vec<u8>;
+            type Encoded = BytesMut;
 
             fn encode(self) -> Self::Encoded {
-                bincode::DefaultOptions::new().serialize(&self).unwrap()
+                rlp::encode(&self)
             }
         }
 
         impl TableDecode for $ty {
             fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(bincode::DefaultOptions::new().deserialize(b)?)
+                Ok(rlp::decode(b)?)
             }
         }
     };
 }
 
-bincode_table_object!(U256);
-bincode_table_object!(BodyForStorage);
-bincode_table_object!(BlockHeader);
-bincode_table_object!(Transaction);
+macro_rules! rlp_standalone_table_object {
+    ($ty:ty) => {
+        impl TableEncode for $ty {
+            type Encoded = Bytes;
+
+            fn encode(self) -> Self::Encoded {
+                crate::crypto::TrieEncode::trie_encode(&self)
+            }
+        }
+
+        impl TableDecode for $ty {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                Ok(rlp::decode(b)?)
+            }
+        }
+    };
+}
+
+rlp_table_object!(U256);
+rlp_table_object!(BodyForStorage);
+rlp_table_object!(BlockHeader);
+rlp_standalone_table_object!(Transaction);
 
 macro_rules! json_table_object {
     ($ty:ident) => {

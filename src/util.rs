@@ -44,6 +44,10 @@ pub fn zeroless_view(v: &impl AsRef<[u8]>) -> &[u8] {
     &v[v.iter().take_while(|b| b.is_zero()).count()..]
 }
 
+pub fn hex_to_bytes(s: &str) -> Result<Bytes, hex::FromHexError> {
+    hex::decode(s).map(From::from)
+}
+
 pub fn write_hex_string<B: AsRef<[u8]>>(b: &B, f: &mut Formatter) -> fmt::Result {
     write!(f, "0x{}", hex::encode(b))
 }
