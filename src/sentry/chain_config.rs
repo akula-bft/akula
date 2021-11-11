@@ -1,23 +1,64 @@
 use super::chain_id::ChainId;
-use serde::Deserialize;
+use crate::{
+    genesis::GenesisState,
+    genesis_v2::GenesisChainSpec,
+    models::{BlockNumber, ChainSpec},
+};
 use std::collections::HashMap;
 
-pub struct ChainsConfig(pub HashMap<String, ChainConfig>);
+pub struct ChainsConfig(HashMap<String, ChainConfig>);
 
-#[derive(Deserialize, Clone)]
+#[derive(Clone)]
 pub struct ChainConfig {
-    pub id: ChainId,
-    #[serde(rename = "genesis")]
-    pub genesis_block_hash: ethereum_types::H256,
-    #[serde(rename = "fork_blocks")]
-    pub fork_block_numbers: Vec<u64>,
+    chain_spec: &'static ChainSpec,
+    genesis_block_hash: ethereum_types::H256,
+}
+
+impl ChainConfig {
+    fn new(chain_spec: &'static ChainSpec) -> Self {
+        let genesis = GenesisChainSpec::new(chain_spec);
+        let genesis_header = genesis.header(&genesis.initial_state());
+        let genesis_block_hash = genesis_header.hash();
+
+        Self {
+            chain_spec,
+            genesis_block_hash,
+        }
+    }
+
+    pub fn id(&self) -> ChainId {
+        self.chain_spec.params.chain_id
+    }
+
+    pub fn genesis_block_hash(&self) -> ethereum_types::H256 {
+        self.genesis_block_hash
+    }
+
+    pub fn fork_block_numbers(&self) -> Vec<BlockNumber> {
+        self.chain_spec.gather_forks().iter().cloned().collect()
+    }
 }
 
 impl ChainsConfig {
     pub fn new() -> anyhow::Result<Self> {
-        let config_text = include_str!("chain_config.toml");
-        let configs: HashMap<String, ChainConfig> = toml::from_str(config_text)?;
+        let mut configs = HashMap::<String, ChainConfig>::new();
+        configs.insert(
+            String::from("mainnet"),
+            ChainConfig::new(&crate::res::chainspec::MAINNET),
+        );
+        configs.insert(
+            String::from("ropsten"),
+            ChainConfig::new(&crate::res::chainspec::ROPSTEN),
+        );
+        configs.insert(
+            String::from("rinkeby"),
+            ChainConfig::new(&crate::res::chainspec::RINKEBY),
+        );
         Ok(ChainsConfig(configs))
+    }
+
+    pub fn get(&self, chain_name: &str) -> Option<&ChainConfig> {
+        self.0.get(chain_name)
     }
 }
 

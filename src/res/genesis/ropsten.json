@@ -6,7 +6,7 @@
   },
   "coinbase": "0x0000000000000000000000000000000000000000",
   "config": {
-    "chainId": 1,
+    "chainId": 3,
     "homesteadBlock": 0,
     "tangerineBlock": 0,
     "spuriousBlock": 10,

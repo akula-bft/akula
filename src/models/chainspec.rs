@@ -1,4 +1,4 @@
-use super::BlockNumber;
+use super::{BlockNumber, ChainId};
 use crate::util::*;
 use bytes::Bytes;
 use ethereum_types::*;
@@ -209,12 +209,6 @@ impl SealVerificationParams {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct EthashGenesis {
-    pub nonce: H64,
-    pub mix_hash: H256,
-}
-
 // deserialize_str_as_u64
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Upgrades {
@@ -276,7 +270,7 @@ pub struct Upgrades {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Params {
-    pub chain_id: u64,
+    pub chain_id: ChainId,
     pub network_id: u64,
     pub maximum_extra_data_size: u64,
     pub min_gas_limit: u64,
@@ -294,6 +288,8 @@ pub enum Seal {
 pub struct Genesis {
     pub author: Address,
     pub difficulty: U256,
+    #[serde(deserialize_with = "deserialize_hexstr_as_bytes")]
+    pub extra_data: Bytes,
     pub gas_limit: u64,
     pub timestamp: u64,
     pub seal: Seal,
@@ -365,6 +361,7 @@ where
 {
     U64::deserialize(deserializer).map(|num| num.as_u64())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,7 +392,7 @@ mod tests {
                     london: Some(8897988.into()),
                 },
                 params: Params {
-                    chain_id: 4,
+                    chain_id: ChainId(4),
                     network_id: 4,
                     maximum_extra_data_size: 65535,
                     min_gas_limit: 5000,
@@ -403,6 +400,7 @@ mod tests {
                 genesis: Genesis {
                     author: hex!("0000000000000000000000000000000000000000").into(),
                     difficulty: 0x1.into(),
+                    extra_data: bytes::Bytes::from_static(&hex!("52657370656374206d7920617574686f7269746168207e452e436172746d616e42eb768f2244c8811c63729a21a3569731535f067ffc57839b00206d1ad20c69a1981b489f772031b279182d99e65703f0076e4812653aab85fca0f00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000")),
                     gas_limit: 0x47b760,
                     timestamp: 0x58ee40ba,
                     seal: Seal::Clique {

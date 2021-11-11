@@ -2,6 +2,7 @@ mod buffer;
 mod database;
 mod delta;
 pub mod genesis;
+pub mod genesis_v2;
 mod history;
 mod in_memory_state;
 mod interface;
