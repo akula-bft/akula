@@ -9,13 +9,13 @@ use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
 /// Checks that block hashes are matching the expected ones and sets Verified status.
-pub struct VerifyStage {
+pub struct VerifyStagePreverified {
     header_slices: Arc<HeaderSlices>,
     pending_watch: HeaderSliceStatusWatch,
     preverified_hashes: PreverifiedHashesConfig,
 }
 
-impl VerifyStage {
+impl VerifyStagePreverified {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         preverified_hashes: PreverifiedHashesConfig,
@@ -25,22 +25,22 @@ impl VerifyStage {
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Downloaded,
                 header_slices,
-                "VerifyStage",
+                "VerifyStagePreverified",
             ),
             preverified_hashes,
         }
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("VerifyStage: start");
+        debug!("VerifyStagePreverified: start");
         self.pending_watch.wait().await?;
 
         debug!(
-            "VerifyStage: verifying {} slices",
+            "VerifyStagePreverified: verifying {} slices",
             self.pending_watch.pending_count()
         );
         self.verify_pending()?;
-        debug!("VerifyStage: done");
+        debug!("VerifyStagePreverified: done");
         Ok(())
     }
 
@@ -137,8 +137,8 @@ impl VerifyStage {
 }
 
 #[async_trait::async_trait]
-impl super::stage::Stage for VerifyStage {
+impl super::stage::Stage for VerifyStagePreverified {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        VerifyStage::execute(self).await
+        VerifyStagePreverified::execute(self).await
     }
 }
