@@ -503,7 +503,7 @@ where
                     let block_timestamp = self.header.timestamp;
                     let block_gas_limit = self.header.gas_limit;
                     let block_difficulty = self.header.difficulty;
-                    let chain_id = self.chain_config.chain_id.into();
+                    let chain_id = self.chain_config.chain_id.0.into();
                     let block_base_fee = base_fee_per_gas;
 
                     let context = TxContext {

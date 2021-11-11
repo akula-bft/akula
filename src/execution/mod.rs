@@ -113,7 +113,7 @@ mod tests {
 
                     gas_limit: header.gas_limit,
                     max_fee_per_gas: U256::from(20 * GIGA),
-                    chain_id: 1,
+                    chain_id: ChainId(1),
 
                     value: U256::zero(),
                     access_list: Default::default(),

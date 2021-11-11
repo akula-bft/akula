@@ -1,5 +1,1 @@
-use serde::Deserialize;
-
-#[derive(Deserialize, Clone)]
-#[serde(transparent)]
-pub struct ChainId(pub u32);
+pub use crate::models::ChainId;

@@ -1,5 +1,6 @@
 use crate::{
     crypto::{is_valid_signature, TrieEncode},
+    models::ChainId,
     util::*,
 };
 use bytes::{BufMut, Bytes, BytesMut};
@@ -57,7 +58,7 @@ impl Decodable for TransactionAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct YParityAndChainId {
     pub odd_y_parity: bool,
-    pub chain_id: Option<u64>,
+    pub chain_id: Option<ChainId>,
 }
 
 impl YParityAndChainId {
@@ -73,7 +74,7 @@ impl YParityAndChainId {
             // Find chain_id and y_parity ∈ {0, 1} such that
             // v = chain_id * 2 + 35 + y_parity
             let w = v - 35;
-            let chain_id = Some(w >> 1); // w / 2
+            let chain_id = Some(ChainId(w >> 1)); // w / 2
             Some(Self {
                 odd_y_parity: (w % 2) != 0,
                 chain_id,
@@ -85,7 +86,7 @@ impl YParityAndChainId {
 
     pub fn v(&self) -> u64 {
         if let Some(chain_id) = self.chain_id {
-            chain_id * 2 + 35 + self.odd_y_parity as u64
+            chain_id.0 * 2 + 35 + self.odd_y_parity as u64
         } else {
             27 + self.odd_y_parity as u64
         }
@@ -175,7 +176,7 @@ pub type AccessList = Vec<AccessListItem>;
 #[educe(Debug)]
 pub enum TransactionMessage {
     Legacy {
-        chain_id: Option<u64>,
+        chain_id: Option<ChainId>,
         nonce: u64,
         gas_price: U256,
         gas_limit: u64,
@@ -185,7 +186,7 @@ pub enum TransactionMessage {
         input: Bytes,
     },
     EIP2930 {
-        chain_id: u64,
+        chain_id: ChainId,
         nonce: u64,
         gas_price: U256,
         gas_limit: u64,
@@ -196,7 +197,7 @@ pub enum TransactionMessage {
         access_list: Vec<AccessListItem>,
     },
     EIP1559 {
-        chain_id: u64,
+        chain_id: ChainId,
         nonce: u64,
         max_priority_fee_per_gas: U256,
         max_fee_per_gas: U256,
@@ -667,7 +668,7 @@ impl TransactionMessage {
         }
     }
 
-    pub fn chain_id(&self) -> Option<u64> {
+    pub fn chain_id(&self) -> Option<ChainId> {
         match *self {
             Self::Legacy { chain_id, .. } => chain_id,
             Self::EIP2930 { chain_id, .. } => Some(chain_id),
@@ -807,7 +808,7 @@ mod tests {
     fn transaction_legacy() {
         let tx = Transaction {
             message: TransactionMessage::Legacy {
-                chain_id: Some(2),
+                chain_id: Some(ChainId(2)),
                 nonce: 12,
                 gas_price: 20_000_000_000_u64.into(),
                 gas_limit: 21000,
@@ -832,7 +833,7 @@ mod tests {
         let tx =
             Transaction {
                 message: TransactionMessage::EIP2930 {
-                    chain_id: 5,
+                    chain_id: ChainId(5),
                     nonce: 7,
                     gas_price: 30_000_000_000_u64.into(),
                     gas_limit: 5_748_100_u64,
@@ -874,7 +875,7 @@ mod tests {
         let tx =
             Transaction {
                 message: TransactionMessage::EIP1559 {
-                    chain_id: 5,
+                    chain_id: ChainId(5),
                     nonce: 7,
                     max_priority_fee_per_gas: 10_000_000_000_u64.into(),
                     max_fee_per_gas: 30_000_000_000_u64.into(),
@@ -938,28 +939,28 @@ mod tests {
             YParityAndChainId::from_v(35).unwrap(),
             YParityAndChainId {
                 odd_y_parity: false,
-                chain_id: Some(0)
+                chain_id: Some(ChainId(0))
             }
         );
         assert_eq!(
             YParityAndChainId::from_v(36).unwrap(),
             YParityAndChainId {
                 odd_y_parity: true,
-                chain_id: Some(0)
+                chain_id: Some(ChainId(0))
             }
         );
         assert_eq!(
             YParityAndChainId::from_v(37).unwrap(),
             YParityAndChainId {
                 odd_y_parity: false,
-                chain_id: Some(1)
+                chain_id: Some(ChainId(1))
             }
         );
         assert_eq!(
             YParityAndChainId::from_v(38).unwrap(),
             YParityAndChainId {
                 odd_y_parity: true,
-                chain_id: Some(1)
+                chain_id: Some(ChainId(1))
             }
         );
 
@@ -982,7 +983,7 @@ mod tests {
         assert_eq!(
             YParityAndChainId {
                 odd_y_parity: false,
-                chain_id: Some(1)
+                chain_id: Some(ChainId(1))
             }
             .v(),
             37
@@ -990,7 +991,7 @@ mod tests {
         assert_eq!(
             YParityAndChainId {
                 odd_y_parity: true,
-                chain_id: Some(1)
+                chain_id: Some(ChainId(1))
             }
             .v(),
             38

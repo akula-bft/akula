@@ -1,4 +1,4 @@
-use super::BlockNumber;
+use super::{BlockNumber, ChainId};
 use educe::Educe;
 use ethereum_types::*;
 use evmodin::Revision;
@@ -27,7 +27,7 @@ pub struct DaoConfig {
 #[serde(rename_all = "camelCase")]
 pub struct ChainConfig {
     pub seal_engine: SealEngineType,
-    pub chain_id: u64,
+    pub chain_id: ChainId,
     pub homestead_block: Option<BlockNumber>,
     pub dao_fork: Option<DaoConfig>,
     pub tangerine_block: Option<BlockNumber>,
