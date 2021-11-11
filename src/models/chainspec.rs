@@ -412,6 +412,7 @@ where
 {
     U64::deserialize(deserializer).map(|num| num.as_u64())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

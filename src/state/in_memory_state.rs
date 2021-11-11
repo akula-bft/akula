@@ -191,6 +191,27 @@ impl InMemoryState {
             }
         }
     }
+
+    pub fn update_account_sync(
+        &mut self,
+        address: Address,
+        initial: Option<Account>,
+        current: Option<Account>,
+    ) {
+        self.account_changes
+            .entry(self.block_number)
+            .or_default()
+            .insert(address, initial.clone());
+
+        if let Some(current) = current {
+            self.accounts.insert(address, current);
+        } else {
+            self.accounts.remove(&address);
+            if let Some(initial) = initial {
+                self.prev_incarnations.insert(address, initial.incarnation);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -314,20 +335,7 @@ impl State for InMemoryState {
         initial: Option<Account>,
         current: Option<Account>,
     ) -> anyhow::Result<()> {
-        self.account_changes
-            .entry(self.block_number)
-            .or_default()
-            .insert(address, initial.clone());
-
-        if let Some(current) = current {
-            self.accounts.insert(address, current);
-        } else {
-            self.accounts.remove(&address);
-            if let Some(initial) = initial {
-                self.prev_incarnations.insert(address, initial.incarnation);
-            }
-        }
-
+        self.update_account_sync(address, initial, current);
         Ok(())
     }
 
