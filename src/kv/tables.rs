@@ -631,7 +631,7 @@ impl DupSort for StorageChangeSet {
     type SeekBothKey = H256;
 }
 impl DupSort for HashedStorage {
-    type SeekBothKey = Vec<u8>;
+    type SeekBothKey = H256;
 }
 impl DupSort for CallTraceSet {
     type SeekBothKey = Vec<u8>;
