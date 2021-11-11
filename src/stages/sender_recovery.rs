@@ -52,8 +52,7 @@ where
                 input.first_started_at.1.unwrap_or(BlockNumber(0)),
             )
             .await?
-            .unwrap()
-            .tx_num;
+            .map(|v| v.tx_num);
         let done = loop {
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = tx_cur
@@ -110,35 +109,43 @@ where
             let now = Instant::now();
             let elapsed = now - started_at;
             if elapsed > Duration::from_secs(30) {
-                let current_txnum = tx
-                    .get(&tables::CumulativeIndex, highest_block)
-                    .await?
-                    .unwrap()
-                    .tx_num;
-                let total_txnum = tx
-                    .cursor(&tables::CumulativeIndex)
-                    .await?
-                    .last()
-                    .await?
-                    .unwrap()
-                    .1
-                    .tx_num;
+                let mut format_string = format!("Extracted senders from block {}", highest_block);
 
-                let elapsed_since_start = now - input.first_started_at.0;
-                info!(
-                    "Extracted senders from block {}, progress: {:.2}%, {} remaining",
-                    highest_block,
-                    (current_txnum as f64 / total_txnum as f64) * 100_f64,
-                    format_duration(
-                        Duration::from_secs(
-                            (elapsed_since_start.as_secs() as f64
-                                * ((total_txnum - current_txnum) as f64
-                                    / (current_txnum - started_at_txnum) as f64))
-                                as u64
-                        ),
-                        false
-                    )
-                );
+                if let Some(started_at_txnum) = started_at_txnum {
+                    let current_txnum = tx
+                        .get(&tables::CumulativeIndex, highest_block)
+                        .await?
+                        .map(|v| v.tx_num);
+                    let total_txnum = tx
+                        .cursor(&tables::CumulativeIndex)
+                        .await?
+                        .last()
+                        .await?
+                        .map(|(_, v)| v.tx_num);
+
+                    if let Some(current_txnum) = current_txnum {
+                        if let Some(total_txnum) = total_txnum {
+                            let elapsed_since_start = now - input.first_started_at.0;
+
+                            format_string = format!(
+                                "{}, progress: {:.2}%, {} remaining",
+                                format_string,
+                                (current_txnum as f64 / total_txnum as f64) * 100_f64,
+                                format_duration(
+                                    Duration::from_secs(
+                                        (elapsed_since_start.as_secs() as f64
+                                            * ((total_txnum - current_txnum) as f64
+                                                / (current_txnum - started_at_txnum) as f64))
+                                            as u64
+                                    ),
+                                    false
+                                )
+                            );
+                        }
+                    }
+                }
+
+                info!("{}", format_string);
                 break false;
             }
         };
