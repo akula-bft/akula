@@ -173,6 +173,8 @@ mod tests {
     use ethereum_types::*;
     use hex_literal::hex;
 
+    const CHAIN_ID: Option<ChainId> = Some(ChainId(1));
+
     #[tokio::test]
     async fn recover_senders() {
         let db = new_mem_database().unwrap();
@@ -192,7 +194,7 @@ mod tests {
 
         let tx1_1 = Transaction {
             message: TransactionMessage::Legacy {
-                chain_id: Some(1),
+                chain_id: CHAIN_ID,
                 nonce: 1,
                 gas_price: 1_000_000.into(),
                 gas_limit: 21_000,
@@ -214,7 +216,7 @@ mod tests {
 
         let tx1_2 = Transaction {
             message: TransactionMessage::Legacy {
-                chain_id: Some(1),
+                chain_id: CHAIN_ID,
                 nonce: 2,
                 gas_price: 1_000_000.into(),
                 gas_limit: 21_000,
@@ -242,7 +244,7 @@ mod tests {
 
         let tx2_1 = Transaction {
             message: TransactionMessage::Legacy {
-                chain_id: Some(1),
+                chain_id: CHAIN_ID,
                 nonce: 3,
                 gas_price: 1_000_000.into(),
                 gas_limit: 21_000,
@@ -264,7 +266,7 @@ mod tests {
 
         let tx2_2 = Transaction {
             message: TransactionMessage::Legacy {
-                chain_id: Some(1),
+                chain_id: CHAIN_ID,
                 nonce: 6,
                 gas_price: 1_000_000.into(),
                 gas_limit: 21_000,
@@ -286,7 +288,7 @@ mod tests {
 
         let tx2_3 = Transaction {
             message: TransactionMessage::Legacy {
-                chain_id: Some(1),
+                chain_id: CHAIN_ID,
                 nonce: 2,
                 gas_price: 1_000_000.into(),
                 gas_limit: 21_000,

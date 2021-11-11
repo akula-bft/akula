@@ -86,6 +86,7 @@ macro_rules! u64_wrapper {
 }
 
 u64_wrapper!(BlockNumber);
+u64_wrapper!(ChainId);
 u64_wrapper!(Incarnation);
 u64_wrapper!(TxIndex);
 
