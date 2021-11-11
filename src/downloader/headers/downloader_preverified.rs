@@ -2,7 +2,7 @@ use super::{
     fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
     header_slices::HeaderSlices, preverified_hashes_config::PreverifiedHashesConfig,
     refill_stage::RefillStage, retry_stage::RetryStage, save_stage::SaveStage,
-    verify_stage::VerifyStage, HeaderSlicesView,
+    verify_stage_preverified::VerifyStagePreverified, HeaderSlicesView,
 };
 use crate::{
     downloader::{
@@ -74,7 +74,8 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         let fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStage::new(header_slices.clone(), preverified_hashes_config);
+        let verify_stage =
+            VerifyStagePreverified::new(header_slices.clone(), preverified_hashes_config);
         let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
         let refill_stage = RefillStage::new(header_slices.clone());
 

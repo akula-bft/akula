@@ -1,8 +1,7 @@
 use super::{
     fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
-    header_slices::HeaderSlices, preverified_hashes_config::PreverifiedHashesConfig,
-    refill_stage::RefillStage, retry_stage::RetryStage, save_stage::SaveStage,
-    verify_stage::VerifyStage, HeaderSlicesView,
+    header_slices::HeaderSlices, refill_stage::RefillStage, retry_stage::RetryStage,
+    save_stage::SaveStage, verify_stage_linear::VerifyStageLinear, HeaderSlicesView,
 };
 use crate::{
     downloader::{
@@ -48,13 +47,14 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
-        let preverified_hashes_config = PreverifiedHashesConfig::new(&self.chain_name)?;
-
         let header_slices_mem_limit = self.mem_limit;
-        let header_slices_final_block_num = BlockNumber(
-            ((preverified_hashes_config.hashes.len() - 1) * header_slices::HEADER_SLICE_SIZE)
-                as u64,
-        );
+
+        let trusted_len: u64 = 90_000;
+        let estimated_latest_block_num: u64 = 13_000_000;
+        let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
+        let header_slices_final_block_num =
+            BlockNumber((estimated_latest_block_num - trusted_len) / slice_size * slice_size);
+
         let header_slices = Arc::new(HeaderSlices::new(
             header_slices_mem_limit,
             self.start_block_num,
@@ -77,7 +77,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         let fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStage::new(header_slices.clone(), preverified_hashes_config);
+        let verify_stage = VerifyStageLinear::new(header_slices.clone());
         let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
         let refill_stage = RefillStage::new(header_slices.clone());
 
