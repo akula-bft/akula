@@ -65,7 +65,7 @@ impl VerifyStage {
         })
     }
 
-    /// The algorithm verifies that the top of the slice matches one of the preverified hashes,
+    /// The algorithm verifies that the edges of the slice match to the preverified hashes,
     /// and that all blocks down to the root of the slice are connected by the parent_hash field.
     ///
     /// For example, if we have a HeaderSlice[192...384]
@@ -76,6 +76,7 @@ impl VerifyStage {
     /// hash(slice[382]) == slice[383].parent_hash
     /// ...
     /// hash(slice[192]) == slice[193].parent_hash
+    /// hash(slice[192]) == preverified hash(192)
     ///
     /// Thus verifying hashes of all the headers.
     fn verify_slice(&self, slice: &HeaderSlice) -> bool {
@@ -86,6 +87,16 @@ impl VerifyStage {
 
         if headers.is_empty() {
             return true;
+        }
+
+        let first = headers.first().unwrap();
+        let first_hash = first.hash();
+        let expected_first_hash = self.preverified_hash(slice.start_block_num.0);
+        if expected_first_hash.is_none() {
+            return false;
+        }
+        if first_hash != *expected_first_hash.unwrap() {
+            return false;
         }
 
         let last = headers.last().unwrap();
