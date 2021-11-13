@@ -117,6 +117,8 @@ pub trait MutableTransaction<'db>: Transaction<'db> {
         v: Option<T::Value>,
     ) -> anyhow::Result<bool>;
 
+    async fn clear_table<T: Table>(&self, table: &T) -> anyhow::Result<()>;
+
     async fn commit(self) -> anyhow::Result<()>;
 
     /// Allows to create a linear sequence of unique positive integers for each table.
