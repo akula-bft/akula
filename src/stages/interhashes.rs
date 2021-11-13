@@ -552,15 +552,22 @@ where
 }
 
 async fn update_interhashes<'db: 'tx, 'tx, RwTx>(
-    _tx: &mut RwTx,
-    _collector: &mut Collector<tables::TrieAccount>,
-    _from: BlockNumber,
-    _to: BlockNumber,
+    tx: &mut RwTx,
+    collector: &mut Collector<tables::TrieAccount>,
+    storage_collector: &mut Collector<tables::TrieStorage>,
+    from: BlockNumber,
+    to: BlockNumber,
 ) -> anyhow::Result<H256>
 where
     RwTx: MutableTransaction<'db>,
 {
-    todo!()
+    let _ = from;
+    let _ = to;
+
+    tx.clear_table(&tables::TrieAccount).await?;
+    tx.clear_table(&tables::TrieStorage).await?;
+
+    generate_interhashes(tx, collector, storage_collector).await
 }
 
 #[derive(Debug)]
@@ -598,9 +605,15 @@ where
                     .await
                     .with_context(|| "Failed to generate interhashes")?
             } else {
-                update_interhashes(tx, &mut collector, past_progress, prev_progress)
-                    .await
-                    .with_context(|| "Failed to update interhashes")?
+                update_interhashes(
+                    tx,
+                    &mut collector,
+                    &mut storage_collector,
+                    past_progress,
+                    prev_progress,
+                )
+                .await
+                .with_context(|| "Failed to update interhashes")?
             };
 
             let block_state_root = accessors::chain::header::read(
