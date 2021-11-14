@@ -19,6 +19,7 @@ use tracing::*;
 #[derive(Debug)]
 pub struct Execution {
     pub batch_size: u64,
+    pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
     pub prune_from: BlockNumber,
 }
@@ -29,6 +30,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     chain_config: ChainConfig,
     max_block: BlockNumber,
     batch_size: u64,
+    batch_until: Option<BlockNumber>,
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
@@ -89,6 +91,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         let stage_complete = block_number == max_block;
 
         let end_of_batch = stage_complete
+            || block_number >= batch_until.unwrap_or(BlockNumber(u64::MAX))
             || gas_since_start >= batch_size
             || commit_every
                 .map(|commit_every| now - batch_started_at > commit_every)
@@ -188,6 +191,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 chain_config,
                 max_block,
                 self.batch_size,
+                self.batch_until,
                 self.commit_every,
                 starting_block,
                 input.first_started_at,
