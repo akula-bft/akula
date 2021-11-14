@@ -658,8 +658,8 @@ impl TableEncode for AccountChange {
 
 impl TableDecode for AccountChange {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        if b.len() < ADDRESS_LENGTH + 1 {
-            return Err(TooShort::<{ ADDRESS_LENGTH + 1 }> { got: b.len() }.into());
+        if b.len() < ADDRESS_LENGTH {
+            return Err(TooShort::<{ ADDRESS_LENGTH }> { got: b.len() }.into());
         }
 
         Ok(Self {

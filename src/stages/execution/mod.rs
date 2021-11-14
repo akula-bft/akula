@@ -89,7 +89,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         let stage_complete = block_number == max_block;
 
         let end_of_batch = stage_complete
-            || gas_since_start > batch_size
+            || gas_since_start >= batch_size
             || commit_every
                 .map(|commit_every| now - batch_started_at > commit_every)
                 .unwrap_or(false);

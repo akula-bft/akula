@@ -618,20 +618,21 @@ where
 
             let block_state_root = accessors::chain::header::read(
                 tx,
-                accessors::chain::canonical_hash::read(tx, past_progress)
+                accessors::chain::canonical_hash::read(tx, prev_progress)
                     .await?
-                    .ok_or_else(|| anyhow!("No canonical hash for block {}", past_progress))?,
-                past_progress,
+                    .ok_or_else(|| anyhow!("No canonical hash for block {}", prev_progress))?,
+                prev_progress,
             )
             .await?
-            .ok_or_else(|| anyhow!("No header for block {}", past_progress))?
+            .ok_or_else(|| anyhow!("No header for block {}", prev_progress))?
             .state_root;
 
             if block_state_root == trie_root {
-                info!("Block #{} state root OK: {:?}", past_progress, trie_root)
+                info!("Block #{} state root OK: {:?}", prev_progress, trie_root)
             } else {
                 bail!(
-                    "State root mismatch: {:?} != {:?}",
+                    "Block #{} state root mismatch: {:?} != {:?}",
+                    prev_progress,
                     trie_root,
                     block_state_root
                 )
@@ -643,10 +644,9 @@ where
             storage_collector.load(&mut storage_write_cursor).await?
         };
 
-        info!("Processed");
         Ok(ExecOutput::Progress {
             stage_progress: cmp::max(prev_progress, past_progress),
-            done: false,
+            done: true,
             must_commit: true,
         })
     }
