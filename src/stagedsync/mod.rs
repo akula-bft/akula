@@ -20,6 +20,7 @@ use tracing::*;
 /// If the app is restarted in between stages, it restarts from the first stage. Absent new blocks, already completed stages are skipped.
 pub struct StagedSync<'db, DB: MutableKV> {
     stages: Vec<Box<dyn Stage<'db, DB::MutableTx<'db>>>>,
+    min_progress_to_commit_after_stage: u64,
 }
 
 impl<'db, DB: MutableKV> Default for StagedSync<'db, DB> {
@@ -30,7 +31,10 @@ impl<'db, DB: MutableKV> Default for StagedSync<'db, DB> {
 
 impl<'db, DB: MutableKV> StagedSync<'db, DB> {
     pub fn new() -> Self {
-        Self { stages: Vec::new() }
+        Self {
+            stages: Vec::new(),
+            min_progress_to_commit_after_stage: 0,
+        }
     }
 
     pub fn push<S>(&mut self, stage: S)
@@ -38,6 +42,11 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
         S: Stage<'db, DB::MutableTx<'db>> + 'static,
     {
         self.stages.push(Box::new(stage))
+    }
+
+    pub fn set_min_progress_to_commit_after_stage(&mut self, v: u64) -> &mut Self {
+        self.min_progress_to_commit_after_stage = v;
+        self
     }
 
     /// Run staged sync loop.
@@ -186,7 +195,11 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                 stage_id.save_progress(&tx, stage_progress).await?;
 
                                 // Stage requested that we commit into database now.
-                                if must_commit {
+                                if must_commit
+                                    && stage_progress
+                                        .saturating_sub(start_progress.map(|v| v.0).unwrap_or(0))
+                                        >= self.min_progress_to_commit_after_stage
+                                {
                                     // Commit and restart transaction.
                                     tx.commit().await?;
                                     tx = db.begin_mutable().await?;
