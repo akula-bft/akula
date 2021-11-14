@@ -9,7 +9,8 @@ mod receipt;
 mod transaction;
 
 pub use self::{
-    account::*, block::*, bloom::*, config::*, header::*, log::*, receipt::*, transaction::*,
+    account::*, block::*, bloom::*, chainspec::*, config::*, header::*, log::*, receipt::*,
+    transaction::*,
 };
 
 use derive_more::*;

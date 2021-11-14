@@ -1,0 +1,110 @@
+(
+    name: "Rinkeby",
+    consensus: (
+        seal_verification: Clique(
+            period: 15,
+            epoch: 30000,
+        ),
+        eip1559_block: 8897988,
+    ),
+    upgrades: (
+        homestead: 1,
+        tangerine: 2,
+        spurious: 3,
+        byzantium: 1035301,
+        constantinople: 3660663,
+        petersburg: 4321234,
+        istanbul: 5435345,
+        berlin: 8290928,
+        london: 8897988,
+    ),
+    params: (
+        chain_id: 4,
+        network_id: 4,
+        maximum_extra_data_size: 65535,
+        min_gas_limit: 5000,
+    ),
+    genesis: (
+        author: "0x0000000000000000000000000000000000000000",
+        gas_limit: 4700000,
+        timestamp: 1492009146,
+        difficulty: "0x1",
+        seal: Clique(
+            vanity: "0x52657370656374206d7920617574686f7269746168207e452e436172746d616e",
+            signers: [
+                "0x42eb768f2244c8811c63729a21a3569731535f06",
+                "0x7ffc57839b00206d1ad20c69a1981b489f772031",
+                "0xb279182d99e65703f0076e4812653aab85fca0f0",
+            ],
+        ),
+    ),
+    contracts: {
+        0: {
+            "0x0000000000000000000000000000000000000001": Precompile(EcRecover(
+                base: 3000,
+                word: 0,
+            )),
+            "0x0000000000000000000000000000000000000002": Precompile(Sha256(
+                base: 60,
+                word: 12,
+            )),
+            "0x0000000000000000000000000000000000000003": Precompile(Ripemd160(
+                base: 600,
+                word: 120,
+            )),
+            "0x0000000000000000000000000000000000000004": Precompile(Identity(
+                base: 15,
+                word: 3,
+            )),
+        },
+        1035301: {
+            "0x0000000000000000000000000000000000000005": Precompile(ModExp(
+                version: ModExp198,
+            )),
+            "0x0000000000000000000000000000000000000006": Precompile(AltBn128Add(
+                price: 500,
+            )),
+            "0x0000000000000000000000000000000000000007": Precompile(AltBn128Mul(
+                price: 40000,
+            )),
+            "0x0000000000000000000000000000000000000008": Precompile(AltBn128Pairing(
+                base: 100000,
+                pair: 80000,
+            )),
+        },
+        5435345: {
+            "0x0000000000000000000000000000000000000006": Precompile(AltBn128Add(
+                price: 150,
+            )),
+            "0x0000000000000000000000000000000000000007": Precompile(AltBn128Mul(
+                price: 6000,
+            )),
+            "0x0000000000000000000000000000000000000008": Precompile(AltBn128Pairing(
+                base: 45000,
+                pair: 34000,
+            )),
+            "0x0000000000000000000000000000000000000009": Precompile(Blake2F(
+                gas_per_round: 1,
+            )),
+        },
+        8290928: {
+            "0x0000000000000000000000000000000000000005": Precompile(ModExp(
+                version: ModExp2565,
+            ))
+        },
+    },
+    balances: {
+        0: {
+            "0x31b98d14007bdee637298086988a0bbd31184523": "0x200000000000000000000000000000000000000000000000000000000000000",
+        },
+    },
+    p2p: (
+        bootnodes: [
+            "enode://a24ac7c5484ef4ed0c5eb2d36620ba4e4aa13b8c84684e1b4aab0cebea2ae45cb4d375b77eab56516d34bfbd3c1a833fc51296ff084b770b94fb9028c4d25ccf@52.169.42.101:30303", // IE
+            "enode://343149e4feefa15d882d9fe4ac7d88f885bd05ebb735e547f12e12080a9fa07c8014ca6fd7f373123488102fe5e34111f8509cf0b7de3f5b44339c9f25e87cb8@52.3.158.184:30303",  // INFURA
+            "enode://b6b28890b006743680c52e64e0d16db57f28124885595fa03a562be1d2bf0f3a1da297d56b13da25fb992888fd556d4c1a27b1f39d531bde7de1921c90061cc6@159.89.28.211:30303", // AKASHA
+        ],
+        preverified_hashes: [
+        ],
+    ),
+)
