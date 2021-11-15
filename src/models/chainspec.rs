@@ -96,7 +96,6 @@ impl ChainSpec {
             self.upgrades.constantinople,
             self.upgrades.petersburg,
             self.upgrades.istanbul,
-            self.upgrades.muir_glacier,
             self.upgrades.berlin,
             self.upgrades.london,
         ]
@@ -266,12 +265,6 @@ pub struct Upgrades {
         skip_serializing_if = "Option::is_none",
         with = "::serde_with::rust::unwrap_or_skip"
     )]
-    pub muir_glacier: Option<BlockNumber>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "::serde_with::rust::unwrap_or_skip"
-    )]
     pub berlin: Option<BlockNumber>,
     #[serde(
         default,
@@ -398,7 +391,6 @@ mod tests {
                     constantinople: Some(3660663.into()),
                     petersburg: Some(4321234.into()),
                     istanbul: Some(5435345.into()),
-                    muir_glacier: None,
                     berlin: Some(8290928.into()),
                     london: Some(8897988.into()),
                 },
