@@ -30,6 +30,7 @@
         constantinople: 7280000,
         petersburg: 7280000,
         istanbul: 9069000,
+        muir_glacier: 9200000,
         berlin: 12244000,
         london: 12965000,
     ),
