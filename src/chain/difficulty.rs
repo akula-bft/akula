@@ -92,30 +92,28 @@ pub fn canonical_difficulty(
     parent_difficulty: U256,
     parent_timestamp: u64,
     parent_has_uncles: bool,
-    config: &ChainConfig,
+    config: &ChainSpec,
 ) -> U256 {
     let block_number = block_number.into();
-    let rev = config.revision(block_number);
+
+    let exec_spec = config.collect_block_spec(block_number);
+    let rev = exec_spec.revision;
 
     if rev >= Revision::Byzantium {
-        let bomb_delay = {
-            if block_number >= config.arrow_glacier_block.unwrap_or(BlockNumber(u64::MAX)) {
-                // https://eips.ethereum.org/EIPS/eip-4345
-                10_700_000
-            } else if rev >= Revision::London {
-                // https://eips.ethereum.org/EIPS/eip-3554
-                9_700_000
-            } else if block_number >= config.muir_glacier_block.unwrap_or(BlockNumber(u64::MAX)) {
-                // https://eips.ethereum.org/EIPS/eip-2384
-                9_000_000
-            } else if rev >= Revision::Constantinople {
-                // https://eips.ethereum.org/EIPS/eip-1234
-                5_000_000
-            } else {
-                // https://eips.ethereum.org/EIPS/eip-649
-                3_000_000
+        let mut bomb_delay = BlockNumber(0);
+        if let SealVerificationParams::Ethash {
+            difficulty_bomb: Some(difficulty_bomb),
+            ..
+        } = &config.consensus.seal_verification
+        {
+            for (fork_block_num, delay) in difficulty_bomb.delays.iter().rev() {
+                if block_number.0 >= fork_block_num.0 {
+                    bomb_delay = *delay;
+                    break;
+                }
             }
-        };
+        }
+
         canonical_difficulty_byzantium(
             block_number,
             block_timestamp,
@@ -144,7 +142,6 @@ pub fn canonical_difficulty(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::res::genesis::MAINNET;
 
     #[test]
     fn difficulty_test_34() {
@@ -160,7 +157,7 @@ mod tests {
             parent_difficulty,
             parent_timestamp,
             parent_has_uncles,
-            &MAINNET.config,
+            &crate::res::chainspec::MAINNET,
         );
         assert_eq!(difficulty, U256::from(0x72772897b619876a_u64));
     }

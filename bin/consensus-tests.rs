@@ -1,7 +1,7 @@
 #![allow(clippy::suspicious_else_formatting)]
 use akula::{
     chain::difficulty::canonical_difficulty, consensus::*, crypto::keccak256, models::*,
-    res::genesis, *,
+    res::chainspec, *,
 };
 use anyhow::*;
 use bytes::Bytes;
@@ -12,7 +12,7 @@ use once_cell::sync::Lazy;
 use serde::{de, Deserialize};
 use serde_json::{Map, Value};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::TryInto,
     fmt::Debug,
     future::Future,
@@ -117,8 +117,259 @@ impl FromStr for Network {
 }
 
 const CHAIN_ID: ChainId = ChainId(1);
+const CHAIN_PARAMS: Params = Params {
+    chain_id: CHAIN_ID,
+    network_id: 0,
+    maximum_extra_data_size: 0,
+    min_gas_limit: 0,
+};
+const CONSENSUS_NO_PROOF: ConsensusParams = ConsensusParams {
+    seal_verification: SealVerificationParams::NoProof,
+    eip1559_block: None,
+};
+static GENESIS: Lazy<Genesis> = Lazy::new(|| Genesis {
+    author: Default::default(),
+    difficulty: Default::default(),
+    extra_data: Default::default(),
+    gas_limit: 0,
+    timestamp: 0,
+    seal: Seal::Raw { bytes: Vec::new() },
+});
 
-static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
+fn make_default_chain_spec() -> ChainSpec {
+    ChainSpec {
+        name: String::from("consensus-tests-net"),
+        consensus: CONSENSUS_NO_PROOF,
+        upgrades: Upgrades::default(),
+        params: CHAIN_PARAMS,
+        genesis: GENESIS.clone(),
+        contracts: BTreeMap::default(),
+        balances: BTreeMap::default(),
+        p2p: P2PParams::default(),
+    }
+}
+
+static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
+    hashmap! {
+        Network::Frontier => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            ..make_default_chain_spec()
+        },
+        Network::Homestead => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::EIP150 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::EIP158 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::Byzantium => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::Constantinople => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::ConstantinopleFix => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::Istanbul => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::Berlin => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                // muir_glacier: Some(0.into()),
+                berlin: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::London => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                // muir_glacier: Some(0.into()),
+                berlin: Some(0.into()),
+                london: Some(0.into()),
+            },
+            ..make_default_chain_spec()
+        },
+        Network::FrontierToHomesteadAt5 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(5.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::HomesteadToEIP150At5 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(5.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::HomesteadToDaoAt5 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                // TODO: config DAO fork for the test
+                // dao_fork: Some(DaoConfig {
+                //     block_number: 5.into(),
+                //     ..chainspec::MAINNET.dao_fork.clone().unwrap()
+                // }),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::EIP158ToByzantiumAt5 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(5.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::ByzantiumToConstantinopleFixAt5 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(5.into()),
+                petersburg: Some(5.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+        Network::BerlinToLondonAt5 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                // muir_glacier: Some(0.into()),
+                berlin: Some(0.into()),
+                london: Some(5.into()),
+            },
+            ..make_default_chain_spec()
+        },
+        Network::EIP2384 => ChainSpec {
+            params: CHAIN_PARAMS,
+            consensus: CONSENSUS_NO_PROOF,
+            upgrades: Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                // muir_glacier: Some(0.into()),
+                ..Upgrades::default()
+            },
+            ..make_default_chain_spec()
+        },
+    }
+});
+
+static NETWORK_CONFIG_V1: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
     hashmap! {
         Network::Frontier => ChainConfig {
             chain_id: CHAIN_ID,
@@ -236,7 +487,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
             homestead_block: Some(0.into()),
             dao_fork: Some(DaoConfig {
                 block_number: 5.into(),
-                ..genesis::MAINNET.config.dao_fork.clone().unwrap()
+                ..crate::res::genesis::MAINNET.config.dao_fork.clone().unwrap()
             }),
             ..ChainConfig::default()
         },
@@ -291,19 +542,19 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainConfig>> = Lazy::new(|| {
     }
 });
 
-pub static DIFFICULTY_CONFIG: Lazy<HashMap<String, ChainConfig>> = Lazy::new(|| {
+pub static DIFFICULTY_CONFIG: Lazy<HashMap<String, &ChainSpec>> = Lazy::new(|| {
     hashmap! {
-        "difficulty.json".to_string() => genesis::MAINNET.config.clone(),
-        "difficultyByzantium.json".to_string() => NETWORK_CONFIG[&Network::Byzantium].clone(),
-        "difficultyConstantinople.json".to_string() => NETWORK_CONFIG[&Network::Constantinople].clone(),
-        "difficultyCustomMainNetwork.json".to_string() => genesis::MAINNET.config.clone(),
-        "difficultyEIP2384_random_to20M.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
-        "difficultyEIP2384_random.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
-        "difficultyEIP2384.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
-        "difficultyFrontier.json".to_string() => NETWORK_CONFIG[&Network::Frontier].clone(),
-        "difficultyHomestead.json".to_string() => NETWORK_CONFIG[&Network::Homestead].clone(),
-        "difficultyMainNetwork.json".to_string() => genesis::MAINNET.config.clone(),
-        "difficultyRopsten.json".to_string() => genesis::ROPSTEN.config.clone(),
+        "difficulty.json".to_string() => &*chainspec::MAINNET,
+        "difficultyByzantium.json".to_string() => &NETWORK_CONFIG[&Network::Byzantium],
+        "difficultyConstantinople.json".to_string() => &NETWORK_CONFIG[&Network::Constantinople],
+        "difficultyCustomMainNetwork.json".to_string() => &*chainspec::MAINNET,
+        "difficultyEIP2384_random_to20M.json".to_string() => &NETWORK_CONFIG[&Network::EIP2384],
+        "difficultyEIP2384_random.json".to_string() => &NETWORK_CONFIG[&Network::EIP2384],
+        "difficultyEIP2384.json".to_string() => &NETWORK_CONFIG[&Network::EIP2384],
+        "difficultyFrontier.json".to_string() => &NETWORK_CONFIG[&Network::Frontier],
+        "difficultyHomestead.json".to_string() => &NETWORK_CONFIG[&Network::Homestead],
+        "difficultyMainNetwork.json".to_string() => &*chainspec::MAINNET,
+        "difficultyRopsten.json".to_string() => &*chainspec::ROPSTEN,
     }
 });
 
@@ -573,11 +824,14 @@ fn result_is_expected(
 
 /// https://ethereum-tests.readthedocs.io/en/latest/test_types/blockchain_tests.html
 #[instrument(skip(testdata))]
-async fn blockchain_test(testdata: BlockchainTest, _: Option<ChainConfig>) -> anyhow::Result<()> {
+async fn blockchain_test(
+    testdata: BlockchainTest,
+    _: Option<&'static ChainSpec>,
+) -> anyhow::Result<()> {
     let genesis_block = rlp::decode::<Block>(&*testdata.genesis_rlp).unwrap();
 
     let mut state = InMemoryState::default();
-    let config = NETWORK_CONFIG[&testdata.network].clone();
+    let config = NETWORK_CONFIG_V1[&testdata.network].clone();
 
     init_pre_state(&testdata.pre, &mut state).await;
 
@@ -632,7 +886,10 @@ pub struct TransactionTest {
 
 // https://ethereum-tests.readthedocs.io/en/latest/test_types/transaction_tests.html
 #[instrument(skip(testdata))]
-async fn transaction_test(testdata: TransactionTest, _: Option<ChainConfig>) -> anyhow::Result<()> {
+async fn transaction_test(
+    testdata: TransactionTest,
+    _: Option<&'static ChainSpec>,
+) -> anyhow::Result<()> {
     let txn = rlp::decode::<akula::models::Transaction>(&testdata.txbytes);
 
     for (key, t) in testdata.result {
@@ -684,7 +941,7 @@ async fn transaction_test(testdata: TransactionTest, _: Option<ChainConfig>) -> 
 #[instrument(skip(config))]
 async fn difficulty_test(
     testdata: DifficultyTest,
-    config: Option<ChainConfig>,
+    config: Option<&'static ChainSpec>,
 ) -> anyhow::Result<()> {
     let parent_has_uncles = testdata
         .parent_uncles
@@ -697,7 +954,7 @@ async fn difficulty_test(
         testdata.parent_difficulty.into(),
         testdata.parent_timestamp,
         parent_has_uncles,
-        &config.unwrap(),
+        config.unwrap(),
     );
 
     ensure!(
@@ -715,8 +972,8 @@ async fn difficulty_test(
 async fn run_test_file<Test, Fut>(
     path: &Path,
     test_names: &HashSet<String>,
-    f: fn(Test, Option<ChainConfig>) -> Fut,
-    config: Option<ChainConfig>,
+    f: fn(Test, Option<&'static ChainSpec>) -> Fut,
+    config: Option<&'static ChainSpec>,
 ) -> RunResults
 where
     Fut: Future<Output = anyhow::Result<()>>,
@@ -732,7 +989,7 @@ where
 
         debug!("Running test {}", test_name);
         out.push({
-            if let Err(e) = (f)(test, config.clone()).await {
+            if let Err(e) = (f)(test, config).await {
                 error!("{}: {}", test_name, e);
                 Status::Failed
             } else {
@@ -825,12 +1082,12 @@ async fn main() -> anyhow::Result<()> {
     let test_names = opt.test_names.into_iter().collect();
 
     let mut res = RunResults::default();
-    for (f, config) in &*DIFFICULTY_CONFIG {
+    for (f, config) in DIFFICULTY_CONFIG.iter() {
         res += run_test_file(
             &root_dir.join(&*DIFFICULTY_DIR).join(f),
             &test_names,
             difficulty_test,
-            Some(config.clone()),
+            Some(config),
         )
         .await;
     }

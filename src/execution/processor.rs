@@ -69,10 +69,18 @@ where
     }
 
     pub async fn validate_transaction(&mut self, tx: &TransactionWithSender) -> anyhow::Result<()> {
+        // TODO: remove when self.chain_config is migrated to the chain_spec
+        let chain_spec = match self.chain_config.chain_id {
+            ChainId(1) => &crate::res::chainspec::MAINNET,
+            ChainId(3) => &crate::res::chainspec::ROPSTEN,
+            ChainId(4) => &crate::res::chainspec::RINKEBY,
+            _ => anyhow::bail!("unsupported chain"),
+        };
+
         pre_validate_transaction(
             tx,
             self.header.number,
-            self.chain_config,
+            chain_spec,
             self.header.base_fee_per_gas,
         )
         .expect("Tx must have been prevalidated");

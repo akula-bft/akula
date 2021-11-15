@@ -268,7 +268,7 @@ pub struct Upgrades {
     pub london: Option<BlockNumber>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Params {
     pub chain_id: ChainId,
     pub network_id: u64,
@@ -323,7 +323,7 @@ pub enum Precompile {
     Blake2F { gas_per_round: u64 },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct P2PParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bootnodes: Vec<NodeUrl>,

@@ -90,13 +90,22 @@ impl ConsensusEngineBase {
         }
 
         let parent_has_uncles = parent.ommers_hash != EMPTY_LIST_HASH;
+
+        // TODO: remove when self.chain_config is migrated to the chain_spec
+        let chain_spec = match self.chain_config.chain_id {
+            ChainId(1) => &crate::res::chainspec::MAINNET,
+            ChainId(3) => &crate::res::chainspec::ROPSTEN,
+            ChainId(4) => &crate::res::chainspec::RINKEBY,
+            _ => anyhow::bail!("unsupported chain"),
+        };
+
         let difficulty = canonical_difficulty(
             header.number,
             header.timestamp,
             parent.difficulty,
             parent.timestamp,
             parent_has_uncles,
-            &self.chain_config,
+            chain_spec,
         );
         if difficulty != header.difficulty {
             return Err(ValidationError::WrongDifficulty.into());
@@ -282,11 +291,19 @@ impl ConsensusEngineBase {
             }
         }
 
+        // TODO: remove when self.chain_config is migrated to the chain_spec
+        let chain_spec = match self.chain_config.chain_id {
+            ChainId(1) => &crate::res::chainspec::MAINNET,
+            ChainId(3) => &crate::res::chainspec::ROPSTEN,
+            ChainId(4) => &crate::res::chainspec::RINKEBY,
+            _ => anyhow::bail!("unsupported chain"),
+        };
+
         for txn in &block.transactions {
             pre_validate_transaction(
                 txn,
                 block.header.number,
-                &self.chain_config,
+                chain_spec,
                 block.header.base_fee_per_gas,
             )?;
         }
@@ -298,7 +315,6 @@ impl ConsensusEngineBase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::res::genesis::MAINNET;
 
     #[test]
     fn validate_max_fee_per_gas() {
@@ -345,7 +361,7 @@ mod tests {
             let res = pre_validate_transaction(
                 &txn,
                 13_500_001,
-                &MAINNET.config,
+                &crate::res::chainspec::MAINNET,
                 Some(base_fee_per_gas.into()),
             );
 

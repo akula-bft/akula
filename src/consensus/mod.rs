@@ -159,13 +159,14 @@ impl std::error::Error for ValidationError {}
 pub fn pre_validate_transaction(
     txn: &TransactionMessage,
     block_number: impl Into<BlockNumber>,
-    config: &ChainConfig,
+    config: &ChainSpec,
     base_fee_per_gas: Option<U256>,
 ) -> Result<(), ValidationError> {
-    let rev = config.revision(block_number);
+    let exec_spec = config.collect_block_spec(block_number);
+    let rev = exec_spec.revision;
 
     if let Some(chain_id) = txn.chain_id() {
-        if rev < Revision::Spurious || chain_id != config.chain_id {
+        if rev < Revision::Spurious || chain_id != config.params.chain_id {
             return Err(ValidationError::WrongChainId);
         }
     }
