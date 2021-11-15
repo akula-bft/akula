@@ -34,22 +34,22 @@ where
 
         let mut cumulative_index_cur = tx.mutable_cursor(&tables::CumulativeIndex).await?;
 
-        let CumulativeData {
-            mut gas,
-            mut tx_num,
-        } = cumulative_index_cur
-            .seek_exact(prev_progress)
-            .await?
-            .unwrap()
-            .1;
-
         let starting_block = prev_progress + 1;
         let max_block = input
             .previous_stage
             .map(|(_, v)| v)
             .ok_or_else(|| anyhow!("Cannot be the first stage"))?;
 
-        if max_block > starting_block {
+        if max_block >= starting_block {
+            let CumulativeData {
+                mut gas,
+                mut tx_num,
+            } = cumulative_index_cur
+                .seek_exact(prev_progress)
+                .await?
+                .unwrap()
+                .1;
+
             for block_num in starting_block..=max_block {
                 if block_num.0 % 500_000 == 0 {
                     info!("Building cumulative index for block {}", block_num);
