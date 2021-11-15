@@ -22,6 +22,8 @@
         eip1559_block: 10499401,
     ),
     upgrades: (
+        homestead: 0,
+        tangerine: 0,
         spurious: 10,
         byzantium: 1700000,
         constantinople: 4230000,
