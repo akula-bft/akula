@@ -160,7 +160,7 @@ mod tests {
     #[tokio::test]
     async fn collect_chunks() {
         // generate random entries
-        let mut entries: Vec<Entry<_, _>> = (0..10000)
+        let mut entries: Vec<Entry<_, _>> = (0..5000)
             .map(|_| Entry::new(rand::random(), BlockNumber(rand::random())))
             .collect();
         let db = new_mem_database().unwrap();
