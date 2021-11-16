@@ -11,7 +11,7 @@ use crate::{
     },
     kv,
     models::BlockNumber,
-    sentry::sentry_client_reactor::*,
+    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -19,7 +19,7 @@ use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
 pub struct DownloaderLinear<DB: kv::traits::MutableKV + Sync> {
-    chain_name: String,
+    chain_config: ChainConfig,
     start_block_num: BlockNumber,
     start_block_hash: ethereum_types::H256,
     mem_limit: usize,
@@ -30,7 +30,7 @@ pub struct DownloaderLinear<DB: kv::traits::MutableKV + Sync> {
 
 impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
     pub fn new(
-        chain_name: String,
+        chain_config: ChainConfig,
         start_block_num: BlockNumber,
         start_block_hash: ethereum_types::H256,
         mem_limit: usize,
@@ -39,7 +39,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {
         Self {
-            chain_name,
+            chain_config,
             start_block_num,
             start_block_hash,
             mem_limit,
@@ -84,10 +84,14 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage =
-            VerifyStageLinear::new(header_slices.clone(), header_slices::HEADER_SLICE_SIZE);
+        let verify_stage = VerifyStageLinear::new(
+            header_slices.clone(),
+            header_slices::HEADER_SLICE_SIZE,
+            self.chain_config.clone(),
+        );
         let verify_link_stage = VerifyStageLinearLink::new(
             header_slices.clone(),
+            self.chain_config.clone(),
             self.start_block_num,
             self.start_block_hash,
         );

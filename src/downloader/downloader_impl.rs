@@ -62,7 +62,7 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
         let ui_system = Arc::new(Mutex::new(ui_system));
 
         let headers_downloader = super::headers::downloader::Downloader::new(
-            self.opts.chain_name.clone(),
+            self.chain_config.clone(),
             sentry.clone(),
             self.db.clone(),
             ui_system.clone(),
