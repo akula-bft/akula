@@ -1,12 +1,13 @@
 use super::{
     header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slice_verifier,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
 use parking_lot::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc, time::SystemTime};
 use tracing::*;
 
-/// Checks that block hashes are matching the expected ones and sets Verified status.
+/// Verifies the block structure and sequence rules in each slice and sets VerifiedInternally status.
 pub struct VerifyStageLinear {
     header_slices: Arc<HeaderSlices>,
     pending_watch: HeaderSliceStatusWatch,
@@ -46,7 +47,7 @@ impl VerifyStageLinear {
                 let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
                 if is_verified {
                     self.header_slices
-                        .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Verified);
+                        .set_slice_status(slice.deref_mut(), HeaderSliceStatus::VerifiedInternally);
                 } else {
                     self.header_slices
                         .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Empty);
@@ -66,99 +67,16 @@ impl VerifyStageLinear {
     }
 
     fn verify_slice(&self, slice: &HeaderSlice) -> bool {
-        self.verify_slice_is_linked_by_parent_hash(slice)
-            && self.verify_slice_block_nums(slice)
-            && self.verify_slice_timestamps(slice, Self::now_timestamp())
-            && self.verify_slice_difficulties(slice)
-            && self.verify_slice_pow(slice)
-    }
-
-    /// Verify that all blocks in the slice are linked by the parent_hash field.
-    fn verify_slice_is_linked_by_parent_hash(&self, slice: &HeaderSlice) -> bool {
         if slice.headers.is_none() {
             return false;
         }
         let headers = slice.headers.as_ref().unwrap();
 
-        if headers.is_empty() {
-            return true;
-        }
-
-        for child_index in (1..headers.len()).rev() {
-            let parent_index = child_index - 1;
-
-            let child = &headers[child_index];
-            let parent = &headers[parent_index];
-
-            let parent_hash = parent.hash();
-            let expected_parent_hash = child.parent_hash;
-            if parent_hash != expected_parent_hash {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Verify that block numbers start from the expected
-    /// slice.start_block_num and increase sequentially.
-    fn verify_slice_block_nums(&self, slice: &HeaderSlice) -> bool {
-        if slice.headers.is_none() {
-            return false;
-        }
-        let headers = slice.headers.as_ref().unwrap();
-
-        let mut expected_block_num = slice.start_block_num.0;
-        for header in headers {
-            if header.number.0 != expected_block_num {
-                return false;
-            }
-            expected_block_num += 1;
-        }
-
-        true
-    }
-
-    /// Verify that timestamps are in the past and increase monotonically.
-    fn verify_slice_timestamps(&self, slice: &HeaderSlice, max_timestamp: u64) -> bool {
-        if slice.headers.is_none() {
-            return false;
-        }
-        let headers = slice.headers.as_ref().unwrap();
-
-        if headers.is_empty() {
-            return true;
-        }
-
-        for parent_index in 0..(headers.len() - 1) {
-            let child_index = parent_index + 1;
-
-            let parent = &headers[parent_index];
-            let child = &headers[child_index];
-
-            let parent_timestamp = parent.timestamp;
-            let child_timestamp = child.timestamp;
-
-            if parent_timestamp >= child_timestamp {
-                return false;
-            }
-        }
-
-        let last = headers.last().unwrap();
-        let last_timestamp = last.timestamp;
-        last_timestamp < max_timestamp
-    }
-
-    /// Verify that difficulty field is calculated properly.
-    fn verify_slice_difficulties(&self, _slice: &HeaderSlice) -> bool {
-        // TODO: verify_slice_difficulties
-        true
-    }
-
-    /// Verify the headers proof-of-work.
-    fn verify_slice_pow(&self, _slice: &HeaderSlice) -> bool {
-        // TODO: verify_slice_pow
-        true
+        header_slice_verifier::verify_slice_is_linked_by_parent_hash(headers)
+            && header_slice_verifier::verify_slice_block_nums(headers, slice.start_block_num)
+            && header_slice_verifier::verify_slice_timestamps(headers, Self::now_timestamp())
+            && header_slice_verifier::verify_slice_difficulties(headers)
+            && header_slice_verifier::verify_slice_pow(headers)
     }
 }
 

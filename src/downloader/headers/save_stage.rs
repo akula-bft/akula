@@ -38,7 +38,7 @@ impl<DB: kv::traits::MutableKV + Sync> SaveStage<DB> {
         debug!("SaveStage: start");
 
         // initially remaining_count = 0, so we wait for any verified slices to try to save them
-        // since we want to save headers sequentially, there might be some remaining headers
+        // since we want to save headers sequentially, there might be some remaining slices
         // in this case we wait until some more slices become verified
         // hopefully its the slices at the front so that we can save them
         self.pending_watch.wait_while(self.remaining_count).await?;

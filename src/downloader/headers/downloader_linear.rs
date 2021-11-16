@@ -1,7 +1,8 @@
 use super::{
     fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
     header_slices::HeaderSlices, refill_stage::RefillStage, retry_stage::RetryStage,
-    save_stage::SaveStage, verify_stage_linear::VerifyStageLinear, HeaderSlicesView,
+    save_stage::SaveStage, verify_stage_linear::VerifyStageLinear,
+    verify_stage_linear_link::VerifyStageLinearLink, HeaderSlicesView,
 };
 use crate::{
     downloader::{
@@ -21,6 +22,7 @@ use tracing::*;
 pub struct DownloaderLinear<DB: kv::traits::MutableKV + Sync> {
     chain_name: String,
     start_block_num: BlockNumber,
+    start_block_hash: ethereum_types::H256,
     mem_limit: usize,
     sentry: Arc<RwLock<SentryClientReactor>>,
     db: Arc<DB>,
@@ -31,6 +33,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
     pub fn new(
         chain_name: String,
         start_block_num: BlockNumber,
+        start_block_hash: ethereum_types::H256,
         mem_limit: usize,
         sentry: Arc<RwLock<SentryClientReactor>>,
         db: Arc<DB>,
@@ -39,6 +42,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         Self {
             chain_name,
             start_block_num,
+            start_block_hash,
             mem_limit,
             sentry,
             db,
@@ -74,10 +78,19 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         // although most of the time only one of the stages is actively running,
         // while the others are waiting for the status updates or timeouts.
 
-        let fetch_request_stage = FetchRequestStage::new(header_slices.clone(), sentry.clone());
+        let fetch_request_stage = FetchRequestStage::new(
+            header_slices.clone(),
+            sentry.clone(),
+            header_slices::HEADER_SLICE_SIZE,
+        );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
         let verify_stage = VerifyStageLinear::new(header_slices.clone());
+        let verify_link_stage = VerifyStageLinearLink::new(
+            header_slices.clone(),
+            self.start_block_num,
+            self.start_block_hash,
+        );
         let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
         let refill_stage = RefillStage::new(header_slices.clone());
 
@@ -94,6 +107,10 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         );
         stream.insert("retry_stage", make_stage_stream(Box::new(retry_stage)));
         stream.insert("verify_stage", make_stage_stream(Box::new(verify_stage)));
+        stream.insert(
+            "verify_link_stage",
+            make_stage_stream(Box::new(verify_link_stage)),
+        );
         stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
         stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));
 
