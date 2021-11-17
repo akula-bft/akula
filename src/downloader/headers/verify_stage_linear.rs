@@ -10,13 +10,15 @@ use tracing::*;
 /// Verifies the block structure and sequence rules in each slice and sets VerifiedInternally status.
 pub struct VerifyStageLinear {
     header_slices: Arc<HeaderSlices>,
+    slice_size: usize,
     pending_watch: HeaderSliceStatusWatch,
 }
 
 impl VerifyStageLinear {
-    pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
+    pub fn new(header_slices: Arc<HeaderSlices>, slice_size: usize) -> Self {
         Self {
             header_slices: header_slices.clone(),
+            slice_size,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Downloaded,
                 header_slices,
@@ -71,6 +73,9 @@ impl VerifyStageLinear {
             return false;
         }
         let headers = slice.headers.as_ref().unwrap();
+        if headers.len() != self.slice_size {
+            return false;
+        }
 
         header_slice_verifier::verify_slice_is_linked_by_parent_hash(headers)
             && header_slice_verifier::verify_slice_block_nums(headers, slice.start_block_num)

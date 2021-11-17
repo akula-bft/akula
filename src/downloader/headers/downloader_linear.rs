@@ -85,7 +85,8 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStageLinear::new(header_slices.clone());
+        let verify_stage =
+            VerifyStageLinear::new(header_slices.clone(), header_slices::HEADER_SLICE_SIZE);
         let verify_link_stage = VerifyStageLinearLink::new(
             header_slices.clone(),
             self.start_block_num,
