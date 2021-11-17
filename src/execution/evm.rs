@@ -32,8 +32,7 @@ where
     state: &'state mut IntraBlockState<'r, B>,
     analysis_cache: &'analysis mut AnalysisCache,
     header: &'h PartialHeader,
-    revision: Revision,
-    chain_config: &'c ChainConfig,
+    block_spec: &'c BlockExecutionSpec,
     txn: &'t TransactionWithSender,
     beneficiary: Address,
 }
@@ -42,17 +41,15 @@ pub async fn execute<B: State>(
     state: &mut IntraBlockState<'_, B>,
     analysis_cache: &mut AnalysisCache,
     header: &PartialHeader,
-    chain_config: &ChainConfig,
+    block_spec: &BlockExecutionSpec,
     txn: &TransactionWithSender,
     gas: u64,
 ) -> anyhow::Result<CallResult> {
-    let revision = chain_config.revision(header.number);
     let mut evm = Evm {
         header,
         analysis_cache,
         state,
-        revision,
-        chain_config,
+        block_spec,
         txn,
         beneficiary: header.beneficiary,
     };
@@ -138,7 +135,7 @@ where
 
         self.state.create_contract(contract_addr).await?;
 
-        if self.revision >= Revision::Spurious {
+        if self.block_spec.revision >= Revision::Spurious {
             self.state.set_nonce(contract_addr, 1).await?;
         }
 
@@ -167,10 +164,15 @@ where
             let code_len = res.output_data.len();
             let code_deploy_gas = code_len as u64 * fee::G_CODE_DEPOSIT;
 
-            if self.revision >= Revision::London && code_len > 0 && res.output_data[0] == 0xEF {
+            if self.block_spec.revision >= Revision::London
+                && code_len > 0
+                && res.output_data[0] == 0xEF
+            {
                 // https://eips.ethereum.org/EIPS/eip-3541
                 res.status_code = StatusCode::ContractValidationFailure;
-            } else if self.revision >= Revision::Spurious && code_len > param::MAX_CODE_SIZE {
+            } else if self.block_spec.revision >= Revision::Spurious
+                && code_len > param::MAX_CODE_SIZE
+            {
                 // https://eips.ethereum.org/EIPS/eip-170
                 res.status_code = StatusCode::OutOfGas;
             } else if res.gas_left >= 0 && res.gas_left as u64 >= code_deploy_gas {
@@ -178,7 +180,7 @@ where
                 self.state
                     .set_code(contract_addr, res.output_data.clone())
                     .await?;
-            } else if self.revision >= Revision::Homestead {
+            } else if self.block_spec.revision >= Revision::Homestead {
                 res.status_code = StatusCode::OutOfGas;
             }
         }
@@ -216,7 +218,7 @@ where
 
         // https://eips.ethereum.org/EIPS/eip-161
         if value.is_zero()
-            && self.revision >= Revision::Spurious
+            && self.block_spec.revision >= Revision::Spurious
             && !precompiled
             && !self.state.exists(message.code_address).await?
         {
@@ -242,8 +244,8 @@ where
             let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
             let contract = &precompiled::CONTRACTS[num - 1];
             let input = message.input_data;
-            if let Some(gas) =
-                (contract.gas)(input.clone(), self.revision).and_then(|g| i64::try_from(g).ok())
+            if let Some(gas) = (contract.gas)(input.clone(), self.block_spec.revision)
+                .and_then(|g| i64::try_from(g).ok())
             {
                 if gas > message.gas {
                     res.status_code = StatusCode::OutOfGas;
@@ -305,7 +307,7 @@ where
         };
 
         let mut interrupt = analysis
-            .execute_resumable(false, msg, self.revision)
+            .execute_resumable(false, msg, self.block_spec.revision)
             .resume(());
 
         let output = loop {
@@ -313,7 +315,7 @@ where
                 InterruptVariant::InstructionStart(_) => unreachable!("tracing is disabled"),
                 InterruptVariant::AccountExists(i) => {
                     let address = i.data().address;
-                    let exists = if self.revision >= Revision::Spurious {
+                    let exists = if self.block_spec.revision >= Revision::Spurious {
                         !self.state.is_dead(address).await?
                     } else {
                         self.state.exists(address).await?
@@ -355,8 +357,8 @@ where
                     } else {
                         self.state.set_storage(address, key, new_val).await?;
 
-                        let eip1283 = self.revision >= Revision::Istanbul
-                            || self.revision == Revision::Constantinople;
+                        let eip1283 = self.block_spec.revision >= Revision::Istanbul
+                            || self.block_spec.revision == Revision::Constantinople;
 
                         if !eip1283 {
                             if current_val.is_zero() {
@@ -369,9 +371,9 @@ where
                             }
                         } else {
                             let sload_cost = {
-                                if self.revision >= Revision::Berlin {
+                                if self.block_spec.revision >= Revision::Berlin {
                                     fee::WARM_STORAGE_READ_COST
-                                } else if self.revision >= Revision::Istanbul {
+                                } else if self.block_spec.revision >= Revision::Istanbul {
                                     fee::G_SLOAD_ISTANBUL
                                 } else {
                                     fee::G_SLOAD_TANGERINE_WHISTLE
@@ -379,7 +381,7 @@ where
                             };
 
                             let mut sstore_reset_gas = fee::G_SRESET;
-                            if self.revision >= Revision::Berlin {
+                            if self.block_spec.revision >= Revision::Berlin {
                                 sstore_reset_gas -= fee::COLD_SLOAD_COST;
                             }
 
@@ -388,11 +390,12 @@ where
                                 self.state.get_original_storage(address, key).await?;
 
                             // https://eips.ethereum.org/EIPS/eip-3529
-                            let sstore_clears_refund = if self.revision >= Revision::London {
-                                sstore_reset_gas + fee::ACCESS_LIST_STORAGE_KEY_COST
-                            } else {
-                                fee::R_SCLEAR
-                            };
+                            let sstore_clears_refund =
+                                if self.block_spec.revision >= Revision::London {
+                                    sstore_reset_gas + fee::ACCESS_LIST_STORAGE_KEY_COST
+                                } else {
+                                    fee::R_SCLEAR
+                                };
 
                             if original_val == current_val {
                                 if original_val.is_zero() {
@@ -503,7 +506,7 @@ where
                     let block_timestamp = self.header.timestamp;
                     let block_gas_limit = self.header.gas_limit;
                     let block_difficulty = self.header.difficulty;
-                    let chain_id = self.chain_config.chain_id.0.into();
+                    let chain_id = self.block_spec.params.chain_id.0.into();
                     let block_base_fee = base_fee_per_gas;
 
                     let context = TxContext {
@@ -584,7 +587,7 @@ where
     }
 
     fn number_of_precompiles(&self) -> u8 {
-        match self.revision {
+        match self.block_spec.revision {
             Revision::Frontier | Revision::Homestead | Revision::Tangerine | Revision::Spurious => {
                 precompiled::NUM_OF_FRONTIER_CONTRACTS as u8
             }
@@ -611,7 +614,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{res::genesis::MAINNET, util::test_util::run_test, InMemoryState};
+    use crate::{res::chainspec::MAINNET, util::test_util::run_test, InMemoryState};
     use bytes_literal::bytes;
     use hex_literal::hex;
 
@@ -625,7 +628,7 @@ mod tests {
             state,
             &mut AnalysisCache::default(),
             header,
-            &MAINNET.config,
+            &MAINNET.collect_block_spec(header.number),
             txn,
             gas,
         )

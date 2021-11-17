@@ -9,7 +9,7 @@
                 4230000: "0x1bc16d674ec80000",
             },
             homestead_formula: 0,
-            byzantium_adj_factor: 1700000,
+            byzantium_formula: 1700000,
             difficulty_bomb: DifficultyBomb(
                 delays: {
                     1700000: 3000000,
@@ -35,23 +35,19 @@
     params: (
         chain_id: 3,
         network_id: 3,
-        maximum_extra_data_size: 32,
         min_gas_limit: 5000,
     ),
     genesis: (
         author: "0x0000000000000000000000000000000000000000",
-        difficulty: "0x100000",
         timestamp: 0,
-        parent_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-        extra_data: "0x3535353535353535353535353535353535353535353535353535353535353535",
         gas_limit: 16777216,
         seal: Ethash(
+            vanity: "0x3535353535353535353535353535353535353535353535353535353535353535",
+            difficulty: "0x100000",
             nonce: "0x0000000000000042",
             mix_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
         ),
     ),
-    contracts: {
-    },
     balances: {
         0: {
             "0x0000000000000000000000000000000000000000": "0x1",

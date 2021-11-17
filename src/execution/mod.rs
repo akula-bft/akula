@@ -9,19 +9,20 @@ pub mod processor;
 
 pub async fn execute_block<S: State>(
     state: &mut S,
-    config: &ChainConfig,
+    config: &ChainSpec,
     header: &PartialHeader,
     block: &BlockBodyWithSenders,
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut analysis_cache = AnalysisCache::default();
     let mut engine = consensus::engine_factory(config.clone())?;
+    let config = config.collect_block_spec(header.number);
     ExecutionProcessor::new(
         state,
         &mut analysis_cache,
         &mut *engine,
         header,
         block,
-        config,
+        &config,
     )
     .execute_and_write_block()
     .await
@@ -31,7 +32,7 @@ pub async fn execute_block<S: State>(
 mod tests {
     use super::{address::create_address, *};
     use crate::{
-        chain::protocol_param::param, crypto::root_hash, res::genesis::MAINNET,
+        chain::protocol_param::param, crypto::root_hash, res::chainspec::MAINNET,
         util::test_util::run_test, InMemoryState, DEFAULT_INCARNATION,
     };
     use ethereum_types::*;
@@ -144,7 +145,7 @@ mod tests {
 
             execute_block(
                 &mut state,
-                &MAINNET.config,
+                &MAINNET,
                 &header,
                 &BlockBodyWithSenders {
                     transactions: vec![tx.clone()],
@@ -209,7 +210,7 @@ mod tests {
 
             execute_block(
                 &mut state,
-                &MAINNET.config,
+                &MAINNET,
                 &header,
                 &BlockBodyWithSenders {
                     transactions: vec![tx],

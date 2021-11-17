@@ -1,5 +1,4 @@
-use super::BlockNumber;
-use crate::util::*;
+use crate::{models::*, util::*};
 use bytes::Bytes;
 use ethereum_types::*;
 use evmodin::Revision;
@@ -20,7 +19,7 @@ pub struct BlockExecutionSpec {
     pub balance_changes: HashMap<Address, U256>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ChainSpec {
     pub name: String,
     pub consensus: ConsensusParams,
@@ -28,7 +27,9 @@ pub struct ChainSpec {
     pub upgrades: Upgrades,
     pub params: Params,
     pub genesis: Genesis,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub contracts: BTreeMap<BlockNumber, HashMap<Address, Contract>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub balances: BTreeMap<BlockNumber, HashMap<Address, U256>>,
     pub p2p: P2PParams,
 }
@@ -114,33 +115,28 @@ impl ChainSpec {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DifficultyBomb {
     pub delays: BTreeMap<BlockNumber, BlockNumber>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct BlockDifficultyBomb {
-    pub delay_to: BlockNumber,
+impl DifficultyBomb {
+    pub fn get_delay_to(&self, block_number: BlockNumber) -> BlockNumber {
+        self.delays
+            .iter()
+            .filter_map(|(&activation, &delay_to)| {
+                if block_number >= activation {
+                    Some(delay_to)
+                } else {
+                    None
+                }
+            })
+            .last()
+            .unwrap_or(BlockNumber(0))
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct BlockEthashParams {
-    pub duration_limit: u64,
-    pub block_reward: U256,
-    pub homestead_formula: bool,
-    pub byzantium_adj_factor: bool,
-    pub difficulty_bomb: Option<BlockDifficultyBomb>,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum BlockSealVerificationParams {
-    Clique { period: Duration, epoch: u64 },
-    Ethash(BlockEthashParams),
-    NoProof,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ConsensusParams {
     pub seal_verification: SealVerificationParams,
     #[serde(
@@ -151,7 +147,11 @@ pub struct ConsensusParams {
     pub eip1559_block: Option<BlockNumber>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub fn switch_is_active(switch: Option<BlockNumber>, block_number: BlockNumber) -> bool {
+    block_number >= switch.unwrap_or(BlockNumber(u64::MAX))
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum SealVerificationParams {
     Clique {
         #[serde(deserialize_with = "deserialize_period_as_duration")]
@@ -172,15 +172,16 @@ pub enum SealVerificationParams {
             skip_serializing_if = "Option::is_none",
             with = "::serde_with::rust::unwrap_or_skip"
         )]
-        byzantium_adj_factor: Option<BlockNumber>,
+        byzantium_formula: Option<BlockNumber>,
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
             with = "::serde_with::rust::unwrap_or_skip"
         )]
         difficulty_bomb: Option<DifficultyBomb>,
+        #[serde(default)]
+        skip_pow_verification: bool,
     },
-    NoProof,
 }
 
 impl SealVerificationParams {
@@ -189,14 +190,14 @@ impl SealVerificationParams {
             SealVerificationParams::Ethash {
                 block_reward,
                 homestead_formula,
-                byzantium_adj_factor,
+                byzantium_formula,
                 difficulty_bomb,
                 ..
             } => block_reward
                 .keys()
                 .copied()
                 .chain(*homestead_formula)
-                .chain(*byzantium_adj_factor)
+                .chain(*byzantium_formula)
                 .chain(
                     difficulty_bomb
                         .as_ref()
@@ -209,14 +210,8 @@ impl SealVerificationParams {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct EthashGenesis {
-    pub nonce: H64,
-    pub mix_hash: H256,
-}
-
 // deserialize_str_as_u64
-#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Upgrades {
     #[serde(
         default,
@@ -276,24 +271,76 @@ pub struct Upgrades {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Params {
-    pub chain_id: u64,
+    pub chain_id: ChainId,
     pub network_id: u64,
-    pub maximum_extra_data_size: u64,
     pub min_gas_limit: u64,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum BlockScore {
+    NoTurn = 1,
+    InTurn = 2,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Seal {
-    Ethash { nonce: H64, mix_hash: H256 },
-    Clique { vanity: H256, signers: Vec<Address> },
-    AuthorityRound { step: usize, signature: H520 },
-    Raw { bytes: Vec<u8> },
+    Ethash {
+        #[serde(with = "hexbytes")]
+        vanity: Bytes,
+        difficulty: U256,
+        nonce: H64,
+        mix_hash: H256,
+    },
+    Clique {
+        vanity: H256,
+        score: BlockScore,
+        signers: Vec<Address>,
+    },
+}
+
+impl Seal {
+    pub fn difficulty(&self) -> U256 {
+        match self {
+            Seal::Ethash { difficulty, .. } => *difficulty,
+            Seal::Clique { score, .. } => (*score as u8).into(),
+        }
+    }
+
+    pub fn extra_data(&self) -> Bytes {
+        match self {
+            Seal::Ethash { vanity, .. } => vanity.clone(),
+            Seal::Clique {
+                vanity, signers, ..
+            } => {
+                let mut v = Vec::new();
+                v.extend_from_slice(vanity.as_bytes());
+                for signer in signers {
+                    v.extend_from_slice(signer.as_bytes());
+                }
+                v.extend_from_slice(&[0; 65]);
+                v.into()
+            }
+        }
+    }
+
+    pub fn mix_hash(&self) -> H256 {
+        match self {
+            Seal::Ethash { mix_hash, .. } => *mix_hash,
+            _ => H256::zero(),
+        }
+    }
+
+    pub fn nonce(&self) -> H64 {
+        match self {
+            Seal::Ethash { nonce, .. } => *nonce,
+            _ => H64::zero(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Genesis {
     pub author: Address,
-    pub difficulty: U256,
     pub gas_limit: u64,
     pub timestamp: u64,
     pub seal: Seal,
@@ -302,7 +349,7 @@ pub struct Genesis {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Contract {
     Contract {
-        #[serde(deserialize_with = "deserialize_hexstr_as_bytes")]
+        #[serde(with = "hexbytes")]
         code: Bytes,
     },
     Precompile(Precompile),
@@ -368,6 +415,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::res::chainspec::*;
     use hex_literal::hex;
     use maplit::*;
 
@@ -395,14 +443,12 @@ mod tests {
                     london: Some(8897988.into()),
                 },
                 params: Params {
-                    chain_id: 4,
+                    chain_id: ChainId(4),
                     network_id: 4,
-                    maximum_extra_data_size: 65535,
                     min_gas_limit: 5000,
                 },
                 genesis: Genesis {
                     author: hex!("0000000000000000000000000000000000000000").into(),
-                    difficulty: 0x1.into(),
                     gas_limit: 0x47b760,
                     timestamp: 0x58ee40ba,
                     seal: Seal::Clique {
@@ -410,6 +456,7 @@ mod tests {
                             "52657370656374206d7920617574686f7269746168207e452e436172746d616e"
                         )
                         .into(),
+                        score: BlockScore::NoTurn,
                         signers: vec![
                             hex!("42eb768f2244c8811c63729a21a3569731535f06").into(),
                             hex!("7ffc57839b00206d1ad20c69a1981b489f772031").into(),
@@ -417,61 +464,7 @@ mod tests {
                         ],
                     },
                 },
-                contracts: btreemap! {
-                    0.into() => hashmap! {
-                        hex!("0000000000000000000000000000000000000001").into() => Contract::Precompile(Precompile::EcRecover {
-                            base: 3000,
-                            word: 0,
-                        }),
-                        hex!("0000000000000000000000000000000000000002").into() => Contract::Precompile(Precompile::Sha256 {
-                            base: 60,
-                            word: 12,
-                        }),
-                        hex!("0000000000000000000000000000000000000003").into() => Contract::Precompile(Precompile::Ripemd160 {
-                            base: 600,
-                            word: 120,
-                        }),
-                        hex!("0000000000000000000000000000000000000004").into() => Contract::Precompile(Precompile::Identity {
-                            base: 15,
-                            word: 3,
-                        }),
-                    },
-                    1035301.into() => hashmap! {
-                        hex!("0000000000000000000000000000000000000005").into() => Contract::Precompile(Precompile::ModExp {
-                            version: ModExpVersion::ModExp198,
-                        }),
-                        hex!("0000000000000000000000000000000000000006").into() => Contract::Precompile(Precompile::AltBn128Add {
-                            price: 500,
-                        }),
-                        hex!("0000000000000000000000000000000000000007").into() => Contract::Precompile(Precompile::AltBn128Mul {
-                            price: 40000,
-                        }),
-                        hex!("0000000000000000000000000000000000000008").into() => Contract::Precompile(Precompile::AltBn128Pairing {
-                            base: 100000,
-                            pair: 80000,
-                        }),
-                    },
-                    5435345.into() => hashmap! {
-                        hex!("0000000000000000000000000000000000000006").into() => Contract::Precompile(Precompile::AltBn128Add {
-                            price: 150,
-                        }),
-                        hex!("0000000000000000000000000000000000000007").into() => Contract::Precompile(Precompile::AltBn128Mul {
-                            price: 6000,
-                        }),
-                        hex!("0000000000000000000000000000000000000008").into() => Contract::Precompile(Precompile::AltBn128Pairing {
-                            base: 45000,
-                            pair: 34000,
-                        }),
-                        hex!("0000000000000000000000000000000000000009").into() => Contract::Precompile(Precompile::Blake2F {
-                            gas_per_round: 1,
-                        }),
-                    },
-                    8290928.into() => hashmap! {
-                        hex!("0000000000000000000000000000000000000005").into() => Contract::Precompile(Precompile::ModExp {
-                            version: ModExpVersion::ModExp2565,
-                        })
-                    }
-                },
+                contracts: Default::default(),
                 balances: btreemap! {
                     0.into() => hashmap! {
                         hex!("31b98d14007bdee637298086988a0bbd31184523").into() => "0x200000000000000000000000000000000000000000000000000000000000000".into(),
@@ -486,7 +479,21 @@ mod tests {
                     preverified_hashes: vec![],
                 }
             },
-            *crate::res::chainspec::RINKEBY,
+            *RINKEBY,
+        );
+    }
+
+    #[test]
+    fn distinct_block_numbers() {
+        assert_eq!(
+            MAINNET.gather_forks(),
+            vec![
+                1_150_000, 1_920_000, 2_463_000, 2_675_000, 4_370_000, 7_280_000, 9_069_000,
+                9_200_000, 12_244_000, 12_965_000, 13_773_000
+            ]
+            .into_iter()
+            .map(BlockNumber)
+            .collect()
         );
     }
 }

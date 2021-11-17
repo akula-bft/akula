@@ -68,15 +68,28 @@ where
     Ok(d)
 }
 
-pub fn deserialize_hexstr_as_bytes<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
+pub mod hexbytes {
+    use serde::Serializer;
 
-    Ok(hex::decode(s.strip_prefix("0x").unwrap_or(&s))
-        .map_err(D::Error::custom)?
-        .into())
+    use super::*;
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Bytes, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        Ok(hex::decode(s.strip_prefix("0x").unwrap_or(&s))
+            .map_err(D::Error::custom)?
+            .into())
+    }
+
+    pub fn serialize<S>(b: &Bytes, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("0x{}", hex::encode(b)))
+    }
 }
 
 #[cfg(test)]

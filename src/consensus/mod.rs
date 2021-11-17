@@ -1,11 +1,9 @@
 mod base;
 mod blockchain;
 mod ethash;
-mod noproof;
 
-pub use self::{blockchain::*, ethash::*, noproof::*};
+pub use self::{blockchain::*, ethash::*};
 use crate::{
-    chain::intrinsic_gas::*,
     models::{Block, BlockHeader, *},
     State,
 };
@@ -158,30 +156,13 @@ impl std::error::Error for ValidationError {}
 
 pub fn pre_validate_transaction(
     txn: &TransactionMessage,
-    block_number: impl Into<BlockNumber>,
-    config: &ChainConfig,
+    canonical_chain_id: ChainId,
     base_fee_per_gas: Option<U256>,
 ) -> Result<(), ValidationError> {
-    let rev = config.revision(block_number);
-
     if let Some(chain_id) = txn.chain_id() {
-        if rev < Revision::Spurious || chain_id != config.chain_id {
+        if chain_id != canonical_chain_id {
             return Err(ValidationError::WrongChainId);
         }
-    }
-
-    match txn.tx_type() {
-        TxType::EIP2930 => {
-            if rev < Revision::Berlin {
-                return Err(ValidationError::UnsupportedTransactionType);
-            }
-        }
-        TxType::EIP1559 => {
-            if rev < Revision::London {
-                return Err(ValidationError::UnsupportedTransactionType);
-            }
-        }
-        TxType::Legacy => {}
     }
 
     if let Some(base_fee_per_gas) = base_fee_per_gas {
@@ -195,18 +176,28 @@ pub fn pre_validate_transaction(
         return Err(ValidationError::MaxPriorityFeeGreaterThanMax);
     }
 
-    let g0 = intrinsic_gas(txn, rev >= Revision::Homestead, rev >= Revision::Istanbul);
-    if u128::from(txn.gas_limit()) < g0 {
-        return Err(ValidationError::IntrinsicGas);
-    }
-
     Ok(())
 }
 
-pub fn engine_factory(chain_config: ChainConfig) -> anyhow::Result<Box<dyn Consensus>> {
-    Ok(match chain_config.seal_engine {
-        SealEngineType::Ethash => Box::new(Ethash::new(chain_config)),
-        SealEngineType::NoProof => Box::new(NoProof::new(chain_config)),
+pub fn engine_factory(chain_config: ChainSpec) -> anyhow::Result<Box<dyn Consensus>> {
+    Ok(match chain_config.consensus.seal_verification {
+        SealVerificationParams::Ethash {
+            duration_limit,
+            block_reward,
+            homestead_formula,
+            byzantium_formula,
+            difficulty_bomb,
+            skip_pow_verification,
+        } => Box::new(Ethash::new(
+            chain_config.params.chain_id,
+            chain_config.consensus.eip1559_block,
+            duration_limit,
+            block_reward,
+            homestead_formula,
+            byzantium_formula,
+            difficulty_bomb,
+            skip_pow_verification,
+        )),
         _ => bail!("unsupported consensus engine"),
     })
 }

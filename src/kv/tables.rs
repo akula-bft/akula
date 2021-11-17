@@ -346,25 +346,25 @@ rlp_table_object!(BodyForStorage);
 rlp_table_object!(BlockHeader);
 rlp_standalone_table_object!(Transaction);
 
-macro_rules! json_table_object {
+macro_rules! ron_table_object {
     ($ty:ident) => {
         impl TableEncode for $ty {
-            type Encoded = Vec<u8>;
+            type Encoded = String;
 
             fn encode(self) -> Self::Encoded {
-                serde_json::to_vec(&self).unwrap()
+                ron::to_string(&self).unwrap()
             }
         }
 
         impl TableDecode for $ty {
             fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(serde_json::from_slice(b)?)
+                Ok(ron::from_str(std::str::from_utf8(b)?)?)
             }
         }
     };
 }
 
-json_table_object!(ChainConfig);
+ron_table_object!(ChainSpec);
 
 impl TableEncode for Address {
     type Encoded = [u8; ADDRESS_LENGTH];
@@ -1066,7 +1066,7 @@ decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
 decl_table!(CallFromIndex => Vec<u8> => RoaringTreemap);
 decl_table!(CallToIndex => Vec<u8> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
-decl_table!(Config => H256 => ChainConfig);
+decl_table!(Config => H256 => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(TxSender => HeaderKey => Vec<Address>);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);

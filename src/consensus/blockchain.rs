@@ -12,7 +12,7 @@ use std::{collections::HashMap, convert::TryFrom};
 #[derive(Debug)]
 pub struct Blockchain<'state> {
     state: &'state mut InMemoryState,
-    config: ChainConfig,
+    config: ChainSpec,
     engine: Box<dyn Consensus>,
     bad_blocks: HashMap<H256, ValidationError>,
     receipts: Vec<Receipt>,
@@ -21,7 +21,7 @@ pub struct Blockchain<'state> {
 impl<'state> Blockchain<'state> {
     pub async fn new(
         state: &'state mut InMemoryState,
-        config: ChainConfig,
+        config: ChainSpec,
         genesis_block: Block,
     ) -> anyhow::Result<Blockchain<'state>> {
         Self::new_with_consensus(
@@ -36,7 +36,7 @@ impl<'state> Blockchain<'state> {
     pub async fn new_with_consensus(
         state: &'state mut InMemoryState,
         engine: Box<dyn Consensus>,
-        config: ChainConfig,
+        config: ChainSpec,
         genesis_block: Block,
     ) -> anyhow::Result<Blockchain<'state>> {
         let hash = genesis_block.header.hash();
@@ -58,6 +58,9 @@ impl<'state> Blockchain<'state> {
         block: Block,
         check_state_root: bool,
     ) -> anyhow::Result<()> {
+        self.engine
+            .validate_block_header(&block.header, &mut self.state, true)
+            .await?;
         self.engine
             .pre_validate_block(&block, &mut self.state)
             .await?;
@@ -154,6 +157,8 @@ impl<'state> Blockchain<'state> {
             ommers: block.ommers.clone(),
         };
 
+        let block_spec = self.config.collect_block_spec(block.header.number);
+
         let mut analysis_cache = AnalysisCache::default();
         let processor = ExecutionProcessor::new(
             self.state,
@@ -161,7 +166,7 @@ impl<'state> Blockchain<'state> {
             &mut *self.engine,
             &block.header,
             &body,
-            &self.config,
+            &block_spec,
         );
 
         let _ = processor.execute_and_write_block().await?;

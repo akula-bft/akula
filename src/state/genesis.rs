@@ -1,40 +1,12 @@
 use super::*;
 use crate::{
     kv::tables::{self, CumulativeData, PlainStateFusedValue},
-    models::{ChainConfig, *},
-    util::*,
+    models::*,
     InMemoryState, MutableCursor, MutableTransaction,
 };
-use bytes::Bytes;
 use ethereum_types::*;
-use serde::*;
-use std::collections::HashMap;
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AllocAccountData {
-    pub balance: U256,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GenesisData {
-    pub alloc: HashMap<Address, AllocAccountData>,
-    pub coinbase: Address,
-    pub config: ChainConfig,
-    pub difficulty: U256,
-    #[serde(deserialize_with = "deserialize_hexstr_as_bytes")]
-    pub extra_data: Bytes,
-    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
-    pub gas_limit: u64,
-    pub mix_hash: H256,
-    pub nonce: H64,
-    pub parent_hash: H256,
-    #[serde(deserialize_with = "deserialize_hexstr_as_u64")]
-    pub timestamp: u64,
-}
-
-pub async fn initialize_genesis<'db, Tx>(txn: &Tx, genesis: GenesisData) -> anyhow::Result<bool>
+pub async fn initialize_genesis<'db, Tx>(txn: &Tx, chainspec: ChainSpec) -> anyhow::Result<bool>
 where
     Tx: MutableTransaction<'db>,
 {
@@ -48,19 +20,19 @@ where
 
     let mut state_buffer = InMemoryState::new();
     // Allocate accounts
-    for (address, account) in genesis.alloc {
-        let balance = account.balance;
-
-        state_buffer
-            .update_account(
-                address,
-                None,
-                Some(Account {
-                    balance,
-                    ..Default::default()
-                }),
-            )
-            .await?;
+    if let Some(balances) = chainspec.balances.get(&BlockNumber(0)) {
+        for (&address, &balance) in balances {
+            state_buffer
+                .update_account(
+                    address,
+                    None,
+                    Some(Account {
+                        balance,
+                        ..Default::default()
+                    }),
+                )
+                .await?;
+        }
     }
 
     // Write allocations to db - no changes only accounts
@@ -79,17 +51,17 @@ where
 
     let header = BlockHeader {
         parent_hash: H256::zero(),
-        beneficiary: genesis.coinbase,
+        beneficiary: chainspec.genesis.author,
         state_root,
         logs_bloom: Bloom::zero(),
-        difficulty: genesis.difficulty,
+        difficulty: chainspec.genesis.seal.difficulty(),
         number: BlockNumber(0),
-        gas_limit: genesis.gas_limit,
+        gas_limit: chainspec.genesis.gas_limit,
         gas_used: 0,
-        timestamp: genesis.timestamp,
-        extra_data: genesis.extra_data,
-        mix_hash: genesis.mix_hash,
-        nonce: genesis.nonce,
+        timestamp: chainspec.genesis.timestamp,
+        extra_data: chainspec.genesis.seal.extra_data(),
+        mix_hash: chainspec.genesis.seal.mix_hash(),
+        nonce: chainspec.genesis.seal.nonce(),
         base_fee_per_gas: None,
 
         receipts_root: EMPTY_ROOT,
@@ -132,8 +104,7 @@ where
     txn.set(&tables::LastHeader, (Default::default(), block_hash))
         .await?;
 
-    txn.set(&tables::Config, (block_hash, genesis.config))
-        .await?;
+    txn.set(&tables::Config, (block_hash, chainspec)).await?;
 
     Ok(true)
 }
@@ -153,7 +124,7 @@ mod tests {
         let tx = db.begin_mutable().await.unwrap();
 
         assert!(
-            initialize_genesis(&tx, crate::res::genesis::MAINNET.clone())
+            initialize_genesis(&tx, crate::res::chainspec::MAINNET.clone())
                 .await
                 .unwrap()
         );
