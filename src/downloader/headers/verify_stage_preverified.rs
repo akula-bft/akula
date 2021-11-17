@@ -86,7 +86,7 @@ impl VerifyStagePreverified {
         let headers = slice.headers.as_ref().unwrap();
 
         if headers.is_empty() {
-            return true;
+            return false;
         }
 
         let first = headers.first().unwrap();
