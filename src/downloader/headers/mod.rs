@@ -9,11 +9,13 @@ mod stage_stream;
 
 mod fetch_receive_stage;
 mod fetch_request_stage;
+mod header_slice_verifier;
 mod preverified_hashes_config;
 mod refill_stage;
 mod retry_stage;
 mod save_stage;
 mod verify_stage_linear;
+mod verify_stage_linear_link;
 mod verify_stage_preverified;
 
 #[cfg(feature = "crossterm")]

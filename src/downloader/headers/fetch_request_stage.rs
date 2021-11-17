@@ -1,7 +1,6 @@
 use crate::{
     downloader::headers::{
         header_slice_status_watch::HeaderSliceStatusWatch,
-        header_slices,
         header_slices::{HeaderSliceStatus, HeaderSlices},
     },
     models::BlockNumber,
@@ -23,21 +22,27 @@ use tracing::*;
 /// Sends requests to P2P via sentry to get the slices. Slices become Waiting.
 pub struct FetchRequestStage {
     header_slices: Arc<HeaderSlices>,
-    pending_watch: HeaderSliceStatusWatch,
     sentry: Arc<RwLock<SentryClientReactor>>,
+    slice_size: usize,
+    pending_watch: HeaderSliceStatusWatch,
     last_request_id: AtomicU64,
 }
 
 impl FetchRequestStage {
-    pub fn new(header_slices: Arc<HeaderSlices>, sentry: Arc<RwLock<SentryClientReactor>>) -> Self {
+    pub fn new(
+        header_slices: Arc<HeaderSlices>,
+        sentry: Arc<RwLock<SentryClientReactor>>,
+        slice_size: usize,
+    ) -> Self {
         Self {
             header_slices: header_slices.clone(),
+            sentry,
+            slice_size,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Empty,
                 header_slices,
                 "FetchRequestStage",
             ),
-            sentry,
             last_request_id: 0.into(),
         }
     }
@@ -73,7 +78,7 @@ impl FetchRequestStage {
                 let request_id = self.last_request_id.fetch_add(1, Ordering::SeqCst);
 
                 let block_num = slice.start_block_num;
-                let limit = header_slices::HEADER_SLICE_SIZE as u64 + 1;
+                let limit = self.slice_size as u64;
 
                 let result = self.request(request_id, block_num, limit);
                 match result {
