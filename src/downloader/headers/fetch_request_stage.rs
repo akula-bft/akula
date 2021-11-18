@@ -8,10 +8,10 @@ use crate::{
         block_id,
         messages::{GetBlockHeadersMessage, GetBlockHeadersMessageParams, Message},
         sentry_client::PeerFilter,
-        sentry_client_reactor::{SendMessageError, SentryClientReactor},
+        sentry_client_reactor::*,
     },
 };
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
+use parking_lot::RwLockUpgradableReadGuard;
 use std::{
     ops::DerefMut,
     sync::{atomic::*, Arc},
@@ -22,7 +22,7 @@ use tracing::*;
 /// Sends requests to P2P via sentry to get the slices. Slices become Waiting.
 pub struct FetchRequestStage {
     header_slices: Arc<HeaderSlices>,
-    sentry: Arc<RwLock<SentryClientReactor>>,
+    sentry: SentryClientReactorShared,
     slice_size: usize,
     pending_watch: HeaderSliceStatusWatch,
     last_request_id: AtomicU64,
@@ -31,7 +31,7 @@ pub struct FetchRequestStage {
 impl FetchRequestStage {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
-        sentry: Arc<RwLock<SentryClientReactor>>,
+        sentry: SentryClientReactorShared,
         slice_size: usize,
     ) -> Self {
         Self {
@@ -55,13 +55,16 @@ impl FetchRequestStage {
             "FetchRequestStage: requesting {} slices",
             self.pending_watch.pending_count()
         );
-        self.request_pending()?;
+        {
+            let sentry = self.sentry.read().await;
+            self.request_pending(&sentry)?;
+        }
 
         // in case of SendQueueFull, await for extra capacity
         if self.pending_watch.pending_count() > 0 {
             // obtain the sentry lock, and release it before awaiting
             let capacity_future = {
-                let sentry = self.sentry.read();
+                let sentry = self.sentry.read().await;
                 sentry.reserve_capacity_in_send_queue()
             };
             capacity_future.await?;
@@ -71,7 +74,7 @@ impl FetchRequestStage {
         Ok(())
     }
 
-    fn request_pending(&self) -> anyhow::Result<()> {
+    fn request_pending(&self, sentry: &SentryClientReactor) -> anyhow::Result<()> {
         self.header_slices.for_each(|slice_lock| {
             let slice = slice_lock.upgradable_read();
             if slice.status == HeaderSliceStatus::Empty {
@@ -80,7 +83,7 @@ impl FetchRequestStage {
                 let block_num = slice.start_block_num;
                 let limit = self.slice_size as u64;
 
-                let result = self.request(request_id, block_num, limit);
+                let result = self.request(request_id, block_num, limit, sentry);
                 match result {
                     Err(error) => match error.downcast_ref::<SendMessageError>() {
                         Some(SendMessageError::SendQueueFull) => {
@@ -102,7 +105,13 @@ impl FetchRequestStage {
         })
     }
 
-    fn request(&self, request_id: u64, block_num: BlockNumber, limit: u64) -> anyhow::Result<()> {
+    fn request(
+        &self,
+        request_id: u64,
+        block_num: BlockNumber,
+        limit: u64,
+        sentry: &SentryClientReactor,
+    ) -> anyhow::Result<()> {
         let message = GetBlockHeadersMessage {
             request_id,
             params: GetBlockHeadersMessageParams {
@@ -112,9 +121,7 @@ impl FetchRequestStage {
                 reverse: 0,
             },
         };
-        self.sentry
-            .read()
-            .try_send_message(Message::GetBlockHeaders(message), PeerFilter::Random(1))
+        sentry.try_send_message(Message::GetBlockHeaders(message), PeerFilter::Random(1))
     }
 }
 

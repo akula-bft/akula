@@ -1,7 +1,8 @@
 use super::{
     fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
-    header_slices::HeaderSlices, preverified_hashes_config::PreverifiedHashesConfig,
-    refill_stage::RefillStage, retry_stage::RetryStage, save_stage::SaveStage,
+    header_slices::HeaderSlices, penalize_stage::PenalizeStage,
+    preverified_hashes_config::PreverifiedHashesConfig, refill_stage::RefillStage,
+    retry_stage::RetryStage, save_stage::SaveStage,
     verify_stage_preverified::VerifyStagePreverified, HeaderSlicesView,
 };
 use crate::{
@@ -11,9 +12,8 @@ use crate::{
     },
     kv,
     models::BlockNumber,
-    sentry::sentry_client_reactor::SentryClientReactor,
+    sentry::sentry_client_reactor::*,
 };
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_stream::{StreamExt, StreamMap};
@@ -22,7 +22,7 @@ use tracing::*;
 pub struct DownloaderPreverified<DB: kv::traits::MutableKV + Sync> {
     chain_name: String,
     mem_limit: usize,
-    sentry: Arc<RwLock<SentryClientReactor>>,
+    sentry: SentryClientReactorShared,
     db: Arc<DB>,
     ui_system: Arc<Mutex<UISystem>>,
 }
@@ -31,7 +31,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
     pub fn new(
         chain_name: String,
         mem_limit: usize,
-        sentry: Arc<RwLock<SentryClientReactor>>,
+        sentry: SentryClientReactorShared,
         db: Arc<DB>,
         ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {
@@ -81,6 +81,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         let retry_stage = RetryStage::new(header_slices.clone());
         let verify_stage =
             VerifyStagePreverified::new(header_slices.clone(), preverified_hashes_config);
+        let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
         let refill_stage = RefillStage::new(header_slices.clone());
 
@@ -97,6 +98,10 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         );
         stream.insert("retry_stage", make_stage_stream(Box::new(retry_stage)));
         stream.insert("verify_stage", make_stage_stream(Box::new(verify_stage)));
+        stream.insert(
+            "penalize_stage",
+            make_stage_stream(Box::new(penalize_stage)),
+        );
         stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
         stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));
 

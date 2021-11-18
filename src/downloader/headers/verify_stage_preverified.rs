@@ -56,9 +56,7 @@ impl VerifyStagePreverified {
                         .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Verified);
                 } else {
                     self.header_slices
-                        .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Empty);
-                    slice.headers = None;
-                    // TODO: penalize peer?
+                        .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Invalid);
                 }
             }
             None

@@ -98,6 +98,7 @@ impl From<HeaderSliceStatus> for char {
             HeaderSliceStatus::Downloaded => '.',
             HeaderSliceStatus::VerifiedInternally => '=',
             HeaderSliceStatus::Verified => '#',
+            HeaderSliceStatus::Invalid => 'x',
             HeaderSliceStatus::Saved => '+',
         }
     }
