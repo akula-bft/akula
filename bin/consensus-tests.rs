@@ -151,7 +151,8 @@ fn testconfig(
     *byzantium_formula = upgrades.byzantium;
     spec.upgrades = upgrades;
 
-    let dao_data = spec.balances.remove(&BlockNumber(1_920_000)).unwrap();
+    let mainnet_dao_fork_block_num = BlockNumber(1_920_000);
+    let dao_data = spec.balances.remove(&mainnet_dao_fork_block_num).unwrap();
     spec.balances.clear();
     if let Some(dao_block) = dao_block {
         spec.balances.insert(dao_block, dao_data);
