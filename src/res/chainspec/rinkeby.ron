@@ -21,16 +21,15 @@
     params: (
         chain_id: 4,
         network_id: 4,
-        maximum_extra_data_size: 65535,
         min_gas_limit: 5000,
     ),
     genesis: (
         author: "0x0000000000000000000000000000000000000000",
-        gas_limit: 4700000,
         timestamp: 1492009146,
-        difficulty: "0x1",
+        gas_limit: 4700000,
         seal: Clique(
             vanity: "0x52657370656374206d7920617574686f7269746168207e452e436172746d616e",
+            score: NoTurn,
             signers: [
                 "0x42eb768f2244c8811c63729a21a3569731535f06",
                 "0x7ffc57839b00206d1ad20c69a1981b489f772031",
@@ -38,61 +37,6 @@
             ],
         ),
     ),
-    contracts: {
-        0: {
-            "0x0000000000000000000000000000000000000001": Precompile(EcRecover(
-                base: 3000,
-                word: 0,
-            )),
-            "0x0000000000000000000000000000000000000002": Precompile(Sha256(
-                base: 60,
-                word: 12,
-            )),
-            "0x0000000000000000000000000000000000000003": Precompile(Ripemd160(
-                base: 600,
-                word: 120,
-            )),
-            "0x0000000000000000000000000000000000000004": Precompile(Identity(
-                base: 15,
-                word: 3,
-            )),
-        },
-        1035301: {
-            "0x0000000000000000000000000000000000000005": Precompile(ModExp(
-                version: ModExp198,
-            )),
-            "0x0000000000000000000000000000000000000006": Precompile(AltBn128Add(
-                price: 500,
-            )),
-            "0x0000000000000000000000000000000000000007": Precompile(AltBn128Mul(
-                price: 40000,
-            )),
-            "0x0000000000000000000000000000000000000008": Precompile(AltBn128Pairing(
-                base: 100000,
-                pair: 80000,
-            )),
-        },
-        5435345: {
-            "0x0000000000000000000000000000000000000006": Precompile(AltBn128Add(
-                price: 150,
-            )),
-            "0x0000000000000000000000000000000000000007": Precompile(AltBn128Mul(
-                price: 6000,
-            )),
-            "0x0000000000000000000000000000000000000008": Precompile(AltBn128Pairing(
-                base: 45000,
-                pair: 34000,
-            )),
-            "0x0000000000000000000000000000000000000009": Precompile(Blake2F(
-                gas_per_round: 1,
-            )),
-        },
-        8290928: {
-            "0x0000000000000000000000000000000000000005": Precompile(ModExp(
-                version: ModExp2565,
-            ))
-        },
-    },
     balances: {
         0: {
             "0x31b98d14007bdee637298086988a0bbd31184523": "0x200000000000000000000000000000000000000000000000000000000000000",

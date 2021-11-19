@@ -40,7 +40,7 @@ impl Default for Account {
 #[educe(Debug)]
 pub struct SerializedAccount {
     pub balance: U256,
-    #[serde(deserialize_with = "deserialize_hexstr_as_bytes")]
+    #[serde(with = "hexbytes")]
     #[educe(Debug(method = "write_hex_string"))]
     pub code: Bytes,
     pub nonce: U64,

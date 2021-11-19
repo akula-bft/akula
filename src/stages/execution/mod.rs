@@ -27,7 +27,7 @@ pub struct Execution {
 #[allow(clippy::too_many_arguments)]
 async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     tx: &Tx,
-    chain_config: ChainConfig,
+    chain_config: ChainSpec,
     max_block: BlockNumber,
     batch_size: u64,
     batch_until: Option<BlockNumber>,
@@ -66,13 +66,15 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             .await?
             .ok_or_else(|| anyhow!("Block body not found: {}/{:?}", block_number, block_hash))?;
 
+        let block_spec = chain_config.collect_block_spec(block_number);
+
         ExecutionProcessor::new(
             &mut buffer,
             &mut analysis_cache,
             &mut *consensus_engine,
             &header,
             &block,
-            &chain_config,
+            &block_spec,
         )
         .execute_and_write_block()
         .await

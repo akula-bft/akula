@@ -259,7 +259,7 @@ mod tests {
         execution::{address::*, *},
         kv::traits::MutableKV,
         new_mem_database,
-        res::genesis::MAINNET,
+        res::chainspec::MAINNET,
         u256_to_h256, Buffer, State, Transaction, DEFAULT_INCARNATION,
     };
     use ethereum_types::*;
@@ -329,7 +329,7 @@ mod tests {
         // ---------------------------------------
         // Execute first block
         // ---------------------------------------
-        execute_block(&mut buffer, &MAINNET.config, &header, &body)
+        execute_block(&mut buffer, &MAINNET, &header, &body)
             .await
             .unwrap();
 
@@ -353,7 +353,7 @@ mod tests {
             new_val.to_vec().into(),
         )];
 
-        execute_block(&mut buffer, &MAINNET.config, &header, &body)
+        execute_block(&mut buffer, &MAINNET.clone(), &header, &body)
             .await
             .unwrap();
 
@@ -375,7 +375,7 @@ mod tests {
             u256_to_h256(new_val.into()).0.to_vec().into(),
         )];
 
-        execute_block(&mut buffer, &MAINNET.config, &header, &body)
+        execute_block(&mut buffer, &MAINNET.clone(), &header, &body)
             .await
             .unwrap();
 
