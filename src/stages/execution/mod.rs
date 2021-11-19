@@ -128,7 +128,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                     let elapsed_since_start = now - first_started_at.0;
                     format!(
                         ", progress: {:0>2.2}%, {} remaining",
-                        (current_total_gas as f64 / total_gas as f64) * 100_f64,
+                        ((current_total_gas - first_started_at_gas) as f64
+                            / (total_gas - first_started_at_gas) as f64)
+                            * 100_f64,
                         format_duration(
                             Duration::from_secs(
                                 (elapsed_since_start.as_secs() as f64
