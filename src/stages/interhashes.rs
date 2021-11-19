@@ -494,7 +494,7 @@ where
         let mut storage = Vec::<(H256, H256)>::new();
         let mut found = self
             .storage_cursor
-            .seek((address_hash, incarnation))
+            .seek_exact((address_hash, incarnation))
             .await?;
         while let Some((_, storage_entry)) = found {
             storage.push((storage_entry.0, (storage_entry.1).0));
