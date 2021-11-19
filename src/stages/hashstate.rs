@@ -7,10 +7,11 @@ use crate::{
     kv::tables,
     models::*,
     stagedsync::{stage::*, stages::*},
-    upsert_hashed_storage_value, Cursor, MutableCursor, MutableTransaction,
+    upsert_hashed_storage_value, Cursor, CursorDupSort, MutableCursor, MutableTransaction,
 };
 use anyhow::*;
 use async_trait::async_trait;
+use ethereum_types::*;
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -92,15 +93,14 @@ where
     let mut walker = changeset_table.walk(Some(starting_block));
 
     while let Some((_, tables::AccountChange { address, .. })) = walker.try_next().await? {
-        if let Some(plainstate_data) = plainstate_table
+        let hashed_address = keccak256(address);
+        if let Some(tables::PlainStateFusedValue::Account { account, .. }) = plainstate_table
             .seek_exact(tables::PlainStateKey::Account(address))
             .await?
         {
-            if let tables::PlainStateFusedValue::Account { address, account } = plainstate_data {
-                target_table.upsert((keccak256(address), account)).await?;
-            } else {
-                unreachable!()
-            }
+            target_table.upsert((hashed_address, account)).await?;
+        } else if target_table.seek_exact(hashed_address).await?.is_some() {
+            target_table.delete_current().await?;
         }
     }
 
@@ -126,32 +126,39 @@ where
             incarnation,
             ..
         },
-        _,
+        tables::StorageChange { location, .. },
     )) = walker.try_next().await?
     {
-        if let Some(plainstate_data) = plainstate_table
-            .seek_exact(tables::PlainStateKey::Storage(address, incarnation))
+        let hashed_address = keccak256(address);
+        let hashed_location = keccak256(location);
+        let mut v = H256::zero();
+        if let Some(tables::PlainStateFusedValue::Storage {
+            address: found_address,
+            incarnation: found_incarnation,
+            location: found_location,
+            value,
+        }) = plainstate_table
+            .seek_both_range(
+                tables::PlainStateKey::Storage(address, incarnation),
+                location,
+            )
             .await?
         {
-            if let tables::PlainStateFusedValue::Storage {
-                address,
-                incarnation,
-                location,
-                value,
-            } = plainstate_data
+            if address == found_address
+                && incarnation == found_incarnation
+                && location == found_location
             {
-                upsert_hashed_storage_value(
-                    &mut target_table,
-                    keccak256(address),
-                    incarnation,
-                    keccak256(location),
-                    value,
-                )
-                .await?;
-            } else {
-                unreachable!()
+                v = value;
             }
         }
+        upsert_hashed_storage_value(
+            &mut target_table,
+            hashed_address,
+            incarnation,
+            hashed_location,
+            v,
+        )
+        .await?;
     }
 
     Ok(())
@@ -262,7 +269,6 @@ mod tests {
         res::chainspec::MAINNET,
         u256_to_h256, Buffer, State, Transaction, DEFAULT_INCARNATION,
     };
-    use ethereum_types::*;
     use hex_literal::*;
     use std::time::Instant;
 
