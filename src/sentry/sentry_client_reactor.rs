@@ -99,7 +99,7 @@ impl SentryClientReactor {
             .event_loop
             .try_lock()?
             .take()
-            .ok_or_else(|| anyhow::anyhow!("already started once"))?;
+            .ok_or_else(|| anyhow::format_err!("already started once"))?;
         let handle = tokio::spawn(async move {
             let result = event_loop.run().await;
             if let Err(error) = result {
@@ -202,7 +202,7 @@ impl SentryClientReactor {
 
             let receive_messages_sender =
                 receive_messages_senders.get(&filter_id).ok_or_else(|| {
-                    anyhow::anyhow!("SentryClientReactor unexpected filter_id {:?}", filter_id)
+                    anyhow::format_err!("SentryClientReactor unexpected filter_id {:?}", filter_id)
                 })?;
 
             receive_messages_sender.subscribe()
@@ -442,7 +442,7 @@ impl SentryClientReactorEventLoop {
                             let receive_messages_senders = self.receive_messages_senders.read();
                             let sender_opt = receive_messages_senders.get(&id);
                             let sender = sender_opt.ok_or_else(|| {
-                                anyhow::anyhow!(
+                                anyhow::format_err!(
                                     "SentryClientReactor.EventLoop unexpected message id {:?}",
                                     id
                                 )

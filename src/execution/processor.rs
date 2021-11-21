@@ -677,10 +677,7 @@ mod tests {
                 balance: U256::from(66_252_368 * GIGA),
                 ..Default::default()
             };
-            state
-                .update_account(address, None, Some(account.clone()))
-                .await
-                .unwrap();
+            state.update_account(address, None, Some(account.clone()));
 
             let txn = TransactionWithSender{
                 message: TransactionMessage::EIP1559 {

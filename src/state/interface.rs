@@ -53,12 +53,12 @@ pub trait State: Debug + Send + Sync {
     /// Must be called prior to calling update_account/update_account_code/update_storage.
     fn begin_block(&mut self, block_number: BlockNumber);
 
-    async fn update_account(
+    fn update_account(
         &mut self,
         address: Address,
         initial: Option<Account>,
         current: Option<Account>,
-    ) -> anyhow::Result<()>;
+    );
 
     async fn update_account_code(
         &mut self,

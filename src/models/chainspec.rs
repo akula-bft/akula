@@ -340,6 +340,7 @@ impl Seal {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Genesis {
+    pub number: BlockNumber,
     pub author: Address,
     pub gas_limit: u64,
     pub timestamp: u64,
@@ -449,6 +450,7 @@ mod tests {
                     min_gas_limit: 5000,
                 },
                 genesis: Genesis {
+                    number: BlockNumber(0),
                     author: hex!("0000000000000000000000000000000000000000").into(),
                     gas_limit: 0x47b760,
                     timestamp: 0x58ee40ba,

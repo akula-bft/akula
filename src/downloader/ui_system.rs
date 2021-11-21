@@ -39,7 +39,7 @@ impl UISystem {
         let event_loop = self
             .event_loop
             .take()
-            .ok_or_else(|| anyhow::anyhow!("already started once"))?;
+            .ok_or_else(|| anyhow::format_err!("already started once"))?;
         let handle = tokio::spawn(async move {
             let result = event_loop.run().await;
             if let Err(error) = result {

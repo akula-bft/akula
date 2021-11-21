@@ -6,7 +6,7 @@ use crate::{
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     MutableTransaction, StageId,
 };
-use anyhow::*;
+use anyhow::format_err;
 use async_trait::async_trait;
 use tracing::*;
 
@@ -38,7 +38,7 @@ where
         let max_block = input
             .previous_stage
             .map(|(_, v)| v)
-            .ok_or_else(|| anyhow!("Cannot be the first stage"))?;
+            .ok_or_else(|| format_err!("Cannot be the first stage"))?;
 
         if max_block >= starting_block {
             let CumulativeData {

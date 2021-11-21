@@ -134,10 +134,7 @@ mod tests {
                 balance: *ETHER,
                 ..Default::default()
             };
-            state
-                .update_account(sender, None, Some(sender_account))
-                .await
-                .unwrap();
+            state.update_account(sender, None, Some(sender_account));
 
             // ---------------------------------------
             // Execute first block

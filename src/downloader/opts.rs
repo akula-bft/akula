@@ -1,5 +1,5 @@
 use crate::sentry::sentry_address::SentryAddress;
-use anyhow::anyhow;
+use anyhow::format_err;
 use directories::ProjectDirs;
 use std::str::FromStr;
 use structopt::StructOpt;
@@ -33,7 +33,7 @@ impl Opts {
         };
 
         if !chain_names.contains(&instance.chain_name.as_str()) {
-            return Err(anyhow!("unknown chain '{}'", instance.chain_name));
+            return Err(format_err!("unknown chain '{}'", instance.chain_name));
         }
 
         Ok(instance)

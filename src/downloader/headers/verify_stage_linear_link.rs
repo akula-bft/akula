@@ -7,7 +7,7 @@ use crate::{
     models::{BlockHeader, BlockNumber},
     sentry::chain_config::ChainConfig,
 };
-use anyhow::anyhow;
+use anyhow::format_err;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{ops::DerefMut, sync::Arc, time::SystemTime};
 use tracing::*;
@@ -70,7 +70,7 @@ impl VerifyStageLinearLink {
         let mut updated_count: usize = 0;
         for i in 0..pending_count {
             let slice_lock = self.header_slices.find_by_index(i).ok_or_else(|| {
-                anyhow!(
+                format_err!(
                     "VerifyStageLinearLink: inconsistent state - less pending slices than expected"
                 )
             })?;

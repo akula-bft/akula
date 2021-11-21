@@ -12,9 +12,10 @@ use crate::{
     },
     models::{Account, BlockNumber, Incarnation, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
+    stages::stage_util::should_do_clean_promotion,
     zeroless_view, MutableTransaction, StageId,
 };
-use anyhow::*;
+use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
 use ethereum_types::*;
 use rlp::RlpStream;
@@ -440,7 +441,7 @@ where
     RwTx: MutableTransaction<'db>,
 {
     async fn new(
-        tx: &'tx mut RwTx,
+        tx: &'tx RwTx,
         collector: &'co mut Collector<tables::TrieAccount>,
         storage_collector: &'co mut Collector<tables::TrieStorage>,
     ) -> anyhow::Result<GenerateWalker<'db, 'tx, 'co, RwTx>>
@@ -529,8 +530,26 @@ where
     }
 }
 
-async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(
-    tx: &mut RwTx,
+pub async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(tx: &RwTx) -> anyhow::Result<H256>
+where
+    RwTx: MutableTransaction<'db>,
+{
+    let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+    let mut storage_collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+
+    let state_root =
+        generate_interhashes_with_collectors(tx, &mut collector, &mut storage_collector).await?;
+
+    let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
+    collector.load(&mut write_cursor).await?;
+    let mut storage_write_cursor = tx.mutable_cursor(&tables::TrieStorage.erased()).await?;
+    storage_collector.load(&mut storage_write_cursor).await?;
+
+    Ok(state_root)
+}
+
+async fn generate_interhashes_with_collectors<'db: 'tx, 'tx, RwTx>(
+    tx: &RwTx,
     collector: &mut Collector<tables::TrieAccount>,
     storage_collector: &mut Collector<tables::TrieStorage>,
 ) -> anyhow::Result<H256>
@@ -552,7 +571,7 @@ where
 }
 
 async fn update_interhashes<'db: 'tx, 'tx, RwTx>(
-    tx: &mut RwTx,
+    tx: &RwTx,
     collector: &mut Collector<tables::TrieAccount>,
     storage_collector: &mut Collector<tables::TrieStorage>,
     from: BlockNumber,
@@ -567,11 +586,21 @@ where
     tx.clear_table(&tables::TrieAccount).await?;
     tx.clear_table(&tables::TrieStorage).await?;
 
-    generate_interhashes(tx, collector, storage_collector).await
+    generate_interhashes_with_collectors(tx, collector, storage_collector).await
 }
 
 #[derive(Debug)]
-pub struct Interhashes;
+pub struct Interhashes {
+    clean_promotion_threshold: u64,
+}
+
+impl Interhashes {
+    pub fn new(clean_promotion_threshold: Option<u64>) -> Self {
+        Self {
+            clean_promotion_threshold: clean_promotion_threshold.unwrap_or(1_000_000_000_000),
+        }
+    }
+}
 
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for Interhashes
@@ -590,18 +619,27 @@ where
     where
         'db: 'tx,
     {
-        let past_progress = input.stage_progress.unwrap_or(BlockNumber(0));
-        let prev_progress = input
+        let genesis = BlockNumber(0);
+        let max_block = input
             .previous_stage
             .map(|tuple| tuple.1)
-            .unwrap_or(BlockNumber(0));
+            .ok_or_else(|| format_err!("Cannot be first stage"))?;
+        let past_progress = input.stage_progress.unwrap_or(genesis);
 
-        if prev_progress > past_progress {
+        if max_block > past_progress {
             let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
             let mut storage_collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
-            let trie_root = if past_progress == BlockNumber(0) {
-                generate_interhashes(tx, &mut collector, &mut storage_collector)
+            let trie_root = if should_do_clean_promotion(
+                tx,
+                genesis,
+                past_progress,
+                max_block,
+                self.clean_promotion_threshold,
+            )
+            .await?
+            {
+                generate_interhashes_with_collectors(tx, &mut collector, &mut storage_collector)
                     .await
                     .with_context(|| "Failed to generate interhashes")?
             } else {
@@ -610,7 +648,7 @@ where
                     &mut collector,
                     &mut storage_collector,
                     past_progress,
-                    prev_progress,
+                    max_block,
                 )
                 .await
                 .with_context(|| "Failed to update interhashes")?
@@ -618,21 +656,21 @@ where
 
             let block_state_root = accessors::chain::header::read(
                 tx,
-                accessors::chain::canonical_hash::read(tx, prev_progress)
+                accessors::chain::canonical_hash::read(tx, max_block)
                     .await?
-                    .ok_or_else(|| anyhow!("No canonical hash for block {}", prev_progress))?,
-                prev_progress,
+                    .ok_or_else(|| format_err!("No canonical hash for block {}", max_block))?,
+                max_block,
             )
             .await?
-            .ok_or_else(|| anyhow!("No header for block {}", prev_progress))?
+            .ok_or_else(|| format_err!("No header for block {}", max_block))?
             .state_root;
 
             if block_state_root == trie_root {
-                info!("Block #{} state root OK: {:?}", prev_progress, trie_root)
+                info!("Block #{} state root OK: {:?}", max_block, trie_root)
             } else {
                 bail!(
                     "Block #{} state root mismatch: {:?} != {:?}",
-                    prev_progress,
+                    max_block,
                     trie_root,
                     block_state_root
                 )
@@ -645,7 +683,7 @@ where
         };
 
         Ok(ExecOutput::Progress {
-            stage_progress: cmp::max(prev_progress, past_progress),
+            stage_progress: cmp::max(max_block, past_progress),
             done: true,
             must_commit: true,
         })
@@ -737,13 +775,14 @@ mod tests {
 
         tx.commit().await.unwrap();
 
-        let mut tx = db.begin_mutable().await.unwrap();
+        let tx = db.begin_mutable().await.unwrap();
 
         let mut _collector = Collector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
         let mut _storage_collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
-        let root = generate_interhashes(&mut tx, &mut _collector, &mut _storage_collector)
-            .await
-            .unwrap();
+        let root =
+            generate_interhashes_with_collectors(&tx, &mut _collector, &mut _storage_collector)
+                .await
+                .unwrap();
         assert_eq!(root, expected);
     }
 

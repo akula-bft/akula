@@ -134,7 +134,7 @@ impl SentryClient for SentryClientImpl {
             match result {
                 Ok(inbound_message) => {
                     let grpc_message_id = grpc_sentry::MessageId::from_i32(inbound_message.id)
-                        .ok_or_else(|| anyhow::anyhow!("SentryClient receive_messages stream got an invalid MessageId {}", inbound_message.id))?;
+                        .ok_or_else(|| anyhow::format_err!("SentryClient receive_messages stream got an invalid MessageId {}", inbound_message.id))?;
                     let message_id = EthMessageId::try_from(grpc_message_id)?;
                     let grpc_peer_id: Option<grpc_types::H512> = inbound_message.peer_id;
                     let peer_id: Option<PeerId> = grpc_peer_id.map(ethereum_types::H512::from);
@@ -229,7 +229,7 @@ impl TryFrom<grpc_sentry::MessageId> for EthMessageId {
             grpc_sentry::MessageId::NodeData66 => Ok(EthMessageId::NodeData),
             grpc_sentry::MessageId::GetReceipts66 => Ok(EthMessageId::GetReceipts),
             grpc_sentry::MessageId::Receipts66 => Ok(EthMessageId::Receipts),
-            _ => Err(anyhow::anyhow!("unsupported MessageId '{:?}'", id)),
+            _ => Err(anyhow::format_err!("unsupported MessageId '{:?}'", id)),
         }
     }
 }

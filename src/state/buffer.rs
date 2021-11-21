@@ -194,17 +194,17 @@ where
         self.changed_storage.clear();
     }
 
-    async fn update_account(
+    fn update_account(
         &mut self,
         address: Address,
         initial: Option<Account>,
         current: Option<Account>,
-    ) -> anyhow::Result<()> {
+    ) {
         let equal = current == initial;
         let account_deleted = current.is_none();
 
         if equal && !account_deleted && !self.changed_storage.contains(&address) {
-            return Ok(());
+            return;
         }
 
         if self.block_number >= self.prune_from {
@@ -221,7 +221,7 @@ where
         }
 
         if equal {
-            return Ok(());
+            return;
         }
 
         self.accounts.insert(address, current);
@@ -232,8 +232,6 @@ where
                 self.incarnations.insert(address, initial.incarnation);
             }
         }
-
-        Ok(())
     }
 
     async fn update_account_code(

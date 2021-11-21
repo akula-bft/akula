@@ -24,6 +24,7 @@
         min_gas_limit: 5000,
     ),
     genesis: (
+        number: 0,
         author: "0x0000000000000000000000000000000000000000",
         timestamp: 1492009146,
         gas_limit: 4700000,

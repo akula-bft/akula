@@ -22,7 +22,7 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
     pub fn new(opts: Opts, chains_config: ChainsConfig, db: Arc<DB>) -> anyhow::Result<Self> {
         let chain_config = chains_config
             .get(&opts.chain_name)
-            .ok_or_else(|| anyhow::anyhow!("unknown chain '{}'", opts.chain_name))?
+            .ok_or_else(|| anyhow::format_err!("unknown chain '{}'", opts.chain_name))?
             .clone();
 
         Ok(Self {

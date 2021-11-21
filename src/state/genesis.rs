@@ -1,7 +1,8 @@
 use crate::{
-    kv::tables::{self, CumulativeData, PlainStateFusedValue},
+    kv::tables::{self, CumulativeData},
     models::*,
-    InMemoryState, MutableCursor, MutableTransaction,
+    state::*,
+    MutableTransaction,
 };
 use ethereum_types::*;
 
@@ -26,7 +27,7 @@ impl GenesisState {
                     balance,
                     ..Default::default()
                 };
-                state_buffer.update_account_sync(address, None, Some(current_account));
+                state_buffer.update_account(address, None, Some(current_account));
             }
         }
         state_buffer
@@ -63,48 +64,70 @@ pub async fn initialize_genesis<'db, Tx>(txn: &Tx, chainspec: ChainSpec) -> anyh
 where
     Tx: MutableTransaction<'db>,
 {
-    if txn
-        .get(&tables::CanonicalHeader, BlockNumber(0))
-        .await?
-        .is_some()
-    {
+    let genesis = chainspec.genesis.number;
+    if txn.get(&tables::CanonicalHeader, genesis).await?.is_some() {
         return Ok(false);
     }
 
-    let genesis = GenesisState::new(chainspec.clone());
-    let state_buffer = genesis.initial_state();
-
-    // Write allocations to db - no changes only accounts
-    let mut state_table = txn.mutable_cursor(&tables::PlainState).await?;
-    for (address, account) in state_buffer.accounts() {
-        // Store account plain state
-        state_table
-            .upsert(PlainStateFusedValue::Account {
+    let mut state_buffer = Buffer::new(txn, genesis, None);
+    state_buffer.begin_block(genesis);
+    // Allocate accounts
+    if let Some(balances) = chainspec.balances.get(&genesis) {
+        for (&address, &balance) in balances {
+            state_buffer.update_account(
                 address,
-                account: account.encode_for_storage(false),
-            })
-            .await?;
+                None,
+                Some(Account {
+                    balance,
+                    ..Default::default()
+                }),
+            );
+        }
     }
 
-    let header = genesis.header(&state_buffer);
+    state_buffer.write_to_db().await?;
+
+    crate::stages::promote_clean_state(txn).await?;
+    crate::stages::promote_clean_code(txn).await?;
+    let state_root = crate::stages::generate_interhashes(txn).await?;
+
+    let header = BlockHeader {
+        parent_hash: H256::zero(),
+        beneficiary: chainspec.genesis.author,
+        state_root,
+        logs_bloom: Bloom::zero(),
+        difficulty: chainspec.genesis.seal.difficulty(),
+        number: genesis,
+        gas_limit: chainspec.genesis.gas_limit,
+        gas_used: 0,
+        timestamp: chainspec.genesis.timestamp,
+        extra_data: chainspec.genesis.seal.extra_data(),
+        mix_hash: chainspec.genesis.seal.mix_hash(),
+        nonce: chainspec.genesis.seal.nonce(),
+        base_fee_per_gas: None,
+
+        receipts_root: EMPTY_ROOT,
+        ommers_hash: EMPTY_LIST_HASH,
+        transactions_root: EMPTY_ROOT,
+    };
     let block_hash = header.hash();
 
-    txn.set(&tables::Header, ((0.into(), block_hash), header.clone()))
+    txn.set(&tables::Header, ((genesis, block_hash), header.clone()))
         .await?;
-    txn.set(&tables::CanonicalHeader, (0.into(), block_hash))
+    txn.set(&tables::CanonicalHeader, (genesis, block_hash))
         .await?;
-    txn.set(&tables::HeaderNumber, (block_hash, 0.into()))
+    txn.set(&tables::HeaderNumber, (block_hash, genesis))
         .await?;
     txn.set(
         &tables::HeadersTotalDifficulty,
-        ((0.into(), block_hash), header.difficulty),
+        ((genesis, block_hash), header.difficulty),
     )
     .await?;
 
     txn.set(
         &tables::BlockBody,
         (
-            (0.into(), block_hash),
+            (genesis, block_hash),
             BodyForStorage {
                 base_tx_id: 0.into(),
                 tx_amount: 0,
@@ -116,7 +139,7 @@ where
 
     txn.set(
         &tables::CumulativeIndex,
-        (0.into(), CumulativeData { gas: 0, tx_num: 0 }),
+        (genesis, CumulativeData { gas: 0, tx_num: 0 }),
     )
     .await?;
 

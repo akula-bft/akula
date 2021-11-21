@@ -10,7 +10,7 @@ use akula::{
     res::chainspec::*,
     *,
 };
-use anyhow::*;
+use anyhow::{bail, ensure, format_err};
 use bytes::Bytes;
 use educe::Educe;
 use ethereum_types::*;
@@ -518,10 +518,7 @@ async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &
                 .unwrap();
         }
 
-        state
-            .update_account(*address, None, Some(account.clone()))
-            .await
-            .unwrap();
+        state.update_account(*address, None, Some(account.clone()));
 
         for (&key, &value) in &j.storage {
             state
@@ -585,7 +582,7 @@ async fn post_check(
             .read_account(address)
             .await
             .unwrap()
-            .ok_or_else(|| anyhow!("Missing account {}", address))?;
+            .ok_or_else(|| format_err!("Missing account {}", address))?;
 
         ensure!(
             account.balance == expected_account_state.balance,
