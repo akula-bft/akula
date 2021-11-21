@@ -92,6 +92,18 @@ pub mod hexbytes {
     }
 }
 
+pub fn version_string() -> String {
+    format!(
+        "akula/v{}-{}-{}-{}/{}/rustc{}",
+        env!("VERGEN_BUILD_SEMVER"),
+        env!("VERGEN_GIT_BRANCH"),
+        env!("VERGEN_GIT_SHA_SHORT"),
+        env!("VERGEN_GIT_COMMIT_DATE"),
+        env!("VERGEN_CARGO_TARGET_TRIPLE"),
+        env!("VERGEN_RUSTC_SEMVER")
+    )
+}
+
 #[cfg(test)]
 pub mod test_util {
     use std::future::Future;

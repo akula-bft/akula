@@ -81,6 +81,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 triehash = "0.8"
 walkdir = "2"
 
+[build-dependencies]
+anyhow = "1"
+vergen = "5"
+
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 proptest = "1.0.0"

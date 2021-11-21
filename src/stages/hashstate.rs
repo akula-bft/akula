@@ -48,15 +48,15 @@ where
 
         i += 1;
         if i % 500_000 == 0 {
-            info!("Converted {} entries", i);
+            debug!("Converted {} entries", i);
         }
     }
 
-    info!("Loading hashed account entries");
+    debug!("Loading hashed account entries");
     let mut dst = txn.mutable_cursor(&tables::HashedAccount.erased()).await?;
     collector_account.load(&mut dst).await?;
 
-    info!("Loading hashed storage entries");
+    debug!("Loading hashed storage entries");
     let mut dst = txn.mutable_cursor(&tables::HashedStorage.erased()).await?;
     collector_storage.load(&mut dst).await?;
 
@@ -78,6 +78,7 @@ where
         collector.collect(Entry::new((keccak256(address), incarnation), code_hash));
     }
 
+    debug!("Loading hashed code entries");
     let mut dst = txn.mutable_cursor(&tables::HashedCodeHash.erased()).await?;
     collector.load(&mut dst).await?;
 
@@ -255,9 +256,9 @@ where
         )
         .await?
         {
-            info!("Regenerating hashed state");
+            info!("Generating hashed state");
             promote_clean_state(tx).await?;
-            info!("Regenerating hashed code");
+            info!("Generating hashed code");
             promote_clean_code(tx).await?;
         } else {
             info!("Incrementally hashing accounts");
