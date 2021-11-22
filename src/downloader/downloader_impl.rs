@@ -9,9 +9,8 @@ use crate::{
         sentry_client_reactor::SentryClientReactor,
     },
 };
-use parking_lot::RwLock;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
     opts: Opts,
@@ -70,7 +69,7 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
         ui_system.try_lock()?.stop().await?;
 
         {
-            let mut sentry_reactor = sentry.write();
+            let mut sentry_reactor = sentry.write().await;
             sentry_reactor.stop().await?;
         }
 

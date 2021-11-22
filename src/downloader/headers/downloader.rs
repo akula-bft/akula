@@ -4,15 +4,14 @@ use crate::{
         ui_system::UISystem,
     },
     kv,
-    sentry::sentry_client_reactor::SentryClientReactor,
+    sentry::sentry_client_reactor::*,
 };
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
     chain_name: String,
-    sentry: Arc<RwLock<SentryClientReactor>>,
+    sentry: SentryClientReactorShared,
     db: Arc<DB>,
     ui_system: Arc<Mutex<UISystem>>,
 }
@@ -20,7 +19,7 @@ pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
 impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
     pub fn new(
         chain_name: String,
-        sentry: Arc<RwLock<SentryClientReactor>>,
+        sentry: SentryClientReactorShared,
         db: Arc<DB>,
         ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {

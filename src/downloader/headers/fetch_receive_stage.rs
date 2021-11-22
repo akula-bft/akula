@@ -3,14 +3,14 @@ use crate::{
         header_slices,
         header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
     },
-    models::{BlockHeader as Header, BlockNumber},
+    models::BlockHeader as Header,
     sentry::{
         messages::{BlockHeadersMessage, EthMessageId, Message},
-        sentry_client_reactor::SentryClientReactor,
+        sentry_client::PeerId,
+        sentry_client_reactor::*,
     },
 };
 use futures_core::Stream;
-use parking_lot::RwLock;
 use std::{
     ops::DerefMut,
     pin::Pin,
@@ -20,12 +20,17 @@ use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use tracing::*;
 
-type BlockHeadersMessageStream = Pin<Box<dyn Stream<Item = BlockHeadersMessage> + Send>>;
+struct BlockHeadersMessageFromPeer {
+    message: BlockHeadersMessage,
+    from_peer_id: Option<PeerId>,
+}
+
+type BlockHeadersMessageStream = Pin<Box<dyn Stream<Item = BlockHeadersMessageFromPeer> + Send>>;
 
 /// Receives the slices, and sets Downloaded status.
 pub struct FetchReceiveStage {
     header_slices: Arc<HeaderSlices>,
-    sentry: Arc<RwLock<SentryClientReactor>>,
+    sentry: SentryClientReactorShared,
     is_over: Arc<AtomicBool>,
     message_stream: Mutex<Option<BlockHeadersMessageStream>>,
 }
@@ -46,7 +51,7 @@ impl CanProceed {
 }
 
 impl FetchReceiveStage {
-    pub fn new(header_slices: Arc<HeaderSlices>, sentry: Arc<RwLock<SentryClientReactor>>) -> Self {
+    pub fn new(header_slices: Arc<HeaderSlices>, sentry: SentryClientReactorShared) -> Self {
         Self {
             header_slices,
             sentry,
@@ -59,12 +64,13 @@ impl FetchReceiveStage {
         debug!("FetchReceiveStage: start");
         let mut message_stream = self.message_stream.try_lock()?;
         if message_stream.is_none() {
-            *message_stream = Some(self.receive_headers()?);
+            let sentry = self.sentry.read().await;
+            *message_stream = Some(self.receive_headers(&sentry)?);
         }
 
         let message_result = message_stream.as_mut().unwrap().next().await;
         match message_result {
-            Some(message) => self.on_headers(message.headers),
+            Some(message) => self.on_headers_message(message),
             None => self.is_over.store(true, Ordering::SeqCst),
         }
         debug!("FetchReceiveStage: done");
@@ -78,9 +84,10 @@ impl FetchReceiveStage {
         }
     }
 
-    fn on_headers(&self, headers: Vec<Header>) {
+    fn on_headers_message(&self, message_from_peer: BlockHeadersMessageFromPeer) {
         debug!("FetchReceiveStage: received a headers slice");
 
+        let headers = message_from_peer.message.headers;
         if headers.len() < header_slices::HEADER_SLICE_SIZE {
             warn!(
                 "FetchReceiveStage got a headers slice of a smaller size: {}",
@@ -88,30 +95,19 @@ impl FetchReceiveStage {
             );
             return;
         }
+
         let start_block_num = headers[0].number;
-
         let slice_lock_opt = self.header_slices.find_by_start_block_num(start_block_num);
-        self.update_slice(slice_lock_opt, headers, start_block_num);
-    }
 
-    fn update_slice(
-        &self,
-        slice_lock_opt: Option<Arc<RwLock<HeaderSlice>>>,
-        headers: Vec<Header>,
-        start_block_num: BlockNumber,
-    ) {
         match slice_lock_opt {
             Some(slice_lock) => {
                 let mut slice = slice_lock.write();
-                match slice.status {
-                    HeaderSliceStatus::Waiting => {
-                        slice.headers = Some(headers);
-                        self.header_slices
-                            .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Downloaded);
-                    }
-                    unexpected_status => {
-                        debug!("FetchReceiveStage ignores a headers slice that we didn't request starting at: {:?}; status = {:?}", start_block_num, unexpected_status);
-                    }
+                let slice_status = slice.status;
+                if slice_status == HeaderSliceStatus::Waiting {
+                    let from_peer_id = message_from_peer.from_peer_id;
+                    self.update_slice(slice.deref_mut(), headers, from_peer_id);
+                } else {
+                    debug!("FetchReceiveStage ignores a headers slice that we didn't request starting at: {:?}; status = {:?}", start_block_num, slice_status);
                 }
             }
             None => {
@@ -123,15 +119,30 @@ impl FetchReceiveStage {
         }
     }
 
-    fn receive_headers(&self) -> anyhow::Result<BlockHeadersMessageStream> {
-        let in_stream = self
-            .sentry
-            .read()
-            .receive_messages(EthMessageId::BlockHeaders)?;
+    fn update_slice(
+        &self,
+        slice: &mut HeaderSlice,
+        headers: Vec<Header>,
+        from_peer_id: Option<PeerId>,
+    ) {
+        slice.headers = Some(headers);
+        slice.from_peer_id = from_peer_id;
+        self.header_slices
+            .set_slice_status(slice, HeaderSliceStatus::Downloaded);
+    }
 
-        let out_stream = in_stream.map(|message| match message {
-            Message::BlockHeaders(message) => message,
-            _ => panic!("unexpected type {:?}", message.eth_id()),
+    fn receive_headers(
+        &self,
+        sentry: &SentryClientReactor,
+    ) -> anyhow::Result<BlockHeadersMessageStream> {
+        let in_stream = sentry.receive_messages(EthMessageId::BlockHeaders)?;
+
+        let out_stream = in_stream.map(|message_from_peer| match message_from_peer.message {
+            Message::BlockHeaders(message) => BlockHeadersMessageFromPeer {
+                message,
+                from_peer_id: message_from_peer.from_peer_id,
+            },
+            _ => panic!("unexpected type {:?}", message_from_peer.message.eth_id()),
         });
 
         Ok(Box::pin(out_stream))

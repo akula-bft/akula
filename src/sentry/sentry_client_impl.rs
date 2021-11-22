@@ -41,6 +41,16 @@ impl SentryClient for SentryClientImpl {
         return Ok(());
     }
 
+    async fn penalize_peer(&mut self, peer_id: PeerId) -> anyhow::Result<()> {
+        let penalize_peer_request = grpc_sentry::PenalizePeerRequest {
+            peer_id: Some(grpc_types::H512::from(peer_id)),
+            penalty: grpc_sentry::PenaltyKind::Kick as i32,
+        };
+        let request = tonic::Request::new(penalize_peer_request);
+        self.client.penalize_peer(request).await?;
+        Ok(())
+    }
+
     async fn send_message(
         &mut self,
         message: Message,
@@ -120,7 +130,7 @@ impl SentryClient for SentryClientImpl {
                         .ok_or_else(|| anyhow::anyhow!("SentryClient receive_messages stream got an invalid MessageId {}", inbound_message.id))?;
                     let message_id = EthMessageId::try_from(grpc_message_id)?;
                     let grpc_peer_id: Option<grpc_types::H512> = inbound_message.peer_id;
-                    let peer_id: Option<ethereum_types::H512> = grpc_peer_id.map(ethereum_types::H512::from);
+                    let peer_id: Option<PeerId> = grpc_peer_id.map(ethereum_types::H512::from);
                     let message_bytes: bytes::Bytes = inbound_message.data;
                     let message = message_decoder::decode_rlp_message(message_id, message_bytes.as_ref())?;
                     let message_from_peer = MessageFromPeer {

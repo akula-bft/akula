@@ -10,6 +10,7 @@ mod stage_stream;
 mod fetch_receive_stage;
 mod fetch_request_stage;
 mod header_slice_verifier;
+mod penalize_stage;
 mod preverified_hashes_config;
 mod refill_stage;
 mod retry_stage;

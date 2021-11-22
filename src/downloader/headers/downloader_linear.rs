@@ -1,7 +1,7 @@
 use super::{
     fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
-    header_slices::HeaderSlices, refill_stage::RefillStage, retry_stage::RetryStage,
-    save_stage::SaveStage, verify_stage_linear::VerifyStageLinear,
+    header_slices::HeaderSlices, penalize_stage::PenalizeStage, refill_stage::RefillStage,
+    retry_stage::RetryStage, save_stage::SaveStage, verify_stage_linear::VerifyStageLinear,
     verify_stage_linear_link::VerifyStageLinearLink, HeaderSlicesView,
 };
 use crate::{
@@ -11,9 +11,8 @@ use crate::{
     },
     kv,
     models::BlockNumber,
-    sentry::sentry_client_reactor::SentryClientReactor,
+    sentry::sentry_client_reactor::*,
 };
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_stream::{StreamExt, StreamMap};
@@ -24,7 +23,7 @@ pub struct DownloaderLinear<DB: kv::traits::MutableKV + Sync> {
     start_block_num: BlockNumber,
     start_block_hash: ethereum_types::H256,
     mem_limit: usize,
-    sentry: Arc<RwLock<SentryClientReactor>>,
+    sentry: SentryClientReactorShared,
     db: Arc<DB>,
     ui_system: Arc<Mutex<UISystem>>,
 }
@@ -35,7 +34,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         start_block_num: BlockNumber,
         start_block_hash: ethereum_types::H256,
         mem_limit: usize,
-        sentry: Arc<RwLock<SentryClientReactor>>,
+        sentry: SentryClientReactorShared,
         db: Arc<DB>,
         ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {
@@ -92,6 +91,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
             self.start_block_num,
             self.start_block_hash,
         );
+        let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
         let refill_stage = RefillStage::new(header_slices.clone());
 
@@ -111,6 +111,10 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         stream.insert(
             "verify_link_stage",
             make_stage_stream(Box::new(verify_link_stage)),
+        );
+        stream.insert(
+            "penalize_stage",
+            make_stage_stream(Box::new(penalize_stage)),
         );
         stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
         stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));

@@ -18,9 +18,14 @@ use tokio_stream::{
 };
 use tracing::*;
 
+pub type SentryClientReactorShared = Arc<tokio::sync::RwLock<SentryClientReactor>>;
+
+type ReceiveMessagesSenders =
+    Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<MessageFromPeer>>>>;
+
 pub struct SentryClientReactor {
-    send_message_sender: mpsc::Sender<SendMessageCommand>,
-    receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
+    send_message_sender: mpsc::Sender<SentryCommand>,
+    receive_messages_senders: ReceiveMessagesSenders,
     event_loop: Mutex<Option<SentryClientReactorEventLoop>>,
     event_loop_handle: Option<JoinHandle<()>>,
     stop_signal_sender: mpsc::Sender<()>,
@@ -28,13 +33,19 @@ pub struct SentryClientReactor {
 
 struct SentryClientReactorEventLoop {
     sentry_connector: sentry_client_connector::SentryClientConnectorStream,
-    send_message_receiver: mpsc::Receiver<SendMessageCommand>,
-    receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
+    send_message_receiver: mpsc::Receiver<SentryCommand>,
+    receive_messages_senders: ReceiveMessagesSenders,
     stop_signal_receiver: mpsc::Receiver<()>,
 }
 
 #[derive(Clone, Debug)]
-struct SendMessageCommand {
+enum SentryCommand {
+    SendMessage(SendMessageParams),
+    PenalizePeer(PeerId),
+}
+
+#[derive(Clone, Debug)]
+struct SendMessageParams {
     message: Message,
     peer_filter: PeerFilter,
 }
@@ -55,12 +66,12 @@ impl std::error::Error for SendMessageError {}
 
 impl SentryClientReactor {
     pub fn new(sentry_connector: sentry_client_connector::SentryClientConnectorStream) -> Self {
-        let (send_message_sender, send_message_receiver) = mpsc::channel::<SendMessageCommand>(1);
+        let (send_message_sender, send_message_receiver) = mpsc::channel::<SentryCommand>(1);
 
         let mut receive_messages_senders =
-            HashMap::<EthMessageId, broadcast::Sender<Message>>::new();
+            HashMap::<EthMessageId, broadcast::Sender<MessageFromPeer>>::new();
         for id in EthMessageId::iter() {
-            let (sender, _) = broadcast::channel::<Message>(1024);
+            let (sender, _) = broadcast::channel::<MessageFromPeer>(1024);
             receive_messages_senders.insert(id, sender);
         }
         let receive_messages_senders = Arc::new(RwLock::new(receive_messages_senders));
@@ -113,20 +124,24 @@ impl SentryClientReactor {
         }
     }
 
+    pub async fn penalize_peer(&self, peer_id: PeerId) -> anyhow::Result<()> {
+        let command = SentryCommand::PenalizePeer(peer_id);
+        let result = self.send_message_sender.send(command).await;
+        result.map_err(|_| anyhow::Error::new(SendMessageError::ReactorStopped))
+    }
+
     pub async fn send_message(
         &self,
         message: Message,
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()> {
-        let command = SendMessageCommand {
+        let params = SendMessageParams {
             message,
             peer_filter,
         };
-        if self.send_message_sender.send(command).await.is_err() {
-            return Err(anyhow::Error::new(SendMessageError::ReactorStopped));
-        }
-
-        Ok(())
+        let command = SentryCommand::SendMessage(params);
+        let result = self.send_message_sender.send(command).await;
+        result.map_err(|_| anyhow::Error::new(SendMessageError::ReactorStopped))
     }
 
     pub fn try_send_message(
@@ -134,10 +149,11 @@ impl SentryClientReactor {
         message: Message,
         peer_filter: PeerFilter,
     ) -> anyhow::Result<()> {
-        let command = SendMessageCommand {
+        let params = SendMessageParams {
             message,
             peer_filter,
         };
+        let command = SentryCommand::SendMessage(params);
         let result = self.send_message_sender.try_send(command);
         match result {
             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -163,7 +179,7 @@ impl SentryClientReactor {
     pub fn receive_messages(
         &self,
         filter_id: EthMessageId,
-    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = Message> + Send>>> {
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = MessageFromPeer> + Send>>> {
         let receiver = self
             .receive_messages_senders
             .read()
@@ -218,7 +234,7 @@ type EventLoopStream = Pin<Box<dyn Stream<Item = anyhow::Result<EventLoopStreamR
 // dropping this causes dropping the senders and triggers an end of stream event on the receivers end
 #[derive(Clone)]
 struct EventLoopReceiveMessagesSendersDropper {
-    receive_messages_senders: Arc<RwLock<HashMap<EthMessageId, broadcast::Sender<Message>>>>,
+    receive_messages_senders: ReceiveMessagesSenders,
     is_auto: bool,
 }
 
@@ -265,8 +281,25 @@ mod stream_factory {
         Box::pin(receive_stream.map_ok(EventLoopStreamResult::Receive))
     }
 
+    async fn send_sentry_command(
+        command: SentryCommand,
+        sentry: &mut Box<dyn SentryClient>,
+    ) -> anyhow::Result<u32> {
+        match command {
+            SentryCommand::SendMessage(params) => {
+                sentry
+                    .send_message(params.message, params.peer_filter)
+                    .await
+            }
+            SentryCommand::PenalizePeer(peer_id) => {
+                // this is sent to a single peer (1)
+                sentry.penalize_peer(peer_id).await.map(|_| 1)
+            }
+        }
+    }
+
     fn make_send_stream(
-        send_message_receiver: Arc<Mutex<mpsc::Receiver<SendMessageCommand>>>,
+        send_message_receiver: Arc<Mutex<mpsc::Receiver<SentryCommand>>>,
         mut sentry: Box<dyn SentryClient>,
     ) -> EventLoopStream {
         let send_stream = async_stream::stream! {
@@ -279,7 +312,7 @@ mod stream_factory {
 
             let mut receiver = receiver_lock_result.ok().unwrap();
             while let Some(command) = receiver.recv().await {
-                let send_result = sentry.send_message(command.message, command.peer_filter).await;
+                let send_result = send_sentry_command(command, &mut sentry).await;
                 yield send_result;
             }
         };
@@ -288,7 +321,7 @@ mod stream_factory {
 
     pub(super) async fn make_sentry_streams(
         mut sentry: Box<dyn SentryClient>,
-        send_message_receiver: Arc<Mutex<mpsc::Receiver<SendMessageCommand>>>,
+        send_message_receiver: Arc<Mutex<mpsc::Receiver<SentryCommand>>>,
         receive_messages_senders_dropper: EventLoopReceiveMessagesSendersDropper,
     ) -> anyhow::Result<(EventLoopStream, EventLoopStream)> {
         // subscribe to incoming messages
@@ -354,14 +387,14 @@ impl SentryClientReactorEventLoop {
                     match result {
                         Ok(EventLoopStreamResult::Send(sent_peers_count)) => {
                             debug!(
-                                "SentryClientReactor.EventLoop sent message to {:?} peers",
+                                "SentryClientReactor.EventLoop sent command to {:?} peers",
                                 sent_peers_count
                             );
                         }
                         Ok(_) => panic!("unexpected result {:?}", result),
                         Err(error) => {
                             error!(
-                                "SentryClientReactor.EventLoop sentry.send_message error: {}",
+                                "SentryClientReactor.EventLoop send_sentry_command error: {}",
                                 error
                             );
                             if sentry_client_connector::is_disconnect_error(&error) {
@@ -396,7 +429,7 @@ impl SentryClientReactorEventLoop {
                                 )
                             })?;
 
-                            let send_sub_result = sender.send(message_from_peer.message);
+                            let send_sub_result = sender.send(message_from_peer);
                             if send_sub_result.is_err() {
                                 debug!("SentryClientReactor.EventLoop no subscribers for message {:?}, dropping", id);
                             }

@@ -2,6 +2,7 @@ use super::{
     messages::{EthMessageId, Message},
     sentry_client::{MessageFromPeer, MessageFromPeerStream, PeerFilter, SentryClient, Status},
 };
+use crate::sentry::sentry_client::PeerId;
 use std::collections::HashSet;
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers, StreamExt};
@@ -29,6 +30,10 @@ impl SentryClientMock {
 #[async_trait::async_trait]
 impl SentryClient for SentryClientMock {
     async fn set_status(&mut self, _status: Status) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn penalize_peer(&mut self, _peer_id: PeerId) -> anyhow::Result<()> {
         Ok(())
     }
 
