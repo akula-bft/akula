@@ -22,13 +22,20 @@ impl SentryClientImpl {
 #[async_trait]
 impl SentryClient for SentryClientImpl {
     async fn set_status(&mut self, status: Status) -> anyhow::Result<()> {
+        let forks_block_numbers = status
+            .chain_fork_config
+            .fork_block_numbers()
+            .iter()
+            .map(|num| num.0)
+            .collect();
+
         let fork_data = grpc_sentry::Forks {
-            genesis: Some(status.chain_fork_config.genesis_block_hash.into()),
-            forks: status.chain_fork_config.fork_block_numbers,
+            genesis: Some(status.chain_fork_config.genesis_block_hash().into()),
+            forks: forks_block_numbers,
         };
 
         let status_data = grpc_sentry::StatusData {
-            network_id: status.chain_fork_config.id.0,
+            network_id: status.chain_fork_config.id().0,
             total_difficulty: Some(grpc_types::H256::from(status.total_difficulty)),
             best_hash: Some(grpc_types::H256::from(status.best_hash)),
             fork_data: Some(fork_data),

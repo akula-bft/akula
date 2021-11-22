@@ -10,7 +10,7 @@ fn make_downloader() -> Downloader<impl kv::traits::MutableKV> {
     let args = Vec::<String>::new();
     let opts = Opts::new(Some(args), chains_config.chain_names().as_slice()).unwrap();
     let db = Arc::new(new_mem_database().unwrap());
-    let downloader = Downloader::new(opts, chains_config, db);
+    let downloader = Downloader::new(opts, chains_config, db).unwrap();
     let _ = downloader;
     downloader
 }

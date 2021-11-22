@@ -19,14 +19,17 @@ pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
 }
 
 impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
-    pub fn new(opts: Opts, chains_config: ChainsConfig, db: Arc<DB>) -> Self {
-        let chain_config = chains_config.0[&opts.chain_name].clone();
+    pub fn new(opts: Opts, chains_config: ChainsConfig, db: Arc<DB>) -> anyhow::Result<Self> {
+        let chain_config = chains_config
+            .get(&opts.chain_name)
+            .ok_or_else(|| anyhow::anyhow!("unknown chain '{}'", opts.chain_name))?
+            .clone();
 
-        Self {
+        Ok(Self {
             opts,
             chain_config,
             db,
-        }
+        })
     }
 
     pub async fn run(
