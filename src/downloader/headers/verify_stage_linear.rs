@@ -3,6 +3,7 @@ use super::{
     header_slice_verifier,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
+use crate::sentry::chain_config::ChainConfig;
 use parking_lot::RwLockUpgradableReadGuard;
 use std::{ops::DerefMut, sync::Arc, time::SystemTime};
 use tracing::*;
@@ -11,14 +12,20 @@ use tracing::*;
 pub struct VerifyStageLinear {
     header_slices: Arc<HeaderSlices>,
     slice_size: usize,
+    chain_config: ChainConfig,
     pending_watch: HeaderSliceStatusWatch,
 }
 
 impl VerifyStageLinear {
-    pub fn new(header_slices: Arc<HeaderSlices>, slice_size: usize) -> Self {
+    pub fn new(
+        header_slices: Arc<HeaderSlices>,
+        slice_size: usize,
+        chain_config: ChainConfig,
+    ) -> Self {
         Self {
             header_slices: header_slices.clone(),
             slice_size,
+            chain_config,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Downloaded,
                 header_slices,
@@ -78,7 +85,10 @@ impl VerifyStageLinear {
         header_slice_verifier::verify_slice_is_linked_by_parent_hash(headers)
             && header_slice_verifier::verify_slice_block_nums(headers, slice.start_block_num)
             && header_slice_verifier::verify_slice_timestamps(headers, Self::now_timestamp())
-            && header_slice_verifier::verify_slice_difficulties(headers)
+            && header_slice_verifier::verify_slice_difficulties(
+                headers,
+                self.chain_config.chain_spec(),
+            )
             && header_slice_verifier::verify_slice_pow(headers)
     }
 }

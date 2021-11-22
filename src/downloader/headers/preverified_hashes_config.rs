@@ -21,8 +21,8 @@ struct PreverifiedHashesConfigUnprefixedHex {
 
 impl PreverifiedHashesConfig {
     pub fn new(chain_name: &str) -> anyhow::Result<Self> {
-        let config_text = match chain_name {
-            "mainnet" => include_str!("preverified_hashes_mainnet.toml"),
+        let config_text = match chain_name.to_lowercase().as_str() {
+            "mainnet" | "ethereum" => include_str!("preverified_hashes_mainnet.toml"),
             "ropsten" => include_str!("preverified_hashes_ropsten.toml"),
             _ => anyhow::bail!("unsupported chain"),
         };

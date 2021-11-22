@@ -1,4 +1,10 @@
-use crate::models::{BlockHeader, BlockNumber};
+use crate::{
+    consensus::difficulty::{canonical_difficulty, BlockDifficultyBombData},
+    models::{
+        switch_is_active, BlockHeader, BlockNumber, ChainSpec, SealVerificationParams,
+        EMPTY_LIST_HASH,
+    },
+};
 
 pub fn verify_link_by_parent_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
     let given_parent_hash = child.parent_hash;
@@ -18,9 +24,40 @@ pub fn verify_link_timestamps(child: &BlockHeader, parent: &BlockHeader) -> bool
     parent_timestamp < child_timestamp
 }
 
-pub fn verify_link_difficulties(_child: &BlockHeader, _parent: &BlockHeader) -> bool {
-    // TODO: verify_link_difficulties
-    true
+pub fn verify_link_difficulties(
+    child: &BlockHeader,
+    parent: &BlockHeader,
+    chain_spec: &ChainSpec,
+) -> bool {
+    let (&byzantium_formula, &homestead_formula, difficulty_bomb) =
+        match &chain_spec.consensus.seal_verification {
+            SealVerificationParams::Ethash {
+                byzantium_formula,
+                homestead_formula,
+                difficulty_bomb,
+                ..
+            } => (byzantium_formula, homestead_formula, difficulty_bomb),
+            _ => {
+                panic!("unsupported consensus engine");
+            }
+        };
+
+    let given_child_difficulty = child.difficulty;
+    let expected_child_difficulty = canonical_difficulty(
+        child.number,
+        child.timestamp,
+        parent.difficulty,
+        parent.timestamp,
+        parent.ommers_hash != EMPTY_LIST_HASH,
+        switch_is_active(byzantium_formula, child.number),
+        switch_is_active(homestead_formula, child.number),
+        difficulty_bomb
+            .as_ref()
+            .map(|bomb| BlockDifficultyBombData {
+                delay_to: bomb.get_delay_to(child.number),
+            }),
+    );
+    given_child_difficulty == expected_child_difficulty
 }
 
 pub fn verify_link_pow(_child: &BlockHeader, _parent: &BlockHeader) -> bool {
@@ -79,9 +116,9 @@ pub fn verify_slice_timestamps(headers: &[BlockHeader], max_timestamp: u64) -> b
 }
 
 /// Verify that difficulty field is calculated properly.
-pub fn verify_slice_difficulties(_headers: &[BlockHeader]) -> bool {
-    // TODO: verify_slice_difficulties
-    true
+pub fn verify_slice_difficulties(headers: &[BlockHeader], chain_spec: &ChainSpec) -> bool {
+    enumerate_sequential_pairs(headers)
+        .all(|(parent, child)| verify_link_difficulties(child, parent, chain_spec))
 }
 
 /// Verify the headers proof-of-work.
