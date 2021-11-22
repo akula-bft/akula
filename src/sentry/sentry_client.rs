@@ -13,7 +13,7 @@ pub struct Status {
     pub max_block: u64,
 }
 
-pub type PeerId = ethereum_types::H512;
+pub type PeerId = ethereum_types::H256;
 
 #[derive(Clone, Debug)]
 pub enum PeerFilter {
