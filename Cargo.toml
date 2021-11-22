@@ -27,7 +27,7 @@ directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
 ethereum-forkid = "0.7.0"
-ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", branch = "akula", features = [
+ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", rev = "6ef398c", features = [
     "remotekv",
     "sentry",
 ] }
