@@ -1,7 +1,6 @@
-use super::chain_id::ChainId;
 use crate::{
     genesis::GenesisState,
-    models::{BlockNumber, ChainSpec},
+    models::{BlockNumber, ChainSpec, NetworkId},
 };
 use std::collections::HashMap;
 
@@ -25,8 +24,8 @@ impl ChainConfig {
         }
     }
 
-    pub fn id(&self) -> ChainId {
-        self.chain_spec.params.chain_id
+    pub fn network_id(&self) -> NetworkId {
+        self.chain_spec.params.network_id
     }
 
     pub fn chain_name(&self) -> String {
