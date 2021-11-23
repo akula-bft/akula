@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use futures_core::Stream;
 use std::{fmt::Debug, pin::Pin};
 
+#[derive(Clone, Debug)]
 pub struct Status {
     pub total_difficulty: ethereum_types::U256,
     pub best_hash: ethereum_types::H256,

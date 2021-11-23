@@ -44,15 +44,18 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
         };
 
         let sentry_api_addr = self.opts.sentry_api_addr.clone();
-        let mut sentry_client = match sentry_client_opt {
-            Some(v) => v,
-            None => sentry_client_connector::connect(sentry_api_addr.clone()).await?,
+        let sentry_client = match sentry_client_opt {
+            Some(mut test_client) => {
+                test_client.set_status(status.clone()).await?;
+                test_client
+            }
+            None => {
+                sentry_client_connector::connect(sentry_api_addr.clone(), status.clone()).await?
+            }
         };
 
-        sentry_client.set_status(status).await?;
-
         let sentry_connector =
-            sentry_client_connector::make_connector_stream(sentry_client, sentry_api_addr);
+            sentry_client_connector::make_connector_stream(sentry_client, sentry_api_addr, status);
         let mut sentry_reactor = SentryClientReactor::new(sentry_connector);
         sentry_reactor.start()?;
         let sentry = Arc::new(RwLock::new(sentry_reactor));
