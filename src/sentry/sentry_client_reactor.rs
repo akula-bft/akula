@@ -124,6 +124,13 @@ impl SentryClientReactor {
         }
     }
 
+    fn is_stopped(&self) -> bool {
+        matches!(
+            self.send_message_sender.try_reserve(),
+            Err(mpsc::error::TrySendError::Closed(_))
+        )
+    }
+
     pub async fn penalize_peer(&self, peer_id: PeerId) -> anyhow::Result<()> {
         let command = SentryCommand::PenalizePeer(peer_id);
         let result = self.send_message_sender.send(command).await;
@@ -180,14 +187,26 @@ impl SentryClientReactor {
         &self,
         filter_id: EthMessageId,
     ) -> anyhow::Result<Pin<Box<dyn Stream<Item = MessageFromPeer> + Send>>> {
-        let receiver = self
-            .receive_messages_senders
-            .read()
-            .get(&filter_id)
-            .ok_or_else(|| {
-                anyhow::anyhow!("SentryClientReactor unexpected filter_id {:?}", filter_id)
-            })?
-            .subscribe();
+        let receiver = {
+            let receive_messages_senders = self.receive_messages_senders.read();
+
+            // This happens if receive_messages_senders were cleared (see EventLoopReceiveMessagesSendersDropper)
+            if receive_messages_senders.is_empty() {
+                // if the SentryClientReactorEventLoop is stopped
+                if self.is_stopped() {
+                    return Err(anyhow::Error::new(SendMessageError::ReactorStopped));
+                }
+                // if the sentry client stream has ended (during tests)
+                return Ok(Box::pin(tokio_stream::empty()));
+            }
+
+            let receive_messages_sender =
+                receive_messages_senders.get(&filter_id).ok_or_else(|| {
+                    anyhow::anyhow!("SentryClientReactor unexpected filter_id {:?}", filter_id)
+                })?;
+
+            receive_messages_sender.subscribe()
+        };
 
         let stream = BroadcastStream::new(receiver)
             .map_err(|error| match error {
