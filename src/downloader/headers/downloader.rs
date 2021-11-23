@@ -45,7 +45,7 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
         let (final_preverified_block_num, final_preverified_block_hash) =
             downloader_preverified.run().await?;
 
-        let _downloader_linear = downloader_linear::DownloaderLinear::new(
+        let downloader_linear = downloader_linear::DownloaderLinear::new(
             self.chain_config.clone(),
             final_preverified_block_num,
             final_preverified_block_hash,
@@ -55,7 +55,7 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
             self.ui_system.clone(),
         );
 
-        //downloader_linear.run().await?;
+        downloader_linear.run().await?;
 
         Ok(())
     }
