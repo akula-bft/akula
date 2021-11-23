@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 pub struct ChainsConfig(HashMap<String, ChainConfig>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChainConfig {
     chain_spec: ChainSpec,
     genesis_block_hash: ethereum_types::H256,
