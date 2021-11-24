@@ -272,7 +272,7 @@ pub struct Upgrades {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Params {
     pub chain_id: ChainId,
-    pub network_id: u64,
+    pub network_id: NetworkId,
     pub min_gas_limit: u64,
 }
 
@@ -445,7 +445,7 @@ mod tests {
                 },
                 params: Params {
                     chain_id: ChainId(4),
-                    network_id: 4,
+                    network_id: NetworkId(4),
                     min_gas_limit: 5000,
                 },
                 genesis: Genesis {

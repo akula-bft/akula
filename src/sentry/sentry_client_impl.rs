@@ -35,7 +35,7 @@ impl SentryClient for SentryClientImpl {
         };
 
         let status_data = grpc_sentry::StatusData {
-            network_id: status.chain_fork_config.id().0,
+            network_id: status.chain_fork_config.network_id().0,
             total_difficulty: Some(grpc_types::H256::from(status.total_difficulty)),
             best_hash: Some(grpc_types::H256::from(status.best_hash)),
             fork_data: Some(fork_data),
