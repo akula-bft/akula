@@ -3,6 +3,7 @@ use super::{
     header_slices::HeaderSlices, penalize_stage::PenalizeStage,
     preverified_hashes_config::PreverifiedHashesConfig, refill_stage::RefillStage,
     retry_stage::RetryStage, save_stage::SaveStage,
+    top_block_estimate_stage::TopBlockEstimateStage,
     verify_stage_preverified::VerifyStagePreverified, HeaderSlicesView,
 };
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
     },
     kv,
     models::BlockNumber,
-    sentry::sentry_client_reactor::*,
+    sentry::{messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -25,6 +26,11 @@ pub struct DownloaderPreverified<DB: kv::traits::MutableKV + Sync> {
     sentry: SentryClientReactorShared,
     db: Arc<DB>,
     ui_system: Arc<Mutex<UISystem>>,
+}
+
+pub struct DownloaderPreverifiedReport {
+    pub final_block_id: BlockHashAndNumber,
+    pub estimated_top_block_num: Option<BlockNumber>,
 }
 
 impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
@@ -44,7 +50,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         }
     }
 
-    pub async fn run(&self) -> anyhow::Result<(BlockNumber, ethereum_types::H256)> {
+    pub async fn run(&self) -> anyhow::Result<DownloaderPreverifiedReport> {
         let preverified_hashes_config = PreverifiedHashesConfig::new(&self.chain_name)?;
 
         let final_block_num = BlockNumber(
@@ -52,6 +58,10 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
                 as u64,
         );
         let final_block_hash = *preverified_hashes_config.hashes.last().unwrap();
+        let final_block_id = BlockHashAndNumber {
+            number: final_block_num,
+            hash: final_block_hash,
+        };
 
         let header_slices = Arc::new(HeaderSlices::new(
             self.mem_limit,
@@ -84,8 +94,11 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
         let refill_stage = RefillStage::new(header_slices.clone());
+        let top_block_estimate_stage = TopBlockEstimateStage::new(sentry.clone());
 
-        let can_proceed = fetch_receive_stage.can_proceed_checker();
+        let can_proceed = fetch_receive_stage.can_proceed_check();
+        let estimated_top_block_num_provider =
+            top_block_estimate_stage.estimated_top_block_num_provider();
 
         let mut stream = StreamMap::<&str, StageStream>::new();
         stream.insert(
@@ -104,6 +117,10 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         );
         stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
         stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));
+        stream.insert(
+            "top_block_estimate_stage",
+            make_stage_stream(Box::new(top_block_estimate_stage)),
+        );
 
         while let Some((key, result)) = stream.next().await {
             if result.is_err() {
@@ -111,7 +128,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
                 break;
             }
 
-            if !can_proceed.can_proceed() {
+            if !can_proceed() {
                 break;
             }
             if header_slices.is_empty_at_final_position() {
@@ -121,6 +138,11 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
             header_slices.notify_status_watchers();
         }
 
-        Ok((final_block_num, final_block_hash))
+        let report = DownloaderPreverifiedReport {
+            final_block_id,
+            estimated_top_block_num: estimated_top_block_num_provider(),
+        };
+
+        Ok(report)
     }
 }

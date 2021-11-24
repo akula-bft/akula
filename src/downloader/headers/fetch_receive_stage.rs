@@ -35,21 +35,6 @@ pub struct FetchReceiveStage {
     message_stream: Mutex<Option<BlockHeadersMessageStream>>,
 }
 
-pub struct CanProceed {
-    header_slices: Arc<HeaderSlices>,
-    is_over: Arc<AtomicBool>,
-}
-
-impl CanProceed {
-    pub fn can_proceed(&self) -> bool {
-        let cant_receive_more = self.is_over.load(Ordering::SeqCst)
-            && self
-                .header_slices
-                .has_one_of_statuses(&[HeaderSliceStatus::Empty, HeaderSliceStatus::Waiting]);
-        !cant_receive_more
-    }
-}
-
 impl FetchReceiveStage {
     pub fn new(header_slices: Arc<HeaderSlices>, sentry: SentryClientReactorShared) -> Self {
         Self {
@@ -75,13 +60,6 @@ impl FetchReceiveStage {
         }
         debug!("FetchReceiveStage: done");
         Ok(())
-    }
-
-    pub fn can_proceed_checker(&self) -> CanProceed {
-        CanProceed {
-            is_over: self.is_over.clone(),
-            header_slices: self.header_slices.clone(),
-        }
     }
 
     fn on_headers_message(&self, message_from_peer: BlockHeadersMessageFromPeer) {
@@ -146,6 +124,29 @@ impl FetchReceiveStage {
         });
 
         Ok(Box::pin(out_stream))
+    }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        let check = FetchReceiveStageCanProceedCheck {
+            header_slices: self.header_slices.clone(),
+            is_over: self.is_over.clone(),
+        };
+        move || -> bool { check.can_proceed() }
+    }
+}
+
+struct FetchReceiveStageCanProceedCheck {
+    header_slices: Arc<HeaderSlices>,
+    is_over: Arc<AtomicBool>,
+}
+
+impl FetchReceiveStageCanProceedCheck {
+    pub fn can_proceed(&self) -> bool {
+        let cant_receive_more = self.is_over.load(Ordering::SeqCst)
+            && self
+                .header_slices
+                .has_one_of_statuses(&[HeaderSliceStatus::Empty, HeaderSliceStatus::Waiting]);
+        !cant_receive_more
     }
 }
 

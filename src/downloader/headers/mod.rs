@@ -15,6 +15,7 @@ mod preverified_hashes_config;
 mod refill_stage;
 mod retry_stage;
 mod save_stage;
+mod top_block_estimate_stage;
 mod verify_stage_linear;
 mod verify_stage_linear_link;
 mod verify_stage_preverified;
