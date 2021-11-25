@@ -42,6 +42,7 @@ mod tests {
             Message, NewBlockHashesMessage,
         },
     };
+    use crate::models::BlockNumber;
     use ethereum_types::H256;
     use hex_literal::hex;
 
@@ -62,7 +63,7 @@ mod tests {
                     hash: H256(hex!(
                         "7100614faba6650b53fe0913ed7267bcc968eb362e3df908645a50aa526c72ba"
                     )),
-                    number: 10567341,
+                    number: BlockNumber(10567341),
                 },],
             })
         );
