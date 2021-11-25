@@ -1,18 +1,26 @@
 use crate::{
     downloader::{opts::Opts, Downloader},
-    kv, new_mem_database,
+    kv,
+    kv::traits::{MutableKV, MutableTransaction},
     sentry::{chain_config, sentry_client_mock::SentryClientMock},
 };
-use std::sync::Arc;
 
-fn make_downloader() -> Downloader<impl kv::traits::MutableKV> {
+fn make_downloader() -> Downloader {
     let chains_config = chain_config::ChainsConfig::new().unwrap();
     let args = Vec::<String>::new();
     let opts = Opts::new(Some(args), chains_config.chain_names().as_slice()).unwrap();
-    let db = Arc::new(new_mem_database().unwrap());
-    let downloader = Downloader::new(opts, chains_config, db).unwrap();
+    let downloader = Downloader::new(opts, chains_config).unwrap();
     let _ = downloader;
     downloader
+}
+
+async fn run_downloader(downloader: Downloader, sentry: SentryClientMock) -> anyhow::Result<()> {
+    let db = kv::new_mem_database()?;
+    let db_transaction = db.begin_mutable().await?;
+    downloader
+        .run(Some(Box::new(sentry)), &db_transaction)
+        .await?;
+    db_transaction.commit().await
 }
 
 fn setup_logging() {
@@ -25,8 +33,7 @@ fn setup_logging() {
 async fn noop() {
     setup_logging();
 
-    let sentry = SentryClientMock::new();
-
     let downloader = make_downloader();
-    downloader.run(Some(Box::new(sentry))).await.unwrap();
+    let sentry = SentryClientMock::new();
+    run_downloader(downloader, sentry).await.unwrap();
 }

@@ -20,11 +20,10 @@ use tokio::sync::Mutex;
 use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
-pub struct DownloaderPreverified<DB: kv::traits::MutableKV + Sync> {
+pub struct DownloaderPreverified {
     chain_name: String,
     mem_limit: usize,
     sentry: SentryClientReactorShared,
-    db: Arc<DB>,
     ui_system: Arc<Mutex<UISystem>>,
 }
 
@@ -33,24 +32,29 @@ pub struct DownloaderPreverifiedReport {
     pub estimated_top_block_num: Option<BlockNumber>,
 }
 
-impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
+impl DownloaderPreverified {
     pub fn new(
         chain_name: String,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
-        db: Arc<DB>,
         ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {
         Self {
             chain_name,
             mem_limit,
             sentry,
-            db,
             ui_system,
         }
     }
 
-    pub async fn run(&self) -> anyhow::Result<DownloaderPreverifiedReport> {
+    pub async fn run<
+        'downloader,
+        'db: 'downloader,
+        RwTx: kv::traits::MutableTransaction<'db> + 'db,
+    >(
+        &'downloader self,
+        db_transaction: &'downloader RwTx,
+    ) -> anyhow::Result<DownloaderPreverifiedReport> {
         let preverified_hashes_config = PreverifiedHashesConfig::new(&self.chain_name)?;
 
         let final_block_num = BlockNumber(
@@ -93,7 +97,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderPreverified<DB> {
         let verify_stage =
             VerifyStagePreverified::new(header_slices.clone(), preverified_hashes_config);
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
-        let save_stage = SaveStage::new(header_slices.clone(), self.db.clone());
+        let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
         let refill_stage = RefillStage::new(header_slices.clone());
         let top_block_estimate_stage = TopBlockEstimateStage::new(sentry.clone());
 
