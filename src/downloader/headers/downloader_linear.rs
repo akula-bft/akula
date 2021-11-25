@@ -96,7 +96,7 @@ impl<DB: kv::traits::MutableKV + Sync> DownloaderLinear<DB> {
         ));
         let sentry = self.sentry.clone();
 
-        let header_slices_view = HeaderSlicesView::new(header_slices.clone());
+        let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderLinear");
         self.ui_system
             .try_lock()?
             .set_view(Some(Box::new(header_slices_view)));
