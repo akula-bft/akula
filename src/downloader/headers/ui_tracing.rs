@@ -8,13 +8,15 @@ use tracing::*;
 
 pub struct HeaderSlicesView {
     header_slices: Arc<HeaderSlices>,
+    phase_name: String,
     speed_counter: RefCell<AverageDeltaCounter>,
 }
 
 impl HeaderSlicesView {
-    pub fn new(header_slices: Arc<HeaderSlices>) -> Self {
+    pub fn new(header_slices: Arc<HeaderSlices>, phase_name: &str) -> Self {
         Self {
             header_slices,
+            phase_name: String::from(phase_name),
             speed_counter: RefCell::new(AverageDeltaCounter::new(60)),
         }
     }
@@ -22,6 +24,7 @@ impl HeaderSlicesView {
 
 impl UIView for HeaderSlicesView {
     fn draw(&self) -> anyhow::Result<()> {
+        let phase_name = &self.phase_name;
         let min_block_num = self.header_slices.min_block_num();
         let max_block_num = self.header_slices.max_block_num();
         let final_block_num = self.header_slices.final_block_num();
@@ -34,8 +37,8 @@ impl UIView for HeaderSlicesView {
 
         // overall progress
         info!(
-            "downloading headers {} - {} of {} at {} blk/sec ...",
-            min_block_num.0, max_block_num.0, final_block_num.0, speed,
+            "{} headers {} - {} of {} at {} blk/sec ...",
+            phase_name, min_block_num.0, max_block_num.0, final_block_num.0, speed,
         );
 
         // counters
