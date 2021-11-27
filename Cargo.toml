@@ -41,7 +41,7 @@ http = "0.2"
 itertools = "0.10"
 lru = "0.7"
 maplit = "1"
-mdbx = { git = "https://github.com/vorot93/mdbx-rs" }
+mdbx = { package = "libmdbx", version = "0.1" }
 modular-bitfield = "0.11"
 num-bigint = "0.4"
 num-traits = "0.2"
@@ -63,7 +63,7 @@ sha2 = "0.9"
 sha3 = "0.9"
 string = { git = "https://github.com/vorot93/string", branch = "update-bytes" }
 structopt = "0.3"
-strum = { version = "0.22", features = ["derive"] }
+strum = { version = "0.23", features = ["derive"] }
 substrate-bn = "0.6"
 tempfile = "3"
 thiserror = "1"
