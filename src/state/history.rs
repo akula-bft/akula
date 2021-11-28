@@ -15,7 +15,7 @@ pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         return Ok(Some(v));
     }
 
-    tx.get(&tables::PlainState, tables::PlainStateKey::Account(address))
+    tx.get(&tables::Account, address)
         .await
         .map(|opt| opt.map(From::from))
 }

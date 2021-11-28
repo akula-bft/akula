@@ -16,35 +16,20 @@ use ethereum_types::*;
 use tokio_stream::StreamExt;
 use tracing::*;
 
-pub async fn promote_clean_state<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
+pub async fn promote_clean_accounts<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
 where
     Tx: MutableTransaction<'db>,
 {
     txn.clear_table(&tables::HashedAccount).await?;
-    txn.clear_table(&tables::HashedStorage).await?;
 
     let mut collector_account = Collector::<tables::HashedAccount>::new(OPTIMAL_BUFFER_CAPACITY);
-    let mut collector_storage = Collector::<tables::HashedStorage>::new(OPTIMAL_BUFFER_CAPACITY);
 
-    let mut src = txn.cursor(&tables::PlainState).await?;
+    let mut src = txn.cursor(&tables::Account).await?;
     src.first().await?;
     let mut i = 0;
     let mut walker = src.walk(None);
-    while let Some(fv) = walker.try_next().await? {
-        match fv {
-            tables::PlainStateFusedValue::Account { address, account } => {
-                collector_account.collect(Entry::new(keccak256(address), account));
-            }
-            tables::PlainStateFusedValue::Storage {
-                address,
-                incarnation,
-                location,
-                value,
-            } => collector_storage.collect(Entry::new(
-                (keccak256(address), incarnation),
-                (keccak256(location), value.into()),
-            )),
-        }
+    while let Some((address, account)) = walker.try_next().await? {
+        collector_account.collect(Entry::new(keccak256(address), account));
 
         i += 1;
         if i % 500_000 == 0 {
@@ -52,11 +37,38 @@ where
         }
     }
 
-    debug!("Loading hashed account entries");
+    debug!("Loading hashed entries");
     let mut dst = txn.mutable_cursor(&tables::HashedAccount.erased()).await?;
     collector_account.load(&mut dst).await?;
 
-    debug!("Loading hashed storage entries");
+    Ok(())
+}
+
+pub async fn promote_clean_storage<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
+where
+    Tx: MutableTransaction<'db>,
+{
+    txn.clear_table(&tables::HashedStorage).await?;
+
+    let mut collector_storage = Collector::<tables::HashedStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+
+    let mut src = txn.cursor(&tables::Storage).await?;
+    src.first().await?;
+    let mut i = 0;
+    let mut walker = src.walk(None);
+    while let Some(((address, incarnation), (location, value))) = walker.try_next().await? {
+        collector_storage.collect(Entry::new(
+            (keccak256(address), incarnation),
+            (keccak256(location), value),
+        ));
+
+        i += 1;
+        if i % 500_000 == 0 {
+            debug!("Converted {} entries", i);
+        }
+    }
+
+    debug!("Loading hashed entries");
     let mut dst = txn.mutable_cursor(&tables::HashedStorage.erased()).await?;
     collector_storage.load(&mut dst).await?;
 
@@ -90,7 +102,7 @@ where
     Tx: MutableTransaction<'db>,
 {
     let mut changeset_table = tx.cursor(&tables::AccountChangeSet).await?;
-    let mut plainstate_table = tx.cursor_dup_sort(&tables::PlainState).await?;
+    let mut account_table = tx.cursor(&tables::Account).await?;
     let mut target_table = tx.mutable_cursor(&tables::HashedAccount).await?;
 
     let starting_block = stage_progress + 1;
@@ -98,13 +110,10 @@ where
     let mut walker = changeset_table.walk(Some(starting_block));
 
     while let Some((_, tables::AccountChange { address, .. })) = walker.try_next().await? {
-        let hashed_address = keccak256(address);
-        if let Some(tables::PlainStateFusedValue::Account { account, .. }) = plainstate_table
-            .seek_exact(tables::PlainStateKey::Account(address))
-            .await?
-        {
-            target_table.upsert((hashed_address, account)).await?;
-        } else if target_table.seek_exact(hashed_address).await?.is_some() {
+        let hashed_address = || keccak256(address);
+        if let Some((_, account)) = account_table.seek_exact(address).await? {
+            target_table.upsert(((hashed_address)(), account)).await?;
+        } else if target_table.seek_exact((hashed_address)()).await?.is_some() {
             target_table.delete_current().await?;
         }
     }
@@ -117,7 +126,7 @@ where
     Tx: MutableTransaction<'db>,
 {
     let mut changeset_table = tx.cursor(&tables::StorageChangeSet).await?;
-    let mut plainstate_table = tx.cursor_dup_sort(&tables::PlainState).await?;
+    let mut storage_table = tx.cursor_dup_sort(&tables::Storage).await?;
     let mut target_table = tx.mutable_cursor_dupsort(&tables::HashedStorage).await?;
 
     let starting_block = stage_progress + 1;
@@ -137,23 +146,15 @@ where
         let hashed_address = keccak256(address);
         let hashed_location = keccak256(location);
         let mut v = H256::zero();
-        if let Some(tables::PlainStateFusedValue::Storage {
-            address: found_address,
-            incarnation: found_incarnation,
-            location: found_location,
-            value,
-        }) = plainstate_table
-            .seek_both_range(
-                tables::PlainStateKey::Storage(address, incarnation),
-                location,
-            )
+        if let Some(((found_address, found_incarnation), (found_location, value))) = storage_table
+            .seek_both_range((address, incarnation), location)
             .await?
         {
             if address == found_address
                 && incarnation == found_incarnation
                 && location == found_location
             {
-                v = value;
+                v = *value;
             }
         }
         upsert_hashed_storage_value(
@@ -174,7 +175,7 @@ where
     Tx: MutableTransaction<'db>,
 {
     let mut changeset_table = tx.cursor(&tables::AccountChangeSet).await?;
-    let mut plainstate_table = tx.cursor_dup_sort(&tables::PlainState).await?;
+    let mut account_table = tx.cursor(&tables::Account).await?;
     let mut codehash_table = tx.cursor(&tables::PlainCodeHash).await?;
     let mut target_table = tx.mutable_cursor(&tables::HashedCodeHash).await?;
 
@@ -183,25 +184,18 @@ where
     let mut walker = changeset_table.walk(Some(starting_block));
 
     while let Some((_, tables::AccountChange { address, .. })) = walker.try_next().await? {
-        if let Some(plainstate_data) = plainstate_table
-            .seek_exact(tables::PlainStateKey::Account(address))
-            .await?
-        {
-            if let tables::PlainStateFusedValue::Account { address, account } = plainstate_data {
-                // get incarnation
-                if let Some(Account { incarnation, .. }) = Account::decode_for_storage(&account)? {
-                    if incarnation.0 > 0 {
-                        if let Some((_, code_hash)) =
-                            codehash_table.seek_exact((address, incarnation)).await?
-                        {
-                            target_table
-                                .upsert(((keccak256(address), incarnation), code_hash))
-                                .await?;
-                        }
+        if let Some((_, account)) = account_table.seek_exact(address).await? {
+            // get incarnation
+            if let Some(Account { incarnation, .. }) = Account::decode_for_storage(&account)? {
+                if incarnation.0 > 0 {
+                    if let Some((_, code_hash)) =
+                        codehash_table.seek_exact((address, incarnation)).await?
+                    {
+                        target_table
+                            .upsert(((keccak256(address), incarnation), code_hash))
+                            .await?;
                     }
                 }
-            } else {
-                unreachable!()
             }
         }
     }
@@ -256,8 +250,10 @@ where
         )
         .await?
         {
-            info!("Generating hashed state");
-            promote_clean_state(tx).await?;
+            info!("Generating hashed accounts");
+            promote_clean_accounts(tx).await?;
+            info!("Generating hashed storage");
+            promote_clean_storage(tx).await?;
             info!("Generating hashed code");
             promote_clean_code(tx).await?;
         } else {

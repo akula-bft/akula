@@ -87,7 +87,8 @@ where
 
     state_buffer.write_to_db().await?;
 
-    crate::stages::promote_clean_state(txn).await?;
+    crate::stages::promote_clean_accounts(txn).await?;
+    crate::stages::promote_clean_storage(txn).await?;
     crate::stages::promote_clean_code(txn).await?;
     let state_root = crate::stages::generate_interhashes(txn).await?;
 

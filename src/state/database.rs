@@ -1,30 +1,23 @@
 use crate::{
-    h256_to_u256,
-    kv::tables::{self, PlainStateFusedValue},
-    models::*,
-    u256_to_h256, CursorDupSort, MutableCursorDupSort, Transaction,
+    h256_to_u256, kv::tables, models::*, u256_to_h256, CursorDupSort, MutableCursorDupSort,
+    Transaction,
 };
 use bytes::Bytes;
 use ethereum_types::*;
 
-pub async fn seek_storage_key<'tx, C: CursorDupSort<'tx, tables::PlainState>>(
+pub async fn seek_storage_key<'tx, C: CursorDupSort<'tx, tables::Storage>>(
     cur: &mut C,
     address: Address,
     incarnation: Incarnation,
     location: U256,
 ) -> anyhow::Result<Option<U256>> {
     let location = u256_to_h256(location);
-    if let Some(v) = cur
-        .seek_both_range(
-            tables::PlainStateKey::Storage(address, incarnation),
-            location,
-        )
+    if let Some(((a, inc), (l, v))) = cur
+        .seek_both_range((address, incarnation), location)
         .await?
     {
-        if let Some((a, inc, l, v)) = v.as_storage() {
-            if a == address && inc == incarnation && l == location {
-                return Ok(Some(h256_to_u256(v)));
-            }
+        if a == address && inc == incarnation && l == location {
+            return Ok(Some(h256_to_u256(*v)));
         }
     }
 
@@ -39,7 +32,7 @@ pub async fn upsert_storage_value<'tx, C>(
     value: U256,
 ) -> anyhow::Result<()>
 where
-    C: MutableCursorDupSort<'tx, tables::PlainState>,
+    C: MutableCursorDupSort<'tx, tables::Storage>,
 {
     if seek_storage_key(cur, address, incarnation, location)
         .await?
@@ -49,12 +42,10 @@ where
     }
 
     if !value.is_zero() {
-        cur.upsert(PlainStateFusedValue::Storage {
-            address,
-            incarnation,
-            location: u256_to_h256(location),
-            value: u256_to_h256(value),
-        })
+        cur.upsert((
+            (address, incarnation),
+            (u256_to_h256(location), u256_to_h256(value).into()),
+        ))
         .await?;
     }
 
@@ -111,10 +102,7 @@ pub async fn read_account_data<'db, Tx: Transaction<'db>>(
     tx: &Tx,
     address: Address,
 ) -> anyhow::Result<Option<Account>> {
-    if let Some(encoded) = tx
-        .get(&tables::PlainState, tables::PlainStateKey::Account(address))
-        .await?
-    {
+    if let Some(encoded) = tx.get(&tables::Account, address).await? {
         return Account::decode_for_storage(&*encoded);
     }
 
@@ -127,19 +115,14 @@ pub async fn read_account_storage<'db, Tx: Transaction<'db>>(
     incarnation: Incarnation,
     location: H256,
 ) -> anyhow::Result<Option<H256>> {
-    if let Some(v) = tx
-        .cursor_dup_sort(&tables::PlainState)
+    if let Some(((a, inc), (l, v))) = tx
+        .cursor_dup_sort(&tables::Storage)
         .await?
-        .seek_both_range(
-            tables::PlainStateKey::Storage(address, incarnation),
-            location,
-        )
+        .seek_both_range((address, incarnation), location)
         .await?
     {
-        if let Some((a, inc, l, v)) = v.as_storage() {
-            if a == address && inc == incarnation && l == location {
-                return Ok(Some(v));
-            }
+        if a == address && inc == incarnation && l == location {
+            return Ok(Some(*v));
         }
     }
 
