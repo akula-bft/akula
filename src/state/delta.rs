@@ -25,8 +25,8 @@ pub enum Delta {
     },
     StorageChange {
         address: Address,
-        key: H256,
-        previous: H256,
+        key: U256,
+        previous: U256,
     },
     StorageWipe {
         address: Address,
@@ -37,7 +37,7 @@ pub enum Delta {
     },
     StorageAccess {
         address: Address,
-        key: H256,
+        key: U256,
     },
     AccountAccess {
         address: Address,

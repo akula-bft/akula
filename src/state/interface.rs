@@ -16,8 +16,8 @@ pub trait State: Debug + Send + Sync {
         &self,
         address: Address,
         incarnation: Incarnation,
-        location: H256,
-    ) -> anyhow::Result<H256>;
+        location: U256,
+    ) -> anyhow::Result<U256>;
 
     // Previous non-zero incarnation of an account; 0 if none exists.
     async fn previous_incarnation(&self, address: Address) -> anyhow::Result<Incarnation>;
@@ -72,8 +72,8 @@ pub trait State: Debug + Send + Sync {
         &mut self,
         address: Address,
         incarnation: Incarnation,
-        location: H256,
-        initial: H256,
-        current: H256,
+        location: U256,
+        initial: U256,
+        current: U256,
     ) -> anyhow::Result<()>;
 }

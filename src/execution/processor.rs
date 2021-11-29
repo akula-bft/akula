@@ -6,6 +6,7 @@ use crate::{
     },
     consensus::*,
     execution::evm,
+    h256_to_u256,
     models::*,
     state::IntraBlockState,
     State,
@@ -143,7 +144,7 @@ where
         for entry in &*txn.access_list() {
             self.state.access_account(entry.address);
             for &key in &entry.slots {
-                self.state.access_storage(entry.address, key);
+                self.state.access_storage(entry.address, h256_to_u256(key));
             }
         }
 

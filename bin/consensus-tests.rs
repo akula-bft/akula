@@ -522,13 +522,7 @@ async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &
 
         for (&key, &value) in &j.storage {
             state
-                .update_storage(
-                    *address,
-                    account.incarnation,
-                    u256_to_h256(key),
-                    H256::zero(),
-                    u256_to_h256(value),
-                )
+                .update_storage(*address, account.incarnation, key, U256::zero(), value)
                 .await
                 .unwrap();
         }
@@ -622,11 +616,11 @@ async fn post_check(
 
         for (&key, &expected_value) in &expected_account_state.storage {
             let actual_value = state
-                .read_storage(address, account.incarnation, u256_to_h256(key))
+                .read_storage(address, account.incarnation, key)
                 .await
                 .unwrap();
             ensure!(
-                actual_value == u256_to_h256(expected_value),
+                actual_value == expected_value,
                 "Storage mismatch for {} at {}:\n{} != {}",
                 address,
                 key,
