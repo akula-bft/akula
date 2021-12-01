@@ -22,7 +22,7 @@ impl HistoryKind for AccountHistory {
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>,
     {
-        if let Some((_, v)) = cursor.seek_both_range(block_number, needle).await? {
+        if let Some(v) = cursor.seek_both_range(block_number, needle).await? {
             let (_, (address, account)) = Self::decode(block_number, v);
 
             if address == needle {

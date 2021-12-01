@@ -74,7 +74,7 @@ where
         if self.data_providers.is_empty() {
             self.buffer.sort_unstable();
             for entry in self.buffer.drain(..) {
-                cursor.put((entry.key.into(), entry.value.into())).await?;
+                cursor.put(entry.key.into(), entry.value.into()).await?;
             }
             return Ok(());
         }
@@ -102,7 +102,7 @@ where
 
         while let Some(e) = heap.pop() {
             let entry = e.0;
-            cursor.put((entry.key, entry.value)).await?;
+            cursor.put(entry.key, entry.value).await?;
             let (next_key, next_value) = self.data_providers[entry.id].to_next()?;
             if !next_key.is_empty() {
                 heap.push(Reverse(Entry {

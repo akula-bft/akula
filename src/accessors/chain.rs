@@ -30,7 +30,7 @@ pub mod canonical_hash {
         trace!("Writing canonical hash of {}", block_number);
 
         let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
-        cursor.put((block_number, hash)).await.unwrap();
+        cursor.put(block_number, hash).await.unwrap();
 
         Ok(())
     }
@@ -108,7 +108,7 @@ pub mod tx {
 
         for (i, eth_tx) in txs.iter().enumerate() {
             cursor
-                .put((base_tx_id + i as u64, eth_tx.clone()))
+                .put(base_tx_id + i as u64, eth_tx.clone())
                 .await
                 .unwrap();
         }
@@ -153,7 +153,7 @@ pub mod tx_sender {
             hash
         );
 
-        tx.set(&tables::TxSender, ((number, hash), senders))
+        tx.set(&tables::TxSender, (number, hash), senders)
             .await
             .unwrap();
 
@@ -192,7 +192,7 @@ pub mod storage_body {
         let number = number.into();
         trace!("Writing storage body for block {}/{:?}", number, hash);
 
-        tx.set(&tables::BlockBody, ((number, hash), body.clone()))
+        tx.set(&tables::BlockBody, (number, hash), body.clone())
             .await
             .unwrap();
 
@@ -301,7 +301,7 @@ pub mod tl {
             .await
             .unwrap();
         cursor
-            .put((hashed_tx_data, block_number.into()))
+            .put(hashed_tx_data, block_number.into())
             .await
             .unwrap();
 

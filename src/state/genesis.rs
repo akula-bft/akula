@@ -113,41 +113,40 @@ where
     };
     let block_hash = header.hash();
 
-    txn.set(&tables::Header, ((genesis, block_hash), header.clone()))
+    txn.set(&tables::Header, (genesis, block_hash), header.clone())
         .await?;
-    txn.set(&tables::CanonicalHeader, (genesis, block_hash))
+    txn.set(&tables::CanonicalHeader, genesis, block_hash)
         .await?;
-    txn.set(&tables::HeaderNumber, (block_hash, genesis))
-        .await?;
+    txn.set(&tables::HeaderNumber, block_hash, genesis).await?;
     txn.set(
         &tables::HeadersTotalDifficulty,
-        ((genesis, block_hash), header.difficulty),
+        (genesis, block_hash),
+        header.difficulty,
     )
     .await?;
 
     txn.set(
         &tables::BlockBody,
-        (
-            (genesis, block_hash),
-            BodyForStorage {
-                base_tx_id: 0.into(),
-                tx_amount: 0,
-                uncles: vec![],
-            },
-        ),
+        (genesis, block_hash),
+        BodyForStorage {
+            base_tx_id: 0.into(),
+            tx_amount: 0,
+            uncles: vec![],
+        },
     )
     .await?;
 
     txn.set(
         &tables::CumulativeIndex,
-        (genesis, CumulativeData { gas: 0, tx_num: 0 }),
+        genesis,
+        CumulativeData { gas: 0, tx_num: 0 },
     )
     .await?;
 
-    txn.set(&tables::LastHeader, (Default::default(), block_hash))
+    txn.set(&tables::LastHeader, Default::default(), block_hash)
         .await?;
 
-    txn.set(&tables::Config, (block_hash, chainspec)).await?;
+    txn.set(&tables::Config, block_hash, chainspec).await?;
 
     Ok(true)
 }

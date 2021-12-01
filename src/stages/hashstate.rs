@@ -112,7 +112,7 @@ where
     while let Some((_, tables::AccountChange { address, .. })) = walker.try_next().await? {
         let hashed_address = || keccak256(address);
         if let Some((_, account)) = account_table.seek_exact(address).await? {
-            target_table.upsert(((hashed_address)(), account)).await?;
+            target_table.upsert((hashed_address)(), account).await?;
         } else if target_table.seek_exact((hashed_address)()).await?.is_some() {
             target_table.delete_current().await?;
         }
@@ -146,14 +146,11 @@ where
         let hashed_address = keccak256(address);
         let hashed_location = keccak256(location);
         let mut v = U256::zero();
-        if let Some(((found_address, found_incarnation), (found_location, value))) = storage_table
+        if let Some((found_location, value)) = storage_table
             .seek_both_range((address, incarnation), location)
             .await?
         {
-            if address == found_address
-                && incarnation == found_incarnation
-                && location == found_location
-            {
+            if location == found_location {
                 v = value;
             }
         }
@@ -192,7 +189,7 @@ where
                         codehash_table.seek_exact((address, incarnation)).await?
                     {
                         target_table
-                            .upsert(((keccak256(address), incarnation), code_hash))
+                            .upsert((keccak256(address), incarnation), code_hash)
                             .await?;
                     }
                 }
@@ -304,7 +301,8 @@ mod tests {
         let mut gas = 0;
         tx.set(
             &tables::CumulativeIndex,
-            (0.into(), tables::CumulativeData { tx_num, gas }),
+            0.into(),
+            tables::CumulativeData { tx_num, gas },
         )
         .await
         .unwrap();
@@ -372,7 +370,8 @@ mod tests {
         gas += header.gas_used;
         tx.set(
             &tables::CumulativeIndex,
-            (header.number, tables::CumulativeData { tx_num, gas }),
+            header.number,
+            tables::CumulativeData { tx_num, gas },
         )
         .await
         .unwrap();
@@ -405,7 +404,8 @@ mod tests {
         gas += header.gas_used;
         tx.set(
             &tables::CumulativeIndex,
-            (header.number, tables::CumulativeData { tx_num, gas }),
+            header.number,
+            tables::CumulativeData { tx_num, gas },
         )
         .await
         .unwrap();
@@ -438,7 +438,8 @@ mod tests {
         gas += header.gas_used;
         tx.set(
             &tables::CumulativeIndex,
-            (header.number, tables::CumulativeData { tx_num, gas }),
+            header.number,
+            tables::CumulativeData { tx_num, gas },
         )
         .await
         .unwrap();

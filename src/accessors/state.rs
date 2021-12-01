@@ -80,19 +80,22 @@ pub mod tests {
 
         txn.set(
             &tables::Storage,
-            ((address, DEFAULT_INCARNATION), (loc1, val1)),
+            (address, DEFAULT_INCARNATION),
+            (loc1, val1),
         )
         .await
         .unwrap();
         txn.set(
             &tables::Storage,
-            ((address, DEFAULT_INCARNATION), (loc2, val2)),
+            (address, DEFAULT_INCARNATION),
+            (loc2, val2),
         )
         .await
         .unwrap();
         txn.set(
             &tables::Storage,
-            ((address, DEFAULT_INCARNATION), (loc3, val3)),
+            (address, DEFAULT_INCARNATION),
+            (loc3, val3),
         )
         .await
         .unwrap();

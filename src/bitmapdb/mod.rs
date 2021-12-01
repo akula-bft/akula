@@ -22,12 +22,7 @@ where
     Tx: Transaction<'db>,
     K: Clone + PartialEq + Send,
     BitmapKey<K>: TableDecode,
-    T: Table<
-        Key = BitmapKey<K>,
-        Value = RoaringTreemap,
-        FusedValue = (BitmapKey<K>, RoaringTreemap),
-        SeekKey = BitmapKey<K>,
-    >,
+    T: Table<Key = BitmapKey<K>, Value = RoaringTreemap, SeekKey = BitmapKey<K>>,
 {
     let mut out: Option<RoaringTreemap> = None;
     let from = from.into();

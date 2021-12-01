@@ -69,7 +69,7 @@ where
                 tx_num += body.tx_amount as u64;
 
                 cumulative_index_cur
-                    .append((block_num, CumulativeData { gas, tx_num }))
+                    .append(block_num, CumulativeData { gas, tx_num })
                     .await?;
             }
         }

@@ -103,7 +103,7 @@ where
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             for (db_key, db_value) in recovered_senders.drain(..) {
-                senders_cur.append((db_key, db_value)).await?;
+                senders_cur.append(db_key, db_value).await?;
             }
 
             let now = Instant::now();

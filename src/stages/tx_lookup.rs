@@ -113,7 +113,7 @@ where
                 }
 
                 if let Ok(Some((key, value))) = tx_hash_cursor.seek(tx_value.hash()).await {
-                    tx_hash_cursor.delete((key, value)).await?;
+                    tx_hash_cursor.delete(key, value).await?;
                 }
                 num_txs += 1;
             }

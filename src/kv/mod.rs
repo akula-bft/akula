@@ -20,18 +20,9 @@ impl Table for CustomTable {
     type Key = Vec<u8>;
     type Value = Vec<u8>;
     type SeekKey = Vec<u8>;
-    type FusedValue = (Self::Key, Self::Value);
 
     fn db_name(&self) -> string::String<StaticBytes> {
         self.0.clone()
-    }
-
-    fn fuse_values(key: Self::Key, value: Self::Value) -> anyhow::Result<Self::FusedValue> {
-        Ok((key, value))
-    }
-
-    fn split_fused((key, value): Self::FusedValue) -> (Self::Key, Self::Value) {
-        (key, value)
     }
 }
 

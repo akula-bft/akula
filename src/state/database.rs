@@ -11,11 +11,11 @@ pub async fn seek_storage_key<'tx, C: CursorDupSort<'tx, tables::Storage>>(
     location: U256,
 ) -> anyhow::Result<Option<U256>> {
     let location = u256_to_h256(location);
-    if let Some(((a, inc), (l, v))) = cur
+    if let Some((l, v)) = cur
         .seek_both_range((address, incarnation), location)
         .await?
     {
-        if a == address && inc == incarnation && l == location {
+        if l == location {
             return Ok(Some(v));
         }
     }
@@ -41,7 +41,7 @@ where
     }
 
     if !value.is_zero() {
-        cur.upsert(((address, incarnation), (u256_to_h256(location), value)))
+        cur.upsert((address, incarnation), (u256_to_h256(location), value))
             .await?;
     }
 
@@ -54,16 +54,11 @@ pub async fn seek_hashed_storage_key<'tx, C: CursorDupSort<'tx, tables::HashedSt
     incarnation: Incarnation,
     hashed_location: H256,
 ) -> anyhow::Result<Option<U256>> {
-    if let Some(((a, inc), (l, v))) = cur
+    Ok(cur
         .seek_both_range((hashed_address, incarnation), hashed_location)
         .await?
-    {
-        if a == hashed_address && inc == incarnation && l == hashed_location {
-            return Ok(Some(v));
-        }
-    }
-
-    Ok(None)
+        .filter(|&(l, _)| l == hashed_location)
+        .map(|(_, v)| v))
 }
 
 pub async fn upsert_hashed_storage_value<'tx, C>(
@@ -84,7 +79,7 @@ where
     }
 
     if !value.is_zero() {
-        cur.upsert(((hashed_address, incarnation), (hashed_location, value)))
+        cur.upsert((hashed_address, incarnation), (hashed_location, value))
             .await?;
     }
 
@@ -108,18 +103,13 @@ pub async fn read_account_storage<'db, Tx: Transaction<'db>>(
     incarnation: Incarnation,
     location: H256,
 ) -> anyhow::Result<Option<U256>> {
-    if let Some(((a, inc), (l, v))) = tx
+    Ok(tx
         .cursor_dup_sort(&tables::Storage)
         .await?
         .seek_both_range((address, incarnation), location)
         .await?
-    {
-        if a == address && inc == incarnation && l == location {
-            return Ok(Some(v));
-        }
-    }
-
-    Ok(None)
+        .filter(|&(l, _)| l == location)
+        .map(|(_, v)| v))
 }
 
 pub async fn read_account_code<'db: 'tx, 'tx, Tx: Transaction<'db>>(

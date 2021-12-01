@@ -53,6 +53,6 @@ impl StageId {
         tx: &RwTx,
         block: BlockNumber,
     ) -> anyhow::Result<()> {
-        tx.set(&tables::SyncStage, (*self, block)).await
+        tx.set(&tables::SyncStage, *self, block).await
     }
 }

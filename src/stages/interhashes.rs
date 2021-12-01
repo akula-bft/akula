@@ -7,10 +7,10 @@ use crate::{
     },
     kv::{
         tables,
-        traits::{Cursor, CursorDupSort, Table},
+        traits::{Cursor, CursorDupSort},
         TableEncode,
     },
-    models::{Account, BlockNumber, Incarnation, RlpAccount, EMPTY_ROOT},
+    models::{Account, BlockNumber, EncodedAccount, Incarnation, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     stages::stage_util::should_do_clean_promotion,
     MutableTransaction, StageId,
@@ -58,8 +58,6 @@ impl From<H256> for Nibbles {
         Self(n.into())
     }
 }
-
-type HashedAccountFusedValue = <tables::HashedAccount as Table>::FusedValue;
 
 #[derive(Debug)]
 struct BranchInProgress {
@@ -463,7 +461,7 @@ where
 
     async fn do_get_prev_account(
         &mut self,
-        value: Option<HashedAccountFusedValue>,
+        value: Option<(H256, EncodedAccount)>,
     ) -> anyhow::Result<Option<(H256, RlpAccount)>> {
         if let Some(fused_value) = value {
             let (address_hash, encoded_account) = fused_value;
@@ -773,8 +771,7 @@ mod tests {
             let mut cursor = tx.mutable_cursor(&tables::HashedAccount).await.unwrap();
             for (address_hash, account_model) in accounts {
                 let account = account_model.encode_for_storage(false);
-                let fused_value = (address_hash, account);
-                cursor.append(fused_value).await.unwrap();
+                cursor.append(address_hash, account).await.unwrap();
             }
         }
 

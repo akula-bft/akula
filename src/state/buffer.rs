@@ -300,7 +300,7 @@ where
 
                 if let Some(account) = account {
                     account_table
-                        .upsert((address, account.encode_for_storage(false)))
+                        .upsert(address, account.encode_for_storage(false))
                         .await?;
                 }
             }
@@ -329,25 +329,27 @@ where
         }
 
         let mut incarnation_table = self.txn.mutable_cursor(&tables::IncarnationMap).await?;
-        for fv in self.incarnations {
-            incarnation_table.upsert(fv).await?;
+        for (address, incarnation) in self.incarnations {
+            incarnation_table.upsert(address, incarnation).await?;
         }
 
         let mut code_table = self.txn.mutable_cursor(&tables::Code).await?;
-        for fv in self.hash_to_code {
-            code_table.upsert(fv).await?;
+        for (code_hash, code) in self.hash_to_code {
+            code_table.upsert(code_hash, code).await?;
         }
 
         let mut code_hash_table = self.txn.mutable_cursor(&tables::PlainCodeHash).await?;
-        for fv in self.storage_prefix_to_code_hash {
-            code_hash_table.upsert(fv).await?;
+        for ((address, incarnation), code_hash) in self.storage_prefix_to_code_hash {
+            code_hash_table
+                .upsert((address, incarnation), code_hash)
+                .await?;
         }
 
         let mut account_change_table = self.txn.mutable_cursor(&tables::AccountChangeSet).await?;
         for (block_number, account_entries) in self.account_changes {
             for (address, account) in account_entries {
                 account_change_table
-                    .upsert((block_number, AccountChange { address, account }))
+                    .upsert(block_number, AccountChange { address, account })
                     .await?;
             }
         }
@@ -360,14 +362,14 @@ where
                         let location = u256_to_h256(location);
                         let value = value;
                         storage_change_table
-                            .upsert((
+                            .upsert(
                                 StorageChangeKey {
                                     block_number,
                                     address,
                                     incarnation,
                                 },
                                 StorageChange { location, value },
-                            ))
+                            )
                             .await?;
                     }
                 }
@@ -404,14 +406,16 @@ mod tests {
 
         txn.set(
             &tables::Storage,
-            ((address, DEFAULT_INCARNATION), (location_a, value_a1)),
+            (address, DEFAULT_INCARNATION),
+            (location_a, value_a1),
         )
         .await
         .unwrap();
 
         txn.set(
             &tables::Storage,
-            ((address, DEFAULT_INCARNATION), (location_b, value_b)),
+            (address, DEFAULT_INCARNATION),
+            (location_b, value_b),
         )
         .await
         .unwrap();

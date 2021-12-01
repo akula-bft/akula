@@ -42,7 +42,6 @@ pub trait HistoryKind: Send {
     type IndexTable: Table<
             Key = BitmapKey<Self::IndexChunkKey>,
             Value = RoaringTreemap,
-            FusedValue = (BitmapKey<Self::IndexChunkKey>, RoaringTreemap),
             SeekKey = BitmapKey<Self::IndexChunkKey>,
         > + Default;
     type EncodedStream<'cs>: EncodedStream<'cs, Self::ChangeSetTable>;

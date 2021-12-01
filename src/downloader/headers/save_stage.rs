@@ -122,17 +122,18 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db> + 'db> SaveStage<'tx, RwTx> {
         let header_key: HeaderKey = (block_num, header_hash);
         let total_difficulty = header.difficulty;
 
-        tx.set(&kv::tables::Header, (header_key, header)).await?;
-        tx.set(&kv::tables::HeaderNumber, (header_hash, block_num))
+        tx.set(&kv::tables::Header, header_key, header).await?;
+        tx.set(&kv::tables::HeaderNumber, header_hash, block_num)
             .await?;
-        tx.set(&kv::tables::CanonicalHeader, (block_num, header_hash))
+        tx.set(&kv::tables::CanonicalHeader, block_num, header_hash)
             .await?;
         tx.set(
             &kv::tables::HeadersTotalDifficulty,
-            (header_key, total_difficulty),
+            header_key,
+            total_difficulty,
         )
         .await?;
-        tx.set(&kv::tables::LastHeader, (Default::default(), header_hash))
+        tx.set(&kv::tables::LastHeader, Default::default(), header_hash)
             .await?;
 
         Ok(())

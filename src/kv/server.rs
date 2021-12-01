@@ -100,7 +100,8 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
                                     Op::SeekBoth => get_cursor::<DB>(&mut cursors, cid)?
                                         .seek_both_range(c.k.to_vec(), c.v.to_vec())
                                         .await
-                                        .map_err(|e| tonic::Status::internal(e.to_string()))?,
+                                        .map_err(|e| tonic::Status::internal(e.to_string()))?
+                                        .map(|v| (vec![], v)),
                                     Op::Current => get_cursor::<DB>(&mut cursors, cid)?
                                         .current()
                                         .await
