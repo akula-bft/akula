@@ -9,40 +9,43 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub struct Downloader<DB: kv::traits::MutableKV + Sync> {
+pub struct Downloader {
     chain_config: ChainConfig,
     sentry: SentryClientReactorShared,
-    db: Arc<DB>,
     ui_system: Arc<Mutex<UISystem>>,
 }
 
-impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
+impl Downloader {
     pub fn new(
         chain_config: ChainConfig,
         sentry: SentryClientReactorShared,
-        db: Arc<DB>,
         ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {
         Self {
             chain_config,
             sentry,
-            db,
             ui_system,
         }
     }
 
-    pub async fn run(&self) -> anyhow::Result<()> {
+    pub async fn run<
+        'downloader,
+        'db: 'downloader,
+        RwTx: kv::traits::MutableTransaction<'db> + 'db,
+    >(
+        &'downloader self,
+        db_transaction: &'downloader RwTx,
+    ) -> anyhow::Result<()> {
         let mem_limit = 50 << 20; /* 50 Mb */
 
         let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
             self.chain_config.chain_name(),
             mem_limit,
             self.sentry.clone(),
-            self.db.clone(),
             self.ui_system.clone(),
         );
 
-        let preverified_report = downloader_preverified.run().await?;
+        let preverified_report = downloader_preverified.run::<RwTx>(db_transaction).await?;
 
         let downloader_linear = downloader_linear::DownloaderLinear::new(
             self.chain_config.clone(),
@@ -50,11 +53,10 @@ impl<DB: kv::traits::MutableKV + Sync> Downloader<DB> {
             preverified_report.estimated_top_block_num,
             mem_limit,
             self.sentry.clone(),
-            self.db.clone(),
             self.ui_system.clone(),
         );
 
-        downloader_linear.run().await?;
+        downloader_linear.run::<RwTx>(db_transaction).await?;
 
         Ok(())
     }
