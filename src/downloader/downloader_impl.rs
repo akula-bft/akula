@@ -12,6 +12,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
+#[derive(Debug)]
 pub struct Downloader {
     opts: Opts,
     chain_config: ChainConfig,

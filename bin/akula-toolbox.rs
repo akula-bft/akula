@@ -63,6 +63,13 @@ pub enum Opt {
         #[structopt(parse(from_os_str))]
         chaindata: PathBuf,
     },
+
+    /// Execute HeaderDownload stage
+    #[structopt(name = "download-headers", about = "Run block headers downloader")]
+    HeaderDownload {
+        #[structopt(flatten)]
+        opts: akula::downloader::opts::Opts,
+    },
 }
 
 async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()> {
@@ -75,6 +82,22 @@ async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()> {
     let mut staged_sync = stagedsync::StagedSync::new();
     staged_sync.push(BlockHashes);
     staged_sync.run(&env).await?;
+}
+
+async fn header_download(opts: akula::downloader::opts::Opts) -> anyhow::Result<()> {
+    let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
+    akula::downloader::opts::Opts::validate_chain_name(
+        &opts.chain_name,
+        chains_config.chain_names().as_slice(),
+    )?;
+    let data_dir = opts.data_dir.0.clone();
+
+    let stage = akula::stages::HeaderDownload::new(opts, chains_config)?;
+    let db = akula::kv::new_database(&data_dir)?;
+
+    let mut staged_sync = stagedsync::StagedSync::new();
+    staged_sync.push(stage);
+    staged_sync.run(&db).await?
 }
 
 async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()> {
@@ -281,6 +304,7 @@ async fn main() -> anyhow::Result<()> {
             max_entries,
         } => db_walk(chaindata, table, starting_key, max_entries).await?,
         Opt::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table).await?,
+        Opt::HeaderDownload { opts } => header_download(opts).await?,
     }
 
     Ok(())
