@@ -145,7 +145,7 @@ where
     {
         let hashed_address = keccak256(address);
         let hashed_location = keccak256(location);
-        let mut v = H256::zero();
+        let mut v = U256::zero();
         if let Some(((found_address, found_incarnation), (found_location, value))) = storage_table
             .seek_both_range((address, incarnation), location)
             .await?
@@ -154,7 +154,7 @@ where
                 && incarnation == found_incarnation
                 && location == found_location
             {
-                v = *value;
+                v = value;
             }
         }
         upsert_hashed_storage_value(
@@ -499,7 +499,7 @@ mod tests {
             let (wk, (hashed_location, value)) = walker.try_next().await.unwrap().unwrap();
             assert_eq!(k, wk);
             assert_eq!(hashed_location, keccak256(u256_to_h256(location.into())));
-            assert_eq!(value.0, u256_to_h256(expected_value.into()));
+            assert_eq!(value, expected_value.into());
         }
 
         assert!(walker.try_next().await.unwrap().is_none());

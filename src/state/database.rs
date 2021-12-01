@@ -1,6 +1,5 @@
 use crate::{
-    h256_to_u256, kv::tables, models::*, u256_to_h256, CursorDupSort, MutableCursorDupSort,
-    Transaction,
+    kv::tables, models::*, u256_to_h256, CursorDupSort, MutableCursorDupSort, Transaction,
 };
 use bytes::Bytes;
 use ethereum_types::*;
@@ -17,7 +16,7 @@ pub async fn seek_storage_key<'tx, C: CursorDupSort<'tx, tables::Storage>>(
         .await?
     {
         if a == address && inc == incarnation && l == location {
-            return Ok(Some(h256_to_u256(*v)));
+            return Ok(Some(v));
         }
     }
 
@@ -42,11 +41,8 @@ where
     }
 
     if !value.is_zero() {
-        cur.upsert((
-            (address, incarnation),
-            (u256_to_h256(location), u256_to_h256(value).into()),
-        ))
-        .await?;
+        cur.upsert(((address, incarnation), (u256_to_h256(location), value)))
+            .await?;
     }
 
     Ok(())
@@ -57,13 +53,13 @@ pub async fn seek_hashed_storage_key<'tx, C: CursorDupSort<'tx, tables::HashedSt
     hashed_address: H256,
     incarnation: Incarnation,
     hashed_location: H256,
-) -> anyhow::Result<Option<H256>> {
+) -> anyhow::Result<Option<U256>> {
     if let Some(((a, inc), (l, v))) = cur
         .seek_both_range((hashed_address, incarnation), hashed_location)
         .await?
     {
         if a == hashed_address && inc == incarnation && l == hashed_location {
-            return Ok(Some(*v));
+            return Ok(Some(v));
         }
     }
 
@@ -75,7 +71,7 @@ pub async fn upsert_hashed_storage_value<'tx, C>(
     hashed_address: H256,
     incarnation: Incarnation,
     hashed_location: H256,
-    value: H256,
+    value: U256,
 ) -> anyhow::Result<()>
 where
     C: MutableCursorDupSort<'tx, tables::HashedStorage>,
@@ -88,11 +84,8 @@ where
     }
 
     if !value.is_zero() {
-        cur.upsert((
-            (hashed_address, incarnation),
-            (hashed_location, value.into()),
-        ))
-        .await?;
+        cur.upsert(((hashed_address, incarnation), (hashed_location, value)))
+            .await?;
     }
 
     Ok(())
@@ -114,7 +107,7 @@ pub async fn read_account_storage<'db, Tx: Transaction<'db>>(
     address: Address,
     incarnation: Incarnation,
     location: H256,
-) -> anyhow::Result<Option<H256>> {
+) -> anyhow::Result<Option<U256>> {
     if let Some(((a, inc), (l, v))) = tx
         .cursor_dup_sort(&tables::Storage)
         .await?
@@ -122,7 +115,7 @@ pub async fn read_account_storage<'db, Tx: Transaction<'db>>(
         .await?
     {
         if a == address && inc == incarnation && l == location {
-            return Ok(Some(*v));
+            return Ok(Some(v));
         }
     }
 

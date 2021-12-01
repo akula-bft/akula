@@ -13,7 +13,7 @@ use crate::{
     models::{Account, BlockNumber, Incarnation, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     stages::stage_util::should_do_clean_promotion,
-    zeroless_view, MutableTransaction, StageId,
+    MutableTransaction, StageId,
 };
 use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
@@ -397,7 +397,7 @@ fn build_storage_trie(
     collector: &mut Collector<tables::TrieStorage>,
     address_hash: H256,
     incarnation: Incarnation,
-    storage: &[(H256, H256)],
+    storage: &[(H256, U256)],
 ) -> H256 {
     if storage.is_empty() {
         return EMPTY_ROOT;
@@ -410,13 +410,13 @@ fn build_storage_trie(
     let mut current = storage_iter.next();
 
     while let Some(&(location, value)) = &mut current {
-        let current_value = zeroless_view(&value);
+        let current_value = value.encode();
         let current_key = location.into();
         let prev = storage_iter.next();
 
         let prev_key = prev.map(|&(v, _)| v.into());
 
-        let data = rlp::encode(&current_value).to_vec();
+        let data = rlp::encode(&current_value.as_slice()).to_vec();
 
         builder.handle_range(current_key, data, prev_key);
 
@@ -491,14 +491,14 @@ where
         &mut self,
         address_hash: H256,
         incarnation: Incarnation,
-    ) -> anyhow::Result<Vec<(H256, H256)>> {
-        let mut storage = Vec::<(H256, H256)>::new();
+    ) -> anyhow::Result<Vec<(H256, U256)>> {
+        let mut storage = Vec::<(H256, U256)>::new();
         let mut found = self
             .storage_cursor
             .seek_exact((address_hash, incarnation))
             .await?;
         while let Some((_, storage_entry)) = found {
-            storage.push((storage_entry.0, (storage_entry.1).0));
+            storage.push((storage_entry.0, storage_entry.1));
             found = self.storage_cursor.next_dup().await?;
         }
         Ok(storage)
@@ -704,9 +704,10 @@ mod tests {
     use super::*;
     use crate::{
         crypto::trie_root,
+        h256_to_u256,
         kv::traits::{MutableCursor, MutableKV},
         models::EMPTY_HASH,
-        new_mem_database,
+        new_mem_database, u256_to_h256, zeroless_view,
     };
     use ethereum_types::{H256, U256};
     use hex_literal::hex;
@@ -732,6 +733,10 @@ mod tests {
 
     fn h256s() -> impl Strategy<Value = H256> {
         any::<[u8; 32]>().prop_map(H256::from)
+    }
+
+    fn u256s() -> impl Strategy<Value = U256> {
+        any::<[u8; 32]>().prop_map(|v| h256_to_u256(H256::from(v)))
     }
 
     prop_compose! {
@@ -854,21 +859,22 @@ mod tests {
         do_root_matches(accounts).await;
     }
 
-    type Storage = BTreeMap<H256, H256>;
+    type Storage = BTreeMap<H256, U256>;
 
     fn account_storages() -> impl Strategy<Value = Storage> {
-        prop::collection::btree_map(h256s(), h256s(), 0..100)
+        prop::collection::btree_map(h256s(), u256s(), 0..100)
     }
 
     fn expected_storage_root(storage: Storage) -> H256 {
         if storage.is_empty() {
             EMPTY_ROOT
         } else {
-            trie_root(
-                storage
-                    .iter()
-                    .map(|(k, v)| (k.to_fixed_bytes(), rlp::encode(&zeroless_view(&v)))),
-            )
+            trie_root(storage.iter().map(|(k, v)| {
+                (
+                    k.to_fixed_bytes(),
+                    rlp::encode(&zeroless_view(&u256_to_h256(*v))),
+                )
+            }))
         }
     }
 

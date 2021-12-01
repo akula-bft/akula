@@ -358,7 +358,7 @@ where
                 for (incarnation, storage_entries) in incarnation_entries {
                     for (location, value) in storage_entries {
                         let location = u256_to_h256(location);
-                        let value = u256_to_h256(value);
+                        let value = value;
                         storage_change_table
                             .upsert((
                                 StorageChangeKey {
@@ -400,23 +400,18 @@ mod tests {
         let location_b = H256(hex!(
             "0000000000000000000000000000000000000000000000000000000000000002"
         ));
-        let value_b = H256(hex!(
-            "0000000000000000000000000000000000000000000000000000000000000132"
-        ));
+        let value_b = 0x132.into();
 
         txn.set(
             &tables::Storage,
-            (
-                (address, DEFAULT_INCARNATION),
-                (location_a, u256_to_h256(value_a1).into()),
-            ),
+            ((address, DEFAULT_INCARNATION), (location_a, value_a1)),
         )
         .await
         .unwrap();
 
         txn.set(
             &tables::Storage,
-            ((address, DEFAULT_INCARNATION), (location_b, value_b.into())),
+            ((address, DEFAULT_INCARNATION), (location_b, value_b)),
         )
         .await
         .unwrap();
@@ -466,6 +461,6 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        assert_eq!(db_value_b, h256_to_u256(value_b));
+        assert_eq!(db_value_b, value_b);
     }
 }

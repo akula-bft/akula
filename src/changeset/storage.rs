@@ -8,7 +8,7 @@ use ethereum_types::*;
 #[async_trait]
 impl HistoryKind for StorageHistory {
     type Key = (Address, Incarnation, H256);
-    type Value = H256;
+    type Value = U256;
     type IndexChunkKey = (Address, H256);
     type IndexTable = tables::StorageHistory;
     type ChangeSetTable = tables::StorageChangeSet;
@@ -76,6 +76,7 @@ mod tests {
     use super::*;
     use crate::{
         crypto::*,
+        h256_to_u256,
         kv::{self, traits::*},
     };
     use ethereum_types::{Address, H256};
@@ -84,12 +85,12 @@ mod tests {
 
     const NUM_OF_CHANGES: &[usize] = &[1, 3, 10, 100];
 
-    fn hash_value_generator(j: usize) -> H256 {
-        keccak256(format!("val{}", j).as_bytes())
+    fn hash_value_generator(j: usize) -> U256 {
+        h256_to_u256(keccak256(format!("val{}", j).as_bytes()))
     }
 
-    fn empty_value_generator(_: usize) -> H256 {
-        H256::zero()
+    fn empty_value_generator(_: usize) -> U256 {
+        U256::zero()
     }
 
     fn get_test_data_at_index(
@@ -121,7 +122,7 @@ mod tests {
 
     fn do_test_encoding_storage_new(
         incarnation_generator: impl Fn() -> Incarnation,
-        value_generator: impl Fn(usize) -> H256,
+        value_generator: impl Fn(usize) -> U256,
     ) {
         let f = move |num_of_elements, num_of_keys| {
             let mut ch = StorageChangeSet::new();

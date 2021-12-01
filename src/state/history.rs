@@ -26,7 +26,7 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     incarnation: Incarnation,
     location: H256,
     block_number: impl Into<BlockNumber>,
-) -> anyhow::Result<Option<H256>> {
+) -> anyhow::Result<Option<U256>> {
     if let Some(v) =
         find_storage_by_history(tx, address, incarnation, location, block_number.into()).await?
     {
@@ -98,7 +98,7 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     incarnation: Incarnation,
     location: H256,
     timestamp: BlockNumber,
-) -> anyhow::Result<Option<H256>> {
+) -> anyhow::Result<Option<U256>> {
     let mut ch = tx.cursor(&tables::StorageHistory).await?;
     if let Some((k, v)) = ch
         .seek(BitmapKey {
