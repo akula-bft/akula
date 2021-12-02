@@ -28,11 +28,7 @@ impl Downloader {
         }
     }
 
-    pub async fn run<
-        'downloader,
-        'db: 'downloader,
-        RwTx: kv::traits::MutableTransaction<'db> + 'db,
-    >(
+    pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
     ) -> anyhow::Result<()> {

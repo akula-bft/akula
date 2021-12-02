@@ -1,16 +1,23 @@
-use std::time::Duration;
-
 use crate::{
+    downloader::{opts::Opts, Downloader},
+    sentry::chain_config::ChainsConfig,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     MutableTransaction, StageId,
 };
 use async_trait::async_trait;
-use rand::Rng;
-use tokio::time::sleep;
-use tracing::*;
 
 #[derive(Debug)]
-pub struct HeaderDownload;
+pub struct HeaderDownload {
+    downloader: Downloader,
+}
+
+impl HeaderDownload {
+    pub fn new(opts: Opts, chains_config: ChainsConfig) -> anyhow::Result<Self> {
+        let downloader = Downloader::new(opts, chains_config)?;
+
+        Ok(Self { downloader })
+    }
+}
 
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for HeaderDownload
@@ -29,44 +36,14 @@ where
     where
         'db: 'tx,
     {
-        let _ = tx;
         let past_progress = input.stage_progress.unwrap_or_default();
 
-        if !input.restarted {
-            info!("Waiting for headers...");
-            let dur = Duration::from_millis(rand::thread_rng().gen_range(3000..6000));
-            sleep(dur).await;
-        }
+        self.downloader.run(None, tx).await?;
 
-        info!("Processing headers");
-
-        let target = past_progress + 100;
-
-        let commit_block = rand::random::<bool>()
-            .then(|| past_progress + rand::thread_rng().gen_range(0..*target));
-
-        let mut processed = past_progress;
-        let mut must_commit = false;
-        for block in past_progress..=target {
-            info!(block = block.0, "(mock) Downloading");
-
-            processed.0 += 1;
-
-            if let Some(commit_block) = commit_block {
-                if block == commit_block {
-                    must_commit = true;
-                    break;
-                }
-            }
-
-            let dur = Duration::from_millis(rand::thread_rng().gen_range(0..500));
-            sleep(dur).await;
-        }
-        info!(highest = target.0, "Processed");
         Ok(ExecOutput::Progress {
-            stage_progress: processed,
-            done: !must_commit,
-            must_commit,
+            stage_progress: past_progress,
+            done: false,
+            must_commit: true,
         })
     }
 

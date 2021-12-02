@@ -69,11 +69,7 @@ impl DownloaderLinear {
         Ok(estimated_top_block_num)
     }
 
-    pub async fn run<
-        'downloader,
-        'db: 'downloader,
-        RwTx: kv::traits::MutableTransaction<'db> + 'db,
-    >(
+    pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
     ) -> anyhow::Result<()> {
@@ -139,24 +135,18 @@ impl DownloaderLinear {
         let mut stream = StreamMap::<&str, StageStream>::new();
         stream.insert(
             "fetch_request_stage",
-            make_stage_stream(Box::new(fetch_request_stage)),
+            make_stage_stream(fetch_request_stage),
         );
         stream.insert(
             "fetch_receive_stage",
-            make_stage_stream(Box::new(fetch_receive_stage)),
+            make_stage_stream(fetch_receive_stage),
         );
-        stream.insert("retry_stage", make_stage_stream(Box::new(retry_stage)));
-        stream.insert("verify_stage", make_stage_stream(Box::new(verify_stage)));
-        stream.insert(
-            "verify_link_stage",
-            make_stage_stream(Box::new(verify_link_stage)),
-        );
-        stream.insert(
-            "penalize_stage",
-            make_stage_stream(Box::new(penalize_stage)),
-        );
-        stream.insert("save_stage", make_stage_stream(Box::new(save_stage)));
-        stream.insert("refill_stage", make_stage_stream(Box::new(refill_stage)));
+        stream.insert("retry_stage", make_stage_stream(retry_stage));
+        stream.insert("verify_stage", make_stage_stream(verify_stage));
+        stream.insert("verify_link_stage", make_stage_stream(verify_link_stage));
+        stream.insert("penalize_stage", make_stage_stream(penalize_stage));
+        stream.insert("save_stage", make_stage_stream(save_stage));
+        stream.insert("refill_stage", make_stage_stream(refill_stage));
 
         while let Some((key, result)) = stream.next().await {
             if result.is_err() {

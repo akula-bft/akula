@@ -96,10 +96,6 @@ path = "bin/akula.rs"
 name = "akula"
 
 [[bin]]
-path = "bin/akula-ddl.rs"
-name = "akula-ddl"
-
-[[bin]]
 path = "bin/akula-rpc.rs"
 name = "akula-rpc"
 

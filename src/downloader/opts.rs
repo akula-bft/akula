@@ -4,10 +4,10 @@ use directories::ProjectDirs;
 use std::str::FromStr;
 use structopt::StructOpt;
 
+#[derive(Debug)]
 pub struct DataDirOpt(pub std::path::PathBuf);
 
-#[derive(StructOpt)]
-#[structopt(name = "ddl", about = "test sentry client")]
+#[derive(StructOpt, Debug)]
 pub struct Opts {
     #[structopt(
         long = "sentry.api.addr",
@@ -32,11 +32,17 @@ impl Opts {
             None => Opts::from_args_safe()?,
         };
 
-        if !chain_names.contains(&instance.chain_name.as_str()) {
-            return Err(format_err!("unknown chain '{}'", instance.chain_name));
-        }
+        Self::validate_chain_name(&instance.chain_name, chain_names)?;
 
         Ok(instance)
+    }
+
+    pub fn validate_chain_name(chain_name: &str, chain_names: &[&str]) -> anyhow::Result<()> {
+        if chain_names.contains(&chain_name) {
+            Ok(())
+        } else {
+            Err(format_err!("unknown chain '{}'", chain_name))
+        }
     }
 }
 

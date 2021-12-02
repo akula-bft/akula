@@ -12,6 +12,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
+#[derive(Debug)]
 pub struct Downloader {
     opts: Opts,
     chain_config: ChainConfig,
@@ -27,11 +28,7 @@ impl Downloader {
         Ok(Self { opts, chain_config })
     }
 
-    pub async fn run<
-        'downloader,
-        'db: 'downloader,
-        RwTx: kv::traits::MutableTransaction<'db> + 'db,
-    >(
+    pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         sentry_client_opt: Option<Box<dyn SentryClient>>,
         db_transaction: &'downloader RwTx,
