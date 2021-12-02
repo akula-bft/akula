@@ -20,7 +20,7 @@ pub struct SaveStage<'tx, RwTx> {
     db_transaction: &'tx RwTx,
 }
 
-impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db> + 'db> SaveStage<'tx, RwTx> {
+impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
     pub fn new(header_slices: Arc<HeaderSlices>, db_transaction: &'tx RwTx) -> Self {
         Self {
             header_slices: header_slices.clone(),
@@ -141,9 +141,7 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db> + 'db> SaveStage<'tx, RwTx> {
 }
 
 #[async_trait::async_trait]
-impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db> + 'db> super::stage::Stage
-    for SaveStage<'tx, RwTx>
-{
+impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> super::stage::Stage for SaveStage<'tx, RwTx> {
     async fn execute(&mut self) -> anyhow::Result<()> {
         SaveStage::<RwTx>::execute(self).await
     }

@@ -22,7 +22,7 @@ impl HeaderDownload {
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for HeaderDownload
 where
-    RwTx: MutableTransaction<'db> + 'db,
+    RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
         StageId("HeaderDownload")
