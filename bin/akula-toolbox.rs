@@ -1,4 +1,5 @@
 use akula::{
+    binutil::AkulaDataDir,
     hex_to_bytes,
     kv::traits::KV,
     models::*,
@@ -17,7 +18,7 @@ use tracing_subscriber::{prelude::*, EnvFilter};
 #[structopt(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
 struct Opt {
     #[structopt(long = "datadir", help = "Database directory path", default_value)]
-    pub data_dir: akula::kv::data_dir::DataDir,
+    pub data_dir: AkulaDataDir,
 
     #[structopt(subcommand)]
     pub command: OptCommand,

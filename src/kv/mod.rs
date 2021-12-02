@@ -1,4 +1,3 @@
-pub mod data_dir;
 pub mod mdbx;
 pub mod remote;
 pub mod server;

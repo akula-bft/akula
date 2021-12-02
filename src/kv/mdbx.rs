@@ -49,7 +49,9 @@ impl<E: EnvironmentKind> Environment<E> {
         }
 
         Ok(Self {
-            inner: b.open(path).context("failed to open database")?,
+            inner: b
+                .open(path)
+                .with_context(|| format!("failed to open database at {}", path.display()))?,
             chart,
         })
     }

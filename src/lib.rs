@@ -20,6 +20,8 @@
 )]
 
 pub mod accessors;
+#[doc(hidden)]
+pub mod binutil;
 mod bitmapdb;
 pub mod chain;
 mod changeset;

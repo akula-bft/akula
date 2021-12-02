@@ -1,4 +1,5 @@
 use akula::{
+    binutil::AkulaDataDir,
     kv::{
         tables,
         traits::{MutableKV, KV},
@@ -33,7 +34,7 @@ pub struct Opt {
 
     /// Path to Akula database directory.
     #[structopt(long = "datadir", help = "Database directory path", default_value)]
-    pub data_dir: akula::kv::data_dir::DataDir,
+    pub data_dir: AkulaDataDir,
 
     /// Last block where to sync to.
     #[structopt(long)]
@@ -386,13 +387,17 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting Akula ({})", version_string());
 
+    let erigon_chain_data = opt.erigon_data_dir.join("chaindata");
+
     let erigon_db = Arc::new(akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
-        &opt.erigon_data_dir,
+        &erigon_chain_data,
         akula::kv::tables::CHAINDATA_TABLES.clone(),
     )?);
 
-    let db = akula::kv::new_database(&opt.data_dir.0)?;
+    let akula_chain_data = opt.data_dir.join("chaindata");
+
+    let db = akula::kv::new_database(&akula_chain_data)?;
     async {
         let txn = db.begin_mutable().await?;
         if akula::genesis::initialize_genesis(&txn, akula::res::chainspec::MAINNET.clone()).await? {
