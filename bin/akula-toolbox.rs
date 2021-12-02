@@ -1,4 +1,5 @@
 use akula::{
+    binutil::AkulaDataDir,
     hex_to_bytes,
     kv::traits::KV,
     models::*,
@@ -15,12 +16,18 @@ use tracing_subscriber::{prelude::*, EnvFilter};
 
 #[derive(StructOpt)]
 #[structopt(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
-pub enum Opt {
+struct Opt {
+    #[structopt(long = "datadir", help = "Database directory path", default_value)]
+    pub data_dir: AkulaDataDir,
+
+    #[structopt(subcommand)]
+    pub command: OptCommand,
+}
+
+#[derive(StructOpt)]
+pub enum OptCommand {
     /// Print database statistics
     DbStats {
-        /// Chain data path
-        #[structopt(parse(from_os_str))]
-        chaindata: PathBuf,
         /// Whether to print CSV
         #[structopt(long)]
         csv: bool,
@@ -28,8 +35,6 @@ pub enum Opt {
 
     /// Query database
     DbQuery {
-        #[structopt(long, parse(from_os_str))]
-        chaindata: PathBuf,
         #[structopt(long)]
         table: String,
         #[structopt(long, parse(try_from_str = hex_to_bytes))]
@@ -38,8 +43,6 @@ pub enum Opt {
 
     /// Walk over table entries
     DbWalk {
-        #[structopt(long, parse(from_os_str))]
-        chaindata: PathBuf,
         #[structopt(long)]
         table: String,
         #[structopt(long, parse(try_from_str = hex_to_bytes))]
@@ -59,10 +62,7 @@ pub enum Opt {
     },
 
     /// Execute Block Hashes stage
-    Blockhashes {
-        #[structopt(parse(from_os_str))]
-        chaindata: PathBuf,
-    },
+    Blockhashes,
 
     /// Execute HeaderDownload stage
     #[structopt(name = "download-headers", about = "Run block headers downloader")]
@@ -72,10 +72,10 @@ pub enum Opt {
     },
 }
 
-async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()> {
+async fn blockhashes(data_dir: PathBuf) -> anyhow::Result<()> {
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_rw(
         mdbx::Environment::new(),
-        &chaindata,
+        &data_dir,
         akula::kv::tables::CHAINDATA_TABLES.clone(),
     )?;
 
@@ -84,13 +84,15 @@ async fn blockhashes(chaindata: PathBuf) -> anyhow::Result<()> {
     staged_sync.run(&env).await?;
 }
 
-async fn header_download(opts: akula::downloader::opts::Opts) -> anyhow::Result<()> {
+async fn header_download(
+    data_dir: PathBuf,
+    opts: akula::downloader::opts::Opts,
+) -> anyhow::Result<()> {
     let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
     akula::downloader::opts::Opts::validate_chain_name(
         &opts.chain_name,
         chains_config.chain_names().as_slice(),
     )?;
-    let data_dir = opts.data_dir.0.clone();
 
     let stage = akula::stages::HeaderDownload::new(opts, chains_config)?;
     let db = akula::kv::new_database(&data_dir)?;
@@ -100,10 +102,10 @@ async fn header_download(opts: akula::downloader::opts::Opts) -> anyhow::Result<
     staged_sync.run(&db).await?
 }
 
-async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()> {
+async fn table_sizes(data_dir: PathBuf, csv: bool) -> anyhow::Result<()> {
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
-        &chaindata,
+        &data_dir,
         Default::default(),
     )?;
     let mut sizes = env
@@ -136,10 +138,10 @@ async fn table_sizes(chaindata: PathBuf, csv: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn db_query(chaindata: PathBuf, table: String, key: Bytes) -> anyhow::Result<()> {
+async fn db_query(data_dir: PathBuf, table: String, key: Bytes) -> anyhow::Result<()> {
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
-        &chaindata,
+        &data_dir,
         Default::default(),
     )?;
 
@@ -162,14 +164,14 @@ async fn db_query(chaindata: PathBuf, table: String, key: Bytes) -> anyhow::Resu
 }
 
 async fn db_walk(
-    chaindata: PathBuf,
+    data_dir: PathBuf,
     table: String,
     starting_key: Option<Bytes>,
     max_entries: Option<usize>,
 ) -> anyhow::Result<()> {
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
-        &chaindata,
+        &data_dir,
         Default::default(),
     )?;
 
@@ -273,7 +275,7 @@ async fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> 
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opt = Opt::from_args();
+    let opt: Opt = Opt::from_args();
 
     let filter = if std::env::var(EnvFilter::DEFAULT_ENV)
         .unwrap_or_default()
@@ -289,22 +291,19 @@ async fn main() -> anyhow::Result<()> {
         .with(filter)
         .init();
 
-    match opt {
-        Opt::DbStats { chaindata, csv } => table_sizes(chaindata, csv).await?,
-        Opt::Blockhashes { chaindata } => blockhashes(chaindata).await?,
-        Opt::DbQuery {
-            chaindata,
-            table,
-            key,
-        } => db_query(chaindata, table, key).await?,
-        Opt::DbWalk {
-            chaindata,
+    match opt.command {
+        OptCommand::DbStats { csv } => table_sizes(opt.data_dir.0, csv).await?,
+        OptCommand::Blockhashes => blockhashes(opt.data_dir.0).await?,
+        OptCommand::DbQuery { table, key } => db_query(opt.data_dir.0, table, key).await?,
+        OptCommand::DbWalk {
             table,
             starting_key,
             max_entries,
-        } => db_walk(chaindata, table, starting_key, max_entries).await?,
-        Opt::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table).await?,
-        Opt::HeaderDownload { opts } => header_download(opts).await?,
+        } => db_walk(opt.data_dir.0, table, starting_key, max_entries).await?,
+        OptCommand::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table).await?,
+        OptCommand::HeaderDownload { opts } => {
+            header_download(opt.data_dir.0.clone(), opts).await?
+        }
     }
 
     Ok(())
