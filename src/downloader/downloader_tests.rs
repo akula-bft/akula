@@ -2,6 +2,7 @@ use crate::{
     downloader::{opts::Opts, Downloader},
     kv,
     kv::traits::{MutableKV, MutableTransaction},
+    models::BlockNumber,
     sentry::{chain_config, sentry_client_mock::SentryClientMock},
 };
 
@@ -18,7 +19,7 @@ async fn run_downloader(downloader: Downloader, sentry: SentryClientMock) -> any
     let db = kv::new_mem_database()?;
     let db_transaction = db.begin_mutable().await?;
     downloader
-        .run(Some(Box::new(sentry)), &db_transaction)
+        .run(Some(Box::new(sentry)), &db_transaction, BlockNumber(0))
         .await?;
     db_transaction.commit().await
 }

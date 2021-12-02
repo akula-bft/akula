@@ -1,6 +1,7 @@
 use crate::{
     downloader::opts::Opts,
     kv,
+    models::BlockNumber,
     sentry::{
         chain_config::{ChainConfig, ChainsConfig},
         sentry_client,
@@ -32,7 +33,8 @@ impl Downloader {
         &'downloader self,
         sentry_client_opt: Option<Box<dyn SentryClient>>,
         db_transaction: &'downloader RwTx,
-    ) -> anyhow::Result<()> {
+        start_block_num: BlockNumber,
+    ) -> anyhow::Result<BlockNumber> {
         let status = sentry_client::Status {
             total_difficulty: ethereum_types::U256::zero(),
             best_hash: ethereum_types::H256::zero(),
@@ -65,8 +67,10 @@ impl Downloader {
             self.chain_config.clone(),
             sentry.clone(),
             ui_system.clone(),
-        );
-        headers_downloader.run::<RwTx>(db_transaction).await?;
+        )?;
+        let final_block_num = headers_downloader
+            .run::<RwTx>(db_transaction, start_block_num)
+            .await?;
 
         ui_system.try_lock()?.stop().await?;
 
@@ -75,6 +79,6 @@ impl Downloader {
             sentry_reactor.stop().await?;
         }
 
-        Ok(())
+        Ok(final_block_num)
     }
 }

@@ -8,6 +8,7 @@ use std::str::FromStr;
 /// The preverified hashes are copied from:
 /// https://github.com/ledgerwatch/erigon/blob/devel/turbo/stages/headerdownload/preverified_hashes_mainnet.go
 /// https://github.com/ledgerwatch/erigon/blob/devel/turbo/stages/headerdownload/preverified_hashes_ropsten.go
+#[derive(Clone)]
 pub struct PreverifiedHashesConfig {
     pub hashes: Vec<ethereum_types::H256>,
 }
