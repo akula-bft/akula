@@ -69,24 +69,29 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     // Unwind magic happens here.
                     // Encapsulated into a future for tracing instrumentation.
                     let res: anyhow::Result<()> = async {
-                        let stage_progress = stage_id.get_progress(&tx).await?.unwrap_or_default();
+                        let mut stage_progress =
+                            stage_id.get_progress(&tx).await?.unwrap_or_default();
 
                         if stage_progress > to {
-                            info!("RUNNING");
+                            info!("UNWINDING from {}", stage_progress);
 
-                            stage
-                                .unwind(
-                                    &mut tx,
-                                    UnwindInput {
-                                        stage_progress,
-                                        unwind_to: to,
-                                    },
-                                )
-                                .await?;
+                            while stage_progress > to {
+                                let unwind_output = stage
+                                    .unwind(
+                                        &mut tx,
+                                        UnwindInput {
+                                            stage_progress,
+                                            unwind_to: to,
+                                        },
+                                    )
+                                    .await?;
 
-                            stage_id.save_progress(&tx, to).await?;
+                                stage_progress = unwind_output.stage_progress;
 
-                            info!("DONE");
+                                stage_id.save_progress(&tx, stage_progress).await?;
+                            }
+
+                            info!("DONE @ {}", stage_progress);
                         } else {
                             debug!(
                                 unwind_point = *to,

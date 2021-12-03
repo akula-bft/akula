@@ -3,7 +3,7 @@ use crate::{
         tables::{self, CumulativeData},
         traits::{Cursor, MutableCursor},
     },
-    stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
+    stagedsync::stage::*,
     MutableTransaction, StageId,
 };
 use anyhow::format_err;
@@ -81,12 +81,27 @@ where
         })
     }
 
-    async fn unwind<'tx>(&self, tx: &'tx mut RwTx, input: UnwindInput) -> anyhow::Result<()>
+    async fn unwind<'tx>(
+        &self,
+        tx: &'tx mut RwTx,
+        input: UnwindInput,
+    ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
-        let _ = tx;
-        let _ = input;
-        todo!()
+        let mut cumulative_index_cur = tx.mutable_cursor(&tables::CumulativeIndex).await?;
+
+        while let Some((block_num, _)) = cumulative_index_cur.last().await? {
+            if block_num > input.unwind_to {
+                cumulative_index_cur.delete_current().await?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(UnwindOutput {
+            stage_progress: input.unwind_to,
+            must_commit: true,
+        })
     }
 }

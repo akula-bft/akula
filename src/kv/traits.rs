@@ -198,6 +198,35 @@ where
             }
         })
     }
+
+    fn walk_back<'cur>(
+        &'cur mut self,
+        start_key: Option<T::SeekKey>,
+    ) -> BoxStream<'cur, anyhow::Result<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+        'tx: 'cur,
+    {
+        Box::pin(try_stream! {
+            let start = if let Some(start_key) = start_key {
+                self.seek(start_key).await?
+            } else {
+                self.last().await?
+            };
+            if let Some(mut fv) = start {
+                loop {
+                    yield fv;
+
+                    match self.prev().await? {
+                        Some(fv1) => {
+                            fv = fv1;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        })
+    }
 }
 
 pub fn ttw<'a, T, E>(f: impl Fn(&T) -> bool + 'a) -> impl Fn(&Result<T, E>) -> bool + 'a {

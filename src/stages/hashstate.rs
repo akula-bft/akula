@@ -195,13 +195,65 @@ where
         })
     }
     /// Called when the stage should be unwound. The unwind logic should be there.
-    async fn unwind<'tx>(&self, tx: &'tx mut RwTx, input: UnwindInput) -> anyhow::Result<()>
+    async fn unwind<'tx>(
+        &self,
+        tx: &'tx mut RwTx,
+        input: UnwindInput,
+    ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
-        let _ = tx;
-        let _ = input;
-        todo!()
+        info!("Unwinding hashed accounts");
+        let mut hashed_account_cur = tx.mutable_cursor(&tables::HashedAccount).await?;
+        let mut account_cs_cur = tx.cursor(&tables::AccountChangeSet).await?;
+        let mut walker = account_cs_cur.walk_back(None);
+        while let Some((block_number, tables::AccountChange { address, account })) =
+            walker.try_next().await?
+        {
+            if block_number > input.unwind_to {
+                let hashed_address = keccak256(address);
+
+                if let Some(account) = account {
+                    hashed_account_cur.put(hashed_address, account).await?
+                } else if hashed_account_cur.seek(hashed_address).await?.is_some() {
+                    hashed_account_cur.delete_current().await?
+                }
+            } else {
+                break;
+            }
+        }
+
+        info!("Unwinding hashed storage");
+        let mut hashed_storage_cur = tx.mutable_cursor_dupsort(&tables::HashedStorage).await?;
+        let mut storage_cs_cur = tx.cursor(&tables::StorageChangeSet).await?;
+        let mut walker = storage_cs_cur.walk_back(None);
+        while let Some((
+            tables::StorageChangeKey {
+                block_number,
+                address,
+            },
+            tables::StorageChange { location, value },
+        )) = walker.try_next().await?
+        {
+            if block_number > input.unwind_to {
+                let hashed_address = keccak256(address);
+                let hashed_location = keccak256(location);
+                upsert_hashed_storage_value(
+                    &mut hashed_storage_cur,
+                    hashed_address,
+                    hashed_location,
+                    value,
+                )
+                .await?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(UnwindOutput {
+            stage_progress: input.unwind_to,
+            must_commit: true,
+        })
     }
 }
 

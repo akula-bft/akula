@@ -4,10 +4,7 @@ use crate::{
         traits::{Cursor, MutableCursor, TableEncode},
     },
     models::*,
-    stagedsync::{
-        format_duration,
-        stage::{ExecOutput, Stage, StageInput, UnwindInput},
-    },
+    stagedsync::{format_duration, stage::*},
     MutableTransaction, StageId,
 };
 use async_trait::async_trait;
@@ -159,11 +156,28 @@ where
         })
     }
 
-    async fn unwind<'tx>(&self, _tx: &'tx mut RwTx, _input: UnwindInput) -> anyhow::Result<()>
+    async fn unwind<'tx>(
+        &self,
+        tx: &'tx mut RwTx,
+        input: UnwindInput,
+    ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
-        todo!()
+        let mut senders_cur = tx.mutable_cursor(&tables::TxSender).await?;
+
+        while let Some(((block_number, _), _)) = senders_cur.last().await? {
+            if block_number > input.unwind_to {
+                senders_cur.delete_current().await?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(UnwindOutput {
+            stage_progress: input.unwind_to,
+            must_commit: true,
+        })
     }
 }
 

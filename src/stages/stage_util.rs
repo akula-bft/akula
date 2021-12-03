@@ -1,5 +1,8 @@
 use crate::{
-    kv::{tables, traits::Transaction},
+    kv::{
+        tables,
+        traits::{Transaction, *},
+    },
     models::*,
 };
 use anyhow::format_err;
@@ -15,6 +18,17 @@ where
     'db: 'tx,
     Tx: Transaction<'db>,
 {
+    // TODO: remove me when proper unwind is implemented
+    if tx
+        .cursor(&tables::TrieAccount)
+        .await?
+        .first()
+        .await?
+        .is_none()
+    {
+        return Ok(true);
+    }
+
     let current_gas = tx
         .get(&tables::CumulativeIndex, past_progress)
         .await?

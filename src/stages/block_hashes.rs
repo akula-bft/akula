@@ -3,10 +3,10 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::tables,
+    kv::{tables, traits::*},
     models::*,
-    stagedsync::stage::{ExecOutput, Stage, StageInput},
-    Cursor, MutableTransaction, StageId,
+    stagedsync::stage::*,
+    StageId,
 };
 use async_trait::async_trait;
 use tokio::pin;
@@ -64,12 +64,28 @@ where
         &self,
         tx: &'tx mut RwTx,
         input: crate::stagedsync::stage::UnwindInput,
-    ) -> anyhow::Result<()>
+    ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
-        let _ = tx;
-        let _ = input;
-        todo!()
+        let mut header_number_cur = tx.mutable_cursor(&tables::HeaderNumber).await?;
+        let mut body_cur = tx.mutable_cursor(&tables::CanonicalHeader).await?;
+
+        let mut walker = body_cur.walk_back(None);
+
+        while let Some((block_num, block_hash)) = walker.try_next().await? {
+            if block_num > input.unwind_to {
+                if header_number_cur.seek(block_hash).await?.is_some() {
+                    header_number_cur.delete_current().await?;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(UnwindOutput {
+            stage_progress: input.unwind_to,
+            must_commit: true,
+        })
     }
 }
