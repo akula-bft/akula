@@ -31,7 +31,7 @@ use structopt::StructOpt;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
-pub static DIFFICULTY_DIR: Lazy<PathBuf> = Lazy::new(|| Path::new("BasicTests").to_path_buf());
+pub static DIFFICULTY_DIR: Lazy<PathBuf> = Lazy::new(|| Path::new("DifficultyTests").to_path_buf());
 pub static BLOCKCHAIN_DIR: Lazy<PathBuf> = Lazy::new(|| Path::new("BlockchainTests").to_path_buf());
 pub static TRANSACTION_DIR: Lazy<PathBuf> =
     Lazy::new(|| Path::new("TransactionTests").to_path_buf());
@@ -82,6 +82,20 @@ pub static EXCLUDED_TESTS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
         TRANSACTION_DIR
             .join("ttRSValue")
             .join("TransactionWithSvalueLargerThan_c_secp256k1n_x05.json"),
+        // Edge case unlikely to be reached ever
+        TRANSACTION_DIR
+            .join("ttNonce")
+            .join("TransactionWithHighNonce64Minus1.json"),
+        // Should be fixed in rlp crate
+        TRANSACTION_DIR
+            .join("ttWrongRLP")
+            .join("TRANSCT__RandomByteAtTheEnd.json"),
+        TRANSACTION_DIR
+            .join("ttWrongRLP")
+            .join("TRANSCT__RandomByteAtRLP_9.json"),
+        TRANSACTION_DIR
+            .join("ttWrongRLP")
+            .join("TRANSCT__ZeroByteAtRLP_9.json"),
     ]
 });
 
@@ -104,6 +118,7 @@ enum Network {
     ByzantiumToConstantinopleFixAt5,
     BerlinToLondonAt5,
     EIP2384,
+    ArrowGlacier,
 }
 
 impl FromStr for Network {
@@ -128,6 +143,7 @@ impl FromStr for Network {
             "ByzantiumToConstantinopleFixAt5" => Self::ByzantiumToConstantinopleFixAt5,
             "BerlinToLondonAt5" => Self::BerlinToLondonAt5,
             "EIP2384" => Self::EIP2384,
+            "ArrowGlacier" => Self::ArrowGlacier,
             _ => return Err(()),
         })
     }
@@ -365,6 +381,22 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
             None,
             9000000,
         ),
+        (
+            Network::ArrowGlacier,
+            Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                berlin: Some(0.into()),
+                london: Some(0.into()),
+            },
+            None,
+            10700000,
+        ),
     ]
     .into_iter()
     .map(|(network, upgrades, dao_block, bomb_delay)| {
@@ -374,22 +406,6 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
         )
     })
     .collect()
-});
-
-pub static DIFFICULTY_CONFIG: Lazy<HashMap<String, ChainSpec>> = Lazy::new(|| {
-    hashmap! {
-        "difficulty.json".to_string() => MAINNET.clone(),
-        "difficultyByzantium.json".to_string() => NETWORK_CONFIG[&Network::Byzantium].clone(),
-        "difficultyConstantinople.json".to_string() => NETWORK_CONFIG[&Network::Constantinople].clone(),
-        "difficultyCustomMainNetwork.json".to_string() => MAINNET.clone(),
-        "difficultyEIP2384_random_to20M.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
-        "difficultyEIP2384_random.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
-        "difficultyEIP2384.json".to_string() => NETWORK_CONFIG[&Network::EIP2384].clone(),
-        "difficultyFrontier.json".to_string() => NETWORK_CONFIG[&Network::Frontier].clone(),
-        "difficultyHomestead.json".to_string() => NETWORK_CONFIG[&Network::Homestead].clone(),
-        "difficultyMainNetwork.json".to_string() => MAINNET.clone(),
-        "difficultyRopsten.json".to_string() => ROPSTEN.clone(),
-    }
 });
 
 #[derive(Deserialize, Educe)]
@@ -446,7 +462,7 @@ struct DifficultyTest {
     #[serde(deserialize_with = "deserialize_str_as_u128")]
     current_difficulty: u128,
     #[serde(default)]
-    parent_uncles: Option<H256>,
+    parent_uncles: U256,
 }
 
 #[derive(Debug, Deserialize)]
@@ -646,7 +662,7 @@ fn result_is_expected(
 
 /// https://ethereum-tests.readthedocs.io/en/latest/test_types/blockchain_tests.html
 #[instrument(skip(testdata))]
-async fn blockchain_test(testdata: BlockchainTest, _: Option<ChainSpec>) -> anyhow::Result<()> {
+async fn blockchain_test(testdata: BlockchainTest) -> anyhow::Result<()> {
     let genesis_block = rlp::decode::<Block>(&*testdata.genesis_rlp).unwrap();
 
     let mut state = InMemoryState::default();
@@ -705,7 +721,7 @@ pub struct TransactionTest {
 
 // https://ethereum-tests.readthedocs.io/en/latest/test_types/transaction_tests.html
 #[instrument(skip(testdata))]
-async fn transaction_test(testdata: TransactionTest, _: Option<ChainSpec>) -> anyhow::Result<()> {
+async fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
     let txn = rlp::decode::<akula::models::Transaction>(&testdata.txbytes);
 
     for (key, t) in testdata.result {
@@ -765,49 +781,62 @@ async fn transaction_test(testdata: TransactionTest, _: Option<ChainSpec>) -> an
     Ok(())
 }
 
-#[instrument(skip(config))]
-async fn difficulty_test(
-    testdata: DifficultyTest,
-    config: Option<ChainSpec>,
-) -> anyhow::Result<()> {
-    let parent_has_uncles = testdata
-        .parent_uncles
-        .map(|hash| hash != EMPTY_LIST_HASH)
-        .unwrap_or(false);
+type NetworkDifficultyTests = HashMap<String, DifficultyTest>;
 
-    let config = config.unwrap();
-    let SealVerificationParams::Ethash { homestead_formula, byzantium_formula, difficulty_bomb, .. } = config.consensus.seal_verification else {unreachable!()};
+#[instrument(skip(testdata))]
+async fn difficulty_test(testdata: HashMap<String, Value>) -> anyhow::Result<()> {
+    for (network, testdata) in testdata {
+        if network == "_info" {
+            continue;
+        }
 
-    let calculated_difficulty = canonical_difficulty(
-        testdata.current_block_number,
-        testdata.current_timestamp,
-        testdata.parent_difficulty.into(),
-        testdata.parent_timestamp,
-        parent_has_uncles,
-        switch_is_active(byzantium_formula, testdata.current_block_number),
-        switch_is_active(homestead_formula, testdata.current_block_number),
-        difficulty_bomb.map(|b| BlockDifficultyBombData {
-            delay_to: b.get_delay_to(testdata.current_block_number),
-        }),
-    );
+        let network =
+            Network::from_str(&network).map_err(|_| format_err!("Unknown network: {}", network))?;
+        let testdata = serde_json::from_value::<NetworkDifficultyTests>(testdata)?;
 
-    ensure!(
-        calculated_difficulty.as_u128() == testdata.current_difficulty,
-        "Difficulty mismatch for block {}\n{} != {}",
-        testdata.current_block_number,
-        calculated_difficulty,
-        testdata.current_difficulty
-    );
+        for (_, testdata) in testdata {
+            let parent_has_uncles = if testdata.parent_uncles == 0.into() {
+                false
+            } else if testdata.parent_uncles == 1.into() {
+                true
+            } else {
+                bail!("Invalid parentUncles: {}", testdata.parent_uncles);
+            };
+
+            let config = NETWORK_CONFIG[&network].clone();
+            let SealVerificationParams::Ethash { homestead_formula, byzantium_formula, difficulty_bomb, .. } = config.consensus.seal_verification else {unreachable!()};
+
+            let calculated_difficulty = canonical_difficulty(
+                testdata.current_block_number,
+                testdata.current_timestamp,
+                testdata.parent_difficulty.into(),
+                testdata.parent_timestamp,
+                parent_has_uncles,
+                switch_is_active(byzantium_formula, testdata.current_block_number),
+                switch_is_active(homestead_formula, testdata.current_block_number),
+                difficulty_bomb.map(|b| BlockDifficultyBombData {
+                    delay_to: b.get_delay_to(testdata.current_block_number),
+                }),
+            );
+
+            ensure!(
+                calculated_difficulty.as_u128() == testdata.current_difficulty,
+                "Difficulty mismatch for block {}\n{} != {}",
+                testdata.current_block_number,
+                calculated_difficulty,
+                testdata.current_difficulty
+            );
+        }
+    }
 
     Ok(())
 }
 
-#[instrument(skip(f, config))]
+#[instrument(skip(f))]
 async fn run_test_file<Test, Fut>(
     path: &Path,
     test_names: &HashSet<String>,
-    f: fn(Test, Option<ChainSpec>) -> Fut,
-    config: Option<ChainSpec>,
+    f: fn(Test) -> Fut,
 ) -> RunResults
 where
     Fut: Future<Output = anyhow::Result<()>>,
@@ -823,7 +852,7 @@ where
 
         debug!("Running test {}", test_name);
         out.push({
-            if let Err(e) = (f)(test, config.clone()).await {
+            if let Err(e) = (f)(test).await {
                 error!("{}: {}: {}", path.to_string_lossy(), test_name, e);
                 Status::Failed
             } else {
@@ -916,17 +945,26 @@ async fn main() -> anyhow::Result<()> {
     let test_names = opt.test_names.into_iter().collect();
 
     let mut res = RunResults::default();
-    for (f, config) in &*DIFFICULTY_CONFIG {
-        res += run_test_file(
-            &root_dir.join(&*DIFFICULTY_DIR).join(f),
-            &test_names,
-            difficulty_test,
-            Some(config.clone()),
-        )
-        .await;
-    }
 
     let mut skipped = 0;
+    for entry in walkdir::WalkDir::new(root_dir.join(&*DIFFICULTY_DIR))
+        .into_iter()
+        .filter_entry(|e| {
+            if exclude_test(e.path(), &root_dir) {
+                skipped += 1;
+                return false;
+            }
+
+            true
+        })
+    {
+        let e = entry.unwrap();
+
+        if e.file_type().is_file() {
+            res += run_test_file(e.path(), &test_names, difficulty_test).await;
+        }
+    }
+
     for entry in walkdir::WalkDir::new(root_dir.join(&*BLOCKCHAIN_DIR))
         .into_iter()
         .filter_entry(|e| {
@@ -941,7 +979,7 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, blockchain_test, None).await;
+            res += run_test_file(e.path(), &test_names, blockchain_test).await;
         }
     }
 
@@ -959,7 +997,7 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, transaction_test, None).await;
+            res += run_test_file(e.path(), &test_names, transaction_test).await;
         }
     }
 
