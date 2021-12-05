@@ -33,7 +33,7 @@ mod tests {
     use super::{address::create_address, *};
     use crate::{
         chain::protocol_param::param, crypto::root_hash, res::chainspec::MAINNET,
-        util::test_util::run_test, InMemoryState, DEFAULT_INCARNATION,
+        util::test_util::run_test, InMemoryState,
     };
     use ethereum_types::*;
     use hex_literal::hex;
@@ -160,7 +160,7 @@ mod tests {
 
             let storage_key0 = U256::zero();
             let storage0 = state
-                .read_storage(contract_address, DEFAULT_INCARNATION, storage_key0)
+                .read_storage(contract_address, storage_key0)
                 .await
                 .unwrap();
             assert_eq!(
@@ -171,7 +171,7 @@ mod tests {
             let storage_key1 =
                 hex!("0000000000000000000000000000000000000000000000000000000000000001").into();
             let storage1 = state
-                .read_storage(contract_address, DEFAULT_INCARNATION, storage_key1)
+                .read_storage(contract_address, storage_key1)
                 .await
                 .unwrap();
             assert_eq!(
@@ -218,7 +218,7 @@ mod tests {
             .unwrap();
 
             let storage0 = state
-                .read_storage(contract_address, DEFAULT_INCARNATION, storage_key0)
+                .read_storage(contract_address, storage_key0)
                 .await
                 .unwrap();
             assert_eq!(storage0, new_val.into());

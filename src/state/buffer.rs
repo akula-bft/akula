@@ -1,5 +1,5 @@
 use crate::{
-    accessors,
+    accessors, h256_to_u256,
     kv::{
         tables::{self, AccountChange, StorageChange, StorageChangeKey},
         traits::*,
@@ -19,8 +19,8 @@ use std::{
 // address -> storage-encoded initial value
 pub type AccountChanges = BTreeMap<Address, EncodedAccount>;
 
-// address -> incarnation -> location -> zeroless initial value
-pub type StorageChanges = BTreeMap<Address, BTreeMap<Incarnation, BTreeMap<U256, U256>>>;
+// address -> location -> zeroless initial value
+pub type StorageChanges = BTreeMap<Address, BTreeMap<U256, U256>>;
 
 #[derive(Debug)]
 pub struct Buffer<'db, 'tx, Tx>
@@ -36,15 +36,13 @@ where
 
     accounts: HashMap<Address, Option<Account>>,
 
-    // address -> incarnation -> location -> value
-    storage: HashMap<Address, BTreeMap<Incarnation, HashMap<U256, U256>>>,
+    // address -> location -> value
+    storage: HashMap<Address, HashMap<U256, U256>>,
 
     account_changes: BTreeMap<BlockNumber, AccountChanges>, // per block
     storage_changes: BTreeMap<BlockNumber, StorageChanges>, // per block
 
-    incarnations: BTreeMap<Address, Incarnation>,
     hash_to_code: BTreeMap<H256, Bytes>,
-    storage_prefix_to_code_hash: BTreeMap<(Address, Incarnation), H256>,
 
     // Current block stuff
     block_number: BlockNumber,
@@ -70,9 +68,7 @@ where
             storage: Default::default(),
             account_changes: Default::default(),
             storage_changes: Default::default(),
-            incarnations: Default::default(),
             hash_to_code: Default::default(),
-            storage_prefix_to_code_hash: Default::default(),
             block_number: Default::default(),
             changed_storage: Default::default(),
         }
@@ -110,41 +106,38 @@ where
         }
     }
 
-    async fn read_storage(
-        &self,
-        address: Address,
-        incarnation: Incarnation,
-        location: U256,
-    ) -> anyhow::Result<U256> {
-        if let Some(it1) = self.storage.get(&address) {
-            if let Some(it2) = it1.get(&incarnation) {
-                if let Some(it3) = it2.get(&location) {
-                    return Ok(*it3);
+    async fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256> {
+        if let Some(account_storage) = self.storage.get(&address) {
+            if let Some(value) = account_storage.get(&location) {
+                return Ok(*value);
+            }
+        }
+
+        accessors::state::storage::read(self.txn, address, location, self.historical_block).await
+    }
+
+    async fn all_storage(&self, address: Address) -> anyhow::Result<HashMap<U256, U256>> {
+        let mut out = HashMap::new();
+
+        let mut cursor = self.txn.cursor_dup_sort(&tables::Storage).await?;
+        if let Some((_, (location, entry))) = cursor.seek_exact(address).await? {
+            out.insert(h256_to_u256(location), entry);
+            while let Some((_, (location, entry))) = cursor.next_dup().await? {
+                out.insert(h256_to_u256(location), entry);
+            }
+        }
+
+        if let Some(address_storage) = self.storage.get(&address) {
+            for (&location, &value) in address_storage {
+                if value.is_zero() {
+                    out.remove(&location);
+                } else {
+                    out.insert(location, value);
                 }
             }
         }
 
-        accessors::state::storage::read(
-            self.txn,
-            address,
-            incarnation,
-            location,
-            self.historical_block,
-        )
-        .await
-    }
-
-    // Previous non-zero incarnation of an account; 0 if none exists.
-    async fn previous_incarnation(&self, address: Address) -> anyhow::Result<Incarnation> {
-        if let Some(inc) = self.incarnations.get(&address).copied() {
-            return Ok(inc);
-        }
-
-        Ok(
-            accessors::state::read_previous_incarnation(self.txn, address, self.historical_block)
-                .await?
-                .unwrap_or_else(|| 0.into()),
-        )
+        Ok(out)
     }
 
     async fn read_header(
@@ -205,8 +198,7 @@ where
         if self.block_number >= self.prune_from {
             let mut encoded_initial = EncodedAccount::default();
             if let Some(initial) = &initial {
-                let omit_code_hash = !account_deleted;
-                encoded_initial = initial.encode_for_storage(omit_code_hash);
+                encoded_initial = initial.encode_for_storage();
             }
 
             self.account_changes
@@ -220,25 +212,10 @@ where
         }
 
         self.accounts.insert(address, current);
-
-        if account_deleted {
-            let initial = initial.expect("deleted account must have existed before");
-            if initial.incarnation.0 > 0 {
-                self.incarnations.insert(address, initial.incarnation);
-            }
-        }
     }
 
-    async fn update_account_code(
-        &mut self,
-        address: Address,
-        incarnation: Incarnation,
-        code_hash: H256,
-        code: Bytes,
-    ) -> anyhow::Result<()> {
+    async fn update_code(&mut self, code_hash: H256, code: Bytes) -> anyhow::Result<()> {
         self.hash_to_code.insert(code_hash, code);
-        self.storage_prefix_to_code_hash
-            .insert((address, incarnation), code_hash);
 
         Ok(())
     }
@@ -246,7 +223,6 @@ where
     async fn update_storage(
         &mut self,
         address: Address,
-        incarnation: Incarnation,
         location: U256,
         initial: U256,
         current: U256,
@@ -262,15 +238,11 @@ where
                 .or_default()
                 .entry(address)
                 .or_default()
-                .entry(incarnation)
-                .or_default()
                 .insert(location, initial);
         }
 
         self.storage
             .entry(address)
-            .or_default()
-            .entry(incarnation)
             .or_default()
             .insert(location, current);
 
@@ -290,8 +262,6 @@ where
 
         let addresses = self.accounts.keys().chain(self.storage.keys());
 
-        let mut storage_keys = Vec::new();
-
         for &address in addresses {
             if let Some(account) = self.accounts.get(&address) {
                 if account_table.seek_exact(address).await?.is_some() {
@@ -300,49 +270,21 @@ where
 
                 if let Some(account) = account {
                     account_table
-                        .upsert(address, account.encode_for_storage(false))
+                        .upsert(address, account.encode_for_storage())
                         .await?;
                 }
             }
 
             if let Some(storage) = self.storage.get(&address) {
-                for (&incarnation, contract_storage) in storage {
-                    storage_keys.clear();
-
-                    for &x in contract_storage.keys() {
-                        storage_keys.push(x);
-                    }
-                    storage_keys.sort_unstable();
-
-                    for &k in &storage_keys {
-                        upsert_storage_value(
-                            &mut storage_table,
-                            address,
-                            incarnation,
-                            k,
-                            contract_storage[&k],
-                        )
-                        .await?;
-                    }
+                for (&k, &v) in storage {
+                    upsert_storage_value(&mut storage_table, address, k, v).await?;
                 }
             }
-        }
-
-        let mut incarnation_table = self.txn.mutable_cursor(&tables::IncarnationMap).await?;
-        for (address, incarnation) in self.incarnations {
-            incarnation_table.upsert(address, incarnation).await?;
         }
 
         let mut code_table = self.txn.mutable_cursor(&tables::Code).await?;
         for (code_hash, code) in self.hash_to_code {
             code_table.upsert(code_hash, code).await?;
-        }
-
-        let mut code_hash_table = self.txn.mutable_cursor(&tables::PlainCodeHash).await?;
-        for ((address, incarnation), code_hash) in self.storage_prefix_to_code_hash {
-            code_hash_table
-                .upsert((address, incarnation), code_hash)
-                .await?;
         }
 
         let mut account_change_table = self.txn.mutable_cursor(&tables::AccountChangeSet).await?;
@@ -356,22 +298,19 @@ where
 
         let mut storage_change_table = self.txn.mutable_cursor(&tables::StorageChangeSet).await?;
         for (block_number, storage_entries) in self.storage_changes {
-            for (address, incarnation_entries) in storage_entries {
-                for (incarnation, storage_entries) in incarnation_entries {
-                    for (location, value) in storage_entries {
-                        let location = u256_to_h256(location);
-                        let value = value;
-                        storage_change_table
-                            .upsert(
-                                StorageChangeKey {
-                                    block_number,
-                                    address,
-                                    incarnation,
-                                },
-                                StorageChange { location, value },
-                            )
-                            .await?;
-                    }
+            for (address, storage_entries) in storage_entries {
+                for (location, value) in storage_entries {
+                    let location = u256_to_h256(location);
+                    let value = value;
+                    storage_change_table
+                        .upsert(
+                            StorageChangeKey {
+                                block_number,
+                                address,
+                            },
+                            StorageChange { location, value },
+                        )
+                        .await?;
                 }
             }
         }
@@ -383,7 +322,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{h256_to_u256, kv::traits::*, new_mem_database, DEFAULT_INCARNATION};
+    use crate::{h256_to_u256, kv::traits::*, new_mem_database};
     use hex_literal::hex;
 
     #[tokio::test]
@@ -404,27 +343,19 @@ mod tests {
         ));
         let value_b = 0x132.into();
 
-        txn.set(
-            &tables::Storage,
-            (address, DEFAULT_INCARNATION),
-            (location_a, value_a1),
-        )
-        .await
-        .unwrap();
+        txn.set(&tables::Storage, address, (location_a, value_a1))
+            .await
+            .unwrap();
 
-        txn.set(
-            &tables::Storage,
-            (address, DEFAULT_INCARNATION),
-            (location_b, value_b),
-        )
-        .await
-        .unwrap();
+        txn.set(&tables::Storage, address, (location_b, value_b))
+            .await
+            .unwrap();
 
         let mut buffer = Buffer::new(&txn, 0.into(), None);
 
         assert_eq!(
             buffer
-                .read_storage(address, DEFAULT_INCARNATION, h256_to_u256(location_a))
+                .read_storage(address, h256_to_u256(location_a))
                 .await
                 .unwrap(),
             value_a1
@@ -432,13 +363,7 @@ mod tests {
 
         // Update only location A
         buffer
-            .update_storage(
-                address,
-                DEFAULT_INCARNATION,
-                h256_to_u256(location_a),
-                value_a1,
-                value_a2,
-            )
+            .update_storage(address, h256_to_u256(location_a), value_a1, value_a2)
             .await
             .unwrap();
         buffer.write_to_db().await.unwrap();
@@ -447,7 +372,6 @@ mod tests {
         let db_value_a = seek_storage_key(
             &mut txn.cursor_dup_sort(&tables::Storage).await.unwrap(),
             address,
-            DEFAULT_INCARNATION,
             h256_to_u256(location_a),
         )
         .await
@@ -459,7 +383,6 @@ mod tests {
         let db_value_b = seek_storage_key(
             &mut txn.cursor_dup_sort(&tables::Storage).await.unwrap(),
             address,
-            DEFAULT_INCARNATION,
             h256_to_u256(location_b),
         )
         .await

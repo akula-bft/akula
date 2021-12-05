@@ -23,17 +23,14 @@ pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
-    incarnation: Incarnation,
     location: H256,
     block_number: impl Into<BlockNumber>,
 ) -> anyhow::Result<Option<U256>> {
-    if let Some(v) =
-        find_storage_by_history(tx, address, incarnation, location, block_number.into()).await?
-    {
+    if let Some(v) = find_storage_by_history(tx, address, location, block_number.into()).await? {
         return Ok(Some(v));
     }
 
-    read_account_storage(tx, address, incarnation, location).await
+    read_account_storage(tx, address, location).await
 }
 
 pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -69,22 +66,6 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
                 }
             };
 
-            //restore codehash
-            if let Some(mut acc) = Account::decode_for_storage(&*data)? {
-                if acc.incarnation.0 > 0 && acc.code_hash == EMPTY_HASH {
-                    if let Some(code_hash) = tx
-                        .get(&tables::PlainCodeHash, (address, acc.incarnation))
-                        .await?
-                    {
-                        acc.code_hash = code_hash;
-                    }
-
-                    let data = acc.encode_for_storage(false);
-
-                    return Ok(Some(data));
-                }
-            }
-
             return Ok(Some(data));
         }
     }
@@ -95,7 +76,6 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
-    incarnation: Incarnation,
     location: H256,
     timestamp: BlockNumber,
 ) -> anyhow::Result<Option<U256>> {
@@ -116,12 +96,8 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
             if let Some(change_set_block) = change_set_block {
                 let data = {
                     let mut c = tx.cursor_dup_sort(&tables::StorageChangeSet).await?;
-                    StorageHistory::find(
-                        &mut c,
-                        change_set_block.into(),
-                        (address, incarnation, location),
-                    )
-                    .await?
+                    StorageHistory::find(&mut c, change_set_block.into(), (address, location))
+                        .await?
                 };
 
                 if let Some(data) = data {
