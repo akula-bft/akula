@@ -5,7 +5,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use roaring::RoaringTreemap;
-use std::{collections::BTreeSet, fmt::Debug};
+use std::{collections::BTreeMap, fmt::Debug};
 
 mod account;
 mod storage;
@@ -27,24 +27,17 @@ where
 pub trait ChangeKey: Eq + Ord + Debug {}
 impl<T> ChangeKey for T where T: Eq + Ord + Debug {}
 
-pub type Change<K, V> = (K, V);
-
-pub type ChangeSet<K> = BTreeSet<Change<<K as HistoryKind>::Key, <K as HistoryKind>::Value>>;
+pub type ChangeSet<K> = BTreeMap<<K as HistoryKind>::Key, <K as HistoryKind>::Value>;
 
 #[async_trait]
 pub trait HistoryKind: Send {
     type Key: Eq + Ord + Sync;
     type Value: Debug + Sync;
     type ChangeSetTable: DupSort;
-    type IndexChunkKey: Clone + PartialEq + Send + Sync;
-    type IndexTable: Table<
-            Key = BitmapKey<Self::IndexChunkKey>,
-            Value = RoaringTreemap,
-            SeekKey = BitmapKey<Self::IndexChunkKey>,
-        > + Default;
+    type IndexTable: Table<Key = BitmapKey<Self::Key>, Value = RoaringTreemap, SeekKey = BitmapKey<Self::Key>>
+        + Default;
     type EncodedStream<'cs>: EncodedStream<'cs, Self::ChangeSetTable>;
 
-    fn index_chunk_key(key: Self::Key) -> Self::IndexChunkKey;
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: BlockNumber,
@@ -58,5 +51,5 @@ pub trait HistoryKind: Send {
     fn decode(
         k: <Self::ChangeSetTable as Table>::Key,
         v: <Self::ChangeSetTable as Table>::Value,
-    ) -> (BlockNumber, Change<Self::Key, Self::Value>);
+    ) -> (BlockNumber, (Self::Key, Self::Value));
 }

@@ -10,14 +10,12 @@ pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     timestamp: BlockNumber,
-) -> anyhow::Result<Option<EncodedAccount>> {
+) -> anyhow::Result<Option<Account>> {
     if let Some(v) = find_data_by_history(tx, address, timestamp).await? {
         return Ok(Some(v));
     }
 
-    tx.get(&tables::Account, address)
-        .await
-        .map(|opt| opt.map(From::from))
+    tx.get(&tables::Account, address).await
 }
 
 pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -37,7 +35,7 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
     address: Address,
     block_number: BlockNumber,
-) -> anyhow::Result<Option<EncodedAccount>> {
+) -> anyhow::Result<Option<Account>> {
     let mut ch = tx.cursor(&tables::AccountHistory).await?;
     if let Some((k, v)) = ch
         .seek(BitmapKey {
@@ -49,24 +47,12 @@ pub async fn find_data_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         if k.inner == address {
             let change_set_block = v.iter().find(|n| *n >= *block_number);
 
-            let data = {
-                if let Some(change_set_block) = change_set_block {
-                    let data = {
-                        let mut c = tx.cursor_dup_sort(&tables::AccountChangeSet).await?;
-                        AccountHistory::find(&mut c, BlockNumber(change_set_block), address).await?
-                    };
-
-                    if let Some(data) = data {
-                        data
-                    } else {
-                        return Ok(None);
-                    }
-                } else {
-                    return Ok(None);
-                }
-            };
-
-            return Ok(Some(data));
+            if let Some(change_set_block) = change_set_block {
+                let mut c = tx.cursor_dup_sort(&tables::AccountChangeSet).await?;
+                return AccountHistory::find(&mut c, BlockNumber(change_set_block), address)
+                    .await
+                    .map(Option::flatten);
+            }
         }
     }
 

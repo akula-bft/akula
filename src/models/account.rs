@@ -9,7 +9,7 @@ use rlp_derive::*;
 use serde::*;
 use std::collections::HashMap;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Account {
     pub nonce: u64,
     pub balance: U256,

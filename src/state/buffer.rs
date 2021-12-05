@@ -17,7 +17,7 @@ use std::{
 };
 
 // address -> storage-encoded initial value
-pub type AccountChanges = BTreeMap<Address, EncodedAccount>;
+pub type AccountChanges = BTreeMap<Address, Option<Account>>;
 
 // address -> location -> zeroless initial value
 pub type StorageChanges = BTreeMap<Address, BTreeMap<U256, U256>>;
@@ -83,14 +83,10 @@ where
 {
     async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
         if let Some(account) = self.accounts.get(&address) {
-            return Ok(account.clone());
+            return Ok(*account);
         }
 
-        if let Some(enc) = self.txn.get(&tables::Account, address).await? {
-            return Account::decode_for_storage(&enc);
-        }
-
-        Ok(None)
+        self.txn.get(&tables::Account, address).await
     }
 
     async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
@@ -196,15 +192,10 @@ where
         }
 
         if self.block_number >= self.prune_from {
-            let mut encoded_initial = EncodedAccount::default();
-            if let Some(initial) = &initial {
-                encoded_initial = initial.encode_for_storage();
-            }
-
             self.account_changes
                 .entry(self.block_number)
                 .or_default()
-                .insert(address, encoded_initial);
+                .insert(address, initial);
         }
 
         if equal {
@@ -269,9 +260,7 @@ where
                 }
 
                 if let Some(account) = account {
-                    account_table
-                        .upsert(address, account.encode_for_storage())
-                        .await?;
+                    account_table.upsert(address, *account).await?;
                 }
             }
 

@@ -10,7 +10,7 @@ use crate::{
         traits::{Cursor, CursorDupSort},
         TableEncode,
     },
-    models::{Account, BlockNumber, EncodedAccount, RlpAccount, EMPTY_ROOT},
+    models::{Account, BlockNumber, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput},
     stages::stage_util::should_do_clean_promotion,
     MutableTransaction, StageId,
@@ -456,11 +456,9 @@ where
 
     async fn do_get_prev_account(
         &mut self,
-        value: Option<(H256, EncodedAccount)>,
+        value: Option<(H256, Account)>,
     ) -> anyhow::Result<Option<(H256, RlpAccount)>> {
-        if let Some(fused_value) = value {
-            let (address_hash, encoded_account) = fused_value;
-            let account = Account::decode_for_storage(encoded_account.as_ref())?.unwrap();
+        if let Some((address_hash, account)) = value {
             let storage_root = self.visit_storage(address_hash).await?;
             Ok(Some((address_hash, account.to_rlp(storage_root))))
         } else {
@@ -751,8 +749,7 @@ mod tests {
 
         {
             let mut cursor = tx.mutable_cursor(&tables::HashedAccount).await.unwrap();
-            for (address_hash, account_model) in accounts {
-                let account = account_model.encode_for_storage();
+            for (address_hash, account) in accounts {
                 cursor.append(address_hash, account).await.unwrap();
             }
         }

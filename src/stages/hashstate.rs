@@ -400,12 +400,9 @@ mod tests {
 
         let mut hashed_address_table = tx.cursor(&tables::HashedAccount).await.unwrap();
         let sender_keccak = keccak256(sender);
-        let (_, account_encoded) = hashed_address_table
+        let (_, account) = hashed_address_table
             .seek_exact(sender_keccak)
             .await
-            .unwrap()
-            .unwrap();
-        let account = Account::decode_for_storage(&*account_encoded)
             .unwrap()
             .unwrap();
         assert_eq!(account.nonce, 3);

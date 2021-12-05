@@ -74,17 +74,6 @@ where
     Ok(())
 }
 
-pub async fn read_account_data<'db, Tx: Transaction<'db>>(
-    tx: &Tx,
-    address: Address,
-) -> anyhow::Result<Option<Account>> {
-    if let Some(encoded) = tx.get(&tables::Account, address).await? {
-        return Account::decode_for_storage(&*encoded);
-    }
-
-    Ok(None)
-}
-
 pub async fn read_account_storage<'db, Tx: Transaction<'db>>(
     tx: &Tx,
     address: Address,

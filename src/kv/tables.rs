@@ -1,6 +1,6 @@
 use super::*;
 use crate::{models::*, zeroless_view, StageId};
-use anyhow::bail;
+use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
 use bytes::{Bytes, BytesMut};
@@ -599,10 +599,24 @@ impl DupSort for CallTraceSet {
 
 pub type AccountChangeKey = BlockNumber;
 
+impl TableEncode for crate::models::Account {
+    type Encoded = EncodedAccount;
+
+    fn encode(self) -> Self::Encoded {
+        self.encode_for_storage()
+    }
+}
+
+impl TableDecode for crate::models::Account {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        crate::models::Account::decode_for_storage(b)?.ok_or_else(|| format_err!("cannot be empty"))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountChange {
     pub address: Address,
-    pub account: EncodedAccount,
+    pub account: Option<crate::models::Account>,
 }
 
 impl TableEncode for AccountChange {
@@ -611,7 +625,9 @@ impl TableEncode for AccountChange {
     fn encode(self) -> Self::Encoded {
         let mut out = Self::Encoded::default();
         out.try_extend_from_slice(&self.address.encode()).unwrap();
-        out.try_extend_from_slice(&self.account).unwrap();
+        if let Some(account) = self.account {
+            out.try_extend_from_slice(&account.encode()).unwrap();
+        }
         out
     }
 }
@@ -623,8 +639,12 @@ impl TableDecode for AccountChange {
         }
 
         Ok(Self {
-            address: Address::decode(&b[..ADDRESS_LENGTH])?,
-            account: EncodedAccount::decode(&b[ADDRESS_LENGTH..])?,
+            address: TableDecode::decode(&b[..ADDRESS_LENGTH])?,
+            account: if b.len() > ADDRESS_LENGTH {
+                Some(TableDecode::decode(&b[ADDRESS_LENGTH..])?)
+            } else {
+                None
+            },
         })
     }
 }
@@ -774,11 +794,11 @@ impl TableDecode for CallTraceSetEntry {
     }
 }
 
-decl_table!(Account => Address => EncodedAccount);
+decl_table!(Account => Address => crate::models::Account);
 decl_table!(Storage => Address => (H256, U256));
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
 decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => BlockNumber);
-decl_table!(HashedAccount => H256 => EncodedAccount);
+decl_table!(HashedAccount => H256 => crate::models::Account);
 decl_table!(HashedStorage => H256 => (H256, U256));
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
