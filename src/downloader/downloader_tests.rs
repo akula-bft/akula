@@ -1,27 +1,53 @@
 use crate::{
-    downloader::{opts::Opts, Downloader},
+    downloader::{opts::Opts, sentry_status_provider::SentryStatusProvider, Downloader},
     kv,
     kv::traits::{MutableKV, MutableTransaction},
     models::BlockNumber,
-    sentry::{chain_config, sentry_client_mock::SentryClientMock},
+    sentry::{
+        chain_config, sentry_client_connector,
+        sentry_client_connector::SentryClientConnectorTest,
+        sentry_client_mock::SentryClientMock,
+        sentry_client_reactor::{SentryClientReactor, SentryClientReactorShared},
+    },
 };
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-fn make_downloader() -> Downloader {
+fn make_chain_config() -> chain_config::ChainConfig {
     let chains_config = chain_config::ChainsConfig::new().unwrap();
     let args = Vec::<String>::new();
     let opts = Opts::new(Some(args), chains_config.chain_names().as_slice()).unwrap();
-    let downloader = Downloader::new(opts, chains_config).unwrap();
-    let _ = downloader;
-    downloader
+    chains_config.get(&opts.chain_name).unwrap().clone()
 }
 
-async fn run_downloader(downloader: Downloader, sentry: SentryClientMock) -> anyhow::Result<()> {
+fn make_sentry_reactor(
+    sentry: SentryClientMock,
+    current_status_stream: sentry_client_connector::StatusStream,
+) -> SentryClientReactorShared {
+    let sentry_connector = Box::new(SentryClientConnectorTest::new(Box::new(sentry)));
+    let sentry_reactor = SentryClientReactor::new(sentry_connector, current_status_stream);
+    Arc::new(RwLock::new(sentry_reactor))
+}
+
+async fn run_downloader(
+    downloader: Downloader,
+    sentry: SentryClientReactorShared,
+) -> anyhow::Result<BlockNumber> {
+    {
+        sentry.write().await.start()?;
+    }
+
     let db = kv::new_mem_database()?;
     let db_transaction = db.begin_mutable().await?;
-    downloader
-        .run(Some(Box::new(sentry)), &db_transaction, BlockNumber(0))
-        .await?;
-    db_transaction.commit().await
+
+    let result = downloader.run(&db_transaction, BlockNumber(0)).await?;
+
+    db_transaction.commit().await?;
+
+    {
+        sentry.write().await.stop().await?;
+    }
+    Ok(result)
 }
 
 fn setup_logging() {
@@ -34,7 +60,11 @@ fn setup_logging() {
 async fn noop() {
     setup_logging();
 
-    let downloader = make_downloader();
     let sentry = SentryClientMock::new();
-    run_downloader(downloader, sentry).await.unwrap();
+
+    let chain_config = make_chain_config();
+    let status_provider = SentryStatusProvider::new(chain_config.clone());
+    let sentry_reactor = make_sentry_reactor(sentry, status_provider.current_status_stream());
+    let downloader = Downloader::new(chain_config, sentry_reactor.clone(), status_provider);
+    run_downloader(downloader, sentry_reactor).await.unwrap();
 }

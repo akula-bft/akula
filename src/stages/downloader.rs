@@ -1,7 +1,7 @@
 use crate::{
-    downloader::{opts::Opts, Downloader},
+    downloader::{sentry_status_provider::SentryStatusProvider, Downloader},
     models::BlockNumber,
-    sentry::chain_config::ChainsConfig,
+    sentry::{chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared},
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     MutableTransaction, StageId,
 };
@@ -13,10 +13,14 @@ pub struct HeaderDownload {
 }
 
 impl HeaderDownload {
-    pub fn new(opts: Opts, chains_config: ChainsConfig) -> anyhow::Result<Self> {
-        let downloader = Downloader::new(opts, chains_config)?;
+    pub fn new(
+        chain_config: ChainConfig,
+        sentry: SentryClientReactorShared,
+        sentry_status_provider: SentryStatusProvider,
+    ) -> Self {
+        let downloader = Downloader::new(chain_config, sentry, sentry_status_provider);
 
-        Ok(Self { downloader })
+        Self { downloader }
     }
 }
 
@@ -40,7 +44,7 @@ where
         let past_progress = input.stage_progress.unwrap_or_default();
 
         let start_block_num = BlockNumber(past_progress.0 + 1);
-        let final_block_num = self.downloader.run(None, tx, start_block_num).await?;
+        let final_block_num = self.downloader.run(tx, start_block_num).await?;
 
         let stage_progress = if final_block_num.0 > 0 {
             BlockNumber(final_block_num.0 - 1)
