@@ -1,18 +1,19 @@
 use crate::{
     downloader::{
-        headers::{downloader_linear, downloader_preverified},
+        headers::{downloader_linear, downloader_preverified, header_slices},
         ui_system::UISystem,
     },
     kv,
-    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
+    models::BlockNumber,
+    sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct Downloader {
-    chain_config: ChainConfig,
-    sentry: SentryClientReactorShared,
-    ui_system: Arc<Mutex<UISystem>>,
+    downloader_preverified: downloader_preverified::DownloaderPreverified,
+    downloader_linear: downloader_linear::DownloaderLinear,
+    genesis_block_hash: ethereum_types::H256,
 }
 
 impl Downloader {
@@ -20,40 +21,92 @@ impl Downloader {
         chain_config: ChainConfig,
         sentry: SentryClientReactorShared,
         ui_system: Arc<Mutex<UISystem>>,
-    ) -> Self {
-        Self {
-            chain_config,
+    ) -> anyhow::Result<Self> {
+        let mem_limit = 50 << 20; /* 50 Mb */
+
+        let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
+            chain_config.chain_name(),
+            mem_limit,
+            sentry.clone(),
+            ui_system.clone(),
+        )?;
+
+        let downloader_linear = downloader_linear::DownloaderLinear::new(
+            chain_config.clone(),
+            mem_limit,
             sentry,
             ui_system,
-        }
+        );
+
+        let instance = Self {
+            downloader_preverified,
+            downloader_linear,
+            genesis_block_hash: chain_config.genesis_block_hash(),
+        };
+        Ok(instance)
+    }
+
+    async fn linear_start_block_id<
+        'downloader,
+        'db: 'downloader,
+        RwTx: kv::traits::MutableTransaction<'db>,
+    >(
+        &'downloader self,
+        db_transaction: &'downloader RwTx,
+        prev_final_block_num: BlockNumber,
+    ) -> anyhow::Result<BlockHashAndNumber> {
+        // start from one slice back where the hash is known
+        let linear_start_block_num = if prev_final_block_num.0 > 0 {
+            let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
+            (prev_final_block_num.0 - 1) / slice_size * slice_size
+        } else {
+            0
+        };
+        let linear_start_block_num = BlockNumber(linear_start_block_num);
+
+        let linear_start_block_hash = if linear_start_block_num.0 > 0 {
+            let hash_opt = db_transaction
+                .get(&kv::tables::CanonicalHeader, linear_start_block_num)
+                .await?;
+            hash_opt.ok_or_else(|| {
+                anyhow::format_err!("Downloader inconsistent state: reported done until header {}, but header {} hash not found.",
+                    prev_final_block_num.0,
+                    linear_start_block_num.0)
+            })?
+        } else {
+            self.genesis_block_hash
+        };
+
+        let linear_start_block_id = BlockHashAndNumber {
+            number: linear_start_block_num,
+            hash: linear_start_block_hash,
+        };
+        Ok(linear_start_block_id)
     }
 
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
-    ) -> anyhow::Result<()> {
-        let mem_limit = 50 << 20; /* 50 Mb */
+        start_block_num: BlockNumber,
+    ) -> anyhow::Result<BlockNumber> {
+        let preverified_report = self
+            .downloader_preverified
+            .run::<RwTx>(db_transaction, start_block_num)
+            .await?;
 
-        let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
-            self.chain_config.chain_name(),
-            mem_limit,
-            self.sentry.clone(),
-            self.ui_system.clone(),
-        );
+        let linear_start_block_id = self
+            .linear_start_block_id(db_transaction, preverified_report.final_block_num)
+            .await?;
 
-        let preverified_report = downloader_preverified.run::<RwTx>(db_transaction).await?;
+        let final_block_num = self
+            .downloader_linear
+            .run::<RwTx>(
+                db_transaction,
+                linear_start_block_id,
+                preverified_report.estimated_top_block_num,
+            )
+            .await?;
 
-        let downloader_linear = downloader_linear::DownloaderLinear::new(
-            self.chain_config.clone(),
-            preverified_report.final_block_id,
-            preverified_report.estimated_top_block_num,
-            mem_limit,
-            self.sentry.clone(),
-            self.ui_system.clone(),
-        );
-
-        downloader_linear.run::<RwTx>(db_transaction).await?;
-
-        Ok(())
+        Ok(final_block_num)
     }
 }

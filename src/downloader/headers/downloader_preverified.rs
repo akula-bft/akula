@@ -13,7 +13,7 @@ use crate::{
     },
     kv,
     models::BlockNumber,
-    sentry::{messages::BlockHashAndNumber, sentry_client_reactor::*},
+    sentry::sentry_client_reactor::*,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -21,14 +21,14 @@ use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
 pub struct DownloaderPreverified {
-    chain_name: String,
+    preverified_hashes_config: PreverifiedHashesConfig,
     mem_limit: usize,
     sentry: SentryClientReactorShared,
     ui_system: Arc<Mutex<UISystem>>,
 }
 
 pub struct DownloaderPreverifiedReport {
-    pub final_block_id: BlockHashAndNumber,
+    pub final_block_num: BlockNumber,
     pub estimated_top_block_num: Option<BlockNumber>,
 }
 
@@ -38,34 +38,42 @@ impl DownloaderPreverified {
         mem_limit: usize,
         sentry: SentryClientReactorShared,
         ui_system: Arc<Mutex<UISystem>>,
-    ) -> Self {
-        Self {
-            chain_name,
+    ) -> anyhow::Result<Self> {
+        let preverified_hashes_config = PreverifiedHashesConfig::new(&chain_name)?;
+
+        let instance = Self {
+            preverified_hashes_config,
             mem_limit,
             sentry,
             ui_system,
-        }
+        };
+        Ok(instance)
+    }
+
+    fn final_block_num(&self) -> BlockNumber {
+        let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
+        BlockNumber((self.preverified_hashes_config.hashes.len() as u64 - 1) * slice_size)
     }
 
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
+        start_block_num: BlockNumber,
     ) -> anyhow::Result<DownloaderPreverifiedReport> {
-        let preverified_hashes_config = PreverifiedHashesConfig::new(&self.chain_name)?;
+        let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
+        let start_block_num = BlockNumber(start_block_num.0 / slice_size * slice_size);
+        let final_block_num = self.final_block_num();
 
-        let final_block_num = BlockNumber(
-            ((preverified_hashes_config.hashes.len() - 1) * header_slices::HEADER_SLICE_SIZE)
-                as u64,
-        );
-        let final_block_hash = *preverified_hashes_config.hashes.last().unwrap();
-        let final_block_id = BlockHashAndNumber {
-            number: final_block_num,
-            hash: final_block_hash,
-        };
+        if start_block_num.0 >= final_block_num.0 {
+            return Ok(DownloaderPreverifiedReport {
+                final_block_num: start_block_num,
+                estimated_top_block_num: None,
+            });
+        }
 
         let header_slices = Arc::new(HeaderSlices::new(
             self.mem_limit,
-            BlockNumber(0),
+            start_block_num,
             final_block_num,
         ));
         let sentry = self.sentry.clone();
@@ -90,8 +98,10 @@ impl DownloaderPreverified {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage =
-            VerifyStagePreverified::new(header_slices.clone(), preverified_hashes_config);
+        let verify_stage = VerifyStagePreverified::new(
+            header_slices.clone(),
+            self.preverified_hashes_config.clone(),
+        );
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
         let refill_stage = RefillStage::new(header_slices.clone());
@@ -137,7 +147,7 @@ impl DownloaderPreverified {
         }
 
         let report = DownloaderPreverifiedReport {
-            final_block_id,
+            final_block_num: header_slices.min_block_num(),
             estimated_top_block_num: estimated_top_block_num_provider(),
         };
 

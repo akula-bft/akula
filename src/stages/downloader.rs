@@ -1,5 +1,6 @@
 use crate::{
     downloader::{opts::Opts, Downloader},
+    models::BlockNumber,
     sentry::chain_config::ChainsConfig,
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     MutableTransaction, StageId,
@@ -38,11 +39,18 @@ where
     {
         let past_progress = input.stage_progress.unwrap_or_default();
 
-        self.downloader.run(None, tx).await?;
+        let start_block_num = BlockNumber(past_progress.0 + 1);
+        let final_block_num = self.downloader.run(None, tx, start_block_num).await?;
+
+        let stage_progress = if final_block_num.0 > 0 {
+            BlockNumber(final_block_num.0 - 1)
+        } else {
+            past_progress
+        };
 
         Ok(ExecOutput::Progress {
-            stage_progress: past_progress,
-            done: false,
+            stage_progress,
+            done: true,
             must_commit: true,
         })
     }
