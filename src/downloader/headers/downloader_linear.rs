@@ -8,7 +8,7 @@ use super::{
 use crate::{
     downloader::{
         headers::stage_stream::{make_stage_stream, StageStream},
-        ui_system::UISystem,
+        ui_system::{UISystem, UISystemViewScope},
     },
     kv,
     models::BlockNumber,
@@ -93,9 +93,8 @@ impl DownloaderLinear {
         let sentry = self.sentry.clone();
 
         let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderLinear");
-        self.ui_system
-            .try_lock()?
-            .set_view(Some(Box::new(header_slices_view)));
+        let _header_slices_view_scope =
+            UISystemViewScope::new(&self.ui_system, Box::new(header_slices_view));
 
         // Downloading happens with several stages where
         // each of the stages processes blocks in one status,
