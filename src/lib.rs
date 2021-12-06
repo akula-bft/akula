@@ -23,7 +23,6 @@ pub mod accessors;
 pub mod binutil;
 mod bitmapdb;
 pub mod chain;
-mod changeset;
 pub mod consensus;
 pub mod crypto;
 pub mod downloader;
@@ -38,7 +37,6 @@ pub mod stages;
 mod state;
 pub(crate) mod util;
 
-pub use changeset::*;
 pub use kv::{
     mdbx::Environment as MdbxEnvironment,
     new_mem_database,
