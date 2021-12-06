@@ -29,7 +29,7 @@ impl ChainConfig {
     }
 
     pub fn chain_name(&self) -> String {
-        self.chain_spec.name.clone()
+        self.chain_spec.name.to_lowercase()
     }
 
     pub fn chain_spec(&self) -> &ChainSpec {
@@ -68,7 +68,7 @@ impl ChainsConfig {
     }
 
     pub fn get(&self, chain_name: &str) -> Option<&ChainConfig> {
-        self.0.get(chain_name)
+        self.0.get(&chain_name.to_lowercase())
     }
 }
 

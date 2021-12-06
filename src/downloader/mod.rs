@@ -1,6 +1,7 @@
 mod downloader_impl;
 mod headers;
 pub mod opts;
+pub mod sentry_status_provider;
 
 #[cfg(test)]
 mod downloader_tests;

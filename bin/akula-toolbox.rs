@@ -9,8 +9,9 @@ use akula::{
 use anyhow::{bail, ensure, Context};
 use bytes::Bytes;
 use itertools::Itertools;
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use structopt::StructOpt;
+use tokio::sync::RwLock;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -84,6 +85,7 @@ async fn blockhashes(data_dir: PathBuf) -> anyhow::Result<()> {
     staged_sync.run(&env).await?;
 }
 
+#[allow(unreachable_code)]
 async fn header_download(
     data_dir: PathBuf,
     opts: akula::downloader::opts::Opts,
@@ -94,12 +96,33 @@ async fn header_download(
         chains_config.chain_names().as_slice(),
     )?;
 
-    let stage = akula::stages::HeaderDownload::new(opts, chains_config)?;
+    let chain_config = chains_config
+        .get(&opts.chain_name)
+        .ok_or_else(|| anyhow::format_err!("unknown chain '{}'", opts.chain_name))?
+        .clone();
+
+    let sentry_api_addr = opts.sentry_api_addr.clone();
+    let sentry_connector =
+        akula::sentry::sentry_client_connector::SentryClientConnectorImpl::new(sentry_api_addr);
+
+    let sentry_status_provider =
+        akula::downloader::sentry_status_provider::SentryStatusProvider::new(chain_config.clone());
+    let mut sentry_reactor = akula::sentry::sentry_client_reactor::SentryClientReactor::new(
+        Box::new(sentry_connector),
+        sentry_status_provider.current_status_stream(),
+    );
+    sentry_reactor.start()?;
+    let sentry = Arc::new(RwLock::new(sentry_reactor));
+
+    let stage =
+        akula::stages::HeaderDownload::new(chain_config, sentry.clone(), sentry_status_provider);
     let db = akula::kv::new_database(&data_dir)?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
     staged_sync.push(stage);
-    staged_sync.run(&db).await?
+    staged_sync.run(&db).await?;
+
+    sentry.write().await.stop().await
 }
 
 async fn table_sizes(data_dir: PathBuf, csv: bool) -> anyhow::Result<()> {

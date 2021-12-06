@@ -6,7 +6,13 @@ use super::{
 use futures_core::{Future, Stream};
 use futures_util::{FutureExt, TryStreamExt};
 use parking_lot::RwLock;
-use std::{collections::HashMap, fmt, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    fmt::{Debug, Formatter},
+    pin::Pin,
+    sync::Arc,
+};
 use strum::IntoEnumIterator;
 use tokio::{
     sync::{broadcast, mpsc, Mutex},
@@ -65,7 +71,13 @@ impl fmt::Display for SendMessageError {
 impl std::error::Error for SendMessageError {}
 
 impl SentryClientReactor {
-    pub fn new(sentry_connector: sentry_client_connector::SentryClientConnectorStream) -> Self {
+    pub fn new(
+        sentry_connector: Box<dyn sentry_client_connector::SentryClientConnector>,
+        current_status_stream: sentry_client_connector::StatusStream,
+    ) -> Self {
+        let sentry_connector_stream =
+            sentry_client_connector::make_connector_stream(sentry_connector, current_status_stream);
+
         let (send_message_sender, send_message_receiver) = mpsc::channel::<SentryCommand>(1);
 
         let mut receive_messages_senders =
@@ -79,7 +91,7 @@ impl SentryClientReactor {
         let (stop_signal_sender, stop_signal_receiver) = mpsc::channel::<()>(1);
 
         let event_loop = SentryClientReactorEventLoop {
-            sentry_connector,
+            sentry_connector: sentry_connector_stream,
             send_message_receiver,
             receive_messages_senders: Arc::clone(&receive_messages_senders),
             stop_signal_receiver,
@@ -229,6 +241,14 @@ impl Drop for SentryClientReactor {
         if self.event_loop_handle.is_some() {
             self.send_stop_signal();
         }
+    }
+}
+
+impl Debug for SentryClientReactor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SentryClientReactor")
+            .field("is_stopped", &self.is_stopped())
+            .finish()
     }
 }
 
