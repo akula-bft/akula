@@ -9,7 +9,10 @@ use crate::{
 };
 use anyhow::format_err;
 use parking_lot::RwLock;
-use std::{ops::DerefMut, sync::Arc};
+use std::{
+    ops::{ControlFlow, DerefMut},
+    sync::Arc,
+};
 use tracing::*;
 
 /// Saves slices into the database, and sets Saved status.
@@ -57,12 +60,18 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
 
     async fn save_pending_monotonic(&mut self, pending_count: usize) -> anyhow::Result<usize> {
         let mut saved_count: usize = 0;
-        for i in 0..pending_count {
-            let slice_lock = self.header_slices.find_by_index(i).ok_or_else(|| {
-                format_err!("SaveStage: inconsistent state - less pending slices than expected")
-            })?;
-            let is_verified = slice_lock.read().status == HeaderSliceStatus::Verified;
-            if is_verified {
+        for _ in 0..pending_count {
+            let initial_value = Option::<Arc<RwLock<HeaderSlice>>>::None;
+            let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
+                let slice = slice_lock.read();
+                match slice.status {
+                    HeaderSliceStatus::Saved => ControlFlow::Continue(None),
+                    HeaderSliceStatus::Verified => ControlFlow::Break(Some(slice_lock.clone())),
+                    _ => ControlFlow::Break(None),
+                }
+            });
+
+            if let ControlFlow::Break(Some(slice_lock)) = next_slice_lock {
                 self.save_slice(slice_lock).await?;
                 saved_count += 1;
             } else {

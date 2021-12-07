@@ -42,12 +42,12 @@ impl VerifyStageLinear {
             "VerifyStageLinear: verifying {} slices",
             self.pending_watch.pending_count()
         );
-        self.verify_pending()?;
+        self.verify_pending();
         debug!("VerifyStageLinear: done");
         Ok(())
     }
 
-    fn verify_pending(&self) -> anyhow::Result<()> {
+    fn verify_pending(&self) {
         self.header_slices.for_each(|slice_lock| {
             let slice = slice_lock.upgradable_read();
             if slice.status == HeaderSliceStatus::Downloaded {
@@ -62,8 +62,7 @@ impl VerifyStageLinear {
                         .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Invalid);
                 }
             }
-            None
-        })
+        });
     }
 
     fn now_timestamp() -> u64 {

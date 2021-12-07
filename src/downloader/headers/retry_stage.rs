@@ -55,8 +55,7 @@ impl RetryStage {
                     .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Empty);
                 count += 1;
             }
-            None
-        })?;
+        });
         Ok(count)
     }
 
