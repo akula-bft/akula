@@ -70,6 +70,11 @@ async fn noop() {
     let chain_config = make_chain_config();
     let status_provider = SentryStatusProvider::new(chain_config.clone());
     let sentry_reactor = make_sentry_reactor(sentry, status_provider.current_status_stream());
-    let downloader = Downloader::new(chain_config, sentry_reactor.clone(), status_provider);
+    let downloader = Downloader::new(
+        chain_config,
+        byte_unit::n_mib_bytes!(50) as usize,
+        sentry_reactor.clone(),
+        status_provider,
+    );
     run_downloader(downloader, sentry_reactor).await.unwrap();
 }

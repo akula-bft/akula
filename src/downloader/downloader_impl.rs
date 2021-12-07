@@ -11,6 +11,7 @@ use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct Downloader {
     chain_config: ChainConfig,
+    mem_limit: usize,
     sentry: SentryClientReactorShared,
     sentry_status_provider: SentryStatusProvider,
 }
@@ -18,11 +19,13 @@ pub struct Downloader {
 impl Downloader {
     pub fn new(
         chain_config: ChainConfig,
+        mem_limit: usize,
         sentry: SentryClientReactorShared,
         sentry_status_provider: SentryStatusProvider,
     ) -> Self {
         Self {
             chain_config,
+            mem_limit,
             sentry,
             sentry_status_provider,
         }
@@ -42,6 +45,7 @@ impl Downloader {
 
         let headers_downloader = super::headers::downloader::Downloader::new(
             self.chain_config.clone(),
+            self.mem_limit,
             self.sentry.clone(),
             ui_system.clone(),
         )?;

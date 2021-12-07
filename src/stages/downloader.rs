@@ -16,11 +16,12 @@ pub struct HeaderDownload {
 impl HeaderDownload {
     pub fn new(
         chain_config: ChainConfig,
+        mem_limit: usize,
         batch_size: usize,
         sentry: SentryClientReactorShared,
         sentry_status_provider: SentryStatusProvider,
     ) -> Self {
-        let downloader = Downloader::new(chain_config, sentry, sentry_status_provider);
+        let downloader = Downloader::new(chain_config, mem_limit, sentry, sentry_status_provider);
 
         Self {
             downloader,
