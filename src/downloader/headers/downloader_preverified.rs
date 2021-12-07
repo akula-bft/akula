@@ -8,7 +8,10 @@ use super::{
 };
 use crate::{
     downloader::{
-        headers::stage_stream::{make_stage_stream, StageStream},
+        headers::{
+            header_slices::align_block_num_to_slice_start,
+            stage_stream::{make_stage_stream, StageStream},
+        },
         ui_system::{UISystem, UISystemViewScope},
     },
     kv,
@@ -28,7 +31,9 @@ pub struct DownloaderPreverified {
 }
 
 pub struct DownloaderPreverifiedReport {
+    pub loaded_count: usize,
     pub final_block_num: BlockNumber,
+    pub target_final_block_num: BlockNumber,
     pub estimated_top_block_num: Option<BlockNumber>,
 }
 
@@ -50,7 +55,7 @@ impl DownloaderPreverified {
         Ok(instance)
     }
 
-    fn final_block_num(&self) -> BlockNumber {
+    fn target_final_block_num(&self) -> BlockNumber {
         let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
         BlockNumber((self.preverified_hashes_config.hashes.len() as u64 - 1) * slice_size)
     }
@@ -59,14 +64,23 @@ impl DownloaderPreverified {
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_num: BlockNumber,
+        max_blocks_count: usize,
     ) -> anyhow::Result<DownloaderPreverifiedReport> {
-        let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
-        let start_block_num = BlockNumber(start_block_num.0 / slice_size * slice_size);
-        let final_block_num = self.final_block_num();
+        let start_block_num = align_block_num_to_slice_start(start_block_num);
+        let target_final_block_num = self.target_final_block_num();
+        let final_block_num = BlockNumber(std::cmp::min(
+            target_final_block_num.0,
+            align_block_num_to_slice_start(BlockNumber(
+                start_block_num.0 + (max_blocks_count as u64),
+            ))
+            .0,
+        ));
 
         if start_block_num.0 >= final_block_num.0 {
             return Ok(DownloaderPreverifiedReport {
+                loaded_count: 0,
                 final_block_num: start_block_num,
+                target_final_block_num,
                 estimated_top_block_num: None,
             });
         }
@@ -146,7 +160,9 @@ impl DownloaderPreverified {
         }
 
         let report = DownloaderPreverifiedReport {
+            loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
             final_block_num: header_slices.min_block_num(),
+            target_final_block_num,
             estimated_top_block_num: estimated_top_block_num_provider(),
         };
 

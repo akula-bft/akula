@@ -16,6 +16,12 @@ pub struct Opts {
         default_value = "mainnet"
     )]
     pub chain_name: String,
+    #[structopt(
+        long = "downloader.headers-batch-size",
+        help = "How many headers to download per stage run.",
+        default_value = "100000"
+    )]
+    pub headers_batch_size: usize,
 }
 
 impl Opts {

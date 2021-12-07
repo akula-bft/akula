@@ -7,7 +7,10 @@ use super::{
 };
 use crate::{
     downloader::{
-        headers::stage_stream::{make_stage_stream, StageStream},
+        headers::{
+            header_slices::align_block_num_to_slice_start,
+            stage_stream::{make_stage_stream, StageStream},
+        },
         ui_system::{UISystem, UISystemViewScope},
     },
     kv,
@@ -24,6 +27,12 @@ pub struct DownloaderLinear {
     mem_limit: usize,
     sentry: SentryClientReactorShared,
     ui_system: Arc<Mutex<UISystem>>,
+}
+
+pub struct DownloaderLinearReport {
+    pub loaded_count: usize,
+    pub final_block_num: BlockNumber,
+    pub target_final_block_num: BlockNumber,
 }
 
 impl DownloaderLinear {
@@ -63,7 +72,8 @@ impl DownloaderLinear {
         db_transaction: &'downloader RwTx,
         start_block_id: BlockHashAndNumber,
         estimated_top_block_num: Option<BlockNumber>,
-    ) -> anyhow::Result<BlockNumber> {
+        max_blocks_count: usize,
+    ) -> anyhow::Result<DownloaderLinearReport> {
         let start_block_num = start_block_id.number;
 
         let trusted_len: u64 = 90_000;
@@ -73,16 +83,25 @@ impl DownloaderLinear {
             None => self.estimate_top_block_num(start_block_num).await?.0,
         };
 
-        let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
-        let final_block_num = if estimated_top_block_num > trusted_len {
-            (estimated_top_block_num - trusted_len) / slice_size * slice_size
+        let target_final_block_num = if estimated_top_block_num > trusted_len {
+            align_block_num_to_slice_start(BlockNumber(estimated_top_block_num - trusted_len))
         } else {
-            0
+            BlockNumber(0)
         };
-        let final_block_num = BlockNumber(final_block_num);
+        let final_block_num = BlockNumber(std::cmp::min(
+            target_final_block_num.0,
+            align_block_num_to_slice_start(BlockNumber(
+                start_block_num.0 + (max_blocks_count as u64),
+            ))
+            .0,
+        ));
 
         if start_block_num.0 >= final_block_num.0 {
-            return Ok(start_block_num);
+            return Ok(DownloaderLinearReport {
+                loaded_count: 0,
+                final_block_num: start_block_num,
+                target_final_block_num,
+            });
         }
 
         let header_slices = Arc::new(HeaderSlices::new(
@@ -159,6 +178,12 @@ impl DownloaderLinear {
             header_slices.notify_status_watchers();
         }
 
-        Ok(header_slices.min_block_num())
+        let report = DownloaderLinearReport {
+            loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
+            final_block_num: header_slices.min_block_num(),
+            target_final_block_num,
+        };
+
+        Ok(report)
     }
 }

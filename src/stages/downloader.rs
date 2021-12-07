@@ -10,17 +10,22 @@ use async_trait::async_trait;
 #[derive(Debug)]
 pub struct HeaderDownload {
     downloader: Downloader,
+    batch_size: usize,
 }
 
 impl HeaderDownload {
     pub fn new(
         chain_config: ChainConfig,
+        batch_size: usize,
         sentry: SentryClientReactorShared,
         sentry_status_provider: SentryStatusProvider,
     ) -> Self {
         let downloader = Downloader::new(chain_config, sentry, sentry_status_provider);
 
-        Self { downloader }
+        Self {
+            downloader,
+            batch_size,
+        }
     }
 }
 
@@ -44,17 +49,23 @@ where
         let past_progress = input.stage_progress.unwrap_or_default();
 
         let start_block_num = BlockNumber(past_progress.0 + 1);
-        let final_block_num = self.downloader.run(tx, start_block_num).await?;
+        let report = self
+            .downloader
+            .run(tx, start_block_num, self.batch_size)
+            .await?;
 
-        let stage_progress = if final_block_num.0 > 0 {
-            BlockNumber(final_block_num.0 - 1)
+        let final_block_num = report.final_block_num.0;
+        let stage_progress = if final_block_num > 0 {
+            BlockNumber(final_block_num - 1)
         } else {
             past_progress
         };
 
+        let done = final_block_num >= report.target_final_block_num.0;
+
         Ok(ExecOutput::Progress {
             stage_progress,
-            done: true,
+            done,
             must_commit: true,
         })
     }
