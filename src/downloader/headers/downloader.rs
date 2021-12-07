@@ -27,11 +27,10 @@ pub struct DownloaderReport {
 impl Downloader {
     pub fn new(
         chain_config: ChainConfig,
+        mem_limit: usize,
         sentry: SentryClientReactorShared,
         ui_system: Arc<Mutex<UISystem>>,
     ) -> anyhow::Result<Self> {
-        let mem_limit = 50 << 20; /* 50 Mb */
-
         let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
             chain_config.chain_name(),
             mem_limit,

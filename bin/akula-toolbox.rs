@@ -116,6 +116,7 @@ async fn header_download(
 
     let stage = akula::stages::HeaderDownload::new(
         chain_config,
+        opts.headers_mem_limit(),
         opts.headers_batch_size,
         sentry.clone(),
         sentry_status_provider,
