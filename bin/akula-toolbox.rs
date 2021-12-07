@@ -114,8 +114,12 @@ async fn header_download(
     sentry_reactor.start()?;
     let sentry = Arc::new(RwLock::new(sentry_reactor));
 
-    let stage =
-        akula::stages::HeaderDownload::new(chain_config, sentry.clone(), sentry_status_provider);
+    let stage = akula::stages::HeaderDownload::new(
+        chain_config,
+        opts.headers_batch_size,
+        sentry.clone(),
+        sentry_status_provider,
+    );
     let db = akula::kv::new_database(&data_dir)?;
 
     let mut staged_sync = stagedsync::StagedSync::new();

@@ -119,7 +119,7 @@ impl UISystemEventLoop {
             }
         }
 
-        info!("UISystem stopped");
+        debug!("UISystemEventLoop stopped");
         Ok(())
     }
 }

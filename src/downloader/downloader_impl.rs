@@ -1,5 +1,6 @@
 use super::sentry_status_provider::SentryStatusProvider;
 use crate::{
+    downloader::headers::downloader::DownloaderReport,
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared},
@@ -31,7 +32,8 @@ impl Downloader {
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_num: BlockNumber,
-    ) -> anyhow::Result<BlockNumber> {
+        max_blocks_count: usize,
+    ) -> anyhow::Result<DownloaderReport> {
         self.sentry_status_provider.update(db_transaction).await?;
 
         let mut ui_system = crate::downloader::ui_system::UISystem::new();
@@ -43,12 +45,12 @@ impl Downloader {
             self.sentry.clone(),
             ui_system.clone(),
         )?;
-        let final_block_num = headers_downloader
-            .run::<RwTx>(db_transaction, start_block_num)
+        let report = headers_downloader
+            .run::<RwTx>(db_transaction, start_block_num, max_blocks_count)
             .await?;
 
         ui_system.try_lock()?.stop().await?;
 
-        Ok(final_block_num)
+        Ok(report)
     }
 }

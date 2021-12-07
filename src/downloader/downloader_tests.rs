@@ -1,5 +1,8 @@
 use crate::{
-    downloader::{opts::Opts, sentry_status_provider::SentryStatusProvider, Downloader},
+    downloader::{
+        headers::downloader::DownloaderReport, opts::Opts,
+        sentry_status_provider::SentryStatusProvider, Downloader,
+    },
     kv,
     kv::traits::{MutableKV, MutableTransaction},
     models::BlockNumber,
@@ -32,7 +35,7 @@ fn make_sentry_reactor(
 async fn run_downloader(
     downloader: Downloader,
     sentry: SentryClientReactorShared,
-) -> anyhow::Result<BlockNumber> {
+) -> anyhow::Result<DownloaderReport> {
     {
         sentry.write().await.start()?;
     }
@@ -40,14 +43,16 @@ async fn run_downloader(
     let db = kv::new_mem_database()?;
     let db_transaction = db.begin_mutable().await?;
 
-    let result = downloader.run(&db_transaction, BlockNumber(0)).await?;
+    let report = downloader
+        .run(&db_transaction, BlockNumber(0), 100_000)
+        .await?;
 
     db_transaction.commit().await?;
 
     {
         sentry.write().await.stop().await?;
     }
-    Ok(result)
+    Ok(report)
 }
 
 fn setup_logging() {

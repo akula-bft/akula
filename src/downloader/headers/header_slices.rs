@@ -62,7 +62,7 @@ pub struct HeaderSlices {
     state_watches: HashMap<HeaderSliceStatus, HeaderSliceStatusWatch>,
 }
 
-pub const HEADER_SLICE_SIZE: usize = 192;
+pub(super) const HEADER_SLICE_SIZE: usize = 192;
 
 const ATOMIC_ORDERING: Ordering = Ordering::SeqCst;
 
@@ -298,4 +298,9 @@ impl HeaderSlices {
     pub fn is_empty_at_final_position(&self) -> bool {
         (self.max_block_num() >= self.final_block_num) && self.slices.read().is_empty()
     }
+}
+
+pub fn align_block_num_to_slice_start(num: BlockNumber) -> BlockNumber {
+    let slice_size = HEADER_SLICE_SIZE as u64;
+    BlockNumber(num.0 / slice_size * slice_size)
 }

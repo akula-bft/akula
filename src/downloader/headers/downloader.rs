@@ -1,6 +1,9 @@
 use crate::{
     downloader::{
-        headers::{downloader_linear, downloader_preverified, header_slices},
+        headers::{
+            downloader_linear, downloader_preverified,
+            header_slices::align_block_num_to_slice_start,
+        },
         ui_system::UISystem,
     },
     kv,
@@ -14,6 +17,11 @@ pub struct Downloader {
     downloader_preverified: downloader_preverified::DownloaderPreverified,
     downloader_linear: downloader_linear::DownloaderLinear,
     genesis_block_hash: ethereum_types::H256,
+}
+
+pub struct DownloaderReport {
+    pub final_block_num: BlockNumber,
+    pub target_final_block_num: BlockNumber,
 }
 
 impl Downloader {
@@ -57,12 +65,10 @@ impl Downloader {
     ) -> anyhow::Result<BlockHashAndNumber> {
         // start from one slice back where the hash is known
         let linear_start_block_num = if prev_final_block_num.0 > 0 {
-            let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
-            (prev_final_block_num.0 - 1) / slice_size * slice_size
+            align_block_num_to_slice_start(BlockNumber(prev_final_block_num.0 - 1))
         } else {
-            0
+            BlockNumber(0)
         };
-        let linear_start_block_num = BlockNumber(linear_start_block_num);
 
         let linear_start_block_hash = if linear_start_block_num.0 > 0 {
             let hash_opt = db_transaction
@@ -88,25 +94,34 @@ impl Downloader {
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_num: BlockNumber,
-    ) -> anyhow::Result<BlockNumber> {
+        max_blocks_count: usize,
+    ) -> anyhow::Result<DownloaderReport> {
         let preverified_report = self
             .downloader_preverified
-            .run::<RwTx>(db_transaction, start_block_num)
+            .run::<RwTx>(db_transaction, start_block_num, max_blocks_count)
             .await?;
 
         let linear_start_block_id = self
             .linear_start_block_id(db_transaction, preverified_report.final_block_num)
             .await?;
 
-        let final_block_num = self
+        let linear_max_blocks_count = max_blocks_count - preverified_report.loaded_count;
+
+        let linear_report = self
             .downloader_linear
             .run::<RwTx>(
                 db_transaction,
                 linear_start_block_id,
                 preverified_report.estimated_top_block_num,
+                linear_max_blocks_count,
             )
             .await?;
 
-        Ok(final_block_num)
+        let report = DownloaderReport {
+            final_block_num: linear_report.final_block_num,
+            target_final_block_num: linear_report.target_final_block_num,
+        };
+
+        Ok(report)
     }
 }
