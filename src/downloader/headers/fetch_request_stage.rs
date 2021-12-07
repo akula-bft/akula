@@ -13,7 +13,7 @@ use crate::{
 };
 use parking_lot::RwLockUpgradableReadGuard;
 use std::{
-    ops::DerefMut,
+    ops::{ControlFlow, DerefMut},
     sync::{atomic::*, Arc},
     time,
 };
@@ -75,7 +75,7 @@ impl FetchRequestStage {
     }
 
     fn request_pending(&self, sentry: &SentryClientReactor) -> anyhow::Result<()> {
-        self.header_slices.for_each(|slice_lock| {
+        let result = self.header_slices.try_fold((), |_, slice_lock| {
             let slice = slice_lock.upgradable_read();
             if slice.status == HeaderSliceStatus::Empty {
                 let request_id = self.last_request_id.fetch_add(1, Ordering::SeqCst);
@@ -88,10 +88,12 @@ impl FetchRequestStage {
                     Err(error) => match error.downcast_ref::<SendMessageError>() {
                         Some(SendMessageError::SendQueueFull) => {
                             debug!("FetchRequestStage: request send queue is full");
-                            return Some(Ok(()));
+                            return ControlFlow::Break(Ok(()));
                         }
-                        Some(SendMessageError::ReactorStopped) => return Some(Err(error)),
-                        None => return Some(Err(error)),
+                        Some(SendMessageError::ReactorStopped) => {
+                            return ControlFlow::Break(Err(error))
+                        }
+                        None => return ControlFlow::Break(Err(error)),
                     },
                     Ok(_) => {
                         let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
@@ -101,8 +103,14 @@ impl FetchRequestStage {
                     }
                 }
             }
-            None
-        })
+            ControlFlow::Continue(())
+        });
+
+        if let ControlFlow::Break(break_result) = result {
+            break_result
+        } else {
+            Ok(())
+        }
     }
 
     fn request(

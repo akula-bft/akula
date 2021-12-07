@@ -7,9 +7,12 @@ use crate::{
     models::{BlockHeader, BlockNumber},
     sentry::chain_config::ChainConfig,
 };
-use anyhow::format_err;
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
-use std::{ops::DerefMut, sync::Arc, time::SystemTime};
+use std::{
+    ops::{ControlFlow, DerefMut},
+    sync::Arc,
+    time::SystemTime,
+};
 use tracing::*;
 
 /// Verifies the sequence rules to link the slices with the last known verified header and sets Verified status.
@@ -68,30 +71,36 @@ impl VerifyStageLinearLink {
 
     fn verify_pending_monotonic(&mut self, pending_count: usize) -> anyhow::Result<usize> {
         let mut updated_count: usize = 0;
-        for i in 0..pending_count {
-            let slice_lock = self.header_slices.find_by_index(i).ok_or_else(|| {
-                format_err!(
-                    "VerifyStageLinearLink: inconsistent state - less pending slices than expected"
-                )
-            })?;
-            let is_updated = self.verify_pending_slice(slice_lock);
-            if is_updated.is_some() {
+        for _ in 0..pending_count {
+            let initial_value = Option::<Arc<RwLock<HeaderSlice>>>::None;
+            let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
+                let slice = slice_lock.read();
+                match slice.status {
+                    HeaderSliceStatus::Verified | HeaderSliceStatus::Invalid => {
+                        ControlFlow::Continue(None)
+                    }
+                    HeaderSliceStatus::VerifiedInternally => {
+                        ControlFlow::Break(Some(slice_lock.clone()))
+                    }
+                    _ => ControlFlow::Break(None),
+                }
+            });
+
+            if let ControlFlow::Break(Some(slice_lock)) = next_slice_lock {
+                let is_verified = self.verify_pending_slice(slice_lock);
                 updated_count += 1;
-            }
-            let is_verified = is_updated.unwrap_or(false);
-            if !is_verified {
+                if !is_verified {
+                    break;
+                }
+            } else {
                 break;
             }
         }
         Ok(updated_count)
     }
 
-    fn verify_pending_slice(&mut self, slice_lock: Arc<RwLock<HeaderSlice>>) -> Option<bool> {
+    fn verify_pending_slice(&mut self, slice_lock: Arc<RwLock<HeaderSlice>>) -> bool {
         let slice = slice_lock.upgradable_read();
-        let is_verified_internally = slice.status == HeaderSliceStatus::VerifiedInternally;
-        if !is_verified_internally {
-            return None;
-        }
 
         let is_verified = self.verify_slice_link(&slice, &self.last_verified_header);
 
@@ -107,7 +116,7 @@ impl VerifyStageLinearLink {
                 .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Invalid);
         }
 
-        Some(is_verified)
+        is_verified
     }
 
     fn now_timestamp() -> u64 {

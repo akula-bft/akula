@@ -143,17 +143,18 @@ impl HeaderSlices {
             .collect::<Vec<HeaderSliceStatus>>()
     }
 
-    pub fn for_each<F>(&self, mut f: F) -> anyhow::Result<()>
+    pub fn for_each<F>(&self, f: F)
     where
-        F: FnMut(&RwLock<HeaderSlice>) -> Option<anyhow::Result<()>>,
+        F: FnMut(&Arc<RwLock<HeaderSlice>>),
     {
-        for slice_lock in self.slices.read().iter() {
-            let result_opt = f(slice_lock);
-            if let Some(result) = result_opt {
-                return result;
-            }
-        }
-        Ok(())
+        self.slices.read().iter().for_each(f);
+    }
+
+    pub fn try_fold<B, C, F>(&self, init: C, f: F) -> std::ops::ControlFlow<B, C>
+    where
+        F: FnMut(C, &Arc<RwLock<HeaderSlice>>) -> std::ops::ControlFlow<B, C>,
+    {
+        self.slices.read().iter().try_fold(init, f)
     }
 
     pub fn find_by_start_block_num(
@@ -173,16 +174,6 @@ impl HeaderSlices {
             .iter()
             .find(|slice| slice.read().status == status)
             .map(Arc::clone)
-    }
-
-    pub fn find_first(&self) -> Option<Arc<RwLock<HeaderSlice>>> {
-        let slices = self.slices.read();
-        slices.front().map(Arc::clone)
-    }
-
-    pub fn find_by_index(&self, index: usize) -> Option<Arc<RwLock<HeaderSlice>>> {
-        let slices = self.slices.read();
-        slices.iter().nth(index).map(Arc::clone)
     }
 
     pub fn remove(&self, status: HeaderSliceStatus) {
