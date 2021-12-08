@@ -33,6 +33,7 @@ pub struct DownloaderLinearReport {
     pub loaded_count: usize,
     pub final_block_num: BlockNumber,
     pub target_final_block_num: BlockNumber,
+    pub estimated_top_block_num: BlockNumber,
 }
 
 impl DownloaderLinear {
@@ -79,12 +80,12 @@ impl DownloaderLinear {
         let trusted_len: u64 = 90_000;
 
         let estimated_top_block_num = match estimated_top_block_num {
-            Some(block_num) => block_num.0,
-            None => self.estimate_top_block_num(start_block_num).await?.0,
+            Some(block_num) => block_num,
+            None => self.estimate_top_block_num(start_block_num).await?,
         };
 
-        let target_final_block_num = if estimated_top_block_num > trusted_len {
-            align_block_num_to_slice_start(BlockNumber(estimated_top_block_num - trusted_len))
+        let target_final_block_num = if estimated_top_block_num.0 > trusted_len {
+            align_block_num_to_slice_start(BlockNumber(estimated_top_block_num.0 - trusted_len))
         } else {
             BlockNumber(0)
         };
@@ -101,6 +102,7 @@ impl DownloaderLinear {
                 loaded_count: 0,
                 final_block_num: start_block_num,
                 target_final_block_num,
+                estimated_top_block_num,
             });
         }
 
@@ -182,6 +184,7 @@ impl DownloaderLinear {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
             final_block_num: header_slices.min_block_num(),
             target_final_block_num,
+            estimated_top_block_num,
         };
 
         Ok(report)

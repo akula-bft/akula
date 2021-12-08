@@ -44,7 +44,7 @@ async fn run_downloader(
     let db_transaction = db.begin_mutable().await?;
 
     let report = downloader
-        .run(&db_transaction, BlockNumber(0), 100_000)
+        .run(&db_transaction, BlockNumber(0), 100_000, None)
         .await?;
 
     db_transaction.commit().await?;
