@@ -4,12 +4,12 @@ use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
 use bytes::{Bytes, BytesMut};
+use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
 use derive_more::*;
 use ethereum_types::*;
 use maplit::hashmap;
 use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
-use roaring::RoaringTreemap;
 use serde::{Deserialize, *};
 use std::{collections::HashMap, fmt::Display, mem::size_of, sync::Arc};
 
@@ -464,16 +464,15 @@ impl TableDecode for (H256, U256) {
 impl TableEncode for RoaringTreemap {
     type Encoded = Vec<u8>;
 
-    fn encode(self) -> Self::Encoded {
-        let mut out = vec![];
-        self.serialize_into(&mut out).unwrap();
-        out
+    fn encode(mut self) -> Self::Encoded {
+        self.run_optimize();
+        self.serialize().unwrap()
     }
 }
 
 impl TableDecode for RoaringTreemap {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        Ok(RoaringTreemap::deserialize_from(b)?)
+        Ok(RoaringTreemap::deserialize(b)?)
     }
 }
 

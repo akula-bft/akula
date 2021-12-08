@@ -21,6 +21,7 @@ bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
 clap = "2"
 console-subscriber = { git = "https://github.com/tokio-rs/console" }
+croaring = "0.5"
 crossterm = { version = "0.22", optional = true }
 derive_more = "0.99"
 directories = "4.0"
@@ -54,7 +55,6 @@ rayon = "1"
 ripemd160 = "0.9"
 rlp = "0.5"
 rlp-derive = "0.1"
-roaring = "0.8"
 ron = "0.7"
 secp256k1 = { version = "0.20", features = ["global-context", "recovery"] }
 serde = "1"

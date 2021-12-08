@@ -7,8 +7,8 @@ use crate::{
     models::*,
     read_account_storage,
 };
+use croaring::Treemap as RoaringTreemap;
 use ethereum_types::*;
-use roaring::RoaringTreemap;
 
 pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     tx: &'tx Tx,
