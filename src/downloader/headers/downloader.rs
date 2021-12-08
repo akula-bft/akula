@@ -22,6 +22,12 @@ pub struct Downloader {
 pub struct DownloaderReport {
     pub final_block_num: BlockNumber,
     pub target_final_block_num: BlockNumber,
+    pub run_state: DownloaderRunState,
+}
+
+#[derive(Clone, Debug)]
+pub struct DownloaderRunState {
+    pub estimated_top_block_num: Option<BlockNumber>,
 }
 
 impl Downloader {
@@ -94,6 +100,7 @@ impl Downloader {
         db_transaction: &'downloader RwTx,
         start_block_num: BlockNumber,
         max_blocks_count: usize,
+        previous_run_state: Option<DownloaderRunState>,
     ) -> anyhow::Result<DownloaderReport> {
         let preverified_report = self
             .downloader_preverified
@@ -103,7 +110,9 @@ impl Downloader {
         let linear_start_block_id = self
             .linear_start_block_id(db_transaction, preverified_report.final_block_num)
             .await?;
-
+        let linear_estimated_top_block_num = preverified_report
+            .estimated_top_block_num
+            .or_else(|| previous_run_state.and_then(|state| state.estimated_top_block_num));
         let linear_max_blocks_count = max_blocks_count - preverified_report.loaded_count;
 
         let linear_report = self
@@ -111,7 +120,7 @@ impl Downloader {
             .run::<RwTx>(
                 db_transaction,
                 linear_start_block_id,
-                preverified_report.estimated_top_block_num,
+                linear_estimated_top_block_num,
                 linear_max_blocks_count,
             )
             .await?;
@@ -119,6 +128,9 @@ impl Downloader {
         let report = DownloaderReport {
             final_block_num: linear_report.final_block_num,
             target_final_block_num: linear_report.target_final_block_num,
+            run_state: DownloaderRunState {
+                estimated_top_block_num: Some(linear_report.estimated_top_block_num),
+            },
         };
 
         Ok(report)

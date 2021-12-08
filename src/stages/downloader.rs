@@ -1,16 +1,21 @@
 use crate::{
-    downloader::{sentry_status_provider::SentryStatusProvider, Downloader},
+    downloader::{
+        sentry_status_provider::SentryStatusProvider, Downloader, HeaderDownloaderRunState,
+    },
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared},
     stagedsync::stage::{ExecOutput, Stage, StageInput},
     MutableTransaction, StageId,
 };
 use async_trait::async_trait;
+use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Debug)]
 pub struct HeaderDownload {
     downloader: Downloader,
     batch_size: usize,
+    previous_run_state: Arc<AsyncMutex<Option<HeaderDownloaderRunState>>>,
 }
 
 impl HeaderDownload {
@@ -26,7 +31,16 @@ impl HeaderDownload {
         Self {
             downloader,
             batch_size,
+            previous_run_state: Arc::new(AsyncMutex::new(None)),
         }
+    }
+
+    async fn load_previous_run_state(&self) -> Option<HeaderDownloaderRunState> {
+        self.previous_run_state.lock().await.clone()
+    }
+
+    async fn save_run_state(&self, run_state: HeaderDownloaderRunState) {
+        *self.previous_run_state.lock().await = Some(run_state);
     }
 }
 
@@ -50,9 +64,11 @@ where
         let past_progress = input.stage_progress.unwrap_or_default();
 
         let start_block_num = BlockNumber(past_progress.0 + 1);
+        let previous_run_state = self.load_previous_run_state().await;
+
         let report = self
             .downloader
-            .run(tx, start_block_num, self.batch_size)
+            .run(tx, start_block_num, self.batch_size, previous_run_state)
             .await?;
 
         let final_block_num = report.final_block_num.0;
@@ -63,6 +79,8 @@ where
         };
 
         let done = final_block_num >= report.target_final_block_num.0;
+
+        self.save_run_state(report.run_state).await;
 
         Ok(ExecOutput::Progress {
             stage_progress,
