@@ -1,7 +1,7 @@
 use crate::{
     downloader::{
-        headers::downloader::DownloaderReport, opts::Opts,
-        sentry_status_provider::SentryStatusProvider, Downloader,
+        headers::downloader::DownloaderReport, sentry_status_provider::SentryStatusProvider,
+        Downloader,
     },
     kv,
     kv::traits::{MutableKV, MutableTransaction},
@@ -13,14 +13,11 @@ use crate::{
         sentry_client_reactor::{SentryClientReactor, SentryClientReactorShared},
     },
 };
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
 fn make_chain_config() -> chain_config::ChainConfig {
     let chains_config = chain_config::ChainsConfig::new().unwrap();
-    let args = Vec::<String>::new();
-    let opts = Opts::new(Some(args), chains_config.chain_names().as_slice()).unwrap();
-    chains_config.get(&opts.chain_name).unwrap().clone()
+    let chain_name = "mainnet";
+    chains_config.get(chain_name).unwrap()
 }
 
 fn make_sentry_reactor(
@@ -29,7 +26,7 @@ fn make_sentry_reactor(
 ) -> SentryClientReactorShared {
     let sentry_connector = Box::new(SentryClientConnectorTest::new(Box::new(sentry)));
     let sentry_reactor = SentryClientReactor::new(sentry_connector, current_status_stream);
-    Arc::new(RwLock::new(sentry_reactor))
+    sentry_reactor.into_shared()
 }
 
 async fn run_downloader(

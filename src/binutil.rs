@@ -6,6 +6,12 @@ use std::{fmt::Display, path::PathBuf};
 
 pub struct AkulaDataDir(pub PathBuf);
 
+impl AkulaDataDir {
+    pub fn chain_data_dir(&self) -> PathBuf {
+        self.0.join("chaindata")
+    }
+}
+
 impl Default for AkulaDataDir {
     fn default() -> Self {
         Self(
