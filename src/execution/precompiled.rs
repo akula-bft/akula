@@ -5,7 +5,7 @@ use ethereum_types::*;
 use evmodin::Revision;
 use num_bigint::BigUint;
 use num_traits::Zero;
-use ripemd160::*;
+use ripemd::*;
 use secp256k1::{
     recovery::{RecoverableSignature, RecoveryId},
     Message, SECP256K1,
