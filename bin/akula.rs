@@ -459,17 +459,19 @@ async fn main() -> anyhow::Result<()> {
             max_block: opt.max_block,
         });
         staged_sync.push(ConvertBodies { db: erigon_db });
+    } else {
+        staged_sync.push(akula::stages::HeaderDownload::new(
+            chain_config,
+            opt.downloader_opts.headers_mem_limit(),
+            opt.downloader_opts.headers_batch_size,
+            sentry,
+            sentry_status_provider,
+        ));
+        // also add body download stage here
     }
     staged_sync.push(BlockHashes);
     staged_sync.push(CumulativeIndex);
     staged_sync.push(SenderRecovery);
-    staged_sync.push(akula::stages::HeaderDownload::new(
-        chain_config,
-        opt.downloader_opts.headers_mem_limit(),
-        opt.downloader_opts.headers_batch_size,
-        sentry,
-        sentry_status_provider,
-    ));
     staged_sync.push(Execution {
         batch_size: opt.execution_batch_size.saturating_mul(1_000_000_u64),
         exit_after_batch: opt.execution_exit_after_batch,
