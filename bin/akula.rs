@@ -480,7 +480,7 @@ async fn main() -> anyhow::Result<()> {
         batch_size: opt.execution_batch_size.saturating_mul(1_000_000_u64),
         exit_after_batch: opt.execution_exit_after_batch,
         batch_until: None,
-        commit_every: Some(Duration::from_secs(120)),
+        commit_every: None,
         prune_from: BlockNumber(0),
     });
     staged_sync.push(HashState::new(None));
