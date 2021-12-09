@@ -65,8 +65,8 @@ pub struct Opt {
     #[structopt(flatten)]
     pub downloader_opts: akula::downloader::opts::Opts,
 
-    /// Execution batch size (Mgas).
-    #[structopt(long, default_value = "10000000")]
+    /// Execution batch size (Ggas).
+    #[structopt(long, default_value = "1000")]
     pub execution_batch_size: u64,
 
     /// Exit execution stage after batch.
@@ -477,7 +477,7 @@ async fn main() -> anyhow::Result<()> {
     staged_sync.push(CumulativeIndex);
     staged_sync.push(SenderRecovery);
     staged_sync.push(Execution {
-        batch_size: opt.execution_batch_size.saturating_mul(1_000_000_u64),
+        batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
         exit_after_batch: opt.execution_exit_after_batch,
         batch_until: None,
         commit_every: None,
