@@ -30,15 +30,35 @@ use tracing_subscriber::{prelude::*, EnvFilter};
 pub struct Opt {
     /// Path to Erigon database directory, where to get blocks from.
     #[structopt(long = "erigon-datadir", parse(from_os_str))]
-    pub erigon_data_dir: PathBuf,
+    pub erigon_data_dir: Option<PathBuf>,
 
     /// Path to Akula database directory.
     #[structopt(long = "datadir", help = "Database directory path", default_value)]
     pub data_dir: AkulaDataDir,
 
+    /// Name of the testnet to join
+    #[structopt(
+        long = "chain",
+        help = "Name of the testnet to join",
+        default_value = "mainnet"
+    )]
+    pub chain_name: String,
+
+    /// Sentry GRPC service URL
+    #[structopt(
+        long = "sentry.api.addr",
+        help = "Sentry GRPC service URL as 'http://host:port'",
+        default_value = "http://localhost:8000"
+    )]
+    pub sentry_api_addr: akula::sentry::sentry_address::SentryAddress,
+
     /// Last block where to sync to.
     #[structopt(long)]
     pub max_block: Option<BlockNumber>,
+
+    /// Downloader options.
+    #[structopt(flatten)]
+    pub downloader_opts: akula::downloader::opts::Opts,
 
     /// Execution batch size (Mgas).
     #[structopt(long, default_value = "10000000")]
@@ -362,6 +382,7 @@ where
 async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
 
+    // tracing setup
     let filter = if std::env::var(EnvFilter::DEFAULT_ENV)
         .unwrap_or_default()
         .is_empty()
@@ -387,20 +408,27 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Starting Akula ({})", version_string());
 
-    let erigon_chain_data = opt.erigon_data_dir.join("chaindata");
+    let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
+    let chain_config = chains_config.get(&opt.chain_name)?;
 
-    let erigon_db = Arc::new(akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
-        mdbx::Environment::new(),
-        &erigon_chain_data,
-        akula::kv::tables::CHAINDATA_TABLES.clone(),
-    )?);
+    // database setup
+    let erigon_db = if let Some(erigon_data_dir) = opt.erigon_data_dir {
+        let erigon_chain_data_dir = erigon_data_dir.join("chaindata");
+        let erigon_db = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+            mdbx::Environment::new(),
+            &erigon_chain_data_dir,
+            akula::kv::tables::CHAINDATA_TABLES.clone(),
+        )?;
+        Some(Arc::new(erigon_db))
+    } else {
+        None
+    };
 
-    let akula_chain_data = opt.data_dir.join("chaindata");
-
-    let db = akula::kv::new_database(&akula_chain_data)?;
+    let akula_chain_data_dir = opt.data_dir.chain_data_dir();
+    let db = akula::kv::new_database(&akula_chain_data_dir)?;
     async {
         let txn = db.begin_mutable().await?;
-        if akula::genesis::initialize_genesis(&txn, akula::res::chainspec::MAINNET.clone()).await? {
+        if akula::genesis::initialize_genesis(&txn, chain_config.chain_spec().clone()).await? {
             txn.commit().await?;
         }
 
@@ -409,15 +437,38 @@ async fn main() -> anyhow::Result<()> {
     .instrument(span!(Level::INFO, "", " Genesis initialization "))
     .await?;
 
+    // sentry setup
+    let sentry_connector = akula::sentry::sentry_client_connector::SentryClientConnectorImpl::new(
+        opt.sentry_api_addr.clone(),
+    );
+    let sentry_status_provider =
+        akula::downloader::sentry_status_provider::SentryStatusProvider::new(chain_config.clone());
+    let mut sentry_reactor = akula::sentry::sentry_client_reactor::SentryClientReactor::new(
+        Box::new(sentry_connector),
+        sentry_status_provider.current_status_stream(),
+    );
+    sentry_reactor.start()?;
+    let sentry = sentry_reactor.into_shared();
+
+    // staged sync setup
     let mut staged_sync = stagedsync::StagedSync::new();
     // staged_sync.set_min_progress_to_commit_after_stage(2);
-    staged_sync.push(ConvertHeaders {
-        db: erigon_db.clone(),
-        max_block: opt.max_block,
-    });
-    staged_sync.push(ConvertBodies {
-        db: erigon_db.clone(),
-    });
+    if let Some(erigon_db) = erigon_db {
+        staged_sync.push(ConvertHeaders {
+            db: erigon_db.clone(),
+            max_block: opt.max_block,
+        });
+        staged_sync.push(ConvertBodies { db: erigon_db });
+    } else {
+        staged_sync.push(akula::stages::HeaderDownload::new(
+            chain_config,
+            opt.downloader_opts.headers_mem_limit(),
+            opt.downloader_opts.headers_batch_size,
+            sentry,
+            sentry_status_provider,
+        ));
+        // also add body download stage here
+    }
     staged_sync.push(BlockHashes);
     staged_sync.push(CumulativeIndex);
     staged_sync.push(SenderRecovery);

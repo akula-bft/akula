@@ -106,6 +106,10 @@ impl SentryClientReactor {
         }
     }
 
+    pub fn into_shared(self) -> SentryClientReactorShared {
+        Arc::new(tokio::sync::RwLock::new(self))
+    }
+
     pub fn start(&mut self) -> anyhow::Result<()> {
         let event_loop = self
             .event_loop
