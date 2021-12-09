@@ -14,6 +14,8 @@ pub struct UISystem {
     stop_signal_sender: mpsc::Sender<()>,
 }
 
+pub type UISystemShared = Arc<tokio::sync::Mutex<UISystem>>;
+
 pub struct UISystemViewScope {
     ui_system: Arc<AsyncMutex<UISystem>>,
 }

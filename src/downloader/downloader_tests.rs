@@ -72,6 +72,7 @@ async fn noop() {
         byte_unit::n_mib_bytes!(50) as usize,
         sentry_reactor.clone(),
         status_provider,
-    );
+    )
+    .unwrap();
     run_downloader(downloader, sentry_reactor).await.unwrap();
 }
