@@ -103,7 +103,8 @@ where
     where
         'db: 'tx,
     {
-        let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
+        let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
+        let mut highest_block = original_highest_block;
 
         let erigon_tx = self.db.begin().await?;
 
@@ -159,7 +160,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done: true,
-            must_commit: true,
+            must_commit: highest_block > original_highest_block,
         })
     }
 
@@ -196,6 +197,9 @@ where
     where
         'db: 'tx,
     {
+        let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
+        let mut highest_block = original_highest_block;
+
         const MAX_TXS_PER_BATCH: usize = 500_000;
         const BUFFERING_FACTOR: usize = 500_000;
         let erigon_tx = self.db.begin().await?;
@@ -209,7 +213,6 @@ where
             .mutable_cursor(&tables::BlockTransaction.erased())
             .await?;
 
-        let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let prev_body = tx
             .get(
                 &tables::BlockBody,
@@ -323,7 +326,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done,
-            must_commit: true,
+            must_commit: highest_block > original_highest_block,
         })
     }
     async fn unwind<'tx>(&self, _: &'tx mut RwTx, _: UnwindInput) -> anyhow::Result<()>

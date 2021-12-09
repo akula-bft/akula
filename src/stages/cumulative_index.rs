@@ -77,7 +77,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: max_block,
             done: true,
-            must_commit: true,
+            must_commit: max_block > prev_progress,
         })
     }
 

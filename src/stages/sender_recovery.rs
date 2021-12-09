@@ -36,13 +36,15 @@ where
     where
         'db: 'tx,
     {
+        let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
+        let mut highest_block = original_highest_block;
+
         const BUFFERING_FACTOR: usize = 5000;
         let mut body_cur = tx.cursor(&tables::BlockBody).await?;
         let mut tx_cur = tx.cursor(&tables::BlockTransaction.erased()).await?;
         let mut senders_cur = tx.mutable_cursor(&tables::TxSender.erased()).await?;
         senders_cur.last().await?;
 
-        let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let mut walker = body_cur.walk(Some(BlockNumber(highest_block.0 + 1)));
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let started_at = Instant::now();
@@ -153,7 +155,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done,
-            must_commit: true,
+            must_commit: highest_block > original_highest_block,
         })
     }
 

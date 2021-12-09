@@ -33,9 +33,11 @@ where
     where
         'db: 'tx,
     {
+        let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
+        let mut highest_block = original_highest_block;
+
         let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
         let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber.erased()).await?;
-        let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
         let walker = bodies_cursor.walk(Some(highest_block + 1));
@@ -54,7 +56,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done: true,
-            must_commit: true,
+            must_commit: highest_block > original_highest_block,
         })
     }
 
