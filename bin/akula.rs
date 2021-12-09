@@ -1,11 +1,16 @@
 use akula::{
     binutil::AkulaDataDir,
+    downloader::sentry_status_provider::SentryStatusProvider,
     kv::{
         tables,
         traits::{MutableKV, KV},
         TableEncode,
     },
     models::*,
+    sentry::{
+        sentry_client_connector::SentryClientConnectorImpl,
+        sentry_client_reactor::SentryClientReactor,
+    },
     stagedsync::{
         self,
         stage::{ExecOutput, Stage, StageInput, UnwindInput},
@@ -438,19 +443,7 @@ async fn main() -> anyhow::Result<()> {
     .instrument(span!(Level::INFO, "", " Genesis initialization "))
     .await?;
 
-    // sentry setup
-    let sentry_connector = akula::sentry::sentry_client_connector::SentryClientConnectorImpl::new(
-        opt.sentry_api_addr.clone(),
-    );
-    let sentry_status_provider =
-        akula::downloader::sentry_status_provider::SentryStatusProvider::new(chain_config.clone());
-    let mut sentry_reactor = akula::sentry::sentry_client_reactor::SentryClientReactor::new(
-        Box::new(sentry_connector),
-        sentry_status_provider.current_status_stream(),
-    );
-    sentry_reactor.start()?;
-    let sentry = sentry_reactor.into_shared();
-
+    let sentry_status_provider = SentryStatusProvider::new(chain_config.clone());
     // staged sync setup
     let mut staged_sync = stagedsync::StagedSync::new();
     // staged_sync.set_min_progress_to_commit_after_stage(2);
@@ -461,11 +454,18 @@ async fn main() -> anyhow::Result<()> {
         });
         staged_sync.push(ConvertBodies { db: erigon_db });
     } else {
-        staged_sync.push(akula::stages::HeaderDownload::new(
+        // sentry setup
+        let mut sentry_reactor = SentryClientReactor::new(
+            Box::new(SentryClientConnectorImpl::new(opt.sentry_api_addr.clone())),
+            sentry_status_provider.current_status_stream(),
+        );
+        sentry_reactor.start()?;
+
+        staged_sync.push(HeaderDownload::new(
             chain_config,
             opt.downloader_opts.headers_mem_limit(),
             opt.downloader_opts.headers_batch_size,
-            sentry,
+            sentry_reactor.into_shared(),
             sentry_status_provider,
         )?);
         // also add body download stage here
