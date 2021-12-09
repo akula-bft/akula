@@ -159,10 +159,16 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                     stage_progress,
                                     ..
                                 } => {
+                                    let time = Instant::now() - start_time;
                                     if *done {
-                                        let time = Instant::now() - start_time;
                                         info!(
                                             "DONE @ {} in {}",
+                                            stage_progress,
+                                            format_duration(time, true)
+                                        );
+                                    } else {
+                                        debug!(
+                                            "Stage invocation complete @ {} in {}",
                                             stage_progress,
                                             format_duration(time, true)
                                         );
@@ -201,7 +207,9 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                         >= self.min_progress_to_commit_after_stage
                                 {
                                     // Commit and restart transaction.
+                                    debug!("Commit requested");
                                     tx.commit().await?;
+                                    debug!("Commit complete");
                                     tx = db.begin_mutable().await?;
                                 }
 
