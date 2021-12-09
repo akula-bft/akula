@@ -39,7 +39,7 @@ impl SentryClient for SentryClientImpl {
             total_difficulty: Some(grpc_types::H256::from(status.total_difficulty)),
             best_hash: Some(grpc_types::H256::from(status.best_hash)),
             fork_data: Some(fork_data),
-            max_block: status.max_block,
+            max_block: status.max_block.0,
         };
         let request = tonic::Request::new(status_data);
         let response = self.client.set_status(request).await?;
