@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
 use ethereum_types::{Address, H256, U256};
-use std::{collections::HashMap, fmt::Debug};
+use std::fmt::Debug;
 
 #[async_trait]
 #[auto_impl(&mut, Box)]
@@ -14,7 +14,7 @@ pub trait State: Debug + Send + Sync {
 
     async fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256>;
 
-    async fn all_storage(&self, address: Address) -> anyhow::Result<HashMap<U256, U256>>;
+    async fn erase_storage(&mut self, address: Address) -> anyhow::Result<()>;
 
     async fn read_header(
         &self,

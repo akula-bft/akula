@@ -212,8 +212,23 @@ impl State for InMemoryState {
         Ok(U256::zero())
     }
 
-    async fn all_storage(&self, address: Address) -> anyhow::Result<HashMap<U256, U256>> {
-        Ok(self.storage.get(&address).cloned().unwrap_or_default())
+    async fn erase_storage(&mut self, address: Address) -> anyhow::Result<()> {
+        let address_storage = self.storage.remove(&address).unwrap_or_default();
+
+        if !address_storage.is_empty() {
+            let storage_changes = self
+                .storage_changes
+                .entry(self.block_number)
+                .or_default()
+                .entry(address)
+                .or_default();
+
+            for (slot, initial) in address_storage {
+                storage_changes.insert(slot, initial);
+            }
+        }
+
+        Ok(())
     }
 
     async fn read_header(

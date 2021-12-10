@@ -15,6 +15,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,
 };
+use tokio_stream::StreamExt;
 use tracing::*;
 
 // address -> storage-encoded initial value
@@ -22,6 +23,12 @@ pub type AccountChanges = BTreeMap<Address, Option<Account>>;
 
 // address -> location -> zeroless initial value
 pub type StorageChanges = BTreeMap<Address, BTreeMap<U256, U256>>;
+
+#[derive(Default, Debug)]
+struct OverlayStorage {
+    erased: bool,
+    slots: HashMap<U256, U256>,
+}
 
 #[derive(Debug)]
 pub struct Buffer<'db, 'tx, Tx>
@@ -38,7 +45,7 @@ where
     accounts: HashMap<Address, Option<Account>>,
 
     // address -> location -> value
-    storage: HashMap<Address, HashMap<U256, U256>>,
+    storage: HashMap<Address, OverlayStorage>,
 
     account_changes: BTreeMap<BlockNumber, AccountChanges>, // per block
     storage_changes: BTreeMap<BlockNumber, StorageChanges>, // per block
@@ -105,36 +112,68 @@ where
 
     async fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256> {
         if let Some(account_storage) = self.storage.get(&address) {
-            if let Some(value) = account_storage.get(&location) {
+            if let Some(value) = account_storage.slots.get(&location) {
                 return Ok(*value);
+            } else if account_storage.erased {
+                return Ok(U256::zero());
             }
         }
 
         accessors::state::storage::read(self.txn, address, location, self.historical_block).await
     }
 
-    async fn all_storage(&self, address: Address) -> anyhow::Result<HashMap<U256, U256>> {
-        let mut out = HashMap::new();
+    async fn erase_storage(&mut self, address: Address) -> anyhow::Result<()> {
+        let mut mark_database_as_discarded = false;
+        let overlay_storage = self.storage.entry(address).or_insert_with(|| {
+            // If we don't have any overlay storage, we must mark slots in database as zeroed.
+            mark_database_as_discarded = true;
 
-        let mut cursor = self.txn.cursor_dup_sort(&tables::Storage).await?;
-        if let Some((_, (location, entry))) = cursor.seek_exact(address).await? {
-            out.insert(h256_to_u256(location), entry);
-            while let Some((_, (location, entry))) = cursor.next_dup().await? {
-                out.insert(h256_to_u256(location), entry);
+            OverlayStorage {
+                erased: true,
+                slots: Default::default(),
             }
+        });
+
+        let storage_changes = self
+            .storage_changes
+            .entry(self.block_number)
+            .or_default()
+            .entry(address)
+            .or_default();
+
+        for (slot, value) in overlay_storage.slots.drain() {
+            storage_changes.insert(slot, value);
         }
 
-        if let Some(address_storage) = self.storage.get(&address) {
-            for (&location, &value) in address_storage {
-                if value.is_zero() {
-                    out.remove(&location);
-                } else {
-                    out.insert(location, value);
+        if !overlay_storage.erased {
+            // If we haven't erased before, we also must mark unmodified slots as zeroed.
+            mark_database_as_discarded = true;
+            overlay_storage.erased = true;
+        }
+
+        if mark_database_as_discarded {
+            let mut storage_table = self.txn.cursor_dup_sort(&tables::Storage).await?;
+
+            let mut walker = storage_table.walk(Some(address));
+
+            let storage_changes = self
+                .storage_changes
+                .entry(self.block_number)
+                .or_default()
+                .entry(address)
+                .or_default();
+
+            while let Some((a, (slot, initial))) = walker.try_next().await? {
+                if a != address {
+                    break;
                 }
+
+                // Only insert slot from db if it's not in storage buffer yet.
+                storage_changes.entry(h256_to_u256(slot)).or_insert(initial);
             }
         }
 
-        Ok(out)
+        Ok(())
     }
 
     async fn read_header(
@@ -236,6 +275,7 @@ where
         self.storage
             .entry(address)
             .or_default()
+            .slots
             .insert(location, current);
 
         Ok(())
@@ -281,7 +321,13 @@ where
         storage_addresses.sort_unstable();
         let mut written_slots = 0;
         for &address in storage_addresses {
-            for (&k, &v) in &self.storage[&address] {
+            let overlay_storage = &self.storage[&address];
+
+            if overlay_storage.erased && storage_table.seek_exact(address).await?.is_some() {
+                storage_table.delete_current_duplicates().await?;
+            }
+
+            for (&k, &v) in &overlay_storage.slots {
                 upsert_storage_value(&mut storage_table, address, k, v).await?;
 
                 written_slots += 1;
