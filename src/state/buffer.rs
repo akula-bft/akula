@@ -252,26 +252,42 @@ where
         let mut account_table = self.txn.mutable_cursor(&tables::Account).await?;
         let mut storage_table = self.txn.mutable_cursor_dupsort(&tables::Storage).await?;
 
-        debug!("Writing state");
-
+        debug!("Writing accounts");
         let mut account_addresses = self.accounts.keys().collect::<Vec<_>>();
         account_addresses.sort_unstable();
+        let mut written_accounts = 0;
         for &address in account_addresses {
-            if let Some(account) = self.accounts.get(&address) {
-                if let Some(account) = account {
-                    account_table.upsert(address, *account).await?;
-                } else if account_table.seek_exact(address).await?.is_some() {
-                    account_table.delete_current().await?;
-                }
+            let account = self.accounts[&address];
+
+            if let Some(account) = account {
+                account_table.upsert(address, account).await?;
+            } else if account_table.seek_exact(address).await?.is_some() {
+                account_table.delete_current().await?;
+            }
+
+            written_accounts += 1;
+            if written_accounts % 500_000 == 0 {
+                debug!(
+                    "Written {} updated acccounts, current entry: {}",
+                    written_accounts, address
+                )
             }
         }
 
+        debug!("Writing storage");
         let mut storage_addresses = self.storage.keys().collect::<Vec<_>>();
         storage_addresses.sort_unstable();
+        let mut written_slots = 0;
         for &address in storage_addresses {
-            if let Some(storage) = self.storage.get(&address) {
-                for (&k, &v) in storage {
-                    upsert_storage_value(&mut storage_table, address, k, v).await?;
+            for (&k, &v) in &self.storage[&address] {
+                upsert_storage_value(&mut storage_table, address, k, v).await?;
+
+                written_slots += 1;
+                if written_slots % 500_000 == 0 {
+                    debug!(
+                        "Written {} storage slots, current entry: address {}, slot {}",
+                        written_slots, address, k
+                    );
                 }
             }
         }
