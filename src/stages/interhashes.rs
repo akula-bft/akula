@@ -536,6 +536,9 @@ async fn generate_interhashes_with_collectors<'db: 'tx, 'tx, RwTx>(
 where
     RwTx: MutableTransaction<'db>,
 {
+    tx.clear_table(&tables::TrieAccount).await?;
+    tx.clear_table(&tables::TrieStorage).await?;
+
     let mut walker = GenerateWalker::new(tx, collector, storage_collector).await?;
     let mut current = walker.get_last_account().await?;
 
@@ -562,9 +565,6 @@ where
 {
     let _ = from;
     let _ = to;
-
-    tx.clear_table(&tables::TrieAccount).await?;
-    tx.clear_table(&tables::TrieStorage).await?;
 
     generate_interhashes_with_collectors(tx, collector, storage_collector).await
 }
