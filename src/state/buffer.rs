@@ -274,6 +274,8 @@ where
             }
         }
 
+        debug!("Writing {} accounts complete", written_accounts);
+
         debug!("Writing storage");
         let mut storage_addresses = self.storage.keys().collect::<Vec<_>>();
         storage_addresses.sort_unstable();
@@ -291,6 +293,8 @@ where
                 }
             }
         }
+
+        debug!("Writing {} slots complete", written_slots);
 
         debug!("Writing code");
         let mut code_table = self.txn.mutable_cursor(&tables::Code).await?;
