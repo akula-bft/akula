@@ -75,8 +75,8 @@ impl VerifyStageLinear {
 
     async fn verify_slices_parallel(&self, slices: &[Arc<RwLock<HeaderSlice>>]) -> Vec<bool> {
         map_parallel(Vec::from(slices), |slice_lock| -> bool {
-            let slice = slice_lock.write();
-            self.verify_slice(&slice)
+            let mut slice = slice_lock.write();
+            self.verify_slice(&mut slice)
         })
         .await
     }
@@ -88,11 +88,11 @@ impl VerifyStageLinear {
             .as_secs()
     }
 
-    fn verify_slice(&self, slice: &HeaderSlice) -> bool {
+    fn verify_slice(&self, slice: &mut HeaderSlice) -> bool {
         if slice.headers.is_none() {
             return false;
         }
-        let headers = slice.headers.as_ref().unwrap();
+        let headers = slice.headers.as_mut().unwrap();
         if headers.len() != self.slice_size {
             return false;
         }

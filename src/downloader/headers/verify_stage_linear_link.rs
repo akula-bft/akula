@@ -102,7 +102,7 @@ impl VerifyStageLinearLink {
     fn verify_pending_slice(&mut self, slice_lock: Arc<RwLock<HeaderSlice>>) -> bool {
         let slice = slice_lock.upgradable_read();
 
-        let is_verified = self.verify_slice_link(&slice, &self.last_verified_header);
+        let is_verified = self.verify_slice_link(&slice, self.last_verified_header.clone());
 
         let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
         if is_verified {
@@ -126,7 +126,7 @@ impl VerifyStageLinearLink {
             .as_secs()
     }
 
-    fn verify_slice_link(&self, slice: &HeaderSlice, parent: &Option<BlockHeader>) -> bool {
+    fn verify_slice_link(&self, slice: &HeaderSlice, parent: Option<BlockHeader>) -> bool {
         if slice.headers.is_none() {
             return false;
         }
@@ -144,7 +144,7 @@ impl VerifyStageLinearLink {
         if parent.is_none() {
             return false;
         }
-        let parent = parent.as_ref().unwrap();
+        let parent = &mut parent.unwrap();
 
         header_slice_verifier::verify_link_by_parent_hash(child, parent)
             && header_slice_verifier::verify_link_block_nums(child, parent)

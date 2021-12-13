@@ -322,6 +322,7 @@ mod tests {
                     .into(),
                 nonce: hex!("68b769c5451a7aea").into(),
                 base_fee_per_gas: None,
+                hash_cached: None,
             }]
         );
 
@@ -397,6 +398,7 @@ mod tests {
                     .into(),
                 nonce: hex!("0000000000000023").into(),
                 base_fee_per_gas: None,
+                hash_cached: None,
             }],
         };
 

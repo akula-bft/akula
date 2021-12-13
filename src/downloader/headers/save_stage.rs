@@ -125,9 +125,9 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         Ok(())
     }
 
-    async fn save_header(&self, header: BlockHeader, tx: &RwTx) -> anyhow::Result<()> {
+    async fn save_header(&self, mut header: BlockHeader, tx: &RwTx) -> anyhow::Result<()> {
         let block_num = header.number;
-        let header_hash = header.hash();
+        let header_hash = header.hash_cached();
         let header_key: HeaderKey = (block_num, header_hash);
         let total_difficulty = header.difficulty;
 

@@ -56,6 +56,8 @@ impl GenesisState {
             receipts_root: EMPTY_ROOT,
             ommers_hash: EMPTY_LIST_HASH,
             transactions_root: EMPTY_ROOT,
+
+            hash_cached: None,
         }
     }
 }
@@ -110,6 +112,8 @@ where
         receipts_root: EMPTY_ROOT,
         ommers_hash: EMPTY_LIST_HASH,
         transactions_root: EMPTY_ROOT,
+
+        hash_cached: None,
     };
     let block_hash = header.hash();
 

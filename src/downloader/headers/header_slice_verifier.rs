@@ -6,9 +6,9 @@ use crate::{
     },
 };
 
-pub fn verify_link_by_parent_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
+pub fn verify_link_by_parent_hash(child: &BlockHeader, parent: &mut BlockHeader) -> bool {
     let given_parent_hash = child.parent_hash;
-    let expected_parent_hash = parent.hash();
+    let expected_parent_hash = parent.hash_cached();
     given_parent_hash == expected_parent_hash
 }
 
@@ -74,9 +74,17 @@ fn enumerate_sequential_pairs(
 }
 
 /// Verify that all blocks in the slice are linked by the parent_hash field.
-pub fn verify_slice_is_linked_by_parent_hash(headers: &[BlockHeader]) -> bool {
-    enumerate_sequential_pairs(headers)
-        .all(|(parent, child)| verify_link_by_parent_hash(child, parent))
+pub fn verify_slice_is_linked_by_parent_hash(headers: &mut [BlockHeader]) -> bool {
+    for parent_index in 0..headers.len() - 1 {
+        let mut it = headers.iter_mut().skip(parent_index);
+        let parent = it.next().unwrap();
+        let child = it.next().unwrap();
+
+        if !verify_link_by_parent_hash(child, parent) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Verify that block numbers start from the expected

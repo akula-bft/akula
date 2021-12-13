@@ -24,6 +24,9 @@ pub struct BlockHeader {
     pub mix_hash: H256,
     pub nonce: H64,
     pub base_fee_per_gas: Option<U256>,
+
+    #[serde(skip_serializing)]
+    pub hash_cached: Option<H256>,
 }
 
 impl Encodable for BlockHeader {
@@ -97,6 +100,7 @@ impl Decodable for BlockHeader {
             mix_hash,
             nonce,
             base_fee_per_gas,
+            hash_cached: None,
         })
     }
 }
@@ -121,6 +125,7 @@ impl BlockHeader {
             mix_hash: partial_header.mix_hash,
             nonce: partial_header.nonce,
             base_fee_per_gas: partial_header.base_fee_per_gas,
+            hash_cached: None,
         }
     }
 
@@ -143,12 +148,23 @@ impl BlockHeader {
             mix_hash: H256::zero(),
             nonce: H64::zero(),
             base_fee_per_gas: None,
+            hash_cached: None,
         }
     }
 
     #[must_use]
     pub fn hash(&self) -> H256 {
         keccak256(&rlp::encode(self)[..])
+    }
+
+    pub fn hash_cached(&mut self) -> H256 {
+        let hash = self.hash_cached.unwrap_or_else(|| self.hash());
+        self.hash_cached = Some(hash);
+        hash
+    }
+
+    pub fn hash_cached_clear(&mut self) {
+        self.hash_cached = None;
     }
 }
 
