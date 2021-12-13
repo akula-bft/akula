@@ -11,22 +11,21 @@ use crate::{
             header_slices::align_block_num_to_slice_start,
             stage_stream::{make_stage_stream, StageStream},
         },
-        ui_system::{UISystem, UISystemViewScope},
+        ui_system::{UISystemShared, UISystemViewScope},
     },
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
+#[derive(Debug)]
 pub struct DownloaderLinear {
     chain_config: ChainConfig,
     mem_limit: usize,
     sentry: SentryClientReactorShared,
-    ui_system: Arc<Mutex<UISystem>>,
 }
 
 pub struct DownloaderLinearReport {
@@ -41,13 +40,11 @@ impl DownloaderLinear {
         chain_config: ChainConfig,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
-        ui_system: Arc<Mutex<UISystem>>,
     ) -> Self {
         Self {
             chain_config,
             mem_limit,
             sentry,
-            ui_system,
         }
     }
 
@@ -74,6 +71,7 @@ impl DownloaderLinear {
         start_block_id: BlockHashAndNumber,
         estimated_top_block_num: Option<BlockNumber>,
         max_blocks_count: usize,
+        ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderLinearReport> {
         let start_block_num = start_block_id.number;
 
@@ -115,7 +113,7 @@ impl DownloaderLinear {
 
         let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderLinear");
         let _header_slices_view_scope =
-            UISystemViewScope::new(&self.ui_system, Box::new(header_slices_view));
+            UISystemViewScope::new(&ui_system, Box::new(header_slices_view));
 
         // Downloading happens with several stages where
         // each of the stages processes blocks in one status,
