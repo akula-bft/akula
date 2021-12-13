@@ -4,7 +4,7 @@ use crate::{
 };
 use parking_lot::RwLock;
 use std::{
-    collections::{HashMap, LinkedList},
+    collections::{HashMap, VecDeque},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
@@ -55,7 +55,7 @@ struct HeaderSliceStatusWatch {
 /// HeaderSlice 1: headers 192-384
 /// HeaderSlice 2: headers 384-576
 pub struct HeaderSlices {
-    slices: RwLock<LinkedList<Arc<RwLock<HeaderSlice>>>>,
+    slices: RwLock<VecDeque<Arc<RwLock<HeaderSlice>>>>,
     max_slices: usize,
     max_block_num: AtomicU64,
     final_block_num: BlockNumber,
@@ -88,7 +88,7 @@ impl HeaderSlices {
         let total_block_num = final_block_num.0 as usize - start_block_num.0 as usize;
         let max_slices = std::cmp::min(max_slices, total_block_num / HEADER_SLICE_SIZE);
 
-        let mut slices = LinkedList::new();
+        let mut slices = VecDeque::new();
         for i in 0..max_slices {
             let slice = HeaderSlice {
                 start_block_num: BlockNumber(start_block_num.0 + (i * HEADER_SLICE_SIZE) as u64),
@@ -197,16 +197,17 @@ impl HeaderSlices {
 
     pub fn remove(&self, status: HeaderSliceStatus) {
         let mut slices = self.slices.write();
-        let mut cursor = slices.cursor_front_mut();
+
+        let mut cursor = 0;
         let mut count: usize = 0;
 
-        while cursor.current().is_some() {
-            let current_status = cursor.current().unwrap().read().status;
+        while cursor < slices.len() {
+            let current_status = slices[cursor].read().status;
             if current_status == status {
-                cursor.remove_current();
+                slices.remove(cursor);
                 count += 1;
             } else {
-                cursor.move_next();
+                cursor += 1;
             }
         }
 

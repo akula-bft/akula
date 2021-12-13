@@ -4,7 +4,6 @@
     entry_insert,
     generic_associated_types,
     let_else,
-    linked_list_cursors,
     map_first_last,
     never_type,
     step_trait,
