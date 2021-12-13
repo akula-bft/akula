@@ -176,6 +176,25 @@ impl HeaderSlices {
             .map(Arc::clone)
     }
 
+    pub fn find_batch_by_status(
+        &self,
+        status: HeaderSliceStatus,
+        batch_size: usize,
+    ) -> Vec<Arc<RwLock<HeaderSlice>>> {
+        let mut batch = Vec::new();
+        let slices = self.slices.read();
+        for slice_lock in slices.iter() {
+            let slice = slice_lock.read();
+            if slice.status == status {
+                batch.push(slice_lock.clone());
+                if batch.len() == batch_size {
+                    break;
+                }
+            }
+        }
+        batch
+    }
+
     pub fn remove(&self, status: HeaderSliceStatus) {
         let mut slices = self.slices.write();
         let mut cursor = slices.cursor_front_mut();

@@ -1,10 +1,11 @@
-use crate::downloader::headers::{
+use super::{
     header_slice_status_watch::HeaderSliceStatusWatch,
     header_slice_verifier, header_slices,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    parallel::map_parallel,
     preverified_hashes_config::PreverifiedHashesConfig,
 };
-use parking_lot::RwLockUpgradableReadGuard;
+use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
@@ -39,18 +40,26 @@ impl VerifyStagePreverified {
             "VerifyStagePreverified: verifying {} slices",
             self.pending_watch.pending_count()
         );
-        self.verify_pending();
+        self.verify_pending().await;
         debug!("VerifyStagePreverified: done");
         Ok(())
     }
 
-    fn verify_pending(&self) {
-        self.header_slices.for_each(|slice_lock| {
-            let slice = slice_lock.upgradable_read();
-            if slice.status == HeaderSliceStatus::Downloaded {
-                let is_verified = self.verify_slice(&slice);
+    async fn verify_pending(&self) {
+        loop {
+            let slices_batch = self
+                .header_slices
+                .find_batch_by_status(HeaderSliceStatus::Downloaded, num_cpus::get());
+            if slices_batch.is_empty() {
+                break;
+            }
 
-                let mut slice = RwLockUpgradableReadGuard::upgrade(slice);
+            let slices_verified = self.verify_slices_parallel(&slices_batch).await;
+
+            for (i, slice_lock) in slices_batch.iter().enumerate() {
+                let mut slice = slice_lock.write();
+                let is_verified = slices_verified[i];
+
                 if is_verified {
                     self.header_slices
                         .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Verified);
@@ -59,7 +68,15 @@ impl VerifyStagePreverified {
                         .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Invalid);
                 }
             }
-        });
+        }
+    }
+
+    async fn verify_slices_parallel(&self, slices: &[Arc<RwLock<HeaderSlice>>]) -> Vec<bool> {
+        map_parallel(Vec::from(slices), |slice_lock| -> bool {
+            let slice = slice_lock.write();
+            self.verify_slice(&slice)
+        })
+        .await
     }
 
     /// The algorithm verifies that the edges of the slice match to the preverified hashes,

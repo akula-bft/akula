@@ -4,6 +4,7 @@ mod downloader_linear;
 mod downloader_preverified;
 mod header_slice_status_watch;
 pub mod header_slices;
+mod parallel;
 pub mod stage;
 mod stage_stream;
 
