@@ -6,7 +6,6 @@ use crate::{
 };
 use std::fmt;
 use tokio::sync::watch;
-use tokio_stream::{wrappers::WatchStream, StreamExt};
 use tracing::debug;
 
 #[derive(Debug)]
@@ -34,7 +33,14 @@ impl SentryStatusProvider {
 
     pub fn current_status_stream(&self) -> sentry_client_connector::StatusStream {
         let receiver = self.sender.subscribe();
-        let stream = WatchStream::new(receiver).map(Ok);
+        let stream = async_stream::stream! {
+            // move receiver
+            let mut receiver: watch::Receiver<Status> = receiver;
+            loop {
+                let status = receiver.borrow_and_update().clone();
+                yield Ok(status);
+            }
+        };
         Box::pin(stream)
     }
 
