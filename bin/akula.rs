@@ -466,7 +466,7 @@ async fn main() -> anyhow::Result<()> {
             opt.downloader_opts.headers_batch_size,
             sentry,
             sentry_status_provider,
-        ));
+        )?);
         // also add body download stage here
     }
     staged_sync.push(BlockHashes);

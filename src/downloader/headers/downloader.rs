@@ -4,15 +4,14 @@ use crate::{
             downloader_linear, downloader_preverified,
             header_slices::align_block_num_to_slice_start,
         },
-        ui_system::UISystem,
+        ui_system::UISystemShared,
     },
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
+#[derive(Debug)]
 pub struct Downloader {
     downloader_preverified: downloader_preverified::DownloaderPreverified,
     downloader_linear: downloader_linear::DownloaderLinear,
@@ -35,21 +34,15 @@ impl Downloader {
         chain_config: ChainConfig,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
-        ui_system: Arc<Mutex<UISystem>>,
     ) -> anyhow::Result<Self> {
         let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
             chain_config.chain_name(),
             mem_limit,
             sentry.clone(),
-            ui_system.clone(),
         )?;
 
-        let downloader_linear = downloader_linear::DownloaderLinear::new(
-            chain_config.clone(),
-            mem_limit,
-            sentry,
-            ui_system,
-        );
+        let downloader_linear =
+            downloader_linear::DownloaderLinear::new(chain_config.clone(), mem_limit, sentry);
 
         let instance = Self {
             downloader_preverified,
@@ -101,10 +94,16 @@ impl Downloader {
         start_block_num: BlockNumber,
         max_blocks_count: usize,
         previous_run_state: Option<DownloaderRunState>,
+        ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderReport> {
         let preverified_report = self
             .downloader_preverified
-            .run::<RwTx>(db_transaction, start_block_num, max_blocks_count)
+            .run::<RwTx>(
+                db_transaction,
+                start_block_num,
+                max_blocks_count,
+                ui_system.clone(),
+            )
             .await?;
 
         let linear_start_block_id = self
@@ -122,6 +121,7 @@ impl Downloader {
                 linear_start_block_id,
                 linear_estimated_top_block_num,
                 linear_max_blocks_count,
+                ui_system,
             )
             .await?;
 

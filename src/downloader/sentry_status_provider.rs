@@ -1,9 +1,13 @@
 use crate::{
     kv,
+    kv::tables::HeaderKey,
+    models::BlockNumber,
     sentry::{chain_config::ChainConfig, sentry_client::Status, sentry_client_connector},
 };
+use std::fmt;
 use tokio::sync::watch;
 use tokio_stream::{wrappers::WatchStream, StreamExt};
+use tracing::debug;
 
 #[derive(Debug)]
 pub struct SentryStatusProvider {
@@ -17,7 +21,7 @@ impl SentryStatusProvider {
             total_difficulty: ethereum_types::U256::zero(),
             best_hash: ethereum_types::H256::zero(),
             chain_fork_config: chain_config.clone(),
-            max_block: 0,
+            max_block: BlockNumber(0),
         };
 
         let (sender, _) = watch::channel(genesis_status);
@@ -34,12 +38,67 @@ impl SentryStatusProvider {
         Box::pin(stream)
     }
 
-    pub async fn update<'db, RwTx: kv::traits::MutableTransaction<'db>>(
+    async fn read_status<'db, RwTx: kv::traits::Transaction<'db>>(
         &self,
-        _tx: &RwTx,
+        tx: &RwTx,
+    ) -> anyhow::Result<Status> {
+        let header_hash = tx
+            .get(&kv::tables::LastHeader, Default::default())
+            .await?
+            .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
+
+        let block_num = tx
+            .get(&kv::tables::HeaderNumber, header_hash)
+            .await?
+            .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
+
+        let header_key: HeaderKey = (block_num, header_hash);
+        let total_difficulty = tx
+            .get(&kv::tables::HeadersTotalDifficulty, header_key)
+            .await?
+            .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
+
+        let status = Status {
+            total_difficulty,
+            best_hash: header_hash,
+            chain_fork_config: self.chain_config.clone(),
+            max_block: block_num,
+        };
+
+        Ok(status)
+    }
+
+    pub async fn update<'db, RwTx: kv::traits::Transaction<'db>>(
+        &self,
+        tx: &RwTx,
     ) -> anyhow::Result<()> {
-        // TODO: read from tx and send a new status
-        // self.sender.send(...);
-        Ok(())
+        let result = self.read_status(tx).await;
+
+        match result {
+            Ok(status) => {
+                self.sender.send(status)?;
+                Ok(())
+            }
+            Err(error) => match error.downcast_ref::<SentryStatusProviderError>() {
+                Some(SentryStatusProviderError::StatusDataNotFound) => {
+                    debug!("SentryStatusProvider.update: status data not found.");
+                    Ok(())
+                }
+                None => Err(error),
+            },
+        }
     }
 }
+
+#[derive(Debug)]
+enum SentryStatusProviderError {
+    StatusDataNotFound,
+}
+
+impl fmt::Display for SentryStatusProviderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for SentryStatusProviderError {}

@@ -2,6 +2,7 @@ use super::{
     chain_config::ChainConfig,
     messages::{EthMessageId, Message},
 };
+use crate::models::BlockNumber;
 use async_trait::async_trait;
 use futures_core::Stream;
 use std::{fmt::Debug, pin::Pin};
@@ -11,7 +12,7 @@ pub struct Status {
     pub total_difficulty: ethereum_types::U256,
     pub best_hash: ethereum_types::H256,
     pub chain_fork_config: ChainConfig,
-    pub max_block: u64,
+    pub max_block: BlockNumber,
 }
 
 pub type PeerId = ethereum_types::H512;

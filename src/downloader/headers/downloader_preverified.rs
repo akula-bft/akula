@@ -12,22 +12,21 @@ use crate::{
             header_slices::align_block_num_to_slice_start,
             stage_stream::{make_stage_stream, StageStream},
         },
-        ui_system::{UISystem, UISystemViewScope},
+        ui_system::{UISystemShared, UISystemViewScope},
     },
     kv,
     models::BlockNumber,
     sentry::sentry_client_reactor::*,
 };
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
+#[derive(Debug)]
 pub struct DownloaderPreverified {
     preverified_hashes_config: PreverifiedHashesConfig,
     mem_limit: usize,
     sentry: SentryClientReactorShared,
-    ui_system: Arc<Mutex<UISystem>>,
 }
 
 pub struct DownloaderPreverifiedReport {
@@ -42,7 +41,6 @@ impl DownloaderPreverified {
         chain_name: String,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
-        ui_system: Arc<Mutex<UISystem>>,
     ) -> anyhow::Result<Self> {
         let preverified_hashes_config = PreverifiedHashesConfig::new(&chain_name)?;
 
@@ -50,7 +48,6 @@ impl DownloaderPreverified {
             preverified_hashes_config,
             mem_limit,
             sentry,
-            ui_system,
         };
         Ok(instance)
     }
@@ -65,6 +62,7 @@ impl DownloaderPreverified {
         db_transaction: &'downloader RwTx,
         start_block_num: BlockNumber,
         max_blocks_count: usize,
+        ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderPreverifiedReport> {
         let start_block_num = align_block_num_to_slice_start(start_block_num);
         let target_final_block_num = self.target_final_block_num();
@@ -95,7 +93,7 @@ impl DownloaderPreverified {
         let header_slices_view =
             HeaderSlicesView::new(header_slices.clone(), "DownloaderPreverified");
         let _header_slices_view_scope =
-            UISystemViewScope::new(&self.ui_system, Box::new(header_slices_view));
+            UISystemViewScope::new(&ui_system, Box::new(header_slices_view));
 
         // Downloading happens with several stages where
         // each of the stages processes blocks in one status,
