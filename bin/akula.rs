@@ -18,6 +18,7 @@ use akula::{
     stages::*,
     version_string, Cursor, MutableCursor, MutableTransaction, StageId, Transaction,
 };
+use anyhow::bail;
 use async_trait::async_trait;
 use rayon::prelude::*;
 use std::{
@@ -242,13 +243,35 @@ where
                 if let Some((_, body)) = erigon_body_cur.seek_exact((block_num, block_hash)).await?
                 {
                     let base_tx_id = body.base_tx_id;
-                    let block_tx_base_key = base_tx_id.encode().to_vec();
+                    let block_tx_base_key = base_tx_id.encode();
 
                     let txs = erigon_tx_cur
-                        .walk(Some(block_tx_base_key))
+                        .walk(Some(block_tx_base_key.to_vec()))
                         .take(body.tx_amount)
                         .collect::<anyhow::Result<Vec<_>>>()
                         .await?;
+
+                    if let Some((txkey, _)) = txs.first() {
+                        if *txkey != block_tx_base_key {
+                            bail!(
+                                "Base txkey mismatch for block #{}/{}: {:?} != {:?}",
+                                block_num,
+                                block_hash,
+                                txkey,
+                                block_tx_base_key
+                            );
+                        }
+                    }
+
+                    if txs.len() != body.tx_amount {
+                        bail!(
+                            "Invalid tx amount in Erigon for block #{}/{}: {} != {}",
+                            block_num,
+                            block_hash,
+                            body.tx_amount,
+                            txs.len()
+                        );
+                    }
 
                     accum_txs += body.tx_amount;
                     batch.push((block_num, block_hash, body, txs));
