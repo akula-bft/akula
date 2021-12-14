@@ -1,11 +1,11 @@
 use crate::{crypto::keccak256, models};
-use bytes::BytesMut;
+use bytes::Bytes;
 use ethereum_types::{H256, U256};
 
 #[derive(Clone, Debug)]
 pub struct BlockHeader {
     pub header: models::BlockHeader,
-    rlp_repr_cached: Option<BytesMut>,
+    rlp_repr_cached: Option<Bytes>,
     hash_cached: Option<H256>,
 }
 
@@ -26,21 +26,21 @@ impl BlockHeader {
         self.header.timestamp
     }
 
-    fn rlp_repr_compute(&self) -> BytesMut {
-        rlp::encode(&self.header)
+    fn rlp_repr_compute(&self) -> Bytes {
+        rlp::encode(&self.header).freeze()
     }
 
     pub fn rlp_repr_prepare(&mut self) {
         self.rlp_repr_cached = Some(self.rlp_repr_compute());
     }
 
-    pub fn rlp_repr(&self) -> BytesMut {
+    pub fn rlp_repr(&self) -> Bytes {
         self.rlp_repr_cached
             .clone()
             .unwrap_or_else(|| self.rlp_repr_compute())
     }
 
-    fn hash_compute(rlp_repr: &BytesMut) -> H256 {
+    fn hash_compute(rlp_repr: &Bytes) -> H256 {
         keccak256(rlp_repr.as_ref())
     }
 

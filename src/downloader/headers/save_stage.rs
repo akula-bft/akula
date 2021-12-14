@@ -131,7 +131,8 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         let header_key: HeaderKey = (block_num, header_hash);
         let total_difficulty = header.difficulty();
 
-        tx.set(&kv::tables::Header, header_key, header.header)
+        // saving a precomputed RLP representation
+        tx.set(&HeaderTableWithBytes, header_key, header.rlp_repr())
             .await?;
         tx.set(&kv::tables::HeaderNumber, header_hash, block_num)
             .await?;
@@ -147,6 +148,20 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
             .await?;
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+struct HeaderTableWithBytes;
+
+impl kv::traits::Table for HeaderTableWithBytes {
+    type Key = <kv::tables::Header as kv::traits::Table>::Key;
+    type Value = bytes::Bytes;
+    type SeekKey = <kv::tables::Header as kv::traits::Table>::SeekKey;
+
+    fn db_name(&self) -> string::String<bytes::Bytes> {
+        let table = kv::tables::Header;
+        table.db_name()
     }
 }
 
