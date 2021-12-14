@@ -234,7 +234,6 @@ macro_rules! u64_table_object {
 
 u64_table_object!(u64);
 u64_table_object!(BlockNumber);
-u64_table_object!(Incarnation);
 u64_table_object!(TxIndex);
 
 #[derive(
@@ -634,31 +633,25 @@ impl TableDecode for AccountChange {
 pub struct StorageChangeKey {
     pub block_number: BlockNumber,
     pub address: Address,
-    pub incarnation: Incarnation,
 }
 
 impl TableEncode for StorageChangeKey {
-    type Encoded = [u8; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH];
+    type Encoded = [u8; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH];
 
     fn encode(self) -> Self::Encoded {
-        let mut out = [0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH];
+        let mut out = [0; BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH];
         out[..BLOCK_NUMBER_LENGTH].copy_from_slice(&self.block_number.encode());
-        out[BLOCK_NUMBER_LENGTH..BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH]
-            .copy_from_slice(&self.address.encode());
-        out[BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH..].copy_from_slice(&self.incarnation.encode());
+        out[BLOCK_NUMBER_LENGTH..].copy_from_slice(&self.address.encode());
         out
     }
 }
 
 impl TableDecode for StorageChangeKey {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        if b.len() != BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH {
-            return Err(InvalidLength::<
-                { BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH },
-            > {
-                got: b.len(),
-            }
-            .into());
+        if b.len() != BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH {
+            return Err(
+                InvalidLength::<{ BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH }> { got: b.len() }.into(),
+            );
         }
 
         Ok(Self {
@@ -666,35 +659,7 @@ impl TableDecode for StorageChangeKey {
             address: Address::decode(
                 &b[BLOCK_NUMBER_LENGTH..BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH],
             )?,
-            incarnation: Incarnation::decode(&b[BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH..])?,
         })
-    }
-}
-
-pub enum StorageChangeSeekKey {
-    Block(BlockNumber),
-    BlockAndAddress(BlockNumber, Address),
-    Full(StorageChangeKey),
-}
-
-impl TableEncode for StorageChangeSeekKey {
-    type Encoded = VariableVec<{ BLOCK_NUMBER_LENGTH + ADDRESS_LENGTH + INCARNATION_LENGTH }>;
-
-    fn encode(self) -> Self::Encoded {
-        let mut out = Self::Encoded::default();
-        match self {
-            StorageChangeSeekKey::Block(block) => {
-                out.try_extend_from_slice(&block.encode()).unwrap();
-            }
-            StorageChangeSeekKey::BlockAndAddress(block, address) => {
-                out.try_extend_from_slice(&block.encode()).unwrap();
-                out.try_extend_from_slice(&address.encode()).unwrap();
-            }
-            StorageChangeSeekKey::Full(key) => {
-                out.try_extend_from_slice(&key.encode()).unwrap();
-            }
-        }
-        out
     }
 }
 
@@ -810,17 +775,14 @@ impl TableDecode for CallTraceSetEntry {
 }
 
 decl_table!(Account => Address => EncodedAccount);
-decl_table!(Storage => (Address, Incarnation) => (H256, U256));
-decl_table!(PlainCodeHash => (Address, Incarnation) => H256);
+decl_table!(Storage => Address => (H256, U256));
 decl_table!(AccountChangeSet => AccountChangeKey => AccountChange);
-decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => StorageChangeSeekKey);
+decl_table!(StorageChangeSet => StorageChangeKey => StorageChange => BlockNumber);
 decl_table!(HashedAccount => H256 => EncodedAccount);
-decl_table!(HashedStorage => (H256, Incarnation) => (H256, U256));
+decl_table!(HashedStorage => H256 => (H256, U256));
 decl_table!(AccountHistory => BitmapKey<Address> => RoaringTreemap);
 decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Bytes);
-decl_table!(HashedCodeHash => (H256, Incarnation) => H256);
-decl_table!(IncarnationMap => Address => Incarnation);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(DbInfo => Vec<u8> => Vec<u8>);
@@ -856,7 +818,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         Storage::const_db_name() => TableInfo {
             dup_sort: true,
         },
-        PlainCodeHash::const_db_name() => TableInfo::default(),
         AccountChangeSet::const_db_name() => TableInfo {
             dup_sort: true,
         },
@@ -870,8 +831,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         AccountHistory::const_db_name() => TableInfo::default(),
         StorageHistory::const_db_name() => TableInfo::default(),
         Code::const_db_name() => TableInfo::default(),
-        HashedCodeHash::const_db_name() => TableInfo::default(),
-        IncarnationMap::const_db_name() => TableInfo::default(),
         TrieAccount::const_db_name() => TableInfo::default(),
         TrieStorage::const_db_name() => TableInfo::default(),
         DbInfo::const_db_name() => TableInfo::default(),

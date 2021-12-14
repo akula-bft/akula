@@ -7,8 +7,8 @@ use std::{collections::HashMap, convert::TryInto};
 // address -> initial value
 type AccountChanges = HashMap<Address, Option<Account>>;
 
-// address -> incarnation -> location -> initial value
-type StorageChanges = HashMap<Address, HashMap<Incarnation, HashMap<U256, U256>>>;
+// address -> location -> initial value
+type StorageChanges = HashMap<Address, HashMap<U256, U256>>;
 
 /// Holds all state in memory.
 #[derive(Debug, Default)]
@@ -17,10 +17,9 @@ pub struct InMemoryState {
 
     // hash -> code
     code: HashMap<H256, Bytes>,
-    prev_incarnations: HashMap<Address, Incarnation>,
 
-    // address -> incarnation -> location -> value
-    storage: HashMap<Address, HashMap<Incarnation, HashMap<U256, U256>>>,
+    // address -> location -> value
+    storage: HashMap<Address, HashMap<U256, U256>>,
 
     // block number -> hash -> header
     headers: Vec<HashMap<H256, BlockHeader>>,
@@ -54,18 +53,16 @@ impl InMemoryState {
     }
 
     // https://eth.wiki/fundamentals/patricia-tree#storage-trie
-    fn account_storage_root(&self, address: Address, incarnation: Incarnation) -> H256 {
-        if let Some(address_storage) = self.storage.get(&address) {
-            if let Some(storage) = address_storage.get(&incarnation) {
-                if !storage.is_empty() {
-                    return trie_root(storage.iter().map(|(&location, &value)| {
-                        let value = u256_to_h256(value);
-                        let zv = zeroless_view(&value);
-                        let encoded_location = keccak256(u256_to_h256(location));
-                        let encoded_value = rlp::encode(&zv);
-                        (encoded_location, encoded_value)
-                    }));
-                }
+    fn account_storage_root(&self, address: Address) -> H256 {
+        if let Some(storage) = self.storage.get(&address) {
+            if !storage.is_empty() {
+                return trie_root(storage.iter().map(|(&location, &value)| {
+                    let value = u256_to_h256(value);
+                    let zv = zeroless_view(&value);
+                    let encoded_location = keccak256(u256_to_h256(location));
+                    let encoded_value = rlp::encode(&zv);
+                    (encoded_location, encoded_value)
+                }));
             }
         }
 
@@ -76,11 +73,9 @@ impl InMemoryState {
         self.accounts.len().try_into().unwrap()
     }
 
-    pub fn storage_size(&self, address: Address, incarnation: Incarnation) -> u64 {
-        if let Some(address_storage) = self.storage.get(&address) {
-            if let Some(incarnation_storage) = address_storage.get(&incarnation) {
-                return incarnation_storage.len().try_into().unwrap();
-            }
+    pub fn storage_size(&self, address: Address) -> u64 {
+        if let Some(storage) = self.storage.get(&address) {
+            return storage.len().try_into().unwrap();
         }
 
         0
@@ -92,7 +87,7 @@ impl InMemoryState {
         }
 
         trie_root(self.accounts.iter().map(|(&address, account)| {
-            let storage_root = self.account_storage_root(address, account.incarnation);
+            let storage_root = self.account_storage_root(address);
             let account = account.to_rlp(storage_root);
             (keccak256(address), rlp::encode(&account))
         }))
@@ -166,28 +161,29 @@ impl InMemoryState {
     }
 
     pub fn unwind_state_changes(&mut self, block_number: BlockNumber) {
-        for (address, account) in self.account_changes.entry(block_number).or_default() {
+        for (address, account) in self
+            .account_changes
+            .remove(&block_number)
+            .unwrap_or_default()
+        {
             if let Some(account) = account {
-                self.accounts.insert(*address, account.clone());
+                self.accounts.insert(address, account.clone());
             } else {
-                self.accounts.remove(address);
+                self.accounts.remove(&address);
             }
         }
 
-        for (address, storage1) in self.storage_changes.entry(block_number).or_default() {
-            for (incarnation, storage2) in storage1 {
-                for (location, value) in storage2 {
-                    let e = self
-                        .storage
-                        .entry(*address)
-                        .or_default()
-                        .entry(*incarnation)
-                        .or_default();
-                    if value.is_zero() {
-                        e.remove(location);
-                    } else {
-                        e.insert(*location, *value);
-                    }
+        for (address, storage) in self
+            .storage_changes
+            .remove(&block_number)
+            .unwrap_or_default()
+        {
+            for (location, value) in storage {
+                let e = self.storage.entry(address).or_default();
+                if value.is_zero() {
+                    e.remove(&location);
+                } else {
+                    e.insert(location, value);
                 }
             }
         }
@@ -206,30 +202,18 @@ impl State for InMemoryState {
         Ok(self.code.get(&code_hash).cloned().unwrap_or_default())
     }
 
-    async fn read_storage(
-        &self,
-        address: Address,
-        incarnation: Incarnation,
-        location: U256,
-    ) -> anyhow::Result<U256> {
+    async fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256> {
         if let Some(storage) = self.storage.get(&address) {
-            if let Some(historical_data) = storage.get(&incarnation) {
-                if let Some(value) = historical_data.get(&location) {
-                    return Ok(*value);
-                }
+            if let Some(value) = storage.get(&location) {
+                return Ok(*value);
             }
         }
 
         Ok(U256::zero())
     }
 
-    // Previous non-zero incarnation of an account; 0 if none exists.
-    async fn previous_incarnation(&self, address: Address) -> anyhow::Result<Incarnation> {
-        Ok(self
-            .prev_incarnations
-            .get(&address)
-            .copied()
-            .unwrap_or(Incarnation(0)))
+    async fn all_storage(&self, address: Address) -> anyhow::Result<HashMap<U256, U256>> {
+        Ok(self.storage.get(&address).cloned().unwrap_or_default())
     }
 
     async fn read_header(
@@ -305,8 +289,6 @@ impl State for InMemoryState {
     /// Must be called prior to calling update_account/update_account_code/update_storage.
     fn begin_block(&mut self, block_number: BlockNumber) {
         self.block_number = block_number;
-        self.account_changes.remove(&block_number);
-        self.storage_changes.remove(&block_number);
     }
 
     fn update_account(
@@ -318,25 +300,16 @@ impl State for InMemoryState {
         self.account_changes
             .entry(self.block_number)
             .or_default()
-            .insert(address, initial.clone());
+            .insert(address, initial);
 
         if let Some(current) = current {
             self.accounts.insert(address, current);
         } else {
             self.accounts.remove(&address);
-            if let Some(initial) = initial {
-                self.prev_incarnations.insert(address, initial.incarnation);
-            }
         }
     }
 
-    async fn update_account_code(
-        &mut self,
-        _: Address,
-        _: Incarnation,
-        code_hash: H256,
-        code: Bytes,
-    ) -> anyhow::Result<()> {
+    async fn update_code(&mut self, code_hash: H256, code: Bytes) -> anyhow::Result<()> {
         self.code.insert(code_hash, code);
 
         Ok(())
@@ -345,7 +318,6 @@ impl State for InMemoryState {
     async fn update_storage(
         &mut self,
         address: Address,
-        incarnation: Incarnation,
         location: U256,
         initial: U256,
         current: U256,
@@ -355,16 +327,9 @@ impl State for InMemoryState {
             .or_default()
             .entry(address)
             .or_default()
-            .entry(incarnation)
-            .or_default()
             .insert(location, initial);
 
-        let e = self
-            .storage
-            .entry(address)
-            .or_default()
-            .entry(incarnation)
-            .or_default();
+        let e = self.storage.entry(address).or_default();
 
         if current.is_zero() {
             e.remove(&location);
@@ -555,13 +520,12 @@ mod tests {
                             nonce: account.nonce.as_u64(),
                             balance: account.balance,
                             code_hash: keccak256(account.code),
-                            incarnation: 0.into(),
                         }),
                     );
 
                     for (location, value) in account.storage {
                         state
-                            .update_storage(address, 0.into(), location, U256::zero(), value)
+                            .update_storage(address, location, U256::zero(), value)
                             .await
                             .unwrap();
                     }

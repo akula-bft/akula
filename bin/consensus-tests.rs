@@ -521,24 +521,18 @@ async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &
         };
 
         if !j.code.is_empty() {
-            account.incarnation = DEFAULT_INCARNATION;
             account.code_hash = keccak256(&*j.code);
             state
-                .update_account_code(
-                    *address,
-                    account.incarnation,
-                    account.code_hash,
-                    j.code.clone(),
-                )
+                .update_code(account.code_hash, j.code.clone())
                 .await
                 .unwrap();
         }
 
-        state.update_account(*address, None, Some(account.clone()));
+        state.update_account(*address, None, Some(account));
 
         for (&key, &value) in &j.storage {
             state
-                .update_storage(*address, account.incarnation, key, U256::zero(), value)
+                .update_storage(*address, key, U256::zero(), value)
                 .await
                 .unwrap();
         }
@@ -619,7 +613,7 @@ async fn post_check(
             hex::encode(&expected_account_state.code)
         );
 
-        let storage_size = state.storage_size(address, account.incarnation);
+        let storage_size = state.storage_size(address);
 
         let expected_storage_size: u64 = expected_account_state.storage.len().try_into().unwrap();
         ensure!(
@@ -631,10 +625,7 @@ async fn post_check(
         );
 
         for (&key, &expected_value) in &expected_account_state.storage {
-            let actual_value = state
-                .read_storage(address, account.incarnation, key)
-                .await
-                .unwrap();
+            let actual_value = state.read_storage(address, key).await.unwrap();
             ensure!(
                 actual_value == expected_value,
                 "Storage mismatch for {} at {}:\n{} != {}",

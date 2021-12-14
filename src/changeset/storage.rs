@@ -7,20 +7,20 @@ use ethereum_types::*;
 
 #[async_trait]
 impl HistoryKind for StorageHistory {
-    type Key = (Address, Incarnation, H256);
+    type Key = (Address, H256);
     type Value = U256;
     type IndexChunkKey = (Address, H256);
     type IndexTable = tables::StorageHistory;
     type ChangeSetTable = tables::StorageChangeSet;
     type EncodedStream<'cs> = impl EncodedStream<'cs, Self::ChangeSetTable>;
 
-    fn index_chunk_key((address, _, location): Self::Key) -> Self::IndexChunkKey {
+    fn index_chunk_key((address, location): Self::Key) -> Self::IndexChunkKey {
         (address, location)
     }
     async fn find<'tx, C>(
         cursor: &mut C,
         block_number: BlockNumber,
-        (address, incarnation, location): Self::Key,
+        (address, location): Self::Key,
     ) -> anyhow::Result<Option<Self::Value>>
     where
         C: CursorDupSort<'tx, Self::ChangeSetTable>,
@@ -30,7 +30,6 @@ impl HistoryKind for StorageHistory {
                 StorageChangeKey {
                     block_number,
                     address,
-                    incarnation,
                 },
                 location,
             )
@@ -45,29 +44,25 @@ impl HistoryKind for StorageHistory {
     }
 
     fn encode(block_number: BlockNumber, changes: &ChangeSet<Self>) -> Self::EncodedStream<'_> {
-        changes
-            .iter()
-            .map(move |&((address, incarnation, location), value)| {
-                (
-                    StorageChangeKey {
-                        block_number,
-                        address,
-                        incarnation,
-                    },
-                    StorageChange { location, value },
-                )
-            })
+        changes.iter().map(move |&((address, location), value)| {
+            (
+                StorageChangeKey {
+                    block_number,
+                    address,
+                },
+                StorageChange { location, value },
+            )
+        })
     }
 
     fn decode(
         StorageChangeKey {
             block_number,
             address,
-            incarnation,
         }: <Self::ChangeSetTable as Table>::Key,
         StorageChange { location, value }: <Self::ChangeSetTable as Table>::Value,
     ) -> (BlockNumber, Change<Self::Key, Self::Value>) {
-        (block_number, ((address, incarnation, location), value))
+        (block_number, ((address, location), value))
     }
 }
 
@@ -93,44 +88,36 @@ mod tests {
         U256::zero()
     }
 
-    fn get_test_data_at_index(
-        i: usize,
-        j: usize,
-        incarnation: Incarnation,
-    ) -> <StorageHistory as HistoryKind>::Key {
+    fn get_test_data_at_index(i: usize, j: usize) -> <StorageHistory as HistoryKind>::Key {
         let address = format!("0xBe828AD8B538D1D691891F6c725dEdc5989abB{:02x}", i)
             .parse()
             .unwrap();
         let key = keccak256(format!("key{}", j));
-        (address, incarnation, key)
+        (address, key)
     }
 
     #[test]
     fn encoding_storage_new_with_random_incarnation() {
-        do_test_encoding_storage_new(|| Incarnation(rand::random()), hash_value_generator)
+        do_test_encoding_storage_new(hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation() {
-        do_test_encoding_storage_new(|| DEFAULT_INCARNATION, hash_value_generator)
+        do_test_encoding_storage_new(hash_value_generator)
     }
 
     #[test]
     fn encoding_storage_new_with_default_incarnation_and_empty_value() {
-        do_test_encoding_storage_new(|| DEFAULT_INCARNATION, empty_value_generator)
+        do_test_encoding_storage_new(empty_value_generator)
     }
 
-    fn do_test_encoding_storage_new(
-        incarnation_generator: impl Fn() -> Incarnation,
-        value_generator: impl Fn(usize) -> U256,
-    ) {
+    fn do_test_encoding_storage_new(value_generator: impl Fn(usize) -> U256) {
         let f = move |num_of_elements, num_of_keys| {
             let mut ch = StorageChangeSet::new();
 
             for i in 0..num_of_elements {
-                let inc = (incarnation_generator)();
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, inc);
+                    let key = get_test_data_at_index(i, j);
                     let val = (value_generator)(j);
                     ch.insert((key, val));
                 }
@@ -166,7 +153,7 @@ mod tests {
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, DEFAULT_INCARNATION);
+                    let key = get_test_data_at_index(i, j);
                     let val = hash_value_generator(j);
                     ch.insert((key, val));
                 }
@@ -203,7 +190,7 @@ mod tests {
 
             for i in 0..num_of_elements {
                 for j in 0..num_of_keys {
-                    let key = get_test_data_at_index(i, j, DEFAULT_INCARNATION);
+                    let key = get_test_data_at_index(i, j);
                     let val = hash_value_generator(j);
                     ch.insert((key, val));
                 }
@@ -309,12 +296,12 @@ mod tests {
         let val6 = hex!("ec89478783348038046b42cc126a3c4e351977b5f4cf5e3c4f4d8385adbf8046").into();
 
         let ch = vec![
-            ((contract_a, 2.into(), key1), val1),
-            ((contract_a, 1.into(), key5), val5),
-            ((contract_a, 2.into(), key6), val6),
-            ((contract_b, 1.into(), key2), val2),
-            ((contract_b, 1.into(), key3), val3),
-            ((contract_c, 5.into(), key4), val4),
+            ((contract_a, key1), val1),
+            ((contract_a, key5), val5),
+            ((contract_a, key6), val6),
+            ((contract_b, key2), val2),
+            ((contract_b, key3), val3),
+            ((contract_c, key4), val4),
         ]
         .into_iter()
         .collect::<ChangeSet<StorageHistory>>();
@@ -328,7 +315,7 @@ mod tests {
         }
 
         assert_eq!(
-            StorageHistory::find(&mut cs, 1.into(), (contract_a, 2.into(), key1))
+            StorageHistory::find(&mut cs, 1.into(), (contract_a, key1))
                 .await
                 .unwrap()
                 .unwrap(),
@@ -336,7 +323,7 @@ mod tests {
         );
 
         assert_eq!(
-            StorageHistory::find(&mut cs, 1.into(), (contract_b, 1.into(), key3))
+            StorageHistory::find(&mut cs, 1.into(), (contract_b, key3))
                 .await
                 .unwrap()
                 .unwrap(),
@@ -344,7 +331,7 @@ mod tests {
         );
 
         assert_eq!(
-            StorageHistory::find(&mut cs, 1.into(), (contract_a, 1.into(), key5))
+            StorageHistory::find(&mut cs, 1.into(), (contract_a, key5))
                 .await
                 .unwrap()
                 .unwrap(),
@@ -352,21 +339,14 @@ mod tests {
         );
 
         assert_eq!(
-            StorageHistory::find(&mut cs, 1.into(), (contract_a, 1.into(), key1))
+            StorageHistory::find(&mut cs, 1.into(), (contract_d, key1))
                 .await
                 .unwrap(),
             None
         );
 
         assert_eq!(
-            StorageHistory::find(&mut cs, 1.into(), (contract_d, 2.into(), key1))
-                .await
-                .unwrap(),
-            None
-        );
-
-        assert_eq!(
-            StorageHistory::find(&mut cs, 1.into(), (contract_b, 1.into(), key7))
+            StorageHistory::find(&mut cs, 1.into(), (contract_b, key7))
                 .await
                 .unwrap(),
             None

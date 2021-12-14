@@ -10,8 +10,6 @@ use std::{collections::BTreeSet, fmt::Debug};
 mod account;
 mod storage;
 
-pub const DEFAULT_INCARNATION: Incarnation = Incarnation(1);
-
 pub struct AccountHistory;
 pub struct StorageHistory;
 
