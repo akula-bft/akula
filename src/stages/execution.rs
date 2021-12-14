@@ -19,6 +19,7 @@ use tracing::*;
 #[derive(Debug)]
 pub struct Execution {
     pub batch_size: u64,
+    pub history_batch_size: u64,
     pub exit_after_batch: bool,
     pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
@@ -31,6 +32,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     chain_config: ChainSpec,
     max_block: BlockNumber,
     batch_size: u64,
+    history_batch_size: u64,
     batch_until: Option<BlockNumber>,
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
@@ -44,6 +46,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let mut block_number = starting_block;
     let mut gas_since_start = 0;
     let mut gas_since_last_message = 0;
+    let mut gas_since_history_commit = 0;
     let batch_started_at = Instant::now();
     let first_started_at_gas = tx
         .get(
@@ -90,6 +93,12 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
         gas_since_start += header.gas_used;
         gas_since_last_message += header.gas_used;
+        gas_since_history_commit += header.gas_used;
+
+        if gas_since_history_commit >= history_batch_size {
+            buffer.write_history().await?;
+            gas_since_history_commit = 0;
+        }
 
         let now = Instant::now();
 
@@ -199,6 +208,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 chain_config,
                 max_block,
                 self.batch_size,
+                self.history_batch_size,
                 self.batch_until,
                 self.commit_every,
                 starting_block,

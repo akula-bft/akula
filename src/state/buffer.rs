@@ -287,7 +287,43 @@ where
     'db: 'tx,
     Tx: MutableTransaction<'db>,
 {
-    pub async fn write_to_db(self) -> anyhow::Result<()> {
+    pub async fn write_history(&mut self) -> anyhow::Result<()> {
+        debug!("Writing account changes");
+        let mut account_change_table = self.txn.mutable_cursor(&tables::AccountChangeSet).await?;
+        for (block_number, account_entries) in std::mem::take(&mut self.account_changes) {
+            for (address, account) in account_entries {
+                account_change_table
+                    .upsert(block_number, AccountChange { address, account })
+                    .await?;
+            }
+        }
+
+        debug!("Writing storage changes");
+        let mut storage_change_table = self.txn.mutable_cursor(&tables::StorageChangeSet).await?;
+        for (block_number, storage_entries) in std::mem::take(&mut self.storage_changes) {
+            for (address, storage_entries) in storage_entries {
+                for (location, value) in storage_entries {
+                    let location = u256_to_h256(location);
+                    let value = value;
+                    storage_change_table
+                        .upsert(
+                            StorageChangeKey {
+                                block_number,
+                                address,
+                            },
+                            StorageChange { location, value },
+                        )
+                        .await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn write_to_db(mut self) -> anyhow::Result<()> {
+        self.write_history().await?;
+
         // Write to state tables
         let mut account_table = self.txn.mutable_cursor(&tables::Account).await?;
         let mut storage_table = self.txn.mutable_cursor_dupsort(&tables::Storage).await?;
@@ -346,36 +382,6 @@ where
         let mut code_table = self.txn.mutable_cursor(&tables::Code).await?;
         for (code_hash, code) in self.hash_to_code {
             code_table.upsert(code_hash, code).await?;
-        }
-
-        debug!("Writing account changes");
-        let mut account_change_table = self.txn.mutable_cursor(&tables::AccountChangeSet).await?;
-        for (block_number, account_entries) in self.account_changes {
-            for (address, account) in account_entries {
-                account_change_table
-                    .upsert(block_number, AccountChange { address, account })
-                    .await?;
-            }
-        }
-
-        debug!("Writing storage changes");
-        let mut storage_change_table = self.txn.mutable_cursor(&tables::StorageChangeSet).await?;
-        for (block_number, storage_entries) in self.storage_changes {
-            for (address, storage_entries) in storage_entries {
-                for (location, value) in storage_entries {
-                    let location = u256_to_h256(location);
-                    let value = value;
-                    storage_change_table
-                        .upsert(
-                            StorageChangeKey {
-                                block_number,
-                                address,
-                            },
-                            StorageChange { location, value },
-                        )
-                        .await?;
-                }
-            }
         }
 
         Ok(())
