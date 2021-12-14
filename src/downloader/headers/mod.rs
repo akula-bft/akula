@@ -2,6 +2,7 @@ mod average_delta_counter;
 pub mod downloader;
 mod downloader_linear;
 mod downloader_preverified;
+mod header;
 mod header_slice_status_watch;
 pub mod header_slices;
 mod parallel;

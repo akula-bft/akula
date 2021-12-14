@@ -1,12 +1,10 @@
-use crate::{
-    downloader::headers::{
-        header_slice_status_watch::HeaderSliceStatusWatch,
-        header_slice_verifier,
-        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
-    },
-    models::{BlockHeader, BlockNumber},
-    sentry::chain_config::ChainConfig,
+use super::{
+    header::BlockHeader,
+    header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slice_verifier,
+    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
+use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     ops::{ControlFlow, DerefMut},
@@ -137,7 +135,7 @@ impl VerifyStageLinearLink {
         let child = &headers[0];
 
         // for the start header we just verify its hash
-        if child.number == self.start_block_num {
+        if child.number() == self.start_block_num {
             return child.hash() == self.start_block_hash;
         }
         // otherwise we expect that we have a verified parent

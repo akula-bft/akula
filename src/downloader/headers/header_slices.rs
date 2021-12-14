@@ -1,7 +1,5 @@
-use crate::{
-    models::{BlockHeader as Header, BlockNumber},
-    sentry::sentry_client::PeerId,
-};
+use super::header::BlockHeader;
+use crate::{models::BlockNumber, sentry::sentry_client::PeerId};
 use parking_lot::RwLock;
 use std::{
     collections::{HashMap, VecDeque},
@@ -35,7 +33,7 @@ pub enum HeaderSliceStatus {
 pub struct HeaderSlice {
     pub start_block_num: BlockNumber,
     pub status: HeaderSliceStatus,
-    pub headers: Option<Vec<Header>>,
+    pub headers: Option<Vec<BlockHeader>>,
     pub from_peer_id: Option<PeerId>,
     pub request_time: Option<time::Instant>,
     pub request_attempt: u16,
@@ -72,7 +70,7 @@ impl HeaderSlices {
         start_block_num: BlockNumber,
         final_block_num: BlockNumber,
     ) -> Self {
-        let max_slices = mem_limit / std::mem::size_of::<Header>() / HEADER_SLICE_SIZE;
+        let max_slices = mem_limit / std::mem::size_of::<BlockHeader>() / HEADER_SLICE_SIZE;
 
         assert_eq!(
             (start_block_num.0 as usize) % HEADER_SLICE_SIZE,

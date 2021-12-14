@@ -1,11 +1,11 @@
+use super::{
+    header::BlockHeader,
+    header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+};
 use crate::{
-    downloader::headers::{
-        header_slice_status_watch::HeaderSliceStatusWatch,
-        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
-    },
     kv,
     kv::{tables::HeaderKey, traits::MutableTransaction},
-    models::BlockHeader,
 };
 use anyhow::format_err;
 use parking_lot::RwLock;
@@ -126,12 +126,13 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
     }
 
     async fn save_header(&self, header: BlockHeader, tx: &RwTx) -> anyhow::Result<()> {
-        let block_num = header.number;
+        let block_num = header.number();
         let header_hash = header.hash();
         let header_key: HeaderKey = (block_num, header_hash);
-        let total_difficulty = header.difficulty;
+        let total_difficulty = header.difficulty();
 
-        tx.set(&kv::tables::Header, header_key, header).await?;
+        tx.set(&kv::tables::Header, header_key, header.header)
+            .await?;
         tx.set(&kv::tables::HeaderNumber, header_hash, block_num)
             .await?;
         tx.set(&kv::tables::CanonicalHeader, block_num, header_hash)
