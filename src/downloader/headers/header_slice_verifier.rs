@@ -1,26 +1,24 @@
+use super::header::BlockHeader;
 use crate::{
     consensus::difficulty::{canonical_difficulty, BlockDifficultyBombData},
-    models::{
-        switch_is_active, BlockHeader, BlockNumber, ChainSpec, SealVerificationParams,
-        EMPTY_LIST_HASH,
-    },
+    models::{switch_is_active, BlockNumber, ChainSpec, SealVerificationParams, EMPTY_LIST_HASH},
 };
 
 pub fn verify_link_by_parent_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
-    let given_parent_hash = child.parent_hash;
+    let given_parent_hash = child.parent_hash();
     let expected_parent_hash = parent.hash();
     given_parent_hash == expected_parent_hash
 }
 
 pub fn verify_link_block_nums(child: &BlockHeader, parent: &BlockHeader) -> bool {
-    let given_block_num = child.number.0;
-    let expected_block_num = parent.number.0 + 1;
+    let given_block_num = child.number().0;
+    let expected_block_num = parent.number().0 + 1;
     given_block_num == expected_block_num
 }
 
 pub fn verify_link_timestamps(child: &BlockHeader, parent: &BlockHeader) -> bool {
-    let parent_timestamp = parent.timestamp;
-    let child_timestamp = child.timestamp;
+    let parent_timestamp = parent.timestamp();
+    let child_timestamp = child.timestamp();
     parent_timestamp < child_timestamp
 }
 
@@ -42,19 +40,19 @@ pub fn verify_link_difficulties(
             }
         };
 
-    let given_child_difficulty = child.difficulty;
+    let given_child_difficulty = child.difficulty();
     let expected_child_difficulty = canonical_difficulty(
-        child.number,
-        child.timestamp,
-        parent.difficulty,
-        parent.timestamp,
-        parent.ommers_hash != EMPTY_LIST_HASH,
-        switch_is_active(byzantium_formula, child.number),
-        switch_is_active(homestead_formula, child.number),
+        child.number(),
+        child.timestamp(),
+        parent.difficulty(),
+        parent.timestamp(),
+        parent.ommers_hash() != EMPTY_LIST_HASH,
+        switch_is_active(byzantium_formula, child.number()),
+        switch_is_active(homestead_formula, child.number()),
         difficulty_bomb
             .as_ref()
             .map(|bomb| BlockDifficultyBombData {
-                delay_to: bomb.get_delay_to(child.number),
+                delay_to: bomb.get_delay_to(child.number()),
             }),
     );
     given_child_difficulty == expected_child_difficulty
@@ -94,7 +92,7 @@ pub fn verify_slice_block_nums(headers: &[BlockHeader], start_block_num: BlockNu
 
     // verify the first block number
     let first = &headers[0];
-    let first_block_num = first.number;
+    let first_block_num = first.number();
     first_block_num == start_block_num
 }
 
@@ -111,7 +109,7 @@ pub fn verify_slice_timestamps(headers: &[BlockHeader], max_timestamp: u64) -> b
     }
 
     let last = headers.last().unwrap();
-    let last_timestamp = last.timestamp;
+    let last_timestamp = last.timestamp();
     last_timestamp < max_timestamp
 }
 

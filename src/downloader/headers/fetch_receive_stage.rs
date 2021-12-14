@@ -1,14 +1,12 @@
-use crate::{
-    downloader::headers::{
-        header_slices,
-        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
-    },
-    models::BlockHeader as Header,
-    sentry::{
-        messages::{BlockHeadersMessage, EthMessageId, Message},
-        sentry_client::PeerId,
-        sentry_client_reactor::*,
-    },
+use super::{
+    header::BlockHeader,
+    header_slices,
+    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+};
+use crate::sentry::{
+    messages::{BlockHeadersMessage, EthMessageId, Message},
+    sentry_client::PeerId,
+    sentry_client_reactor::*,
 };
 use futures_core::Stream;
 use std::{
@@ -83,6 +81,8 @@ impl FetchReceiveStage {
                 let slice_status = slice.status;
                 if slice_status == HeaderSliceStatus::Waiting {
                     let from_peer_id = message_from_peer.from_peer_id;
+                    let headers: Vec<BlockHeader> =
+                        headers.into_iter().map(BlockHeader::from).collect();
                     self.update_slice(slice.deref_mut(), headers, from_peer_id);
                 } else {
                     debug!("FetchReceiveStage ignores a headers slice that we didn't request starting at: {:?}; status = {:?}", start_block_num, slice_status);
@@ -100,7 +100,7 @@ impl FetchReceiveStage {
     fn update_slice(
         &self,
         slice: &mut HeaderSlice,
-        headers: Vec<Header>,
+        headers: Vec<BlockHeader>,
         from_peer_id: Option<PeerId>,
     ) {
         slice.headers = Some(headers);
