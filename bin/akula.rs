@@ -450,12 +450,11 @@ async fn main() -> anyhow::Result<()> {
     // staged sync setup
     let mut staged_sync = stagedsync::StagedSync::new();
     // staged_sync.set_min_progress_to_commit_after_stage(2);
-    if let Some(erigon_db) = erigon_db {
+    if let Some(erigon_db) = erigon_db.clone() {
         staged_sync.push(ConvertHeaders {
-            db: erigon_db.clone(),
+            db: erigon_db,
             max_block: opt.max_block,
         });
-        staged_sync.push(ConvertBodies { db: erigon_db });
     } else {
         // sentry setup
         let mut sentry_reactor = SentryClientReactor::new(
@@ -471,9 +470,13 @@ async fn main() -> anyhow::Result<()> {
             sentry_reactor.into_shared(),
             sentry_status_provider,
         )?);
-        // also add body download stage here
     }
     staged_sync.push(BlockHashes);
+    if let Some(erigon_db) = erigon_db {
+        staged_sync.push(ConvertBodies { db: erigon_db });
+    } else {
+        // also add body download stage here
+    }
     staged_sync.push(CumulativeIndex);
     staged_sync.push(SenderRecovery);
     staged_sync.push(Execution {
