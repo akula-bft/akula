@@ -73,10 +73,19 @@ impl VerifyStagePreverified {
 
     async fn verify_slices_parallel(&self, slices: &[Arc<RwLock<HeaderSlice>>]) -> Vec<bool> {
         map_parallel(Vec::from(slices), |slice_lock| -> bool {
-            let slice = slice_lock.write();
+            let mut slice = slice_lock.write();
+            Self::prepare_slice_hashes(&mut slice);
             self.verify_slice(&slice)
         })
         .await
+    }
+
+    fn prepare_slice_hashes(slice: &mut HeaderSlice) {
+        if let Some(headers) = slice.headers.as_mut() {
+            for header in headers {
+                header.hash_prepare();
+            }
+        }
     }
 
     /// The algorithm verifies that the edges of the slice match to the preverified hashes,
