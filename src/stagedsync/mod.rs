@@ -147,6 +147,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                 );
                             }
 
+                            let invocation_start_time = Instant::now();
                             let output = stage
                                 .execute(
                                     &mut tx,
@@ -166,12 +167,11 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                     stage_progress,
                                     ..
                                 } => {
-                                    let time = Instant::now() - start_time;
                                     if *done {
                                         info!(
                                             "DONE @ {} in {}",
                                             stage_progress,
-                                            format_duration(time, true)
+                                            format_duration(Instant::now() - start_time, true)
                                         );
                                     } else {
                                         debug!(
@@ -185,7 +185,10 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                             } else {
                                                 String::new()
                                             },
-                                            format_duration(time, true)
+                                            format_duration(
+                                                Instant::now() - invocation_start_time,
+                                                true
+                                            )
                                         );
                                     }
                                 }
