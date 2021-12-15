@@ -2,7 +2,7 @@ use akula::{
     binutil::AkulaDataDir,
     downloader::sentry_status_provider::SentryStatusProvider,
     kv::{
-        tables,
+        tables::{self, ErasedTable},
         traits::{MutableKV, KV},
         TableEncode,
     },
@@ -258,25 +258,13 @@ where
                 if let Some((_, body)) = erigon_body_cur.seek_exact((block_num, block_hash)).await?
                 {
                     let base_tx_id = body.base_tx_id;
-                    let block_tx_base_key = base_tx_id.encode();
 
                     let txs = erigon_tx_cur
-                        .walk(Some(block_tx_base_key.to_vec()))
+                        .walk(Some(base_tx_id.encode().to_vec()))
+                        .map(|res| res.map(|(_, tx)| tx))
                         .take(body.tx_amount)
                         .collect::<anyhow::Result<Vec<_>>>()
                         .await?;
-
-                    if let Some((txkey, _)) = txs.first() {
-                        if *txkey != block_tx_base_key {
-                            bail!(
-                                "Base txkey mismatch for block #{}/{}: {:?} != {:?}",
-                                block_num,
-                                block_hash,
-                                txkey,
-                                block_tx_base_key
-                            );
-                        }
-                    }
 
                     if txs.len() != body.tx_amount {
                         bail!(
@@ -311,13 +299,10 @@ where
                         block_hash,
                         body.uncles,
                         txs.into_iter()
-                            .map(|(k, v)| {
-                                Ok((
-                                    k,
-                                    rlp::decode::<akula::models::Transaction>(&v)?
-                                        .encode()
-                                        .to_vec(),
-                                ))
+                            .map(|v| {
+                                Ok(rlp::decode::<akula::models::Transaction>(&v)?
+                                    .encode()
+                                    .to_vec())
                             })
                             .collect::<anyhow::Result<Vec<_>>>()?,
                     ))
@@ -332,12 +317,18 @@ where
                     tx_amount: txs.len(),
                     uncles,
                 };
-                starting_index.0 += txs.len() as u64;
 
                 body_cur.append((block_num, block_hash), body).await?;
 
-                for (index, tx) in txs {
-                    tx_cur.append(index, tx).await?;
+                for tx in txs {
+                    tx_cur
+                        .append(
+                            ErasedTable::<tables::BlockTransaction>::encode_key(starting_index)
+                                .to_vec(),
+                            tx,
+                        )
+                        .await?;
+                    starting_index.0 += 1;
                 }
             }
 
