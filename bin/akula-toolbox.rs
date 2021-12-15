@@ -1,12 +1,15 @@
 use akula::{
     binutil::AkulaDataDir,
     hex_to_bytes,
-    kv::traits::KV,
+    kv::{
+        tables::{self, CHAINDATA_TABLES},
+        traits::*,
+    },
     models::*,
     stagedsync::{self},
     stages::*,
 };
-use anyhow::{bail, ensure, Context};
+use anyhow::{bail, ensure, format_err, Context};
 use bytes::Bytes;
 use itertools::Itertools;
 use std::{borrow::Cow, path::PathBuf};
@@ -69,6 +72,10 @@ pub enum OptCommand {
     HeaderDownload {
         #[structopt(flatten)]
         opts: HeaderDownloadOpts,
+    },
+
+    ReadBlock {
+        block_number: BlockNumber,
     },
 }
 
@@ -227,8 +234,6 @@ async fn db_walk(
     .enumerate()
     .take(max_entries.unwrap_or(usize::MAX))
     {
-        use akula::kv::TableDecode;
-
         let (k, v) = item?;
         println!(
             "{} / {:?} / {:?} / {:?} / {:?}",
@@ -312,6 +317,59 @@ async fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> 
     Ok(())
 }
 
+async fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::Result<()> {
+    let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+        mdbx::Environment::new(),
+        &data_dir.chain_data_dir(),
+        CHAINDATA_TABLES.clone(),
+    )?;
+
+    let tx = env.begin().await?;
+
+    let canonical_hash = tx
+        .get(&tables::CanonicalHeader, block_num)
+        .await?
+        .ok_or_else(|| format_err!("no such canonical block"))?;
+    let header = tx
+        .get(&tables::Header, (block_num, canonical_hash))
+        .await?
+        .ok_or_else(|| format_err!("header not found"))?;
+    let body =
+        akula::accessors::chain::block_body::read_without_senders(&tx, canonical_hash, block_num)
+            .await?
+            .ok_or_else(|| format_err!("block body not found"))?;
+
+    let partial_header = PartialHeader::from(header.clone());
+
+    let block = Block::new(partial_header.clone(), body.transactions, body.ommers);
+
+    ensure!(
+        block.header.transactions_root == header.transactions_root,
+        "root mismatch: expected in header {:?}, computed {:?}",
+        header.transactions_root,
+        block.header.transactions_root
+    );
+    ensure!(
+        block.header.ommers_hash == header.ommers_hash,
+        "root mismatch: expected in header {:?}, computed {:?}",
+        header.ommers_hash,
+        block.header.ommers_hash
+    );
+
+    println!("{:?}", partial_header);
+    println!("OMMERS:");
+    for (i, v) in block.ommers.into_iter().enumerate() {
+        println!("[{}] {:?}", i, v);
+    }
+
+    println!("TRANSACTIONS:");
+    for (i, v) in block.transactions.into_iter().enumerate() {
+        println!("[{}/{:?}] {:?}", i, v.hash(), v);
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
@@ -341,6 +399,7 @@ async fn main() -> anyhow::Result<()> {
         } => db_walk(opt.data_dir, table, starting_key, max_entries).await?,
         OptCommand::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table).await?,
         OptCommand::HeaderDownload { opts } => header_download(opt.data_dir, opts).await?,
+        OptCommand::ReadBlock { block_number } => read_block(opt.data_dir, block_number).await?,
     }
 
     Ok(())
