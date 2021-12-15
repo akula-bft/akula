@@ -93,6 +93,7 @@ pub struct HeaderDownloadOpts {
 }
 
 async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
+    std::fs::create_dir_all(&data_dir.0)?;
     let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_rw(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
@@ -130,6 +131,7 @@ async fn header_download(data_dir: AkulaDataDir, opts: HeaderDownloadOpts) -> an
         sentry_status_provider,
     )?;
 
+    std::fs::create_dir_all(&data_dir.0)?;
     let db = akula::kv::new_database(&data_dir.chain_data_dir())?;
 
     let mut staged_sync = stagedsync::StagedSync::new();

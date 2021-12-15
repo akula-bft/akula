@@ -455,8 +455,8 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    let akula_chain_data_dir = opt.data_dir.chain_data_dir();
     std::fs::create_dir_all(&opt.data_dir.0)?;
+    let akula_chain_data_dir = opt.data_dir.chain_data_dir();
     let db = akula::kv::new_database(&akula_chain_data_dir)?;
     async {
         let txn = db.begin_mutable().await?;
