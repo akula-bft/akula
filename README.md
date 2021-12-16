@@ -1,5 +1,12 @@
-# Akula
-Ethereum client written in Rust, based on [Erigon client architecture](https://github.com/ledgerwatch/interfaces).
+# <h1 align="center"> 🦈 Akula 🦈 </h1>
+[![Telegram Chat](https://img.shields.io/endpoint?color=neon&style=flat-square&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Fakula_bft)](https://t.me/akula_bft)
+
+Next-generation implementation of Ethereum protocol ("client") written in Rust, based on [Erigon architecture](https://github.com/ledgerwatch/interfaces).
+
+## Why run Akula?
+
+![](./src/res/readme-screenshot.png)
+
 
 ## Building the source
 
@@ -27,3 +34,6 @@ akula --datadir=<path to Akula database directory> --erigon-datadir=<path to Eri
 ```
 akula-toolbox --help
 ```
+
+---
+Akula (_Акула_) stands for _shark_ in Russian.
