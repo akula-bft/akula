@@ -74,7 +74,7 @@ impl VerifyStageLinearLink {
             let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
                 let slice = slice_lock.read();
                 match slice.status {
-                    HeaderSliceStatus::Verified | HeaderSliceStatus::Invalid => {
+                    HeaderSliceStatus::Verified | HeaderSliceStatus::Saved => {
                         ControlFlow::Continue(None)
                     }
                     HeaderSliceStatus::VerifiedInternally => {
