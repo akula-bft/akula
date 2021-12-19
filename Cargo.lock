@@ -50,6 +50,7 @@ dependencies = [
  "derive_more",
  "directories",
  "educe",
+ "ethash",
  "ethereum-interfaces",
  "ethereum-types",
  "evmodin",
@@ -741,6 +742,18 @@ dependencies = [
  "log",
  "regex",
  "termcolor",
+]
+
+[[package]]
+name = "ethash"
+version = "0.4.0"
+source = "git+https://github.com/rust-ethereum/ethash#dbc6ace82ad6a626de83b15b990cfd3f7f069494"
+dependencies = [
+ "byteorder",
+ "ethereum-types",
+ "primitive-types",
+ "rlp",
+ "sha3",
 ]
 
 [[package]]

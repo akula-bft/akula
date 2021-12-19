@@ -150,6 +150,73 @@ impl BlockHeader {
     pub fn hash(&self) -> H256 {
         keccak256(&rlp::encode(self)[..])
     }
+
+    #[must_use]
+    pub fn truncated_hash(&self) -> H256 {
+        struct TruncatedHeader {
+            parent_hash: H256,
+            ommers_hash: H256,
+            beneficiary: H160,
+            state_root: H256,
+            transactions_root: H256,
+            receipts_root: H256,
+            logs_bloom: Bloom,
+            difficulty: U256,
+            number: BlockNumber,
+            gas_limit: u64,
+            gas_used: u64,
+            timestamp: u64,
+            extra_data: Bytes,
+            base_fee_per_gas: Option<U256>,
+        }
+
+        impl Encodable for TruncatedHeader {
+            fn rlp_append(&self, s: &mut RlpStream) {
+                s.begin_list({
+                    if self.base_fee_per_gas.is_some() {
+                        14
+                    } else {
+                        13
+                    }
+                });
+                s.append(&self.parent_hash);
+                s.append(&self.ommers_hash);
+                s.append(&self.beneficiary);
+                s.append(&self.state_root);
+                s.append(&self.transactions_root);
+                s.append(&self.receipts_root);
+                s.append(&self.logs_bloom);
+                s.append(&self.difficulty);
+                s.append(&self.number);
+                s.append(&self.gas_limit);
+                s.append(&self.gas_used);
+                s.append(&self.timestamp);
+                s.append(&self.extra_data.as_ref());
+                if let Some(base_fee_per_gas) = self.base_fee_per_gas {
+                    s.append(&base_fee_per_gas);
+                }
+            }
+        }
+
+        keccak256(
+            &rlp::encode(&TruncatedHeader {
+                parent_hash: self.parent_hash,
+                ommers_hash: self.ommers_hash,
+                beneficiary: self.beneficiary,
+                state_root: self.state_root,
+                transactions_root: self.transactions_root,
+                receipts_root: self.receipts_root,
+                logs_bloom: self.logs_bloom,
+                difficulty: self.difficulty,
+                number: self.number,
+                gas_limit: self.gas_limit,
+                gas_used: self.gas_used,
+                timestamp: self.timestamp,
+                extra_data: self.extra_data.clone(),
+                base_fee_per_gas: self.base_fee_per_gas,
+            })[..],
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

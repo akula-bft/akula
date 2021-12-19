@@ -1,6 +1,7 @@
 use self::difficulty::BlockDifficultyBombData;
 use super::{base::ConsensusEngineBase, *};
-use crate::chain::protocol_param::param;
+use crate::{chain::protocol_param::param, h256_to_u256};
+use ::ethash::LightDAG;
 use async_trait::async_trait;
 use std::collections::BTreeMap;
 
@@ -86,8 +87,17 @@ impl Consensus for Ethash {
     }
     async fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()> {
         if !self.skip_pow_verification {
-            // TODO: Ethash stuff here
-            let _ = header;
+            type Dag = LightDAG;
+            let light_dag = Dag::new(header.number.0.into());
+            let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
+
+            if mixh != header.mix_hash {
+                return Err(ValidationError::InvalidSeal.into());
+            }
+
+            if h256_to_u256(final_hash) > ::ethash::cross_boundary(header.difficulty) {
+                return Err(ValidationError::InvalidSeal.into());
+            }
         }
         Ok(())
     }
