@@ -44,7 +44,7 @@ where
         pin!(walker);
 
         while let Some((block_number, block_hash)) = walker.try_next().await? {
-            if block_number.0 % 50_000 == 0 {
+            if block_number.0 % 500_000 == 0 {
                 info!("Processing block {}", block_number);
             }
             // BlockBody Key is block_number + hash, so we just separate and collect
