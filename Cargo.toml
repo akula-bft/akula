@@ -20,7 +20,6 @@ bytes = "1"
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
 clap = "2"
-console-subscriber = { git = "https://github.com/tokio-rs/console" }
 croaring = "0.5"
 crossterm = { version = "0.22", optional = true }
 derive_more = "0.99"
@@ -85,7 +84,7 @@ walkdir = "2"
 
 [build-dependencies]
 anyhow = "1"
-vergen = "5"
+vergen = "6"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }

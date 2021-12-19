@@ -383,7 +383,6 @@ async fn main() -> anyhow::Result<()> {
         EnvFilter::from_default_env()
     };
     tracing_subscriber::registry()
-        // the `TasksLayer` can be used in combination with other `tracing` layers...
         .with(tracing_subscriber::fmt::layer().with_target(false))
         .with(filter)
         .init();
