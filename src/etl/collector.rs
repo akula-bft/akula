@@ -45,23 +45,21 @@ where
         }
     }
 
+    fn flush(&mut self) {
+        self.buffer_size = 0;
+        self.buffer.sort_unstable();
+        let mut buf = Vec::with_capacity(self.buffer.len());
+        std::mem::swap(&mut buf, &mut self.buffer);
+        self.data_providers.push(DataProvider::new(buf).unwrap());
+    }
+
     pub fn collect(&mut self, entry: Entry<T::Key, T::Value>) {
         let key = entry.key.encode();
         let value = entry.value.encode();
         self.buffer_size += key.as_ref().len() + value.as_ref().len();
-        self.buffer.push(Entry {
-            key,
-            value,
-            id: entry.id,
-        });
+        self.buffer.push(Entry { key, value });
         if self.buffer_size > self.buffer_capacity {
-            self.buffer_size = 0;
-            self.buffer.sort_unstable();
-            let current_id = self.data_providers.len();
-            let mut buf = Vec::with_capacity(self.buffer.len());
-            std::mem::swap(&mut buf, &mut self.buffer);
-            self.data_providers
-                .push(DataProvider::new(buf, current_id).unwrap());
+            self.flush();
         }
     }
 
@@ -80,36 +78,27 @@ where
         }
         // Flush buffer one more time
         if self.buffer_size != 0 {
-            self.buffer.sort_unstable();
-            let current_id = self.data_providers.len();
-            let mut buf = Vec::with_capacity(self.buffer.len());
-            std::mem::swap(&mut buf, &mut self.buffer);
-            self.data_providers
-                .push(DataProvider::new(buf, current_id).unwrap());
+            self.flush();
         }
 
         let mut heap = BinaryHeap::new();
 
+        // Anchor each data provider in the heap
         for (current_id, data_provider) in self.data_providers.iter_mut().enumerate() {
-            let (current_key, current_value) = data_provider.to_next()?;
-
-            heap.push(Reverse(Entry {
-                key: current_key,
-                value: current_value,
-                id: current_id,
-            }));
+            if let Some((current_key, current_value)) = data_provider.to_next()? {
+                heap.push(Reverse((
+                    Entry::new(current_key, current_value),
+                    current_id,
+                )));
+            }
         }
 
-        while let Some(e) = heap.pop() {
-            let entry = e.0;
-            cursor.put(entry.key, entry.value).await?;
-            let (next_key, next_value) = self.data_providers[entry.id].to_next()?;
-            if !next_key.is_empty() {
-                heap.push(Reverse(Entry {
-                    key: next_key,
-                    value: next_value,
-                    id: entry.id,
-                }));
+        // Take the lowest entry from all data providers in the heap.
+        while let Some(Reverse((Entry { key, value }, id))) = heap.pop() {
+            cursor.put(key, value).await?;
+            if let Some((next_key, next_value)) = self.data_providers[id].to_next()? {
+                // Insert another from the same data provider unless it's exhausted.
+                heap.push(Reverse((Entry::new(next_key, next_value), id)));
             }
         }
         Ok(())
