@@ -59,12 +59,13 @@ where
     }
 }
 
+#[macro_export]
 macro_rules! decl_table {
     ($name:ident => $key:ty => $value:ty => $seek_key:ty) => {
         #[derive(Clone, Copy, Debug, Default)]
         pub struct $name;
 
-        impl crate::kv::traits::Table for $name {
+        impl $crate::kv::traits::Table for $name {
             type Key = $key;
             type SeekKey = $seek_key;
             type Value = $value;
@@ -83,8 +84,8 @@ macro_rules! decl_table {
                 stringify!($name)
             }
 
-            pub const fn erased(self) -> ErasedTable<Self> {
-                ErasedTable(self)
+            pub const fn erased(self) -> $crate::kv::tables::ErasedTable<Self> {
+                $crate::kv::tables::ErasedTable(self)
             }
         }
 
