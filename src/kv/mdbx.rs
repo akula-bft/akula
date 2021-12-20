@@ -460,26 +460,6 @@ where
         )?)
     }
 
-    async fn delete(&mut self, key: T::Key, value: T::Value) -> anyhow::Result<()> {
-        if self.table_info.dup_sort {
-            if self
-                .inner
-                .get_both::<()>(key.encode().as_ref(), value.encode().as_ref())?
-                .is_some()
-            {
-                self.inner.del(WriteFlags::CURRENT)?;
-            }
-
-            return Ok(());
-        }
-
-        if self.inner.set::<()>(key.encode().as_ref())?.is_some() {
-            self.inner.del(WriteFlags::CURRENT)?;
-        }
-
-        return Ok(());
-    }
-
     async fn delete_current(&mut self) -> anyhow::Result<()> {
         self.inner.del(WriteFlags::CURRENT)?;
 

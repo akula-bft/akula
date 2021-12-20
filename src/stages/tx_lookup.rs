@@ -3,9 +3,10 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::tables,
+    kv::{tables, traits::*},
+    models::BodyForStorage,
     stagedsync::stage::*,
-    Cursor, MutableCursor, MutableTransaction, StageId,
+    StageId,
 };
 use async_trait::async_trait;
 use tokio::pin;
@@ -99,21 +100,27 @@ where
         let walker_block_body = bodies_cursor.walk(Some(start_block_number));
         pin!(walker_block_body);
 
-        while let Some((_, body_rpl)) = walker_block_body.try_next().await? {
-            let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
-
-            let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id));
+        while let Some((
+            _,
+            BodyForStorage {
+                base_tx_id,
+                tx_amount,
+                ..
+            },
+        )) = walker_block_body.try_next().await?
+        {
+            let walker_block_txs = block_txs_cursor.walk(Some(base_tx_id));
             pin!(walker_block_txs);
 
             let mut num_txs = 1;
 
-            while let Some((_tx_key, ref tx_value)) = walker_block_txs.try_next().await? {
-                if num_txs > tx_count {
+            while let Some((_, tx_value)) = walker_block_txs.try_next().await? {
+                if num_txs > tx_amount {
                     break;
                 }
 
-                if let Ok(Some((key, value))) = tx_hash_cursor.seek(tx_value.hash()).await {
-                    tx_hash_cursor.delete(key, value).await?;
+                if tx_hash_cursor.seek(tx_value.hash()).await?.is_some() {
+                    tx_hash_cursor.delete_current().await?;
                 }
                 num_txs += 1;
             }
@@ -127,13 +134,17 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::*;
-    use crate::{accessors::chain, kv::traits::MutableKV, models::*, new_mem_database};
+    use crate::{
+        accessors::chain,
+        kv::traits::MutableKV,
+        models::{Transaction, *},
+        new_mem_database,
+    };
     use bytes::Bytes;
     use ethereum_types::*;
     use hex_literal::hex;
+    use std::time::Instant;
 
     const CHAIN_ID: Option<ChainId> = Some(ChainId(1));
 

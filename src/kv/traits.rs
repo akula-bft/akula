@@ -248,8 +248,6 @@ where
     /// Append the given key/data pair to the end of the database.
     /// This option allows fast bulk loading when keys are already known to be in the correct order.
     async fn append(&mut self, key: T::Key, value: T::Value) -> anyhow::Result<()>;
-    /// Short version of SeekExact+DeleteCurrent or SeekBothExact+DeleteCurrent
-    async fn delete(&mut self, key: T::Key, value: T::Value) -> anyhow::Result<()>;
 
     /// Deletes the key/data pair to which the cursor refers.
     /// This does not invalidate the cursor, so operations such as MDB_NEXT
