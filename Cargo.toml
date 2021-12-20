@@ -40,6 +40,10 @@ hex = "0.4"
 hex-literal = "0.3"
 http = "0.2"
 itertools = "0.10"
+jsonrpsee = { git = "https://github.com/paritytech/jsonrpsee", features = [
+    "server",
+    "macros",
+] }
 lru = "0.7"
 maplit = "1"
 mdbx = { package = "libmdbx", version = "0.1" }

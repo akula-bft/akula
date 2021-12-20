@@ -11,7 +11,7 @@ use akula::{
         sentry_client_connector::SentryClientConnectorImpl,
         sentry_client_reactor::SentryClientReactor,
     },
-    stagedsync::{self, stage::*},
+    stagedsync::{self, stage::*, stages::FINISH},
     stages::*,
     version_string, Cursor, MutableCursor, MutableTransaction, StageId, Transaction,
 };
@@ -435,7 +435,7 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("TerminatingStage")
+        FINISH
     }
     fn description(&self) -> &'static str {
         ""

@@ -1,3 +1,13 @@
+use akula::{
+    binutil::AkulaDataDir,
+    kv::{tables, traits::*},
+    models::*,
+    stagedsync::stages::*,
+};
+use async_trait::async_trait;
+use ethereum_types::{Address, U256};
+use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
+use std::{future::pending, net::SocketAddr, sync::Arc};
 use structopt::StructOpt;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -5,11 +15,56 @@ use tracing_subscriber::{prelude::*, EnvFilter};
 #[structopt(name = "Akula RPC", about = "RPC server for Akula")]
 pub struct Opt {
     #[structopt(long, env)]
-    pub kv_address: String,
+    pub datadir: AkulaDataDir,
+
+    #[structopt(long, env)]
+    pub listen_address: SocketAddr,
+}
+
+#[rpc(server, namespace = "eth")]
+pub trait EthApi {
+    #[method(name = "blockNumber")]
+    async fn block_number(&self) -> RpcResult<BlockNumber>;
+    #[method(name = "getBalance")]
+    async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256>;
+}
+
+pub struct EthApiServerImpl<DB>
+where
+    DB: KV,
+{
+    db: Arc<DB>,
+}
+
+#[async_trait]
+impl<DB> EthApiServer for EthApiServerImpl<DB>
+where
+    DB: KV,
+{
+    async fn block_number(&self) -> RpcResult<BlockNumber> {
+        Ok(self
+            .db
+            .begin()
+            .await?
+            .get(&tables::SyncStage, FINISH)
+            .await?
+            .unwrap_or(BlockNumber(0)))
+    }
+
+    async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
+        Ok(
+            akula::get_account_data_as_of(&self.db.begin().await?, address, block_number)
+                .await?
+                .map(|acc| acc.balance)
+                .unwrap_or_else(U256::zero),
+        )
+    }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let opt = Opt::from_args();
+
     let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
         .unwrap_or_default()
         .is_empty()
@@ -23,5 +78,14 @@ async fn main() -> anyhow::Result<()> {
         .with(env_filter)
         .init();
 
-    Ok(())
+    let db = Arc::new(akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+        mdbx::Environment::new(),
+        &opt.datadir,
+        akula::kv::tables::CHAINDATA_TABLES.clone(),
+    )?);
+
+    let server = HttpServerBuilder::default().build(opt.listen_address)?;
+    let _server_handle = server.start(EthApiServerImpl { db }.into_rpc())?;
+
+    pending().await
 }
