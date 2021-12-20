@@ -5,7 +5,7 @@ use crate::{
 use ::mdbx::{DatabaseFlags, EnvironmentKind, TransactionKind, WriteFlags, RO, RW};
 use anyhow::Context;
 use async_trait::async_trait;
-use std::{collections::HashMap, ops::Deref, path::Path, str};
+use std::{collections::HashMap, ops::Deref, path::Path};
 use tables::*;
 
 #[derive(Clone, Debug)]
@@ -28,7 +28,6 @@ where
 #[derive(Debug)]
 pub struct Environment<E: EnvironmentKind> {
     inner: ::mdbx::Environment<E>,
-    chart: DatabaseChart,
 }
 
 impl<E: EnvironmentKind> Environment<E> {
@@ -57,7 +56,6 @@ impl<E: EnvironmentKind> Environment<E> {
             inner: b
                 .open(path)
                 .with_context(|| format!("failed to open database at {}", path.display()))?,
-            chart,
         })
     }
 
@@ -108,7 +106,6 @@ impl<E: EnvironmentKind> traits::KV for Environment<E> {
     async fn begin(&self) -> anyhow::Result<Self::Tx<'_>> {
         Ok(MdbxTransaction {
             inner: self.inner.begin_ro_txn()?,
-            chart: self.chart.clone(),
         })
     }
 }
@@ -120,7 +117,6 @@ impl<E: EnvironmentKind> traits::MutableKV for Environment<E> {
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>> {
         Ok(MdbxTransaction {
             inner: self.inner.begin_rw_txn()?,
-            chart: self.chart.clone(),
         })
     }
 }
@@ -132,7 +128,6 @@ where
     E: EnvironmentKind,
 {
     inner: ::mdbx::Transaction<'env, K, E>,
-    chart: DatabaseChart,
 }
 
 impl<'env, E> MdbxTransaction<'env, RO, E>
@@ -192,11 +187,6 @@ where
             inner: self
                 .inner
                 .cursor(&self.inner.open_db(Some(table_name.as_ref()))?)?,
-            table_info: self
-                .chart
-                .get(table_name.as_ref() as &str)
-                .cloned()
-                .unwrap_or(TableInfo { dup_sort: true }),
             t: table.db_name(),
         })
     }
@@ -255,14 +245,6 @@ impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransact
     where
         T: Table,
     {
-        if self
-            .chart
-            .get(&table.db_name().as_ref())
-            .map(|info| info.dup_sort)
-            .unwrap_or(false)
-        {
-            return MutableCursor::<T>::put(&mut self.mutable_cursor(table).await?, k, v).await;
-        }
         Ok(self.inner.put(
             &self.inner.open_db(Some(table.db_name().as_ref()))?,
             &k.encode(),
@@ -311,7 +293,6 @@ where
     K: TransactionKind,
 {
     inner: ::mdbx::Cursor<'txn, K>,
-    table_info: TableInfo,
     t: string::String<StaticBytes>,
 }
 
