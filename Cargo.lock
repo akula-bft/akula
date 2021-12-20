@@ -761,7 +761,7 @@ dependencies = [
 [[package]]
 name = "ethereum-interfaces"
 version = "0.1.0"
-source = "git+https://github.com/ledgerwatch/interfaces#5472b13efa464444d9333f3ab22c285af56fa53d"
+source = "git+https://github.com/ledgerwatch/interfaces?branch=akula#5472b13efa464444d9333f3ab22c285af56fa53d"
 dependencies = [
  "arrayref",
  "ethereum-types",
@@ -1272,7 +1272,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee"
 version = "0.6.1"
-source = "git+https://github.com/paritytech/jsonrpsee#292bd88a998bb2b30a078751554ef222ce90dfbf"
+source = "git+https://github.com/paritytech/jsonrpsee#621fcab6f117dc6c60521c3e38c1ac9c6e1f25d7"
 dependencies = [
  "jsonrpsee-core",
  "jsonrpsee-http-server",
@@ -1284,7 +1284,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-core"
 version = "0.6.1"
-source = "git+https://github.com/paritytech/jsonrpsee#292bd88a998bb2b30a078751554ef222ce90dfbf"
+source = "git+https://github.com/paritytech/jsonrpsee#621fcab6f117dc6c60521c3e38c1ac9c6e1f25d7"
 dependencies = [
  "anyhow",
  "arrayvec",
@@ -1308,7 +1308,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-http-server"
 version = "0.6.1"
-source = "git+https://github.com/paritytech/jsonrpsee#292bd88a998bb2b30a078751554ef222ce90dfbf"
+source = "git+https://github.com/paritytech/jsonrpsee#621fcab6f117dc6c60521c3e38c1ac9c6e1f25d7"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -1327,7 +1327,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-proc-macros"
 version = "0.6.1"
-source = "git+https://github.com/paritytech/jsonrpsee#292bd88a998bb2b30a078751554ef222ce90dfbf"
+source = "git+https://github.com/paritytech/jsonrpsee#621fcab6f117dc6c60521c3e38c1ac9c6e1f25d7"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1338,13 +1338,14 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-types"
 version = "0.6.1"
-source = "git+https://github.com/paritytech/jsonrpsee#292bd88a998bb2b30a078751554ef222ce90dfbf"
+source = "git+https://github.com/paritytech/jsonrpsee#621fcab6f117dc6c60521c3e38c1ac9c6e1f25d7"
 dependencies = [
  "anyhow",
  "beef",
  "futures-channel",
  "futures-util",
  "hyper",
+ "rand 0.8.4",
  "serde",
  "serde_json",
  "soketto",
@@ -1355,7 +1356,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-ws-server"
 version = "0.6.1"
-source = "git+https://github.com/paritytech/jsonrpsee#292bd88a998bb2b30a078751554ef222ce90dfbf"
+source = "git+https://github.com/paritytech/jsonrpsee#621fcab6f117dc6c60521c3e38c1ac9c6e1f25d7"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -1627,9 +1628,9 @@ dependencies = [
 
 [[package]]
 name = "num_cpus"
-version = "1.13.0"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05499f3756671c15885fee9034446956fff3f243d6077b91e5767df161f766b3"
+checksum = "19e64526ebdee182341572e50e9ad03965aa510cd94427a4549448f285e957a1"
 dependencies = [
  "hermit-abi",
  "libc",
@@ -2394,9 +2395,9 @@ checksum = "43b2853a4d09f215c24cc5489c992ce46052d359b5109343cbafbf26bc62f8a3"
 
 [[package]]
 name = "signal-hook"
-version = "0.3.12"
+version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c35dfd12afb7828318348b8c408383cf5071a086c1d4ab1c0f9840ec92dbb922"
+checksum = "647c97df271007dcea485bb74ffdb57f2e683f1306c854f468a0c244badabf2d"
 dependencies = [
  "libc",
  "signal-hook-registry",
