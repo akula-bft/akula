@@ -1,7 +1,4 @@
-use crate::{
-    kv::{traits, *},
-    Cursor, CursorDupSort, MutableCursor, MutableCursorDupSort, Transaction,
-};
+use crate::kv::{traits::*, *};
 use ::mdbx::{DatabaseFlags, EnvironmentKind, TransactionKind, WriteFlags, RO, RW};
 use anyhow::Context;
 use async_trait::async_trait;
@@ -13,7 +10,7 @@ struct TableObjectWrapper<T>(T);
 
 impl<'tx, T> ::mdbx::TableObject<'tx> for TableObjectWrapper<T>
 where
-    T: traits::TableDecode,
+    T: TableDecode,
 {
     fn decode(data_val: &[u8]) -> Result<Self, ::mdbx::Error>
     where
@@ -100,7 +97,7 @@ impl<E: EnvironmentKind> Deref for Environment<E> {
 }
 
 #[async_trait]
-impl<E: EnvironmentKind> traits::KV for Environment<E> {
+impl<E: EnvironmentKind> KV for Environment<E> {
     type Tx<'tx> = MdbxTransaction<'tx, RO, E>;
 
     async fn begin(&self) -> anyhow::Result<Self::Tx<'_>> {
@@ -111,7 +108,7 @@ impl<E: EnvironmentKind> traits::KV for Environment<E> {
 }
 
 #[async_trait]
-impl<E: EnvironmentKind> traits::MutableKV for Environment<E> {
+impl<E: EnvironmentKind> MutableKV for Environment<E> {
     type MutableTx<'tx> = MdbxTransaction<'tx, RW, E>;
 
     async fn begin_mutable(&self) -> anyhow::Result<Self::MutableTx<'_>> {
@@ -165,7 +162,7 @@ where
 }
 
 #[async_trait]
-impl<'env, K, E> traits::Transaction<'env> for MdbxTransaction<'env, K, E>
+impl<'env, K, E> Transaction<'env> for MdbxTransaction<'env, K, E>
 where
     K: TransactionKind,
     E: EnvironmentKind,
@@ -215,7 +212,7 @@ where
 }
 
 #[async_trait]
-impl<'env, E: EnvironmentKind> traits::MutableTransaction<'env> for MdbxTransaction<'env, RW, E> {
+impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env, RW, E> {
     type MutableCursor<'tx, T: Table> = MdbxCursor<'tx, RW>;
     type MutableCursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, RW>;
 

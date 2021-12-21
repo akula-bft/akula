@@ -1,8 +1,5 @@
 use super::data_provider::*;
-use crate::{
-    kv::{tables::ErasedTable, Table, TableEncode},
-    MutableCursor,
-};
+use crate::kv::{tables::ErasedTable, traits::*};
 use std::{cmp::Reverse, collections::BinaryHeap, marker::PhantomData};
 
 pub struct Collector<T>

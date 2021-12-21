@@ -2,7 +2,7 @@ pub mod stage;
 pub mod stages;
 
 use self::stage::{Stage, StageInput, UnwindInput};
-use crate::{kv::traits::MutableKV, stagedsync::stage::ExecOutput, MutableTransaction};
+use crate::{kv::traits::*, stagedsync::stage::ExecOutput};
 use std::time::{Duration, Instant};
 use tracing::*;
 

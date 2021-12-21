@@ -6,7 +6,7 @@ use crate::{
     },
     models::*,
     state::database::*,
-    u256_to_h256, MutableTransaction, State, Transaction,
+    u256_to_h256, State,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -391,7 +391,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{h256_to_u256, kv::traits::*, new_mem_database};
+    use crate::{h256_to_u256, kv::new_mem_database};
     use hex_literal::hex;
 
     #[tokio::test]

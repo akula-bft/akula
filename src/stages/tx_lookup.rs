@@ -137,9 +137,8 @@ mod tests {
     use super::*;
     use crate::{
         accessors::chain,
-        kv::traits::MutableKV,
+        kv::new_mem_database,
         models::{MessageWithSignature, *},
-        new_mem_database,
     };
     use bytes::Bytes;
     use ethereum_types::*;

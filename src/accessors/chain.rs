@@ -1,10 +1,6 @@
 use crate::{
-    kv::{
-        tables,
-        traits::{Cursor, MutableCursor},
-    },
+    kv::{tables, traits::*},
     models::*,
-    MutableTransaction, Transaction as ReadTransaction,
 };
 use ethereum_types::{Address, H256, U256};
 use tokio_stream::StreamExt;
@@ -13,7 +9,7 @@ use tracing::*;
 pub mod canonical_hash {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         block_number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<H256>> {
@@ -39,7 +35,7 @@ pub mod canonical_hash {
 pub mod header_number {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
     ) -> anyhow::Result<Option<BlockNumber>> {
@@ -52,7 +48,7 @@ pub mod header_number {
 pub mod header {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -67,7 +63,7 @@ pub mod header {
 pub mod tx {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         base_tx_id: impl Into<TxIndex>,
         amount: usize,
@@ -120,7 +116,7 @@ pub mod tx {
 pub mod tx_sender {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -164,7 +160,7 @@ pub mod tx_sender {
 pub mod storage_body {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -175,7 +171,7 @@ pub mod storage_body {
         tx.get(&tables::BlockBody, (number, hash)).await
     }
 
-    pub async fn has<'db, Tx: ReadTransaction<'db>>(
+    pub async fn has<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -203,7 +199,7 @@ pub mod storage_body {
 pub mod block_body {
     use super::*;
 
-    async fn read_base<'db, Tx: ReadTransaction<'db>>(
+    async fn read_base<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -223,7 +219,7 @@ pub mod block_body {
         Ok(None)
     }
 
-    pub async fn read_without_senders<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read_without_senders<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -231,7 +227,7 @@ pub mod block_body {
         Ok(read_base(tx, hash, number).await?.map(|(v, _)| v))
     }
 
-    pub async fn read_with_senders<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read_with_senders<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -261,7 +257,7 @@ pub mod block_body {
 pub mod td {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         hash: H256,
         number: impl Into<BlockNumber>,
@@ -277,7 +273,7 @@ pub mod td {
 pub mod tl {
     use super::*;
 
-    pub async fn read<'db, Tx: ReadTransaction<'db>>(
+    pub async fn read<'db, Tx: Transaction<'db>>(
         tx: &Tx,
         tx_hash: H256,
     ) -> anyhow::Result<Option<BlockNumber>> {

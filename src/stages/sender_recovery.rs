@@ -1,11 +1,11 @@
 use crate::{
     kv::{
         tables::{self, ErasedTable},
-        traits::{Cursor, MutableCursor, TableEncode},
+        traits::*,
     },
     models::*,
     stagedsync::{format_duration, stage::*},
-    MutableTransaction, StageId,
+    StageId,
 };
 use async_trait::async_trait;
 use rayon::prelude::*;
@@ -184,7 +184,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{accessors::*, kv::traits::MutableKV, new_mem_database};
+    use crate::{accessors::*, kv::new_mem_database};
     use bytes::Bytes;
     use ethereum_types::*;
     use hex_literal::hex;

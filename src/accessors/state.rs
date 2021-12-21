@@ -1,4 +1,4 @@
-use crate::{models::*, Transaction};
+use crate::{kv::traits::*, models::*};
 use ethereum_types::*;
 
 pub mod storage {
@@ -31,11 +31,7 @@ pub mod tests {
     use super::*;
     use crate::{
         h256_to_u256,
-        kv::{
-            tables,
-            traits::{MutableKV, MutableTransaction},
-        },
-        new_mem_database,
+        kv::{new_mem_database, tables},
     };
     use hex_literal::hex;
 

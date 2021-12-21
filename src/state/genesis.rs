@@ -1,8 +1,10 @@
 use crate::{
-    kv::tables::{self, CumulativeData},
+    kv::{
+        tables::{self, CumulativeData},
+        traits::*,
+    },
     models::*,
     state::*,
-    MutableTransaction,
 };
 use ethereum_types::*;
 
@@ -153,10 +155,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        kv::traits::{MutableKV, Transaction},
-        new_mem_database,
-    };
+    use crate::kv::new_mem_database;
     use hex_literal::hex;
 
     fn genesis_header_hash(chain_spec: &'static ChainSpec) -> H256 {

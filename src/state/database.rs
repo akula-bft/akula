@@ -1,5 +1,7 @@
 use crate::{
-    kv::tables, models::*, u256_to_h256, CursorDupSort, MutableCursorDupSort, Transaction,
+    kv::{tables, traits::*},
+    models::*,
+    u256_to_h256,
 };
 use bytes::Bytes;
 use ethereum_types::*;

@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         .with(env_filter)
         .init();
 
-    let db = Arc::new(akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let db = Arc::new(akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &opt.datadir,
         akula::kv::tables::CHAINDATA_TABLES.clone(),

@@ -3,8 +3,7 @@ use akula::{
     downloader::sentry_status_provider::SentryStatusProvider,
     kv::{
         tables::{self, ErasedTable},
-        traits::{MutableKV, KV},
-        TableEncode,
+        traits::*,
     },
     models::*,
     sentry::{
@@ -13,7 +12,7 @@ use akula::{
     },
     stagedsync::{self, stage::*, stages::FINISH},
     stages::*,
-    version_string, Cursor, MutableCursor, MutableTransaction, StageId, Transaction,
+    version_string, StageId,
 };
 use anyhow::bail;
 use async_trait::async_trait;
@@ -506,7 +505,7 @@ async fn main() -> anyhow::Result<()> {
     // database setup
     let erigon_db = if let Some(erigon_data_dir) = opt.erigon_data_dir {
         let erigon_chain_data_dir = erigon_data_dir.join("chaindata");
-        let erigon_db = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+        let erigon_db = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
             mdbx::Environment::new(),
             &erigon_chain_data_dir,
             akula::kv::tables::CHAINDATA_TABLES.clone(),

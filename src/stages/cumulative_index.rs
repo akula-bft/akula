@@ -1,10 +1,10 @@
 use crate::{
     kv::{
         tables::{self, CumulativeData},
-        traits::{Cursor, MutableCursor},
+        traits::*,
     },
     stagedsync::stage::*,
-    MutableTransaction, StageId,
+    StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;

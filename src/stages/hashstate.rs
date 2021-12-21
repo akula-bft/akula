@@ -4,11 +4,11 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::tables,
+    kv::{tables, traits::*},
     models::*,
     stagedsync::{stage::*, stages::*},
     stages::stage_util::should_do_clean_promotion,
-    upsert_hashed_storage_value, Cursor, CursorDupSort, MutableCursor, MutableTransaction,
+    upsert_hashed_storage_value,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -262,10 +262,9 @@ mod tests {
     use super::*;
     use crate::{
         execution::{address::*, *},
-        kv::traits::MutableKV,
-        new_mem_database,
+        kv::new_mem_database,
         res::chainspec::MAINNET,
-        u256_to_h256, Buffer, State, Transaction,
+        u256_to_h256, Buffer, State,
     };
     use hex_literal::*;
     use std::time::Instant;

@@ -5,15 +5,11 @@ use crate::{
         collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
         data_provider::Entry,
     },
-    kv::{
-        tables,
-        traits::{Cursor, CursorDupSort},
-        TableEncode,
-    },
+    kv::{tables, traits::*},
     models::{Account, BlockNumber, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput, *},
     stages::stage_util::should_do_clean_promotion,
-    MutableTransaction, StageId,
+    StageId,
 };
 use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
@@ -693,11 +689,8 @@ where
 mod tests {
     use super::*;
     use crate::{
-        crypto::trie_root,
-        h256_to_u256,
-        kv::traits::{MutableCursor, MutableKV},
-        models::EMPTY_HASH,
-        new_mem_database, u256_to_h256, zeroless_view,
+        crypto::trie_root, h256_to_u256, kv::new_mem_database, models::EMPTY_HASH, u256_to_h256,
+        zeroless_view,
     };
     use ethereum_types::{H256, U256};
     use hex_literal::hex;

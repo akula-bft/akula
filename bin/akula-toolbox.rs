@@ -101,7 +101,7 @@ pub struct HeaderDownloadOpts {
 
 async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     std::fs::create_dir_all(&data_dir.0)?;
-    let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_rw(
+    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_rw(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
         akula::kv::tables::CHAINDATA_TABLES.clone(),
@@ -149,7 +149,7 @@ async fn header_download(data_dir: AkulaDataDir, opts: HeaderDownloadOpts) -> an
 }
 
 async fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
-    let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
         Default::default(),
@@ -185,7 +185,7 @@ async fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
 }
 
 async fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::Result<()> {
-    let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
         Default::default(),
@@ -215,7 +215,7 @@ async fn db_walk(
     starting_key: Option<Bytes>,
     max_entries: Option<usize>,
 ) -> anyhow::Result<()> {
-    let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
         Default::default(),
@@ -249,12 +249,12 @@ async fn db_walk(
 }
 
 async fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> anyhow::Result<()> {
-    let env1 = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let env1 = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &db1_path,
         Default::default(),
     )?;
-    let env2 = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let env2 = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &db2_path,
         Default::default(),
@@ -318,7 +318,7 @@ async fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> 
 }
 
 async fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::Result<()> {
-    let env = akula::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
         CHAINDATA_TABLES.clone(),

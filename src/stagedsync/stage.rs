@@ -1,5 +1,5 @@
 use super::stages::StageId;
-use crate::{models::*, MutableTransaction};
+use crate::{kv::traits::*, models::*};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use std::{fmt::Debug, time::Instant};
