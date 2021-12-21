@@ -35,8 +35,14 @@ pub struct RemoteCursor<'tx, B> {
 
 #[async_trait]
 impl<'env> Transaction<'env> for RemoteTransaction {
-    type Cursor<'tx, T: Table> = RemoteCursor<'tx, T>;
-    type CursorDupSort<'tx, T: DupSort> = RemoteCursor<'tx, T>;
+    type Cursor<'tx, T: Table>
+    where
+        'env: 'tx,
+    = RemoteCursor<'tx, T>;
+    type CursorDupSort<'tx, T: DupSort>
+    where
+        'env: 'tx,
+    = RemoteCursor<'tx, T>;
 
     fn id(&self) -> u64 {
         self.id
@@ -102,6 +108,7 @@ impl<'env> Transaction<'env> for RemoteTransaction {
 
     async fn cursor_dup_sort<'tx, T>(&'tx self, table: T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
+        'env: 'tx,
         T: DupSort,
     {
         self.cursor(table).await

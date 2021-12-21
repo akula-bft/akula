@@ -78,7 +78,7 @@ async fn ensure_object<'m: 'j, 'j, S: State>(
         }
     } else {
         journal.push(Delta::Create { address });
-        objects.entry(address).insert(Object {
+        objects.entry(address).insert_entry(Object {
             current: Some(Account::default()),
             ..Default::default()
         });

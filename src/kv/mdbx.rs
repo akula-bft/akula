@@ -167,8 +167,14 @@ where
     K: TransactionKind,
     E: EnvironmentKind,
 {
-    type Cursor<'tx, T: Table> = MdbxCursor<'tx, K>;
-    type CursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, K>;
+    type Cursor<'tx, T: Table>
+    where
+        'env: 'tx,
+    = MdbxCursor<'tx, K>;
+    type CursorDupSort<'tx, T: DupSort>
+    where
+        'env: 'tx,
+    = MdbxCursor<'tx, K>;
 
     fn id(&self) -> u64 {
         self.inner.id()
@@ -213,8 +219,14 @@ where
 
 #[async_trait]
 impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env, RW, E> {
-    type MutableCursor<'tx, T: Table> = MdbxCursor<'tx, RW>;
-    type MutableCursorDupSort<'tx, T: DupSort> = MdbxCursor<'tx, RW>;
+    type MutableCursor<'tx, T: Table>
+    where
+        'env: 'tx,
+    = MdbxCursor<'tx, RW>;
+    type MutableCursorDupSort<'tx, T: DupSort>
+    where
+        'env: 'tx,
+    = MdbxCursor<'tx, RW>;
 
     async fn mutable_cursor<'tx, T>(
         &'tx self,

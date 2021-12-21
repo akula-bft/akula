@@ -142,7 +142,7 @@ impl InMemoryState {
                     .or_default()
             }
         } + difficulty;
-        self.difficulty[block_number].entry(hash).insert(d);
+        self.difficulty[block_number].entry(hash).insert_entry(d);
     }
 
     pub fn read_body_with_senders(

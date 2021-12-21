@@ -412,7 +412,7 @@ async fn build_storage_trie(
 /// Walker over accounts that computes account storage root.
 struct GenerateWalker<'db: 'tx, 'tx: 'co, 'co, RwTx>
 where
-    RwTx: MutableTransaction<'db>,
+    RwTx: MutableTransaction<'db> + 'tx,
 {
     cursor: RwTx::Cursor<'tx, tables::HashedAccount>,
     storage_cursor: RwTx::CursorDupSort<'tx, tables::HashedStorage>,

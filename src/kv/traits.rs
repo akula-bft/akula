@@ -45,8 +45,14 @@ pub trait DupSort: Table {
 
 #[async_trait]
 pub trait Transaction<'db>: Send + Sync + Debug + Sized {
-    type Cursor<'tx, T: Table>: Cursor<'tx, T>;
-    type CursorDupSort<'tx, T: DupSort>: CursorDupSort<'tx, T>;
+    type Cursor<'tx, T: Table>: Cursor<'tx, T>
+    where
+        'db: 'tx,
+        Self: 'tx;
+    type CursorDupSort<'tx, T: DupSort>: CursorDupSort<'tx, T>
+    where
+        'db: 'tx,
+        Self: 'tx;
 
     fn id(&self) -> u64;
 
@@ -70,8 +76,14 @@ pub trait Transaction<'db>: Send + Sync + Debug + Sized {
 
 #[async_trait]
 pub trait MutableTransaction<'db>: Transaction<'db> {
-    type MutableCursor<'tx, T: Table>: MutableCursor<'tx, T>;
-    type MutableCursorDupSort<'tx, T: DupSort>: MutableCursorDupSort<'tx, T>;
+    type MutableCursor<'tx, T: Table>: MutableCursor<'tx, T>
+    where
+        'db: 'tx,
+        Self: 'tx;
+    type MutableCursorDupSort<'tx, T: DupSort>: MutableCursorDupSort<'tx, T>
+    where
+        'db: 'tx,
+        Self: 'tx;
 
     async fn mutable_cursor<'tx, T>(
         &'tx self,
