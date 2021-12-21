@@ -202,7 +202,7 @@ async fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::
     if let Some(v) = value {
         println!(
             "{:?}",
-            rlp::decode::<akula::models::Transaction>(&v)?.hash()
+            rlp::decode::<akula::models::MessageWithSignature>(&v)?.hash()
         );
     }
 

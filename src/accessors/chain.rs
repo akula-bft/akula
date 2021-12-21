@@ -71,7 +71,7 @@ pub mod tx {
         tx: &Tx,
         base_tx_id: impl Into<TxIndex>,
         amount: usize,
-    ) -> anyhow::Result<Vec<Transaction>> {
+    ) -> anyhow::Result<Vec<MessageWithSignature>> {
         let base_tx_id = base_tx_id.into();
         trace!(
             "Reading {} transactions starting from {}",
@@ -95,7 +95,7 @@ pub mod tx {
     pub async fn write<'db, RwTx: MutableTransaction<'db>>(
         tx: &RwTx,
         base_tx_id: impl Into<TxIndex>,
-        txs: &[Transaction],
+        txs: &[MessageWithSignature],
     ) -> anyhow::Result<()> {
         let base_tx_id = base_tx_id.into();
         trace!(
@@ -245,7 +245,7 @@ pub mod block_body {
                     .transactions
                     .into_iter()
                     .zip(senders)
-                    .map(|(tx, sender)| TransactionWithSender {
+                    .map(|(tx, sender)| MessageWithSender {
                         message: tx.message,
                         sender,
                     })
@@ -317,8 +317,8 @@ mod tests {
 
     #[tokio::test]
     async fn accessors() {
-        let tx1 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx1 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: None,
                 nonce: 1,
                 gas_price: 20_000.into(),
@@ -327,11 +327,11 @@ mod tests {
                 value: 0.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(false, H256::repeat_byte(2), H256::repeat_byte(3))
+            signature: MessageSignature::new(false, H256::repeat_byte(2), H256::repeat_byte(3))
                 .unwrap(),
         };
-        let tx2 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx2 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: None,
                 nonce: 2,
                 gas_price: 30_000.into(),
@@ -340,7 +340,7 @@ mod tests {
                 value: 10.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(true, H256::repeat_byte(6), H256::repeat_byte(9))
+            signature: MessageSignature::new(true, H256::repeat_byte(6), H256::repeat_byte(9))
                 .unwrap(),
         };
         let txs = [tx1, tx2];

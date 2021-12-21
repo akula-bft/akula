@@ -208,8 +208,8 @@ mod tests {
             uncles: vec![],
         };
 
-        let tx1_1 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx1_1 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 1,
                 gas_price: 1_000_000.into(),
@@ -218,7 +218,7 @@ mod tests {
                 value: 1.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(
+            signature: MessageSignature::new(
                 false,
                 H256::from(hex!(
                     "11d244ae19e3bb96d1bb864aa761d48e957984a154329f0de757cd105f9c7ac4"
@@ -230,8 +230,8 @@ mod tests {
             .unwrap(),
         };
 
-        let tx1_2 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx1_2 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
                 gas_price: 1_000_000.into(),
@@ -240,7 +240,7 @@ mod tests {
                 value: 0x100.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(
+            signature: MessageSignature::new(
                 true,
                 H256::from(hex!(
                     "9e8c555909921d359bfb0c2734841c87691eb257cb5f0597ac47501abd8ba0de"
@@ -258,8 +258,8 @@ mod tests {
             uncles: vec![],
         };
 
-        let tx2_1 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx2_1 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 3,
                 gas_price: 1_000_000.into(),
@@ -268,7 +268,7 @@ mod tests {
                 value: 0x10000.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(
+            signature: MessageSignature::new(
                 true,
                 H256::from(hex!(
                     "2450fdbf8fbc1dee15022bfa7392eb15f04277782343258e185972b5b2b8bf79"
@@ -280,8 +280,8 @@ mod tests {
             .unwrap(),
         };
 
-        let tx2_2 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx2_2 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 6,
                 gas_price: 1_000_000.into(),
@@ -290,7 +290,7 @@ mod tests {
                 value: 0x10.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(
+            signature: MessageSignature::new(
                 false,
                 H256::from(hex!(
                     "ac0222c1258eada1f828729186b723eaf3dd7f535c5de7271ea02470cbb1029f"
@@ -302,8 +302,8 @@ mod tests {
             .unwrap(),
         };
 
-        let tx2_3 = Transaction {
-            message: TransactionMessage::Legacy {
+        let tx2_3 = MessageWithSignature {
+            message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
                 gas_price: 1_000_000.into(),
@@ -312,7 +312,7 @@ mod tests {
                 value: 2.into(),
                 input: Bytes::new(),
             },
-            signature: TransactionSignature::new(
+            signature: MessageSignature::new(
                 true,
                 H256::from(hex!(
                     "e41df92d64612590f72cae9e8895cd34ce0a545109f060879add106336bb5055"

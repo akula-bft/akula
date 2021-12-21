@@ -270,7 +270,7 @@ impl State for InMemoryState {
                             .iter()
                             .map(|tx| {
                                 let sender = tx.recover_sender()?;
-                                Ok(TransactionWithSender {
+                                Ok(MessageWithSender {
                                     message: tx.message.clone(),
                                     sender,
                                 })

@@ -155,7 +155,7 @@ impl Display for ValidationError {
 impl std::error::Error for ValidationError {}
 
 pub fn pre_validate_transaction(
-    txn: &TransactionMessage,
+    txn: &Message,
     canonical_chain_id: ChainId,
     base_fee_per_gas: Option<U256>,
 ) -> Result<(), ValidationError> {

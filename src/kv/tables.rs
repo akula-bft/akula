@@ -325,7 +325,7 @@ macro_rules! rlp_standalone_table_object {
 
 rlp_table_object!(BodyForStorage);
 rlp_table_object!(BlockHeader);
-rlp_standalone_table_object!(Transaction);
+rlp_standalone_table_object!(MessageWithSignature);
 
 macro_rules! ron_table_object {
     ($ty:ident) => {
@@ -829,7 +829,7 @@ decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
-decl_table!(BlockTransaction => TxIndex => Transaction);
+decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(CumulativeIndex => BlockNumber => CumulativeData);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);

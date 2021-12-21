@@ -312,7 +312,7 @@ mod tests {
                 true,
             ),
         ] {
-            let txn = TransactionMessage::EIP1559 {
+            let txn = Message::EIP1559 {
                 chain_id: ChainId(1),
                 nonce: 0,
                 max_priority_fee_per_gas: max_priority_fee_per_gas.into(),

@@ -305,8 +305,8 @@ mod tests {
             ..PartialHeader::empty()
         };
 
-        let transaction = move |nonce, value, action, input| TransactionWithSender {
-            message: TransactionMessage::Legacy {
+        let transaction = move |nonce, value, action, input| MessageWithSender {
+            message: Message::Legacy {
                 chain_id: None,
                 nonce,
                 gas_price: U256::from(20 * GIGA),

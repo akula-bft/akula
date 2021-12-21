@@ -9,7 +9,7 @@ use std::borrow::Borrow;
 #[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct Block {
     pub header: BlockHeader,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<MessageWithSignature>,
     pub ommers: Vec<BlockHeader>,
 }
 
@@ -17,7 +17,7 @@ impl Block {
     #[must_use]
     pub fn new(
         partial_header: PartialHeader,
-        transactions: Vec<Transaction>,
+        transactions: Vec<MessageWithSignature>,
         ommers: Vec<BlockHeader>,
     ) -> Self {
         let ommers_hash = Self::ommers_hash(&ommers);
@@ -34,7 +34,9 @@ impl Block {
         H256::from_slice(Keccak256::digest(&rlp::encode_list(ommers)[..]).as_slice())
     }
 
-    pub fn transactions_root<I: IntoIterator<Item = T>, T: Borrow<Transaction>>(iter: I) -> H256 {
+    pub fn transactions_root<I: IntoIterator<Item = T>, T: Borrow<MessageWithSignature>>(
+        iter: I,
+    ) -> H256 {
         ordered_trie_root(iter.into_iter().map(|r| r.borrow().trie_encode()))
     }
 }
@@ -42,7 +44,7 @@ impl Block {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockWithSenders {
     pub header: PartialHeader,
-    pub transactions: Vec<TransactionWithSender>,
+    pub transactions: Vec<MessageWithSender>,
     pub ommers: Vec<BlockHeader>,
 }
 
@@ -54,7 +56,7 @@ impl From<Block> for BlockWithSenders {
             .map(|tx| {
                 let sender = tx.recover_sender().unwrap();
 
-                TransactionWithSender {
+                MessageWithSender {
                     message: tx.message,
                     sender,
                 }
@@ -71,7 +73,7 @@ impl From<Block> for BlockWithSenders {
 
 #[derive(Clone, Debug, PartialEq, RlpEncodable, RlpDecodable)]
 pub struct BlockBody {
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<MessageWithSignature>,
     pub ommers: Vec<BlockHeader>,
 }
 
@@ -86,7 +88,7 @@ impl From<Block> for BlockBody {
 
 #[derive(Clone, Debug, Default)]
 pub struct BlockBodyWithSenders {
-    pub transactions: Vec<TransactionWithSender>,
+    pub transactions: Vec<MessageWithSender>,
     pub ommers: Vec<BlockHeader>,
 }
 
@@ -137,8 +139,8 @@ mod tests {
         let ommers = vec![];
 
         let transactions = vec![
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 20369,
                     max_priority_fee_per_gas: 0x50a3d0b5d_u64.into(),
@@ -149,10 +151,10 @@ mod tests {
                     input: hex!("1cff79cd000000000000000000000000aa2ec16d77cfc057fb9c516282fef9da9de1e987000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001844f0c7c0a00000000000000000000000000000000000000000000000000000000000001f4000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000056178a0d5f301baf6cf3e1cd53d9863437345bf9000000000000000000000000000000000000000000000000002386f26fc100000000000000000000000000000000000000000000000000a2a15d09519be00000000000000000000000000000000000000000000000daadf45a4bb347757560000000000000000000000000000000000000000000000000003453af3f6dd960000000000000000000000000000000000000003f994c7f39b6af041a3c553270000000000000000000000000000000000000000000000000000de0b6b3a76400000000000000000000000000000000000000000000000000000000000061303192000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(false, hex!("9a8548ba3759730fe25be0412c0b183ec975d15da2f12653d5f0a2016ca01f27"), hex!("6d93f2176bfda918c06365e507c6c66a16d30b9e76d2d8e5a7f2802e3bcc6593")).unwrap()
+                signature: MessageSignature::new(false, hex!("9a8548ba3759730fe25be0412c0b183ec975d15da2f12653d5f0a2016ca01f27"), hex!("6d93f2176bfda918c06365e507c6c66a16d30b9e76d2d8e5a7f2802e3bcc6593")).unwrap()
             },
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 318_955,
                     max_priority_fee_per_gas: 0x156ba0980_u64.into(),
@@ -163,10 +165,10 @@ mod tests {
                     input: hex!("178979ae0000000000000000000000000000000476fde29330084b2b0b08a9f7d2ac6f2b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001048803dbee00000000000000000000000000000000000000000000003411811118647e0000000000000000000000000000000000000000000000000000000000037d69868500000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000006daea1723962647b7e189d311d757fb79300000000000000000000000000000000000000000000000000000000613031680000000000000000000000000000000000000000000000000000000000000002000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000031c8eacbffdd875c74b94b077895bd78cf1e64a300000000000000000000000000000000000000000000000000000000").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(true, hex!("9f56a8c52a7e8e37ecd8c8bff54a414a92d349ea72a5389b1f3ed0f86c3248be"), hex!("7aa4b9e5ff16553ea28fb8f2701a56c2c60e69810377ebbaabadddcae0677168")).unwrap()
+                signature: MessageSignature::new(true, hex!("9f56a8c52a7e8e37ecd8c8bff54a414a92d349ea72a5389b1f3ed0f86c3248be"), hex!("7aa4b9e5ff16553ea28fb8f2701a56c2c60e69810377ebbaabadddcae0677168")).unwrap()
             },
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 0x4ddec,
                     max_priority_fee_per_gas: 0x156ba0980_u64.into(),
@@ -177,10 +179,10 @@ mod tests {
                     input: hex!("178979ae0000000000000000000000000000005c9426e6910f22f0c00ed3690a4884dd6e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000010438ed173900000000000000000000000000000000000000000000023bb2f4021291c00000000000000000000000000000000000000000000000000000000000038277eafc00000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000006daea1723962647b7e189d311d757fb79300000000000000000000000000000000000000000000000000000000613031860000000000000000000000000000000000000000000000000000000000000002000000000000000000000000d417144312dbf50465b1c641d016962017ef6240000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb4800000000000000000000000000000000000000000000000000000000").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(true, hex!("e0af864ce72e3755ef3e1c0eb8e665300f9374fc0856ebf54340bcf8daddfdf4"), hex!("488a890a71fb95db2088e8c261149b1ca33902b039eb461805261cd2180b38bb")).unwrap(),
+                signature: MessageSignature::new(true, hex!("e0af864ce72e3755ef3e1c0eb8e665300f9374fc0856ebf54340bcf8daddfdf4"), hex!("488a890a71fb95db2088e8c261149b1ca33902b039eb461805261cd2180b38bb")).unwrap(),
             },
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 0x3f8,
                     max_priority_fee_per_gas: 0x77359400_u64.into(),
@@ -191,10 +193,10 @@ mod tests {
                     input: hex!("ac9650d800000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001800000000000000000000000000000000000000000000000000000000000000104414bf389000000000000000000000000515d7e9d75e2b76db60f8a051cd890eba23286bc000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc20000000000000000000000000000000000000000000000000000000000000bb80000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006130358000000000000000000000000000000000000000000000001043561a882930000000000000000000000000000000000000000000000000000001addc207d623fcc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004449404b7c00000000000000000000000000000000000000000000000001addc207d623fcc000000000000000000000000ac569e0f62c7cbbb987518692aae056a0ae1dd1800000000000000000000000000000000000000000000000000000000").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(false, hex!("22c1771e804cd2da132d19b10c558847860f6a61e6ca6f1eec54ee747d374055"), hex!("41a2f6fcd021e2977d5d555ed1413632638a0bf1b7e86b8c46ab9dd77effdb71")).unwrap(),
+                signature: MessageSignature::new(false, hex!("22c1771e804cd2da132d19b10c558847860f6a61e6ca6f1eec54ee747d374055"), hex!("41a2f6fcd021e2977d5d555ed1413632638a0bf1b7e86b8c46ab9dd77effdb71")).unwrap(),
             },
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 0x5a9f9,
                     max_priority_fee_per_gas: 0x77359400_u64.into(),
@@ -205,10 +207,10 @@ mod tests {
                     input: hex!("a9059cbb0000000000000000000000005c874f13a92f5c35aec3d7bc07c630a92a79289a000000000000000000000000000000000000000000000000000000003b9aca00").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(true, hex!("6dd51acdc109fcbe29ebf526c4e93cef449dad611e0123cfa221770d1619aa55"), hex!("7112d13e643b2288166ae49770b7df778f749f45f28c1f33c8d6914b5f65a4f2")).unwrap(),
+                signature: MessageSignature::new(true, hex!("6dd51acdc109fcbe29ebf526c4e93cef449dad611e0123cfa221770d1619aa55"), hex!("7112d13e643b2288166ae49770b7df778f749f45f28c1f33c8d6914b5f65a4f2")).unwrap(),
             },
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 0x36d,
                     max_priority_fee_per_gas: 0x73a20d00_u64.into(),
@@ -219,10 +221,10 @@ mod tests {
                     input: hex!("095ea7b30000000000000000000000007a250d5630b4cf539739df2c5dacb4c659f2488dffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(false, hex!("629b9b5baed83904eed041b38d3debc572cc7ad4be55aac679a470e77d1152de"), hex!("29eacf16c562d6ffd996cef9f96bb03b58ad775e28b68831f0e8fbeec42d60bd")).unwrap(),
+                signature: MessageSignature::new(false, hex!("629b9b5baed83904eed041b38d3debc572cc7ad4be55aac679a470e77d1152de"), hex!("29eacf16c562d6ffd996cef9f96bb03b58ad775e28b68831f0e8fbeec42d60bd")).unwrap(),
             },
-            Transaction {
-                message: TransactionMessage::EIP1559 {
+            MessageWithSignature {
+                message: Message::EIP1559 {
                     chain_id: CHAIN_ID,
                     nonce: 0x23,
                     max_priority_fee_per_gas: 0x3b9aca00_u64.into(),
@@ -233,7 +235,7 @@ mod tests {
                     input: hex!("a0712d680000000000000000000000000000000000000000000000000000000000000002").to_vec().into(),
                     access_list: vec![],
                 },
-                signature: TransactionSignature::new(false, hex!("70bcb39ac6f540498c3adfdf3a23ecce5cf7b4f75b0674c157da02350edf8ed4"), hex!("40e997c09def486888c34e77565cce82b348d0035e2ea36bf125252f7895ff3c")).unwrap(),
+                signature: MessageSignature::new(false, hex!("70bcb39ac6f540498c3adfdf3a23ecce5cf7b4f75b0674c157da02350edf8ed4"), hex!("40e997c09def486888c34e77565cce82b348d0035e2ea36bf125252f7895ff3c")).unwrap(),
             },
         ];
 
@@ -332,8 +334,8 @@ mod tests {
     fn block_body_rlp_2() {
         let body = BlockBody {
             transactions: vec![
-                Transaction {
-                    message: TransactionMessage::Legacy {
+                MessageWithSignature {
+                    message: Message::Legacy {
                         chain_id: None,
                         nonce: 172339,
                         gas_price: U256::from(50 * GIGA),
@@ -344,15 +346,15 @@ mod tests {
                         value: U256::from(1_027_501_080_u128 * u128::from(GIGA)),
                         input: vec![].into(),
                     },
-                    signature: TransactionSignature::new(
+                    signature: MessageSignature::new(
                         false,
                         hex!("48b55bfa915ac795c431978d8a6a992b628d557da5ff759b307d495a36649353"),
                         hex!("1fffd310ac743f371de3b9f7f9cb56c0b28ad43601b4ab949f53faa07bd2c804"),
                     )
                     .unwrap(),
                 },
-                Transaction {
-                    message: TransactionMessage::EIP1559 {
+                MessageWithSignature {
+                    message: Message::EIP1559 {
                         chain_id: CHAIN_ID,
                         nonce: 1,
                         max_priority_fee_per_gas: U256::from(5 * GIGA),
@@ -365,7 +367,7 @@ mod tests {
                             .into(),
                         access_list: vec![],
                     },
-                    signature: TransactionSignature::new(
+                    signature: MessageSignature::new(
                         false,
                         hex!("52f8f61201b2b11a78d6e866abc9c3db2ae8631fa656bfe5cb53668255367afb"),
                         hex!("52f8f61201b2b11a78d6e866abc9c3db2ae8631fa656bfe5cb53668255367afb"),

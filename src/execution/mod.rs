@@ -105,8 +105,8 @@ mod tests {
 
             let sender = hex!("b685342b8c54347aad148e1f22eff3eb3eb29391").into();
 
-            let t = |action, input, nonce, max_priority_fee_per_gas| TransactionWithSender {
-                message: TransactionMessage::EIP1559 {
+            let t = |action, input, nonce, max_priority_fee_per_gas| MessageWithSender {
+                message: Message::EIP1559 {
                     input,
                     max_priority_fee_per_gas,
                     action,

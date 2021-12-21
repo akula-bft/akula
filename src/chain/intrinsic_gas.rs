@@ -1,7 +1,7 @@
 use super::protocol_param::fee;
 use crate::models::*;
 
-pub fn intrinsic_gas(txn: &TransactionMessage, homestead: bool, istanbul: bool) -> u128 {
+pub fn intrinsic_gas(txn: &Message, homestead: bool, istanbul: bool) -> u128 {
     let mut gas = fee::G_TRANSACTION as u128;
 
     if matches!(txn.action(), TransactionAction::Create) && homestead {

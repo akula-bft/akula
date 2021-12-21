@@ -12,7 +12,7 @@ use ethereum_types::{Address, H256, U256};
 use evmodin::{
     continuation::{interrupt::*, interrupt_data::*, resume_data::*, Interrupt},
     host::*,
-    CallKind, CreateMessage, Message, Output, Revision, StatusCode,
+    CallKind, CreateMessage, Message as EvmMessage, Output, Revision, StatusCode,
 };
 use sha3::{Digest, Keccak256};
 use std::{cmp::min, convert::TryFrom};
@@ -34,7 +34,7 @@ where
     analysis_cache: &'analysis mut AnalysisCache,
     header: &'h PartialHeader,
     block_spec: &'c BlockExecutionSpec,
-    txn: &'t TransactionWithSender,
+    txn: &'t MessageWithSender,
     beneficiary: Address,
 }
 
@@ -43,7 +43,7 @@ pub async fn execute<B: State>(
     analysis_cache: &mut AnalysisCache,
     header: &PartialHeader,
     block_spec: &BlockExecutionSpec,
-    txn: &TransactionWithSender,
+    txn: &MessageWithSender,
     gas: u64,
 ) -> anyhow::Result<CallResult> {
     let mut evm = Evm {
@@ -56,7 +56,7 @@ pub async fn execute<B: State>(
     };
 
     let res = if let TransactionAction::Call(to) = txn.action() {
-        evm.call(Message {
+        evm.call(EvmMessage {
             kind: CallKind::Call,
             is_static: false,
             depth: 0,
@@ -145,7 +145,7 @@ where
             .await?;
         self.state.add_to_balance(contract_addr, value).await?;
 
-        let deploy_message = Message {
+        let deploy_message = EvmMessage {
             kind: CallKind::Call,
             is_static: false,
             depth: message.depth,
@@ -199,7 +199,7 @@ where
     }
 
     #[async_recursion]
-    async fn call(&mut self, message: Message) -> anyhow::Result<Output> {
+    async fn call(&mut self, message: EvmMessage) -> anyhow::Result<Output> {
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
@@ -289,7 +289,7 @@ where
 
     async fn execute(
         &mut self,
-        msg: Message,
+        msg: EvmMessage,
         code: Vec<u8>,
         code_hash: Option<H256>,
     ) -> anyhow::Result<Output> {
@@ -623,7 +623,7 @@ mod tests {
     async fn execute<B: State>(
         state: &mut IntraBlockState<'_, B>,
         header: &PartialHeader,
-        txn: &TransactionWithSender,
+        txn: &MessageWithSender,
         gas: u64,
     ) -> CallResult {
         super::execute(
@@ -656,8 +656,8 @@ mod tests {
             assert_eq!(state.get_balance(sender).await.unwrap(), U256::zero());
             assert_eq!(state.get_balance(to).await.unwrap(), U256::zero());
 
-            let txn = TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let txn = MessageWithSender {
+                message: Message::Legacy {
                     action: TransactionAction::Call(to),
                     value,
 
@@ -723,8 +723,8 @@ mod tests {
             let mut db = InMemoryState::default();
             let mut state = IntraBlockState::new(&mut db);
 
-            let txn = |action, input| TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let txn = |action, input| MessageWithSender {
+                message: Message::Legacy {
                     input,
                     action,
 
@@ -833,9 +833,9 @@ mod tests {
                 .await
                 .unwrap();
 
-            let txn = |input| TransactionWithSender {
+            let txn = |input| MessageWithSender {
                 sender: caller,
-                message: TransactionMessage::Legacy {
+                message: Message::Legacy {
                     action: TransactionAction::Call(contract),
                     input,
 
@@ -917,8 +917,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            let txn = TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let txn = MessageWithSender {
+                message: Message::Legacy {
                     action: TransactionAction::Call(caller_address),
                     input: H256::from(callee_address).0.to_vec().into(),
 
@@ -994,8 +994,8 @@ mod tests {
             let mut db = InMemoryState::default();
             let mut state = IntraBlockState::new(&mut db);
 
-            let txn = TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let txn = MessageWithSender {
+                message: Message::Legacy {
                     action: TransactionAction::Create,
                     input: code.to_vec().into(),
 
@@ -1048,8 +1048,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            let txn = TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let txn = MessageWithSender {
+                message: Message::Legacy {
                     action: TransactionAction::Create,
                     input: new_code.to_vec().into(),
 
@@ -1082,8 +1082,8 @@ mod tests {
             let mut db = InMemoryState::default();
             let mut state = IntraBlockState::new(&mut db);
 
-            let t = |input| TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let t = |input| MessageWithSender {
+                message: Message::Legacy {
                     action: TransactionAction::Create,
                     input,
 

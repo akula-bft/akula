@@ -65,7 +65,7 @@ where
         self.state
     }
 
-    pub async fn validate_transaction(&mut self, tx: &TransactionWithSender) -> anyhow::Result<()> {
+    pub async fn validate_transaction(&mut self, tx: &MessageWithSender) -> anyhow::Result<()> {
         pre_validate_transaction(
             tx,
             self.block_spec.params.chain_id,
@@ -116,10 +116,7 @@ where
         Ok(())
     }
 
-    async fn execute_transaction(
-        &mut self,
-        txn: &TransactionWithSender,
-    ) -> anyhow::Result<Receipt> {
+    async fn execute_transaction(&mut self, txn: &MessageWithSender) -> anyhow::Result<Receipt> {
         let rev = self.block_spec.revision;
 
         self.state.clear_journal_and_substate();
@@ -279,7 +276,7 @@ where
 
     async fn refund_gas(
         &mut self,
-        txn: &TransactionWithSender,
+        txn: &MessageWithSender,
         mut gas_left: u64,
     ) -> anyhow::Result<u64> {
         let mut refund = self.state.get_refund();
@@ -330,8 +327,8 @@ mod tests {
             // The sender does not exist
             let sender = hex!("004512399a230565b99be5c3b0030a56f3ace68c").into();
 
-            let txn = TransactionWithSender {
-                message: TransactionMessage::Legacy {
+            let txn = MessageWithSender {
+                message: Message::Legacy {
                     chain_id: None,
                     nonce: 0,
                     gas_price: U256::zero(),
@@ -372,9 +369,9 @@ mod tests {
 
             let sender = hex!("71562b71999873DB5b286dF957af199Ec94617F7").into();
 
-            let tx = TransactionWithSender {
+            let tx = MessageWithSender {
                 sender,
-                message: TransactionMessage::Legacy {
+                message: Message::Legacy {
                     chain_id: None,
                     nonce: 0,
                     gas_price: U256::from(50) * GIGA,
@@ -465,8 +462,8 @@ mod tests {
                 &block_spec,
             );
 
-            let t = |action, input, nonce, gas_limit| TransactionWithSender {
-                message: TransactionMessage::EIP1559 {
+            let t = |action, input, nonce, gas_limit| MessageWithSender {
+                message: Message::EIP1559 {
                     chain_id: MAINNET.params.chain_id,
                     nonce,
                     max_priority_fee_per_gas: U256::zero(),
@@ -605,8 +602,8 @@ mod tests {
                 .await
                 .unwrap();
 
-            let t = |action, input, nonce| TransactionWithSender {
-                message: TransactionMessage::EIP1559 {
+            let t = |action, input, nonce| MessageWithSender {
+                message: Message::EIP1559 {
                     chain_id: MAINNET.params.chain_id,
                     nonce,
                     max_priority_fee_per_gas: U256::from(20 * GIGA),
@@ -680,8 +677,8 @@ mod tests {
             };
             state.update_account(address, None, Some(account));
 
-            let txn = TransactionWithSender{
-                message: TransactionMessage::EIP1559 {
+            let txn = MessageWithSender{
+                message: Message::EIP1559 {
                     chain_id: MAINNET.params.chain_id,
                     nonce,
                     max_priority_fee_per_gas: 0.into(),
@@ -743,8 +740,8 @@ mod tests {
             let caller = hex!("5ed8cee6b63b1c6afce3ad7c92f4fd7e1b8fad9f").into();
             let suicide_beneficiary = hex!("ee098e6c2a43d9e2c04f08f0c3a87b0ba59079d5").into();
 
-            let txn = TransactionWithSender {
-                message: TransactionMessage::EIP1559 {
+            let txn = MessageWithSender {
+                message: Message::EIP1559 {
                     chain_id: MAINNET.params.chain_id,
                     nonce: 0,
                     max_priority_fee_per_gas: U256::zero(),

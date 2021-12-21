@@ -713,7 +713,7 @@ pub struct TransactionTest {
 // https://ethereum-tests.readthedocs.io/en/latest/test_types/transaction_tests.html
 #[instrument(skip(testdata))]
 async fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
-    let txn = rlp::decode::<akula::models::Transaction>(&testdata.txbytes);
+    let txn = rlp::decode::<akula::models::MessageWithSignature>(&testdata.txbytes);
 
     for (key, t) in testdata.result {
         match (&txn, t) {
