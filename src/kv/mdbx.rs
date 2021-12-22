@@ -443,10 +443,6 @@ where
 
         Ok(())
     }
-
-    async fn count(&mut self) -> anyhow::Result<usize> {
-        todo!()
-    }
 }
 
 #[async_trait]
