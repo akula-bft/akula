@@ -174,7 +174,7 @@ where
         self.inner.id()
     }
 
-    async fn cursor<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
+    async fn cursor<'tx, T>(&'tx self, table: T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,
         T: Table,
@@ -188,7 +188,7 @@ where
         })
     }
 
-    async fn cursor_dup_sort<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
+    async fn cursor_dup_sort<'tx, T>(&'tx self, table: T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,
         T: DupSort,
@@ -198,7 +198,7 @@ where
 
     async fn get<'tx, T: Table>(
         &'tx self,
-        table: &T,
+        table: T,
         key: T::Key,
     ) -> anyhow::Result<Option<T::Value>> {
         Ok(self
@@ -218,7 +218,7 @@ impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env
 
     async fn mutable_cursor<'tx, T>(
         &'tx self,
-        table: &T,
+        table: T,
     ) -> anyhow::Result<Self::MutableCursor<'tx, T>>
     where
         'env: 'tx,
@@ -229,7 +229,7 @@ impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env
 
     async fn mutable_cursor_dupsort<'tx, T>(
         &'tx self,
-        table: &T,
+        table: T,
     ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, T>>
     where
         'env: 'tx,
@@ -238,7 +238,7 @@ impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env
         self.mutable_cursor(table).await
     }
 
-    async fn set<T>(&self, table: &T, k: T::Key, v: T::Value) -> anyhow::Result<()>
+    async fn set<T>(&self, table: T, k: T::Key, v: T::Value) -> anyhow::Result<()>
     where
         T: Table,
     {
@@ -250,7 +250,7 @@ impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env
         )?)
     }
 
-    async fn del<T>(&self, table: &T, key: T::Key, value: Option<T::Value>) -> anyhow::Result<bool>
+    async fn del<T>(&self, table: T, key: T::Key, value: Option<T::Value>) -> anyhow::Result<bool>
     where
         T: Table,
     {
@@ -267,7 +267,7 @@ impl<'env, E: EnvironmentKind> MutableTransaction<'env> for MdbxTransaction<'env
         )?)
     }
 
-    async fn clear_table<T>(&self, table: &T) -> anyhow::Result<()>
+    async fn clear_table<T>(&self, table: T) -> anyhow::Result<()>
     where
         T: Table,
     {

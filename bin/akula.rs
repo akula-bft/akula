@@ -105,17 +105,17 @@ where
 
         let erigon_tx = self.db.begin().await?;
 
-        let mut erigon_canonical_cur = erigon_tx.cursor(&tables::CanonicalHeader).await?;
-        let mut canonical_cur = tx.mutable_cursor(&tables::CanonicalHeader).await?;
-        let mut erigon_header_cur = erigon_tx.cursor(&tables::Header).await?;
-        let mut header_cur = tx.mutable_cursor(&tables::Header).await?;
-        let mut erigon_td_cur = erigon_tx.cursor(&tables::HeadersTotalDifficulty).await?;
-        let mut td_cur = tx.mutable_cursor(&tables::HeadersTotalDifficulty).await?;
+        let mut erigon_canonical_cur = erigon_tx.cursor(tables::CanonicalHeader).await?;
+        let mut canonical_cur = tx.mutable_cursor(tables::CanonicalHeader).await?;
+        let mut erigon_header_cur = erigon_tx.cursor(tables::Header).await?;
+        let mut header_cur = tx.mutable_cursor(tables::Header).await?;
+        let mut erigon_td_cur = erigon_tx.cursor(tables::HeadersTotalDifficulty).await?;
+        let mut td_cur = tx.mutable_cursor(tables::HeadersTotalDifficulty).await?;
 
         if erigon_tx
-            .get(&tables::CanonicalHeader, highest_block)
+            .get(tables::CanonicalHeader, highest_block)
             .await?
-            != tx.get(&tables::CanonicalHeader, highest_block).await?
+            != tx.get(tables::CanonicalHeader, highest_block).await?
         {
             return Ok(ExecOutput::Unwind {
                 unwind_to: BlockNumber(highest_block.0 - 1),
@@ -172,7 +172,7 @@ where
     where
         'db: 'tx,
     {
-        let mut canonical_cur = tx.mutable_cursor(&tables::CanonicalHeader).await?;
+        let mut canonical_cur = tx.mutable_cursor(tables::CanonicalHeader).await?;
 
         while let Some((block_num, _)) = canonical_cur.last().await? {
             if block_num <= input.unwind_to {
@@ -182,7 +182,7 @@ where
             canonical_cur.delete_current().await?;
         }
 
-        let mut header_cur = tx.mutable_cursor(&tables::Header).await?;
+        let mut header_cur = tx.mutable_cursor(tables::Header).await?;
         while let Some(((block_num, _), _)) = header_cur.last().await? {
             if block_num <= input.unwind_to {
                 break;
@@ -191,7 +191,7 @@ where
             header_cur.delete_current().await?;
         }
 
-        let mut td_cur = tx.mutable_cursor(&tables::HeadersTotalDifficulty).await?;
+        let mut td_cur = tx.mutable_cursor(tables::HeadersTotalDifficulty).await?;
         while let Some(((block_num, _), _)) = td_cur.last().await? {
             if block_num <= input.unwind_to {
                 break;
@@ -240,31 +240,31 @@ where
         let erigon_tx = self.db.begin().await?;
 
         if erigon_tx
-            .get(&tables::CanonicalHeader, highest_block)
+            .get(tables::CanonicalHeader, highest_block)
             .await?
-            != tx.get(&tables::CanonicalHeader, highest_block).await?
+            != tx.get(tables::CanonicalHeader, highest_block).await?
         {
             return Ok(ExecOutput::Unwind {
                 unwind_to: BlockNumber(highest_block.0 - 1),
             });
         }
 
-        let mut canonical_header_cur = tx.cursor(&tables::CanonicalHeader).await?;
+        let mut canonical_header_cur = tx.cursor(tables::CanonicalHeader).await?;
 
-        let mut erigon_body_cur = erigon_tx.cursor(&tables::BlockBody).await?;
-        let mut body_cur = tx.mutable_cursor(&tables::BlockBody).await?;
+        let mut erigon_body_cur = erigon_tx.cursor(tables::BlockBody).await?;
+        let mut body_cur = tx.mutable_cursor(tables::BlockBody).await?;
 
-        let mut erigon_tx_cur = erigon_tx.cursor(&tables::BlockTransaction.erased()).await?;
+        let mut erigon_tx_cur = erigon_tx.cursor(tables::BlockTransaction.erased()).await?;
         let mut tx_cur = tx
-            .mutable_cursor(&tables::BlockTransaction.erased())
+            .mutable_cursor(tables::BlockTransaction.erased())
             .await?;
 
         let prev_body = tx
             .get(
-                &tables::BlockBody,
+                tables::BlockBody,
                 (
                     highest_block,
-                    tx.get(&tables::CanonicalHeader, highest_block)
+                    tx.get(tables::CanonicalHeader, highest_block)
                         .await?
                         .unwrap(),
                 ),
@@ -396,8 +396,8 @@ where
     where
         'db: 'tx,
     {
-        let mut block_body_cur = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut block_tx_cur = tx.mutable_cursor(&tables::BlockTransaction).await?;
+        let mut block_body_cur = tx.mutable_cursor(tables::BlockBody).await?;
+        let mut block_tx_cur = tx.mutable_cursor(tables::BlockTransaction).await?;
         while let Some(((block_num, _), body)) = block_body_cur.last().await? {
             if block_num <= input.unwind_to {
                 break;

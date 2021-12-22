@@ -50,19 +50,19 @@ pub trait Transaction<'db>: Send + Sync + Debug + Sized {
 
     fn id(&self) -> u64;
 
-    async fn cursor<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
+    async fn cursor<'tx, T>(&'tx self, table: T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'db: 'tx,
         T: Table;
     async fn cursor_dup_sort<'tx, T>(
         &'tx self,
-        table: &T,
+        table: T,
     ) -> anyhow::Result<Self::CursorDupSort<'tx, T>>
     where
         'db: 'tx,
         T: DupSort;
 
-    async fn get<'tx, T>(&'tx self, table: &T, key: T::Key) -> anyhow::Result<Option<T::Value>>
+    async fn get<'tx, T>(&'tx self, table: T, key: T::Key) -> anyhow::Result<Option<T::Value>>
     where
         'db: 'tx,
         T: Table;
@@ -75,29 +75,25 @@ pub trait MutableTransaction<'db>: Transaction<'db> {
 
     async fn mutable_cursor<'tx, T>(
         &'tx self,
-        table: &T,
+        table: T,
     ) -> anyhow::Result<Self::MutableCursor<'tx, T>>
     where
         'db: 'tx,
         T: Table;
     async fn mutable_cursor_dupsort<'tx, T>(
         &'tx self,
-        table: &T,
+        table: T,
     ) -> anyhow::Result<Self::MutableCursorDupSort<'tx, T>>
     where
         'db: 'tx,
         T: DupSort;
 
-    async fn set<T: Table>(&self, table: &T, k: T::Key, v: T::Value) -> anyhow::Result<()>;
+    async fn set<T: Table>(&self, table: T, k: T::Key, v: T::Value) -> anyhow::Result<()>;
 
-    async fn del<T: Table>(
-        &self,
-        table: &T,
-        k: T::Key,
-        v: Option<T::Value>,
-    ) -> anyhow::Result<bool>;
+    async fn del<T: Table>(&self, table: T, k: T::Key, v: Option<T::Value>)
+        -> anyhow::Result<bool>;
 
-    async fn clear_table<T: Table>(&self, table: &T) -> anyhow::Result<()>;
+    async fn clear_table<T: Table>(&self, table: T) -> anyhow::Result<()>;
 
     async fn commit(self) -> anyhow::Result<()>;
 }

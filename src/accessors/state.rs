@@ -54,13 +54,13 @@ pub mod tests {
             "4400000000000000000000000000000000000000000000000000000000000000"
         )));
 
-        txn.set(&tables::Storage, address, (loc1, val1))
+        txn.set(tables::Storage, address, (loc1, val1))
             .await
             .unwrap();
-        txn.set(&tables::Storage, address, (loc2, val2))
+        txn.set(tables::Storage, address, (loc2, val2))
             .await
             .unwrap();
-        txn.set(&tables::Storage, address, (loc3, val3))
+        txn.set(tables::Storage, address, (loc3, val3))
             .await
             .unwrap();
 

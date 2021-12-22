@@ -33,17 +33,17 @@ where
     where
         'db: 'tx,
     {
-        let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
+        let mut bodies_cursor = tx.mutable_cursor(tables::BlockBody).await?;
         let mut tx_hash_cursor = tx
-            .mutable_cursor(&tables::BlockTransactionLookup.erased())
+            .mutable_cursor(tables::BlockTransactionLookup.erased())
             .await?;
 
-        let mut block_txs_cursor = tx.cursor(&tables::BlockTransaction).await?;
+        let mut block_txs_cursor = tx.cursor(tables::BlockTransaction).await?;
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
 
         let last_processed_block_number = tx
-            .mutable_cursor(&tables::BlockTransactionLookup)
+            .mutable_cursor(tables::BlockTransactionLookup)
             .await?
             .last()
             .await?
@@ -86,9 +86,9 @@ where
     where
         'db: 'tx,
     {
-        let mut bodies_cursor = tx.mutable_cursor(&tables::BlockBody).await?;
-        let mut tx_hash_cursor = tx.mutable_cursor(&tables::BlockTransactionLookup).await?;
-        let mut block_txs_cursor = tx.cursor(&tables::BlockTransaction).await?;
+        let mut bodies_cursor = tx.mutable_cursor(tables::BlockBody).await?;
+        let mut tx_hash_cursor = tx.mutable_cursor(tables::BlockTransactionLookup).await?;
+        let mut block_txs_cursor = tx.cursor(tables::BlockTransaction).await?;
 
         let start_block_number = input.unwind_to + 1;
 

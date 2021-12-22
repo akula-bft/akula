@@ -20,7 +20,7 @@ where
 {
     // TODO: remove me when proper unwind is implemented
     if tx
-        .cursor(&tables::TrieAccount)
+        .cursor(tables::TrieAccount)
         .await?
         .first()
         .await?
@@ -30,12 +30,12 @@ where
     }
 
     let current_gas = tx
-        .get(&tables::CumulativeIndex, past_progress)
+        .get(tables::CumulativeIndex, past_progress)
         .await?
         .ok_or_else(|| format_err!("No cumulative index for block {}", past_progress))?
         .gas;
     let max_gas = tx
-        .get(&tables::CumulativeIndex, max_block)
+        .get(tables::CumulativeIndex, max_block)
         .await?
         .ok_or_else(|| format_err!("No cumulative index for block {}", max_block))?
         .gas;

@@ -19,7 +19,7 @@ pub async fn get_account_data_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
         return Ok(v);
     }
 
-    tx.get(&tables::Account, address).await
+    tx.get(tables::Account, address).await
 }
 
 pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
@@ -37,7 +37,7 @@ pub async fn get_storage_as_of<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 
 async fn find_next_block_in_history_index<'db: 'tx, 'tx, Tx: Transaction<'db>, K, H>(
     tx: &'tx Tx,
-    table: &H,
+    table: H,
     needle: K,
     block_number: BlockNumber,
 ) -> anyhow::Result<Option<BlockNumber>>
@@ -71,11 +71,11 @@ pub async fn find_account_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
     block_number: BlockNumber,
 ) -> anyhow::Result<Option<Option<Account>>> {
     if let Some(block_number) =
-        find_next_block_in_history_index(tx, &tables::AccountHistory, address_to_find, block_number)
+        find_next_block_in_history_index(tx, tables::AccountHistory, address_to_find, block_number)
             .await?
     {
         if let Some(tables::AccountChange { address, account }) = tx
-            .cursor_dup_sort(&tables::AccountChangeSet)
+            .cursor_dup_sort(tables::AccountChangeSet)
             .await?
             .seek_both_range(block_number, address_to_find)
             .await?
@@ -97,14 +97,14 @@ pub async fn find_storage_by_history<'db: 'tx, 'tx, Tx: Transaction<'db>>(
 ) -> anyhow::Result<Option<U256>> {
     if let Some(block_number) = find_next_block_in_history_index(
         tx,
-        &tables::StorageHistory,
+        tables::StorageHistory,
         (address, location_to_find),
         block_number,
     )
     .await?
     {
         if let Some(tables::StorageChange { location, value }) = tx
-            .cursor_dup_sort(&tables::StorageChangeSet)
+            .cursor_dup_sort(tables::StorageChangeSet)
             .await?
             .seek_both_range(
                 tables::StorageChangeKey {

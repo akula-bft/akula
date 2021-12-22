@@ -94,7 +94,7 @@ where
             return Ok(*account);
         }
 
-        self.txn.get(&tables::Account, address).await
+        self.txn.get(tables::Account, address).await
     }
 
     async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
@@ -103,7 +103,7 @@ where
         } else {
             Ok(self
                 .txn
-                .get(&tables::Code, code_hash)
+                .get(tables::Code, code_hash)
                 .await?
                 .map(From::from)
                 .unwrap_or_default())
@@ -152,7 +152,7 @@ where
         }
 
         if mark_database_as_discarded {
-            let mut storage_table = self.txn.cursor_dup_sort(&tables::Storage).await?;
+            let mut storage_table = self.txn.cursor_dup_sort(tables::Storage).await?;
 
             let mut walker = storage_table.walk(Some(address));
 
@@ -289,7 +289,7 @@ where
 {
     pub async fn write_history(&mut self) -> anyhow::Result<()> {
         debug!("Writing account changes");
-        let mut account_change_table = self.txn.mutable_cursor(&tables::AccountChangeSet).await?;
+        let mut account_change_table = self.txn.mutable_cursor(tables::AccountChangeSet).await?;
         for (block_number, account_entries) in std::mem::take(&mut self.account_changes) {
             for (address, account) in account_entries {
                 account_change_table
@@ -299,7 +299,7 @@ where
         }
 
         debug!("Writing storage changes");
-        let mut storage_change_table = self.txn.mutable_cursor(&tables::StorageChangeSet).await?;
+        let mut storage_change_table = self.txn.mutable_cursor(tables::StorageChangeSet).await?;
         for (block_number, storage_entries) in std::mem::take(&mut self.storage_changes) {
             for (address, storage_entries) in storage_entries {
                 for (location, value) in storage_entries {
@@ -325,8 +325,8 @@ where
         self.write_history().await?;
 
         // Write to state tables
-        let mut account_table = self.txn.mutable_cursor(&tables::Account).await?;
-        let mut storage_table = self.txn.mutable_cursor_dupsort(&tables::Storage).await?;
+        let mut account_table = self.txn.mutable_cursor(tables::Account).await?;
+        let mut storage_table = self.txn.mutable_cursor_dupsort(tables::Storage).await?;
 
         debug!("Writing accounts");
         let mut account_addresses = self.accounts.keys().collect::<Vec<_>>();
@@ -379,7 +379,7 @@ where
         debug!("Writing {} slots complete", written_slots);
 
         debug!("Writing code");
-        let mut code_table = self.txn.mutable_cursor(&tables::Code).await?;
+        let mut code_table = self.txn.mutable_cursor(tables::Code).await?;
         for (code_hash, code) in self.hash_to_code {
             code_table.upsert(code_hash, code).await?;
         }
@@ -412,11 +412,11 @@ mod tests {
         ));
         let value_b = 0x132.into();
 
-        txn.set(&tables::Storage, address, (location_a, value_a1))
+        txn.set(tables::Storage, address, (location_a, value_a1))
             .await
             .unwrap();
 
-        txn.set(&tables::Storage, address, (location_b, value_b))
+        txn.set(tables::Storage, address, (location_b, value_b))
             .await
             .unwrap();
 
@@ -439,7 +439,7 @@ mod tests {
 
         // Location A should have the new value
         let db_value_a = seek_storage_key(
-            &mut txn.cursor_dup_sort(&tables::Storage).await.unwrap(),
+            &mut txn.cursor_dup_sort(tables::Storage).await.unwrap(),
             address,
             h256_to_u256(location_a),
         )
@@ -450,7 +450,7 @@ mod tests {
 
         // Location B should not change
         let db_value_b = seek_storage_key(
-            &mut txn.cursor_dup_sort(&tables::Storage).await.unwrap(),
+            &mut txn.cursor_dup_sort(tables::Storage).await.unwrap(),
             address,
             h256_to_u256(location_b),
         )

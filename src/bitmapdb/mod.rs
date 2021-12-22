@@ -12,7 +12,7 @@ pub const CHUNK_LIMIT: usize = 1950;
 
 pub async fn get<'db, Tx, T, K>(
     tx: &Tx,
-    table: &T,
+    table: T,
     key: K,
     from: impl Into<BlockNumber>,
     to: impl Into<BlockNumber>,

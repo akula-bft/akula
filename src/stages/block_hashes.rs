@@ -36,8 +36,8 @@ where
         let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let mut highest_block = original_highest_block;
 
-        let mut bodies_cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
-        let mut blockhashes_cursor = tx.mutable_cursor(&tables::HeaderNumber.erased()).await?;
+        let mut bodies_cursor = tx.mutable_cursor(tables::CanonicalHeader).await?;
+        let mut blockhashes_cursor = tx.mutable_cursor(tables::HeaderNumber.erased()).await?;
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
         let walker = bodies_cursor.walk(Some(highest_block + 1));
@@ -68,8 +68,8 @@ where
     where
         'db: 'tx,
     {
-        let mut header_number_cur = tx.mutable_cursor(&tables::HeaderNumber).await?;
-        let mut body_cur = tx.mutable_cursor(&tables::CanonicalHeader).await?;
+        let mut header_number_cur = tx.mutable_cursor(tables::HeaderNumber).await?;
+        let mut body_cur = tx.mutable_cursor(tables::CanonicalHeader).await?;
 
         let mut walker = body_cur.walk_back(None);
 

@@ -13,7 +13,7 @@ pub mod canonical_hash {
         tx: &Tx,
         block_number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<H256>> {
-        tx.get(&tables::CanonicalHeader, block_number.into()).await
+        tx.get(tables::CanonicalHeader, block_number.into()).await
     }
 
     pub async fn write<'db, RwTx: MutableTransaction<'db>>(
@@ -25,7 +25,7 @@ pub mod canonical_hash {
 
         trace!("Writing canonical hash of {}", block_number);
 
-        let mut cursor = tx.mutable_cursor(&tables::CanonicalHeader).await?;
+        let mut cursor = tx.mutable_cursor(tables::CanonicalHeader).await?;
         cursor.put(block_number, hash).await.unwrap();
 
         Ok(())
@@ -41,7 +41,7 @@ pub mod header_number {
     ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading block number for hash {:?}", hash);
 
-        tx.get(&tables::HeaderNumber, hash).await
+        tx.get(tables::HeaderNumber, hash).await
     }
 }
 
@@ -56,7 +56,7 @@ pub mod header {
         let number = number.into();
         trace!("Reading header for block {}/{:?}", number, hash);
 
-        tx.get(&tables::Header, (number, hash)).await
+        tx.get(tables::Header, (number, hash)).await
     }
 }
 
@@ -76,7 +76,7 @@ pub mod tx {
         );
 
         if amount > 0 {
-            tx.cursor(&tables::BlockTransaction)
+            tx.cursor(tables::BlockTransaction)
                 .await?
                 .walk(Some(base_tx_id))
                 .take(amount)
@@ -100,7 +100,7 @@ pub mod tx {
             base_tx_id
         );
 
-        let mut cursor = tx.mutable_cursor(&tables::BlockTransaction).await.unwrap();
+        let mut cursor = tx.mutable_cursor(tables::BlockTransaction).await.unwrap();
 
         for (i, eth_tx) in txs.iter().enumerate() {
             cursor
@@ -130,7 +130,7 @@ pub mod tx_sender {
         );
 
         Ok(tx
-            .get(&tables::TxSender, (number, hash))
+            .get(tables::TxSender, (number, hash))
             .await?
             .unwrap_or_default())
     }
@@ -149,7 +149,7 @@ pub mod tx_sender {
             hash
         );
 
-        tx.set(&tables::TxSender, (number, hash), senders)
+        tx.set(tables::TxSender, (number, hash), senders)
             .await
             .unwrap();
 
@@ -168,7 +168,7 @@ pub mod storage_body {
         let number = number.into();
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
-        tx.get(&tables::BlockBody, (number, hash)).await
+        tx.get(tables::BlockBody, (number, hash)).await
     }
 
     pub async fn has<'db, Tx: Transaction<'db>>(
@@ -188,7 +188,7 @@ pub mod storage_body {
         let number = number.into();
         trace!("Writing storage body for block {}/{:?}", number, hash);
 
-        tx.set(&tables::BlockBody, (number, hash), body.clone())
+        tx.set(tables::BlockBody, (number, hash), body.clone())
             .await
             .unwrap();
 
@@ -265,8 +265,7 @@ pub mod td {
         let number = number.into();
         trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
-        tx.get(&tables::HeadersTotalDifficulty, (number, hash))
-            .await
+        tx.get(tables::HeadersTotalDifficulty, (number, hash)).await
     }
 }
 
@@ -280,7 +279,7 @@ pub mod tl {
         trace!("Reading Block number for a tx_hash {:?}", tx_hash);
 
         Ok(tx
-            .get(&tables::BlockTransactionLookup, tx_hash)
+            .get(tables::BlockTransactionLookup, tx_hash)
             .await?
             .map(|b| b.0))
     }
@@ -293,7 +292,7 @@ pub mod tl {
         trace!("Writing tx_lookup for hash {}", hashed_tx_data);
 
         let mut cursor = tx
-            .mutable_cursor(&tables::BlockTransactionLookup)
+            .mutable_cursor(tables::BlockTransactionLookup)
             .await
             .unwrap();
         cursor

@@ -70,7 +70,7 @@ impl Downloader {
 
         let linear_start_block_hash = if linear_start_block_num.0 > 0 {
             let hash_opt = db_transaction
-                .get(&kv::tables::CanonicalHeader, linear_start_block_num)
+                .get(kv::tables::CanonicalHeader, linear_start_block_num)
                 .await?;
             hash_opt.ok_or_else(|| {
                 anyhow::format_err!("Downloader inconsistent state: reported done until header {}, but header {} hash not found.",

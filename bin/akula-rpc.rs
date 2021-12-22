@@ -46,7 +46,7 @@ where
             .db
             .begin()
             .await?
-            .get(&tables::SyncStage, FINISH)
+            .get(tables::SyncStage, FINISH)
             .await?
             .unwrap_or(BlockNumber(0)))
     }

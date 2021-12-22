@@ -132,19 +132,19 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         let total_difficulty = header.difficulty();
 
         // saving a precomputed RLP representation
-        tx.set(&HeaderTableWithBytes, header_key, header.rlp_repr())
+        tx.set(HeaderTableWithBytes, header_key, header.rlp_repr())
             .await?;
-        tx.set(&kv::tables::HeaderNumber, header_hash, block_num)
+        tx.set(kv::tables::HeaderNumber, header_hash, block_num)
             .await?;
-        tx.set(&kv::tables::CanonicalHeader, block_num, header_hash)
+        tx.set(kv::tables::CanonicalHeader, block_num, header_hash)
             .await?;
         tx.set(
-            &kv::tables::HeadersTotalDifficulty,
+            kv::tables::HeadersTotalDifficulty,
             header_key,
             total_difficulty,
         )
         .await?;
-        tx.set(&kv::tables::LastHeader, Default::default(), header_hash)
+        tx.set(kv::tables::LastHeader, Default::default(), header_hash)
             .await?;
 
         Ok(())

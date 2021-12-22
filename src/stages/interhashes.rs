@@ -437,8 +437,8 @@ where
     where
         RwTx: MutableTransaction<'db>,
     {
-        let mut cursor = tx.cursor(&tables::HashedAccount).await?;
-        let storage_cursor = tx.cursor_dup_sort(&tables::HashedStorage).await?;
+        let mut cursor = tx.cursor(tables::HashedAccount).await?;
+        let storage_cursor = tx.cursor_dup_sort(tables::HashedStorage).await?;
         cursor.last().await?;
         let trie_builder = TrieBuilder::new(StateTrieCollector { collector });
 
@@ -516,9 +516,9 @@ where
     let state_root =
         generate_interhashes_with_collectors(tx, &mut collector, &mut storage_collector).await?;
 
-    let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
+    let mut write_cursor = tx.mutable_cursor(tables::TrieAccount.erased()).await?;
     collector.load(&mut write_cursor).await?;
-    let mut storage_write_cursor = tx.mutable_cursor(&tables::TrieStorage.erased()).await?;
+    let mut storage_write_cursor = tx.mutable_cursor(tables::TrieStorage.erased()).await?;
     storage_collector.load(&mut storage_write_cursor).await?;
 
     Ok(state_root)
@@ -532,8 +532,8 @@ async fn generate_interhashes_with_collectors<'db: 'tx, 'tx, RwTx>(
 where
     RwTx: MutableTransaction<'db>,
 {
-    tx.clear_table(&tables::TrieAccount).await?;
-    tx.clear_table(&tables::TrieStorage).await?;
+    tx.clear_table(tables::TrieAccount).await?;
+    tx.clear_table(tables::TrieStorage).await?;
 
     let mut walker = GenerateWalker::new(tx, collector, storage_collector).await?;
     let mut current = walker.get_last_account().await?;
@@ -652,9 +652,9 @@ where
                 )
             }
 
-            let mut write_cursor = tx.mutable_cursor(&tables::TrieAccount.erased()).await?;
+            let mut write_cursor = tx.mutable_cursor(tables::TrieAccount.erased()).await?;
             collector.load(&mut write_cursor).await?;
-            let mut storage_write_cursor = tx.mutable_cursor(&tables::TrieStorage.erased()).await?;
+            let mut storage_write_cursor = tx.mutable_cursor(tables::TrieStorage.erased()).await?;
             storage_collector.load(&mut storage_write_cursor).await?
         };
 
@@ -675,8 +675,8 @@ where
     {
         let _ = input;
         // TODO: proper unwind
-        tx.clear_table(&tables::TrieAccount).await?;
-        tx.clear_table(&tables::TrieStorage).await?;
+        tx.clear_table(tables::TrieAccount).await?;
+        tx.clear_table(tables::TrieStorage).await?;
 
         Ok(UnwindOutput {
             stage_progress: BlockNumber(0),
@@ -751,7 +751,7 @@ mod tests {
         let expected = expected_root(&accounts);
 
         {
-            let mut cursor = tx.mutable_cursor(&tables::HashedAccount).await.unwrap();
+            let mut cursor = tx.mutable_cursor(tables::HashedAccount).await.unwrap();
             for (address_hash, account) in accounts {
                 cursor.append(address_hash, account).await.unwrap();
             }

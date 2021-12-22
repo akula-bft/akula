@@ -47,7 +47,7 @@ impl StageId {
         &self,
         tx: &Tx,
     ) -> anyhow::Result<Option<BlockNumber>> {
-        tx.get(&tables::SyncStage, *self).await
+        tx.get(tables::SyncStage, *self).await
     }
 
     #[instrument]
@@ -56,6 +56,6 @@ impl StageId {
         tx: &RwTx,
         block: BlockNumber,
     ) -> anyhow::Result<()> {
-        tx.set(&tables::SyncStage, *self, block).await
+        tx.set(tables::SyncStage, *self, block).await
     }
 }

@@ -37,9 +37,9 @@ where
         let mut highest_block = original_highest_block;
 
         const BUFFERING_FACTOR: usize = 5000;
-        let mut body_cur = tx.cursor(&tables::BlockBody).await?;
-        let mut tx_cur = tx.cursor(&tables::BlockTransaction.erased()).await?;
-        let mut senders_cur = tx.mutable_cursor(&tables::TxSender.erased()).await?;
+        let mut body_cur = tx.cursor(tables::BlockBody).await?;
+        let mut tx_cur = tx.cursor(tables::BlockTransaction.erased()).await?;
+        let mut senders_cur = tx.mutable_cursor(tables::TxSender.erased()).await?;
         senders_cur.last().await?;
 
         let mut walker = body_cur.walk(Some(BlockNumber(highest_block.0 + 1)));
@@ -47,7 +47,7 @@ where
         let started_at = Instant::now();
         let started_at_txnum = tx
             .get(
-                &tables::CumulativeIndex,
+                tables::CumulativeIndex,
                 input.first_started_at.1.unwrap_or(BlockNumber(0)),
             )
             .await?
@@ -112,11 +112,11 @@ where
 
                 if let Some(started_at_txnum) = started_at_txnum {
                     let current_txnum = tx
-                        .get(&tables::CumulativeIndex, highest_block)
+                        .get(tables::CumulativeIndex, highest_block)
                         .await?
                         .map(|v| v.tx_num);
                     let total_txnum = tx
-                        .cursor(&tables::CumulativeIndex)
+                        .cursor(tables::CumulativeIndex)
                         .await?
                         .last()
                         .await?
@@ -164,7 +164,7 @@ where
     where
         'db: 'tx,
     {
-        let mut senders_cur = tx.mutable_cursor(&tables::TxSender).await?;
+        let mut senders_cur = tx.mutable_cursor(tables::TxSender).await?;
 
         while let Some(((block_number, _), _)) = senders_cur.last().await? {
             if block_number > input.unwind_to {

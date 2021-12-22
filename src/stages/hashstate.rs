@@ -20,11 +20,11 @@ pub async fn promote_clean_accounts<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
 where
     Tx: MutableTransaction<'db>,
 {
-    txn.clear_table(&tables::HashedAccount).await?;
+    txn.clear_table(tables::HashedAccount).await?;
 
     let mut collector_account = Collector::<tables::HashedAccount>::new(OPTIMAL_BUFFER_CAPACITY);
 
-    let mut src = txn.cursor(&tables::Account).await?;
+    let mut src = txn.cursor(tables::Account).await?;
     src.first().await?;
     let mut i = 0;
     let mut walker = src.walk(None);
@@ -38,7 +38,7 @@ where
     }
 
     debug!("Loading hashed entries");
-    let mut dst = txn.mutable_cursor(&tables::HashedAccount.erased()).await?;
+    let mut dst = txn.mutable_cursor(tables::HashedAccount.erased()).await?;
     collector_account.load(&mut dst).await?;
 
     Ok(())
@@ -48,11 +48,11 @@ pub async fn promote_clean_storage<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
 where
     Tx: MutableTransaction<'db>,
 {
-    txn.clear_table(&tables::HashedStorage).await?;
+    txn.clear_table(tables::HashedStorage).await?;
 
     let mut collector_storage = Collector::<tables::HashedStorage>::new(OPTIMAL_BUFFER_CAPACITY);
 
-    let mut src = txn.cursor(&tables::Storage).await?;
+    let mut src = txn.cursor(tables::Storage).await?;
     src.first().await?;
     let mut i = 0;
     let mut walker = src.walk(None);
@@ -66,7 +66,7 @@ where
     }
 
     debug!("Loading hashed entries");
-    let mut dst = txn.mutable_cursor(&tables::HashedStorage.erased()).await?;
+    let mut dst = txn.mutable_cursor(tables::HashedStorage.erased()).await?;
     collector_storage.load(&mut dst).await?;
 
     Ok(())
@@ -76,9 +76,9 @@ async fn promote_accounts<'db, Tx>(tx: &Tx, stage_progress: BlockNumber) -> anyh
 where
     Tx: MutableTransaction<'db>,
 {
-    let mut changeset_table = tx.cursor(&tables::AccountChangeSet).await?;
-    let mut account_table = tx.cursor(&tables::Account).await?;
-    let mut target_table = tx.mutable_cursor(&tables::HashedAccount).await?;
+    let mut changeset_table = tx.cursor(tables::AccountChangeSet).await?;
+    let mut account_table = tx.cursor(tables::Account).await?;
+    let mut target_table = tx.mutable_cursor(tables::HashedAccount).await?;
 
     let starting_block = stage_progress + 1;
 
@@ -100,9 +100,9 @@ async fn promote_storage<'db, Tx>(tx: &Tx, stage_progress: BlockNumber) -> anyho
 where
     Tx: MutableTransaction<'db>,
 {
-    let mut changeset_table = tx.cursor(&tables::StorageChangeSet).await?;
-    let mut storage_table = tx.cursor_dup_sort(&tables::Storage).await?;
-    let mut target_table = tx.mutable_cursor_dupsort(&tables::HashedStorage).await?;
+    let mut changeset_table = tx.cursor(tables::StorageChangeSet).await?;
+    let mut storage_table = tx.cursor_dup_sort(tables::Storage).await?;
+    let mut target_table = tx.mutable_cursor_dupsort(tables::HashedStorage).await?;
 
     let starting_block = stage_progress + 1;
 
@@ -204,8 +204,8 @@ where
         'db: 'tx,
     {
         info!("Unwinding hashed accounts");
-        let mut hashed_account_cur = tx.mutable_cursor(&tables::HashedAccount).await?;
-        let mut account_cs_cur = tx.cursor(&tables::AccountChangeSet).await?;
+        let mut hashed_account_cur = tx.mutable_cursor(tables::HashedAccount).await?;
+        let mut account_cs_cur = tx.cursor(tables::AccountChangeSet).await?;
         let mut walker = account_cs_cur.walk_back(None);
         while let Some((block_number, tables::AccountChange { address, account })) =
             walker.try_next().await?
@@ -224,8 +224,8 @@ where
         }
 
         info!("Unwinding hashed storage");
-        let mut hashed_storage_cur = tx.mutable_cursor_dupsort(&tables::HashedStorage).await?;
-        let mut storage_cs_cur = tx.cursor(&tables::StorageChangeSet).await?;
+        let mut hashed_storage_cur = tx.mutable_cursor_dupsort(tables::HashedStorage).await?;
+        let mut storage_cs_cur = tx.cursor(tables::StorageChangeSet).await?;
         let mut walker = storage_cs_cur.walk_back(None);
         while let Some((
             tables::StorageChangeKey {
@@ -277,7 +277,7 @@ mod tests {
         let mut tx_num = 0;
         let mut gas = 0;
         tx.set(
-            &tables::CumulativeIndex,
+            tables::CumulativeIndex,
             0.into(),
             tables::CumulativeData { tx_num, gas },
         )
@@ -346,7 +346,7 @@ mod tests {
         tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
         tx.set(
-            &tables::CumulativeIndex,
+            tables::CumulativeIndex,
             header.number,
             tables::CumulativeData { tx_num, gas },
         )
@@ -380,7 +380,7 @@ mod tests {
         tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
         tx.set(
-            &tables::CumulativeIndex,
+            tables::CumulativeIndex,
             header.number,
             tables::CumulativeData { tx_num, gas },
         )
@@ -414,7 +414,7 @@ mod tests {
         tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
         tx.set(
-            &tables::CumulativeIndex,
+            tables::CumulativeIndex,
             header.number,
             tables::CumulativeData { tx_num, gas },
         )
@@ -450,7 +450,7 @@ mod tests {
         // Check hashed account
         // ---------------------------------------
 
-        let mut hashed_address_table = tx.cursor(&tables::HashedAccount).await.unwrap();
+        let mut hashed_address_table = tx.cursor(tables::HashedAccount).await.unwrap();
         let sender_keccak = keccak256(sender);
         let (_, account) = hashed_address_table
             .seek_exact(sender_keccak)
@@ -464,7 +464,7 @@ mod tests {
         // Check hashed storage
         // ---------------------------------------
 
-        let mut hashed_storage_cursor = tx.cursor(&tables::HashedStorage).await.unwrap();
+        let mut hashed_storage_cursor = tx.cursor(tables::HashedStorage).await.unwrap();
 
         let k = keccak256(contract_address);
         let mut walker = hashed_storage_cursor.walk(Some(k));

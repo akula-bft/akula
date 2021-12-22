@@ -157,7 +157,7 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
                                     }
                                     Op::Open => {
                                         let cursor = dbtx
-                                            .cursor_dup_sort(&CustomTable::from(c.bucket_name))
+                                            .cursor_dup_sort(CustomTable::from(c.bucket_name))
                                             .await
                                             .map_err(|e| tonic::Status::internal(e.to_string()))?;
                                         cursors.push(Some(cursor));

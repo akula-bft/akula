@@ -48,7 +48,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let batch_started_at = Instant::now();
     let first_started_at_gas = tx
         .get(
-            &tables::CumulativeIndex,
+            tables::CumulativeIndex,
             first_started_at.1.unwrap_or(BlockNumber(0)),
         )
         .await?
@@ -112,13 +112,13 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         let elapsed = now - last_message;
         if elapsed > Duration::from_secs(30) || (end_of_batch && !printed_at_least_once) {
             let current_total_gas = tx
-                .get(&tables::CumulativeIndex, block_number)
+                .get(tables::CumulativeIndex, block_number)
                 .await?
                 .unwrap()
                 .gas;
 
             let total_gas = tx
-                .cursor(&tables::CumulativeIndex)
+                .cursor(tables::CumulativeIndex)
                 .await?
                 .last()
                 .await?
@@ -187,11 +187,11 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let _ = tx;
 
         let genesis_hash = tx
-            .get(&tables::CanonicalHeader, BlockNumber(0))
+            .get(tables::CanonicalHeader, BlockNumber(0))
             .await?
             .ok_or_else(|| format_err!("Genesis block absent"))?;
         let chain_config = tx
-            .get(&tables::Config, genesis_hash)
+            .get(tables::Config, genesis_hash)
             .await?
             .ok_or_else(|| format_err!("No chain config for genesis block {:?}", genesis_hash))?;
 
@@ -240,9 +240,9 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         'db: 'tx,
     {
         info!("Unwinding accounts");
-        let mut account_cursor = tx.mutable_cursor(&tables::Account).await?;
+        let mut account_cursor = tx.mutable_cursor(tables::Account).await?;
 
-        let mut account_cs_cursor = tx.mutable_cursor(&tables::AccountChangeSet).await?;
+        let mut account_cs_cursor = tx.mutable_cursor(tables::AccountChangeSet).await?;
         let mut account_walker = account_cs_cursor.walk_back(None);
         while let Some((block_number, tables::AccountChange { address, account })) =
             account_walker.try_next().await?
@@ -259,9 +259,9 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         }
 
         info!("Unwinding storage");
-        let mut storage_cursor = tx.mutable_cursor_dupsort(&tables::Storage).await?;
+        let mut storage_cursor = tx.mutable_cursor_dupsort(tables::Storage).await?;
 
-        let mut storage_cs_cursor = tx.mutable_cursor(&tables::StorageChangeSet).await?;
+        let mut storage_cs_cursor = tx.mutable_cursor(tables::StorageChangeSet).await?;
         let mut storage_walker = storage_cs_cursor.walk_back(None);
 
         while let Some((

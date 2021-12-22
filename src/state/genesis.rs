@@ -67,7 +67,7 @@ where
     Tx: MutableTransaction<'db>,
 {
     let genesis = chainspec.genesis.number;
-    if txn.get(&tables::CanonicalHeader, genesis).await?.is_some() {
+    if txn.get(tables::CanonicalHeader, genesis).await?.is_some() {
         return Ok(false);
     }
 
@@ -114,20 +114,20 @@ where
     };
     let block_hash = header.hash();
 
-    txn.set(&tables::Header, (genesis, block_hash), header.clone())
+    txn.set(tables::Header, (genesis, block_hash), header.clone())
         .await?;
-    txn.set(&tables::CanonicalHeader, genesis, block_hash)
+    txn.set(tables::CanonicalHeader, genesis, block_hash)
         .await?;
-    txn.set(&tables::HeaderNumber, block_hash, genesis).await?;
+    txn.set(tables::HeaderNumber, block_hash, genesis).await?;
     txn.set(
-        &tables::HeadersTotalDifficulty,
+        tables::HeadersTotalDifficulty,
         (genesis, block_hash),
         header.difficulty,
     )
     .await?;
 
     txn.set(
-        &tables::BlockBody,
+        tables::BlockBody,
         (genesis, block_hash),
         BodyForStorage {
             base_tx_id: 0.into(),
@@ -138,16 +138,16 @@ where
     .await?;
 
     txn.set(
-        &tables::CumulativeIndex,
+        tables::CumulativeIndex,
         genesis,
         CumulativeData { gas: 0, tx_num: 0 },
     )
     .await?;
 
-    txn.set(&tables::LastHeader, Default::default(), block_hash)
+    txn.set(tables::LastHeader, Default::default(), block_hash)
         .await?;
 
-    txn.set(&tables::Config, block_hash, chainspec).await?;
+    txn.set(tables::Config, block_hash, chainspec).await?;
 
     Ok(true)
 }
@@ -193,7 +193,7 @@ mod tests {
         );
 
         let genesis_hash = tx
-            .get(&tables::CanonicalHeader, 0.into())
+            .get(tables::CanonicalHeader, 0.into())
             .await
             .unwrap()
             .unwrap();

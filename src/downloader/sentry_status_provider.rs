@@ -49,18 +49,18 @@ impl SentryStatusProvider {
         tx: &RwTx,
     ) -> anyhow::Result<Status> {
         let header_hash = tx
-            .get(&kv::tables::LastHeader, Default::default())
+            .get(kv::tables::LastHeader, Default::default())
             .await?
             .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
 
         let block_num = tx
-            .get(&kv::tables::HeaderNumber, header_hash)
+            .get(kv::tables::HeaderNumber, header_hash)
             .await?
             .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
 
         let header_key: HeaderKey = (block_num, header_hash);
         let total_difficulty = tx
-            .get(&kv::tables::HeadersTotalDifficulty, header_key)
+            .get(kv::tables::HeadersTotalDifficulty, header_key)
             .await?
             .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
 

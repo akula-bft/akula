@@ -32,7 +32,7 @@ where
     {
         let prev_progress = input.stage_progress.unwrap_or_default();
 
-        let mut cumulative_index_cur = tx.mutable_cursor(&tables::CumulativeIndex).await?;
+        let mut cumulative_index_cur = tx.mutable_cursor(tables::CumulativeIndex).await?;
 
         let starting_block = prev_progress + 1;
         let max_block = input
@@ -55,13 +55,13 @@ where
                     info!("Building cumulative index for block {}", block_num);
                 }
 
-                let canonical_hash = tx.get(&tables::CanonicalHeader, block_num).await?.unwrap();
+                let canonical_hash = tx.get(tables::CanonicalHeader, block_num).await?.unwrap();
                 let header = tx
-                    .get(&tables::Header, (block_num, canonical_hash))
+                    .get(tables::Header, (block_num, canonical_hash))
                     .await?
                     .unwrap();
                 let body = tx
-                    .get(&tables::BlockBody, (block_num, canonical_hash))
+                    .get(tables::BlockBody, (block_num, canonical_hash))
                     .await?
                     .unwrap();
 
@@ -89,7 +89,7 @@ where
     where
         'db: 'tx,
     {
-        let mut cumulative_index_cur = tx.mutable_cursor(&tables::CumulativeIndex).await?;
+        let mut cumulative_index_cur = tx.mutable_cursor(tables::CumulativeIndex).await?;
 
         while let Some((block_num, _)) = cumulative_index_cur.last().await? {
             if block_num > input.unwind_to {

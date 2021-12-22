@@ -42,7 +42,7 @@ impl<'env> Transaction<'env> for RemoteTransaction {
         self.id
     }
 
-    async fn cursor<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
+    async fn cursor<'tx, T>(&'tx self, table: T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         'env: 'tx,
         T: Table,
@@ -100,14 +100,14 @@ impl<'env> Transaction<'env> for RemoteTransaction {
         })
     }
 
-    async fn cursor_dup_sort<'tx, T>(&'tx self, table: &T) -> anyhow::Result<Self::Cursor<'tx, T>>
+    async fn cursor_dup_sort<'tx, T>(&'tx self, table: T) -> anyhow::Result<Self::Cursor<'tx, T>>
     where
         T: DupSort,
     {
         self.cursor(table).await
     }
 
-    async fn get<'tx, T>(&'tx self, table: &T, key: T::Key) -> anyhow::Result<Option<T::Value>>
+    async fn get<'tx, T>(&'tx self, table: T, key: T::Key) -> anyhow::Result<Option<T::Value>>
     where
         'env: 'tx,
         T: Table,

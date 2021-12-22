@@ -327,11 +327,11 @@ async fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::R
     let tx = env.begin().await?;
 
     let canonical_hash = tx
-        .get(&tables::CanonicalHeader, block_num)
+        .get(tables::CanonicalHeader, block_num)
         .await?
         .ok_or_else(|| format_err!("no such canonical block"))?;
     let header = tx
-        .get(&tables::Header, (block_num, canonical_hash))
+        .get(tables::Header, (block_num, canonical_hash))
         .await?
         .ok_or_else(|| format_err!("header not found"))?;
     let body =
