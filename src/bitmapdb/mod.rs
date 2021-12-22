@@ -3,8 +3,8 @@ use crate::{
     models::*,
 };
 use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
-use pin_utils::pin_mut;
 use std::iter::Peekable;
+use tokio::pin;
 use tokio_stream::StreamExt;
 
 // Size beyond which we get MDBX overflow pages: 4096 / 2 - (key_size + 8)
@@ -36,7 +36,7 @@ where
         }))
         .take_while(ttw(|(BitmapKey { inner, .. }, _)| *inner == key));
 
-    pin_mut!(s);
+    pin!(s);
 
     while let Some((BitmapKey { block_number, .. }, v)) = s.try_next().await? {
         if out.is_some() {
