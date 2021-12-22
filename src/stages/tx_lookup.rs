@@ -52,13 +52,13 @@ where
 
         let start_block_number = last_processed_block_number + 1;
 
-        let walker_block_body = bodies_cursor.walk(Some(start_block_number));
+        let walker_block_body = walk(&mut bodies_cursor, Some(start_block_number));
         pin!(walker_block_body);
 
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.try_next().await? {
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
 
-            let walker_block_txs = block_txs_cursor.walk(Some(tx_base_id)).take(tx_count);
+            let walker_block_txs = walk(&mut block_txs_cursor, Some(tx_base_id)).take(tx_count);
             pin!(walker_block_txs);
 
             while let Some((_, tx)) = walker_block_txs.try_next().await? {
@@ -97,7 +97,7 @@ where
             input.stage_progress, input.unwind_to
         );
 
-        let walker_block_body = bodies_cursor.walk(Some(start_block_number));
+        let walker_block_body = walk(&mut bodies_cursor, Some(start_block_number));
         pin!(walker_block_body);
 
         while let Some((
@@ -109,7 +109,7 @@ where
             },
         )) = walker_block_body.try_next().await?
         {
-            let walker_block_txs = block_txs_cursor.walk(Some(base_tx_id));
+            let walker_block_txs = walk(&mut block_txs_cursor, Some(base_tx_id));
             pin!(walker_block_txs);
 
             let mut num_txs = 1;

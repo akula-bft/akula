@@ -29,12 +29,14 @@ where
 
     let mut c = tx.cursor(table).await?;
 
-    let s = c
-        .walk(Some(BitmapKey {
+    let s = walk(
+        &mut c,
+        Some(BitmapKey {
             inner: key.clone(),
             block_number: from,
-        }))
-        .take_while(ttw(|(BitmapKey { inner, .. }, _)| *inner == key));
+        }),
+    )
+    .take_while(ttw(|(BitmapKey { inner, .. }, _)| *inner == key));
 
     pin!(s);
 

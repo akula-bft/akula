@@ -76,13 +76,14 @@ pub mod tx {
         );
 
         if amount > 0 {
-            tx.cursor(tables::BlockTransaction)
-                .await?
-                .walk(Some(base_tx_id))
-                .take(amount)
-                .map(|res| res.map(|(_, v)| v))
-                .collect()
-                .await
+            walk(
+                &mut tx.cursor(tables::BlockTransaction).await?,
+                Some(base_tx_id),
+            )
+            .take(amount)
+            .map(|res| res.map(|(_, v)| v))
+            .collect()
+            .await
         } else {
             Ok(vec![])
         }

@@ -1,7 +1,7 @@
 use super::*;
 use async_stream::try_stream;
 use async_trait::async_trait;
-use futures_core::stream::BoxStream;
+use futures_core::Stream;
 use std::fmt::Debug;
 
 #[async_trait]
@@ -124,63 +124,67 @@ where
     async fn current(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
     where
         T::Key: TableDecode;
+}
 
-    fn walk<'cur>(
-        &'cur mut self,
-        start_key: Option<T::SeekKey>,
-    ) -> BoxStream<'cur, anyhow::Result<(T::Key, T::Value)>>
-    where
-        T::Key: TableDecode,
-        'tx: 'cur,
-    {
-        Box::pin(try_stream! {
-            let start = if let Some(start_key) = start_key {
-                self.seek(start_key).await?
-            } else {
-                self.first().await?
-            };
-            if let Some(mut fv) = start {
-                loop {
-                    yield fv;
+pub fn walk<'tx: 'cur, 'cur, C, T>(
+    cursor: &'cur mut C,
+    start_key: Option<T::SeekKey>,
+) -> impl Stream<Item = anyhow::Result<(T::Key, T::Value)>> + 'cur
+where
+    C: Cursor<'tx, T>,
+    T: Table,
+    T::Key: TableDecode,
+    'tx: 'cur,
+{
+    try_stream! {
+        let start = if let Some(start_key) = start_key {
+            cursor.seek(start_key).await?
+        } else {
+            cursor.first().await?
+        };
+        if let Some(mut fv) = start {
+            loop {
+                yield fv;
 
-                    match self.next().await? {
-                        Some(fv1) => {
-                            fv = fv1;
-                        }
-                        None => break,
+                match cursor.next().await? {
+                    Some(fv1) => {
+                        fv = fv1;
                     }
+                    None => break,
                 }
             }
-        })
+        }
     }
+}
 
-    fn walk_back<'cur>(
-        &'cur mut self,
-        start_key: Option<T::SeekKey>,
-    ) -> BoxStream<'cur, anyhow::Result<(T::Key, T::Value)>>
-    where
-        T::Key: TableDecode,
-        'tx: 'cur,
-    {
-        Box::pin(try_stream! {
-            let start = if let Some(start_key) = start_key {
-                self.seek(start_key).await?
-            } else {
-                self.last().await?
-            };
-            if let Some(mut fv) = start {
-                loop {
-                    yield fv;
+pub fn walk_back<'tx: 'cur, 'cur, C, T>(
+    cursor: &'cur mut C,
+    start_key: Option<T::SeekKey>,
+) -> impl Stream<Item = anyhow::Result<(T::Key, T::Value)>> + 'cur
+where
+    C: Cursor<'tx, T>,
+    T: Table,
+    T::Key: TableDecode,
+    'tx: 'cur,
+{
+    try_stream! {
+        let start = if let Some(start_key) = start_key {
+            cursor.seek(start_key).await?
+        } else {
+            cursor.last().await?
+        };
+        if let Some(mut fv) = start {
+            loop {
+                yield fv;
 
-                    match self.prev().await? {
-                        Some(fv1) => {
-                            fv = fv1;
-                        }
-                        None => break,
+                match cursor.prev().await? {
+                    Some(fv1) => {
+                        fv = fv1;
                     }
+                    None => break,
                 }
             }
-        })
+        }
     }
 }
 

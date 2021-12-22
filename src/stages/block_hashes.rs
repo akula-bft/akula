@@ -40,7 +40,7 @@ where
         let mut blockhashes_cursor = tx.mutable_cursor(tables::HeaderNumber.erased()).await?;
 
         let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-        let walker = bodies_cursor.walk(Some(highest_block + 1));
+        let walker = walk(&mut bodies_cursor, Some(highest_block + 1));
         pin!(walker);
 
         while let Some((block_number, block_hash)) = walker.try_next().await? {
@@ -71,7 +71,8 @@ where
         let mut header_number_cur = tx.mutable_cursor(tables::HeaderNumber).await?;
         let mut body_cur = tx.mutable_cursor(tables::CanonicalHeader).await?;
 
-        let mut walker = body_cur.walk_back(None);
+        let walker = walk_back(&mut body_cur, None);
+        pin!(walker);
 
         while let Some((block_num, block_hash)) = walker.try_next().await? {
             if block_num > input.unwind_to {

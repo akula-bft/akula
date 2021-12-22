@@ -13,6 +13,7 @@ use crate::{
 use anyhow::format_err;
 use async_trait::async_trait;
 use ethereum_types::*;
+use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -27,7 +28,8 @@ where
     let mut src = txn.cursor(tables::Account).await?;
     src.first().await?;
     let mut i = 0;
-    let mut walker = src.walk(None);
+    let walker = walk(&mut src, None);
+    pin!(walker);
     while let Some((address, account)) = walker.try_next().await? {
         collector_account.collect(Entry::new(keccak256(address), account));
 
@@ -55,7 +57,8 @@ where
     let mut src = txn.cursor(tables::Storage).await?;
     src.first().await?;
     let mut i = 0;
-    let mut walker = src.walk(None);
+    let walker = walk(&mut src, None);
+    pin!(walker);
     while let Some((address, (location, value))) = walker.try_next().await? {
         collector_storage.collect(Entry::new(keccak256(address), (keccak256(location), value)));
 
@@ -82,7 +85,8 @@ where
 
     let starting_block = stage_progress + 1;
 
-    let mut walker = changeset_table.walk(Some(starting_block));
+    let walker = walk(&mut changeset_table, Some(starting_block));
+    pin!(walker);
 
     while let Some((_, tables::AccountChange { address, .. })) = walker.try_next().await? {
         let hashed_address = || keccak256(address);
@@ -106,7 +110,8 @@ where
 
     let starting_block = stage_progress + 1;
 
-    let mut walker = changeset_table.walk(Some(starting_block));
+    let walker = walk(&mut changeset_table, Some(starting_block));
+    pin!(walker);
 
     while let Some((
         tables::StorageChangeKey { address, .. },
@@ -206,7 +211,8 @@ where
         info!("Unwinding hashed accounts");
         let mut hashed_account_cur = tx.mutable_cursor(tables::HashedAccount).await?;
         let mut account_cs_cur = tx.cursor(tables::AccountChangeSet).await?;
-        let mut walker = account_cs_cur.walk_back(None);
+        let walker = walk_back(&mut account_cs_cur, None);
+        pin!(walker);
         while let Some((block_number, tables::AccountChange { address, account })) =
             walker.try_next().await?
         {
@@ -226,7 +232,8 @@ where
         info!("Unwinding hashed storage");
         let mut hashed_storage_cur = tx.mutable_cursor_dupsort(tables::HashedStorage).await?;
         let mut storage_cs_cur = tx.cursor(tables::StorageChangeSet).await?;
-        let mut walker = storage_cs_cur.walk_back(None);
+        let walker = walk_back(&mut storage_cs_cur, None);
+        pin!(walker);
         while let Some((
             tables::StorageChangeKey {
                 block_number,
@@ -467,7 +474,8 @@ mod tests {
         let mut hashed_storage_cursor = tx.cursor(tables::HashedStorage).await.unwrap();
 
         let k = keccak256(contract_address);
-        let mut walker = hashed_storage_cursor.walk(Some(k));
+        let walker = walk(&mut hashed_storage_cursor, Some(k));
+        pin!(walker);
 
         for (location, expected_value) in [(0, new_val), (1, 0x01c9)] {
             let (wk, (hashed_location, value)) = walker.try_next().await.unwrap().unwrap();

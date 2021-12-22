@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use structopt::StructOpt;
+use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -122,7 +123,8 @@ where
             });
         }
 
-        let mut walker = erigon_canonical_cur.walk(Some(highest_block + 1));
+        let walker = walk(&mut erigon_canonical_cur, Some(highest_block + 1));
+        pin!(walker);
         while let Some((block_number, canonical_hash)) = walker.try_next().await? {
             if block_number > self.max_block.unwrap_or(BlockNumber(u64::MAX)) {
                 break;
@@ -255,9 +257,7 @@ where
         let mut body_cur = tx.mutable_cursor(tables::BlockBody).await?;
 
         let mut erigon_tx_cur = erigon_tx.cursor(tables::BlockTransaction.erased()).await?;
-        let mut tx_cur = tx
-            .mutable_cursor(tables::BlockTransaction.erased())
-            .await?;
+        let mut tx_cur = tx.mutable_cursor(tables::BlockTransaction.erased()).await?;
 
         let prev_body = tx
             .get(
@@ -273,7 +273,8 @@ where
             .unwrap();
 
         let mut starting_index = prev_body.base_tx_id + prev_body.tx_amount as u64;
-        let mut canonical_header_walker = canonical_header_cur.walk(Some(highest_block + 1));
+        let canonical_header_walker = walk(&mut canonical_header_cur, Some(highest_block + 1));
+        pin!(canonical_header_walker);
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let mut converted = Vec::with_capacity(BUFFERING_FACTOR);
 
@@ -289,8 +290,7 @@ where
                 {
                     let base_tx_id = body.base_tx_id;
 
-                    let txs = erigon_tx_cur
-                        .walk(Some(base_tx_id.encode().to_vec()))
+                    let txs = walk(&mut erigon_tx_cur, Some(base_tx_id.encode().to_vec()))
                         .map(|res| res.map(|(_, tx)| tx))
                         .take(body.tx_amount)
                         .collect::<anyhow::Result<Vec<_>>>()

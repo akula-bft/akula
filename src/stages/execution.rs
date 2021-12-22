@@ -11,6 +11,7 @@ use crate::{
 use anyhow::{format_err, Context};
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
+use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -243,7 +244,8 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let mut account_cursor = tx.mutable_cursor(tables::Account).await?;
 
         let mut account_cs_cursor = tx.mutable_cursor(tables::AccountChangeSet).await?;
-        let mut account_walker = account_cs_cursor.walk_back(None);
+        let account_walker = walk_back(&mut account_cs_cursor, None);
+        pin!(account_walker);
         while let Some((block_number, tables::AccountChange { address, account })) =
             account_walker.try_next().await?
         {
@@ -262,7 +264,8 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let mut storage_cursor = tx.mutable_cursor_dupsort(tables::Storage).await?;
 
         let mut storage_cs_cursor = tx.mutable_cursor(tables::StorageChangeSet).await?;
-        let mut storage_walker = storage_cs_cursor.walk_back(None);
+        let storage_walker = walk_back(&mut storage_cs_cursor, None);
+        pin!(storage_walker);
 
         while let Some((
             tables::StorageChangeKey {

@@ -10,6 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use rayon::prelude::*;
 use std::time::{Duration, Instant};
+use tokio::pin;
 use tokio_stream::StreamExt as _;
 use tracing::*;
 
@@ -42,7 +43,8 @@ where
         let mut senders_cur = tx.mutable_cursor(tables::TxSender.erased()).await?;
         senders_cur.last().await?;
 
-        let mut walker = body_cur.walk(Some(BlockNumber(highest_block.0 + 1)));
+        let walker = walk(&mut body_cur, Some(BlockNumber(highest_block.0 + 1)));
+        pin!(walker);
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let started_at = Instant::now();
         let started_at_txnum = tx
@@ -54,8 +56,7 @@ where
             .map(|v| v.tx_num);
         let done = loop {
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
-                let txs = tx_cur
-                    .walk(Some(body.base_tx_id.encode().to_vec()))
+                let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
                     .take(body.tx_amount)
                     .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()

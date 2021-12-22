@@ -15,6 +15,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     marker::PhantomData,
 };
+use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -154,7 +155,8 @@ where
         if mark_database_as_discarded {
             let mut storage_table = self.txn.cursor_dup_sort(tables::Storage).await?;
 
-            let mut walker = storage_table.walk(Some(address));
+            let walker = walk(&mut storage_table, Some(address));
+            pin!(walker);
 
             let storage_changes = self
                 .storage_changes
