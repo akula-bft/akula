@@ -74,6 +74,14 @@ pub struct Opt {
     /// Exit execution stage after batch.
     #[structopt(long, env)]
     pub execution_exit_after_batch: bool,
+
+    /// Exit Akula after sync is complete and there's no progress.
+    #[structopt(long, env)]
+    pub exit_after_sync: bool,
+
+    /// Delay applied at the terminating stage.
+    #[structopt(long, default_value = "2000")]
+    pub delay_after_sync: u64,
 }
 
 #[derive(Debug)]
@@ -426,6 +434,8 @@ where
 #[derive(Debug)]
 struct TerminatingStage {
     max_block: Option<BlockNumber>,
+    exit_after_sync: bool,
+    delay_after_sync: Duration,
 }
 
 #[async_trait]
@@ -458,8 +468,18 @@ where
                     must_commit: true,
                 }
             } else {
-                info!("Sync complete, exiting.");
-                std::process::exit(0)
+                if self.exit_after_sync {
+                    info!("Sync complete, exiting.");
+                    std::process::exit(0)
+                }
+
+                tokio::time::sleep(self.delay_after_sync).await;
+
+                ExecOutput::Progress {
+                    stage_progress: prev_stage,
+                    done: true,
+                    must_commit: true,
+                }
             },
         )
     }
@@ -576,6 +596,8 @@ async fn main() -> anyhow::Result<()> {
     staged_sync.push(Interhashes::new(None));
     staged_sync.push(TerminatingStage {
         max_block: opt.max_block,
+        exit_after_sync: opt.exit_after_sync,
+        delay_after_sync: Duration::from_millis(opt.delay_after_sync),
     });
 
     info!("Running staged sync");
