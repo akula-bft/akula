@@ -400,15 +400,13 @@ fn build_storage_trie(
     let mut current = storage_iter.next();
 
     while let Some(&(location, value)) = &mut current {
-        let current_value = value.encode();
-        let current_key = location.into();
         let prev = storage_iter.next();
 
-        let prev_key = prev.map(|&(v, _)| v.into());
-
-        let data = rlp::encode(&current_value.as_slice()).to_vec();
-
-        builder.handle_range(current_key, data, prev_key);
+        builder.handle_range(
+            location.into(),
+            rlp::encode(&value.encode().as_slice()).to_vec(),
+            prev.map(|&(v, _)| v.into()),
+        );
 
         current = prev;
     }
