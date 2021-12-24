@@ -416,13 +416,13 @@ fn build_storage_trie(
     builder.get_root()
 }
 
+/// Walker over accounts that computes account storage root.
 struct GenerateWalker<'db: 'tx, 'tx: 'co, 'co, RwTx>
 where
     RwTx: MutableTransaction<'db>,
 {
     cursor: RwTx::Cursor<'tx, tables::HashedAccount>,
     storage_cursor: RwTx::CursorDupSort<'tx, tables::HashedStorage>,
-    trie_builder: TrieBuilder<StateTrieCollector<'co>>,
     storage_collector: &'co mut Collector<tables::TrieStorage>,
 }
 
@@ -432,7 +432,6 @@ where
 {
     async fn new(
         tx: &'tx RwTx,
-        collector: &'co mut Collector<tables::TrieAccount>,
         storage_collector: &'co mut Collector<tables::TrieStorage>,
     ) -> anyhow::Result<GenerateWalker<'db, 'tx, 'co, RwTx>>
     where
@@ -441,12 +440,10 @@ where
         let mut cursor = tx.cursor(tables::HashedAccount).await?;
         let storage_cursor = tx.cursor_dup_sort(tables::HashedStorage).await?;
         cursor.last().await?;
-        let trie_builder = TrieBuilder::new(StateTrieCollector { collector });
 
         Ok(GenerateWalker {
             cursor,
             storage_cursor,
-            trie_builder,
             storage_collector,
         })
     }
@@ -488,20 +485,6 @@ where
         let storage_root = build_storage_trie(self.storage_collector, address_hash, &storage);
         Ok(storage_root)
     }
-
-    fn handle_range(
-        &mut self,
-        current_key: Nibbles,
-        account: &RlpAccount,
-        prev_key: Option<Nibbles>,
-    ) {
-        self.trie_builder
-            .handle_range(current_key, rlp::encode(account).to_vec(), prev_key);
-    }
-
-    fn get_root(&mut self) -> H256 {
-        self.trie_builder.get_root()
-    }
 }
 
 pub async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(tx: &RwTx) -> anyhow::Result<H256>
@@ -533,18 +516,22 @@ where
     tx.clear_table(tables::TrieAccount).await?;
     tx.clear_table(tables::TrieStorage).await?;
 
-    let mut walker = GenerateWalker::new(tx, collector, storage_collector).await?;
+    let mut account_trie_builder = TrieBuilder::new(StateTrieCollector { collector });
+
+    let mut walker = GenerateWalker::new(tx, storage_collector).await?;
     let mut current = walker.get_last_account().await?;
 
-    while let Some((hashed_account_key, account_data)) = current {
+    while let Some((hashed_account_key, account)) = current {
         let upcoming = walker.get_prev_account().await?;
-        let current_key = hashed_account_key.into();
-        let upcoming_key = upcoming.as_ref().map(|&(key, _)| key.into());
-        walker.handle_range(current_key, &account_data, upcoming_key);
+        account_trie_builder.handle_range(
+            hashed_account_key.into(),
+            rlp::encode(&account).to_vec(),
+            upcoming.as_ref().map(|&(key, _)| key.into()),
+        );
         current = upcoming;
     }
 
-    Ok(walker.get_root())
+    Ok(account_trie_builder.get_root())
 }
 
 async fn update_interhashes<'db: 'tx, 'tx, RwTx>(
