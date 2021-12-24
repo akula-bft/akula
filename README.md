@@ -36,4 +36,4 @@ akula-toolbox --help
 ```
 
 ---
-Akula (_Акула_) stands for _shark_ in Russian.
+Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
