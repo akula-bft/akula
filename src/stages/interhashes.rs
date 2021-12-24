@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use ethereum_types::*;
 use rlp::RlpStream;
 use std::{cmp, collections::BTreeMap};
+use tokio_stream::StreamExt;
 use tracing::*;
 
 fn hex_prefix(nibbles: &[u8], user_flag: bool) -> Vec<u8> {
@@ -476,13 +477,10 @@ where
         &mut self,
         address_hash: H256,
     ) -> anyhow::Result<Vec<(H256, U256)>> {
-        let mut storage = Vec::<(H256, U256)>::new();
-        let mut found = self.storage_cursor.seek_exact(address_hash).await?;
-        while let Some((_, storage_entry)) = found {
-            storage.push((storage_entry.0, storage_entry.1));
-            found = self.storage_cursor.next_dup().await?;
-        }
-        Ok(storage)
+        walk_dup(&mut self.storage_cursor, address_hash)
+            .map(|res| res.map(|(_, storage_entry)| storage_entry))
+            .collect()
+            .await
     }
 
     async fn visit_storage(&mut self, address_hash: H256) -> anyhow::Result<H256> {

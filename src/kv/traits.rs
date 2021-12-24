@@ -188,6 +188,34 @@ where
     }
 }
 
+/// Walk over duplicates for some specific key.
+pub fn walk_dup<'tx: 'cur, 'cur, C, T>(
+    cursor: &'cur mut C,
+    start_key: T::Key,
+) -> impl Stream<Item = anyhow::Result<(T::Key, T::Value)>> + 'cur
+where
+    C: CursorDupSort<'tx, T>,
+    T: DupSort,
+    T::Key: TableDecode,
+    'tx: 'cur,
+{
+    try_stream! {
+        let start = cursor.seek_exact(start_key).await?;
+        if let Some(mut fv) = start {
+            loop {
+                yield fv;
+
+                match cursor.next_dup().await? {
+                    Some(fv1) => {
+                        fv = fv1;
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+}
+
 pub fn ttw<'a, T, E>(f: impl Fn(&T) -> bool + 'a) -> impl Fn(&Result<T, E>) -> bool + 'a {
     move |res| match res {
         Ok(v) => (f)(v),
