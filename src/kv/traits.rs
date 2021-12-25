@@ -216,6 +216,35 @@ where
     }
 }
 
+/// Walk over duplicates for some specific key.
+pub fn walk_back_dup<'tx: 'cur, 'cur, C, T>(
+    cursor: &'cur mut C,
+    start_key: T::Key,
+) -> impl Stream<Item = anyhow::Result<T::Value>> + 'cur
+where
+    C: CursorDupSort<'tx, T>,
+    T: DupSort,
+    T::Key: TableDecode,
+    'tx: 'cur,
+{
+    try_stream! {
+        if cursor.seek_exact(start_key).await?.is_some() {
+            if let Some(mut value) = cursor.last_dup().await? {
+                loop {
+                    yield value;
+
+                    match cursor.prev_dup().await? {
+                        Some((_, v)) => {
+                            value = v;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn ttw<'a, T, E>(f: impl Fn(&T) -> bool + 'a) -> impl Fn(&Result<T, E>) -> bool + 'a {
     move |res| match res {
         Ok(v) => (f)(v),
@@ -256,12 +285,18 @@ where
     ) -> anyhow::Result<Option<T::Value>>
     where
         T::Key: Clone;
+    async fn last_dup(&mut self) -> anyhow::Result<Option<T::Value>>
+    where
+        T::Key: TableDecode;
     /// Position at next data item of current key
     async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
     where
         T::Key: TableDecode;
     /// Position at first data item of next key
     async fn next_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode;
+    async fn prev_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
     where
         T::Key: TableDecode;
 }

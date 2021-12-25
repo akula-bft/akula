@@ -111,11 +111,11 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
                                             .await
                                             .map_err(|e| tonic::Status::internal(e.to_string()))?
                                     }
-                                    Op::LastDup => {
-                                        return Err(tonic::Status::unimplemented(
-                                            "not implemented",
-                                        ));
-                                    }
+                                    Op::LastDup => get_cursor::<DB>(&mut cursors, cid)?
+                                        .last_dup()
+                                        .await
+                                        .map_err(|e| tonic::Status::internal(e.to_string()))?
+                                        .map(|v| (vec![], v)),
                                     Op::Next => {
                                         get_cursor::<DB>(&mut cursors, cid)?
                                             .next()
@@ -136,11 +136,10 @@ impl<DB: KV + Send + Sync> ethereum_interfaces::remotekv::kv_server::Kv for KvSe
                                             .await
                                             .map_err(|e| tonic::Status::internal(e.to_string()))?
                                     }
-                                    Op::PrevDup => {
-                                        return Err(tonic::Status::unimplemented(
-                                            "not implemented",
-                                        ));
-                                    }
+                                    Op::PrevDup => get_cursor::<DB>(&mut cursors, cid)?
+                                        .prev_dup()
+                                        .await
+                                        .map_err(|e| tonic::Status::internal(e.to_string()))?,
                                     Op::PrevNoDup => {
                                         return Err(tonic::Status::unimplemented(
                                             "not implemented",

@@ -394,6 +394,16 @@ where
         Ok(None)
     }
 
+    async fn last_dup(&mut self) -> anyhow::Result<Option<T::Value>>
+    where
+        T::Key: TableDecode,
+    {
+        Ok(self
+            .inner
+            .last_dup::<TableObjectWrapper<T::Value>>()?
+            .map(|v| v.0))
+    }
+
     async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
     where
         T::Key: TableDecode,
@@ -406,6 +416,13 @@ where
         T::Key: TableDecode,
     {
         Ok(map_res_inner::<T, _>(self.inner.next_nodup())?)
+    }
+
+    async fn prev_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        Ok(map_res_inner::<T, _>(self.inner.prev_dup())?)
     }
 }
 

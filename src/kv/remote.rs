@@ -248,13 +248,19 @@ impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
     where
         T::Key: Clone,
     {
-        Ok(self
-            .op_value(
-                Op::SeekBoth,
-                Some(key.clone().encode().as_ref()),
-                Some(value.encode().as_ref()),
-            )
-            .await?)
+        self.op_value(
+            Op::SeekBoth,
+            Some(key.clone().encode().as_ref()),
+            Some(value.encode().as_ref()),
+        )
+        .await
+    }
+
+    async fn last_dup(&mut self) -> anyhow::Result<Option<T::Value>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_value(Op::LastDup, None, None).await
     }
 
     async fn next_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
@@ -268,6 +274,13 @@ impl<'tx, T: DupSort> traits::CursorDupSort<'tx, T> for RemoteCursor<'tx, T> {
         T::Key: TableDecode,
     {
         self.op_kv(Op::NextNoDup, None, None).await
+    }
+
+    async fn prev_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        self.op_kv(Op::PrevDup, None, None).await
     }
 }
 
