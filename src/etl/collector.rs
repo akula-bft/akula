@@ -106,10 +106,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        kv::{
-            new_mem_database, tables,
-            traits::{MutableKV, MutableTransaction, Transaction},
-        },
+        kv::{new_mem_database, tables},
         models::BlockNumber,
     };
 

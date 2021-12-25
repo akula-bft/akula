@@ -1,8 +1,5 @@
 use crate::{
-    kv::{
-        tables,
-        traits::{Transaction, *},
-    },
+    kv::{tables, traits::*},
     models::*,
 };
 use anyhow::format_err;
