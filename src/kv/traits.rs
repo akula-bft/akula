@@ -192,7 +192,7 @@ where
 pub fn walk_dup<'tx: 'cur, 'cur, C, T>(
     cursor: &'cur mut C,
     start_key: T::Key,
-) -> impl Stream<Item = anyhow::Result<(T::Key, T::Value)>> + 'cur
+) -> impl Stream<Item = anyhow::Result<T::Value>> + 'cur
 where
     C: CursorDupSort<'tx, T>,
     T: DupSort,
@@ -200,14 +200,14 @@ where
     'tx: 'cur,
 {
     try_stream! {
-        let start = cursor.seek_exact(start_key).await?;
-        if let Some(mut fv) = start {
+        let start = cursor.seek_exact(start_key).await?.map(|(_, v)| v);
+        if let Some(mut value) = start {
             loop {
-                yield fv;
+                yield value;
 
                 match cursor.next_dup().await? {
-                    Some(fv1) => {
-                        fv = fv1;
+                    Some((_, v)) => {
+                        value = v;
                     }
                     None => break,
                 }

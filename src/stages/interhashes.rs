@@ -14,8 +14,10 @@ use crate::{
 use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
 use ethereum_types::*;
+use futures_core::Stream;
 use rlp::RlpStream;
 use std::{cmp, collections::BTreeMap};
+use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -384,34 +386,30 @@ where
     }
 }
 
-fn build_storage_trie(
+async fn build_storage_trie(
     collector: &mut Collector<tables::TrieStorage>,
     address_hash: H256,
-    storage: &[(H256, U256)],
-) -> H256 {
-    if storage.is_empty() {
-        return EMPTY_ROOT;
-    }
-
+    storage_stream: impl Stream<Item = anyhow::Result<(H256, U256)>>,
+) -> anyhow::Result<H256> {
+    pin!(storage_stream);
     let wrapped_collector = StorageTrieCollector::new(collector, address_hash);
     let mut builder = TrieBuilder::new(wrapped_collector);
 
-    let mut storage_iter = storage.iter().rev();
-    let mut current = storage_iter.next();
+    let mut current = storage_stream.try_next().await?;
 
-    while let Some(&(location, value)) = &mut current {
-        let prev = storage_iter.next();
+    while let Some((location, value)) = current {
+        let prev = storage_stream.try_next().await?;
 
         builder.handle_range(
             location.into(),
             rlp::encode(&value.encode().as_slice()).to_vec(),
-            prev.map(|&(v, _)| v.into()),
+            prev.map(|(v, _)| v.into()),
         );
 
         current = prev;
     }
 
-    builder.get_root()
+    Ok(builder.get_root())
 }
 
 /// Walker over accounts that computes account storage root.
@@ -451,7 +449,12 @@ where
         value: Option<(H256, Account)>,
     ) -> anyhow::Result<Option<(H256, RlpAccount)>> {
         if let Some((address_hash, account)) = value {
-            let storage_root = self.visit_storage(address_hash).await?;
+            let storage_root = build_storage_trie(
+                self.storage_collector,
+                address_hash,
+                walk_back_dup(&mut self.storage_cursor, address_hash),
+            )
+            .await?;
             Ok(Some((address_hash, account.to_rlp(storage_root))))
         } else {
             Ok(None)
@@ -466,22 +469,6 @@ where
     async fn get_last_account(&mut self) -> anyhow::Result<Option<(H256, RlpAccount)>> {
         let init_value = self.cursor.last().await?;
         self.do_get_prev_account(init_value).await
-    }
-
-    async fn storage_for_account(
-        &mut self,
-        address_hash: H256,
-    ) -> anyhow::Result<Vec<(H256, U256)>> {
-        walk_dup(&mut self.storage_cursor, address_hash)
-            .map(|res| res.map(|(_, storage_entry)| storage_entry))
-            .collect()
-            .await
-    }
-
-    async fn visit_storage(&mut self, address_hash: H256) -> anyhow::Result<H256> {
-        let storage = self.storage_for_account(address_hash).await?;
-        let storage_root = build_storage_trie(self.storage_collector, address_hash, &storage);
-        Ok(storage_root)
     }
 }
 
@@ -837,11 +824,22 @@ mod tests {
     }
 
     fn do_storage_root_matches(storage: Storage, hashed_address: H256) {
-        let mut _collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
-        let vec_storage = storage.iter().map(|(&k, &v)| (k, v)).collect::<Vec<_>>();
-        let actual = build_storage_trie(&mut _collector, hashed_address, &vec_storage);
-        let expected = expected_storage_root(storage);
-        assert_eq!(expected, actual);
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let mut _collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+                let vec_storage = storage.clone().into_iter().map(Ok).collect::<Vec<_>>();
+                let actual = build_storage_trie(
+                    &mut _collector,
+                    hashed_address,
+                    tokio_stream::iter(vec_storage),
+                )
+                .await
+                .unwrap();
+                let expected = expected_storage_root(storage);
+                assert_eq!(expected, actual);
+            })
     }
 
     proptest! {
