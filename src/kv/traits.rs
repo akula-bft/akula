@@ -19,7 +19,7 @@ pub trait MutableKV: KV + 'static {
 }
 
 pub trait TableEncode: Send + Sync + Sized {
-    type Encoded: AsRef<[u8]> + Send + Sync + Default;
+    type Encoded: AsRef<[u8]> + Send + Sync;
 
     fn encode(self) -> Self::Encoded;
 }

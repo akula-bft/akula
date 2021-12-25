@@ -509,31 +509,15 @@ impl TableDecode for BitmapKey<Address> {
     }
 }
 
-/// https://github.com/rust-lang/rust/issues/61415
-#[derive(Debug, Deref, DerefMut)]
-pub struct Array60(pub [u8; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH]);
-
-impl AsRef<[u8]> for Array60 {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl Default for Array60 {
-    fn default() -> Self {
-        Self([0_u8; 60])
-    }
-}
-
 impl TableEncode for BitmapKey<(Address, H256)> {
-    type Encoded = Array60;
+    type Encoded = [u8; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
 
     fn encode(self) -> Self::Encoded {
         let mut out = [0; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
         out[..ADDRESS_LENGTH].copy_from_slice(&self.inner.0.encode());
         out[ADDRESS_LENGTH..ADDRESS_LENGTH + KECCAK_LENGTH].copy_from_slice(&self.inner.1.encode());
         out[ADDRESS_LENGTH + KECCAK_LENGTH..].copy_from_slice(&self.block_number.encode());
-        Array60(out)
+        out
     }
 }
 
