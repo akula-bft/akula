@@ -144,7 +144,7 @@ impl HashState {
     pub fn new(clean_promotion_threshold: Option<u64>) -> Self {
         Self {
             clean_promotion_threshold: clean_promotion_threshold
-                .unwrap_or(1_000_000_u64 * 1_000_000_u64),
+                .unwrap_or(30_000_000_u64 * 1_000_000_u64),
         }
     }
 }
