@@ -829,11 +829,7 @@ async fn difficulty_test(testdata: HashMap<String, Value>) -> anyhow::Result<()>
 }
 
 #[instrument(skip(f))]
-async fn run_test_file<Test, Fut>(
-    path: &Path,
-    test_names: &HashSet<String>,
-    f: fn(Test) -> Fut,
-) -> RunResults
+async fn run_test_file<Test, Fut>(path: &Path, f: fn(Test) -> Fut) -> RunResults
 where
     Fut: Future<Output = anyhow::Result<()>>,
     for<'de> Test: Deserialize<'de>,
@@ -842,10 +838,6 @@ where
 
     let mut out = RunResults::default();
     for (test_name, test) in j {
-        if !test_names.is_empty() && !test_names.contains(&test_name) {
-            continue;
-        }
-
         debug!("Running test {}", test_name);
         out.push({
             if let Err(e) = (f)(test).await {
@@ -866,8 +858,6 @@ pub struct Opt {
     /// Path to consensus tests
     #[structopt(long, env)]
     pub tests: PathBuf,
-    #[structopt(long, env)]
-    pub test_names: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -928,7 +918,6 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let root_dir = opt.tests;
-    let test_names = opt.test_names.into_iter().collect();
 
     let mut res = RunResults::default();
 
@@ -947,7 +936,7 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, difficulty_test).await;
+            res += run_test_file(e.path(), difficulty_test).await;
         }
     }
 
@@ -965,7 +954,7 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, blockchain_test).await;
+            res += run_test_file(e.path(), blockchain_test).await;
         }
     }
 
@@ -983,7 +972,7 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, transaction_test).await;
+            res += run_test_file(e.path(), transaction_test).await;
         }
     }
 
