@@ -29,6 +29,7 @@ use std::{
     time::Instant,
 };
 use structopt::StructOpt;
+use tokio::runtime::Builder;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -898,8 +899,7 @@ fn exclude_test(p: &Path, root: &Path) -> bool {
     false
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn run() {
     let now = Instant::now();
 
     let opt = Opt::from_args();
@@ -919,6 +919,7 @@ async fn main() -> anyhow::Result<()> {
 
     let root_dir = opt.tests;
 
+    let mut tasks = Vec::new();
     let mut res = RunResults::default();
 
     let mut skipped = 0;
@@ -936,7 +937,10 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), difficulty_test).await;
+            let p = e.into_path();
+            tasks.push(tokio::spawn(async move {
+                return run_test_file(p.as_path(), difficulty_test).await;
+            }));
         }
     }
 
@@ -954,7 +958,10 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), blockchain_test).await;
+            let p = e.into_path();
+            tasks.push(tokio::spawn(async move {
+                return run_test_file(p.as_path(), blockchain_test).await;
+            }));
         }
     }
 
@@ -972,8 +979,15 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), transaction_test).await;
+            let p = e.into_path();
+            tasks.push(tokio::spawn(async move {
+                return run_test_file(p.as_path(), transaction_test).await;
+            }));
         }
+    }
+
+    for task in tasks {
+        res += task.await.unwrap();
     }
 
     res.skipped += skipped;
@@ -986,6 +1000,12 @@ async fn main() -> anyhow::Result<()> {
     if res.failed > 0 {
         std::process::exit(1);
     }
+}
 
-    Ok(())
+fn main() {
+    Builder::new_multi_thread()
+        .thread_stack_size(32 * 1024 * 1024)
+        .build()
+        .unwrap()
+        .block_on(run());
 }
