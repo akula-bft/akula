@@ -52,12 +52,14 @@ where
     }
 
     async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
-        Ok(
-            akula::get_account_data_as_of(&self.db.begin().await?, address, block_number)
-                .await?
-                .map(|acc| acc.balance)
-                .unwrap_or_else(U256::zero),
+        Ok(akula::accessors::state::account::read(
+            &self.db.begin().await?,
+            address,
+            Some(block_number),
         )
+        .await?
+        .map(|acc| acc.balance)
+        .unwrap_or_else(U256::zero))
     }
 }
 

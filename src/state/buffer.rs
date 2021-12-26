@@ -95,7 +95,7 @@ where
             return Ok(*account);
         }
 
-        self.txn.get(tables::Account, address).await
+        accessors::state::account::read(self.txn, address, self.historical_block).await
     }
 
     async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
