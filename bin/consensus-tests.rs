@@ -26,6 +26,7 @@ use std::{
     ops::AddAssign,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Instant,
 };
 use structopt::StructOpt;
 use tracing::*;
@@ -52,6 +53,10 @@ pub static EXCLUDED_TESTS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
         BLOCKCHAIN_DIR
             .join("GeneralStateTests")
             .join("stTimeConsuming"),
+        BLOCKCHAIN_DIR
+            .join("GeneralStateTests")
+            .join("VMTests")
+            .join("vmPerformance"),
         // We do not have extra data check
         BLOCKCHAIN_DIR
             .join("TransitionTests")
@@ -905,6 +910,8 @@ fn exclude_test(p: &Path, root: &Path) -> bool {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let now = Instant::now();
+
     let opt = Opt::from_args();
 
     let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
@@ -981,7 +988,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     res.skipped += skipped;
-    println!("Ethereum Consensus Tests:\n{:?}", res);
+    println!(
+        "Ethereum Consensus Tests:\n{:?}\nElapsed {:?}",
+        res,
+        now.elapsed()
+    );
 
     if res.failed > 0 {
         std::process::exit(1);
