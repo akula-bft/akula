@@ -1,10 +1,7 @@
 use crate::{
     accessors,
     crypto::keccak256,
-    etl::{
-        collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
-        data_provider::Entry,
-    },
+    etl::collector::*,
     kv::{tables, traits::*},
     models::{Account, BlockNumber, RlpAccount, EMPTY_ROOT},
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput, *},
@@ -230,22 +227,22 @@ trait CollectToTrie {
 }
 
 struct StateTrieCollector<'co> {
-    collector: &'co mut Collector<tables::TrieAccount>,
+    collector: &'co mut TableCollector<tables::TrieAccount>,
 }
 
 impl<'co> CollectToTrie for StateTrieCollector<'co> {
     fn collect(&mut self, key: Vec<u8>, value: Vec<u8>) {
-        self.collector.collect(Entry::new(key, value));
+        self.collector.push(key, value);
     }
 }
 
 struct StorageTrieCollector<'co> {
-    collector: &'co mut Collector<tables::TrieStorage>,
+    collector: &'co mut TableCollector<tables::TrieStorage>,
     path_prefix: Vec<u8>,
 }
 
 impl<'co> StorageTrieCollector<'co> {
-    fn new(collector: &'co mut Collector<tables::TrieStorage>, hashed_address: H256) -> Self {
+    fn new(collector: &'co mut TableCollector<tables::TrieStorage>, hashed_address: H256) -> Self {
         Self {
             collector,
             path_prefix: TableEncode::encode(hashed_address).to_vec(),
@@ -257,7 +254,7 @@ impl<'co> CollectToTrie for StorageTrieCollector<'co> {
     fn collect(&mut self, key: Vec<u8>, value: Vec<u8>) {
         let mut full_key = self.path_prefix.clone();
         full_key.extend_from_slice(&key);
-        self.collector.collect(Entry::new(full_key, value));
+        self.collector.push(full_key, value);
     }
 }
 
@@ -387,7 +384,7 @@ where
 }
 
 async fn build_storage_trie(
-    collector: &mut Collector<tables::TrieStorage>,
+    collector: &mut TableCollector<tables::TrieStorage>,
     address_hash: H256,
     storage_stream: impl Stream<Item = anyhow::Result<(H256, U256)>>,
 ) -> anyhow::Result<H256> {
@@ -419,7 +416,7 @@ where
 {
     cursor: RwTx::Cursor<'tx, tables::HashedAccount>,
     storage_cursor: RwTx::CursorDupSort<'tx, tables::HashedStorage>,
-    storage_collector: &'co mut Collector<tables::TrieStorage>,
+    storage_collector: &'co mut TableCollector<tables::TrieStorage>,
 }
 
 impl<'db: 'tx, 'tx: 'co, 'co, RwTx> GenerateWalker<'db, 'tx, 'co, RwTx>
@@ -428,7 +425,7 @@ where
 {
     async fn new(
         tx: &'tx RwTx,
-        storage_collector: &'co mut Collector<tables::TrieStorage>,
+        storage_collector: &'co mut TableCollector<tables::TrieStorage>,
     ) -> anyhow::Result<GenerateWalker<'db, 'tx, 'co, RwTx>>
     where
         RwTx: MutableTransaction<'db>,
@@ -476,8 +473,8 @@ pub async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(tx: &RwTx) -> anyhow::Res
 where
     RwTx: MutableTransaction<'db>,
 {
-    let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-    let mut storage_collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+    let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
+    let mut storage_collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
 
     let state_root =
         generate_interhashes_with_collectors(tx, &mut collector, &mut storage_collector).await?;
@@ -492,8 +489,8 @@ where
 
 async fn generate_interhashes_with_collectors<'db: 'tx, 'tx, RwTx>(
     tx: &RwTx,
-    collector: &mut Collector<tables::TrieAccount>,
-    storage_collector: &mut Collector<tables::TrieStorage>,
+    collector: &mut TableCollector<tables::TrieAccount>,
+    storage_collector: &mut TableCollector<tables::TrieStorage>,
 ) -> anyhow::Result<H256>
 where
     RwTx: MutableTransaction<'db>,
@@ -521,8 +518,8 @@ where
 
 async fn update_interhashes<'db: 'tx, 'tx, RwTx>(
     tx: &RwTx,
-    collector: &mut Collector<tables::TrieAccount>,
-    storage_collector: &mut Collector<tables::TrieStorage>,
+    collector: &mut TableCollector<tables::TrieAccount>,
+    storage_collector: &mut TableCollector<tables::TrieStorage>,
     from: BlockNumber,
     to: BlockNumber,
 ) -> anyhow::Result<H256>
@@ -573,8 +570,8 @@ where
         let past_progress = input.stage_progress.unwrap_or(genesis);
 
         if max_block > past_progress {
-            let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
-            let mut storage_collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+            let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
+            let mut storage_collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
 
             let trie_root = if should_do_clean_promotion(
                 tx,
@@ -729,8 +726,9 @@ mod tests {
 
         let tx = db.begin_mutable().await.unwrap();
 
-        let mut _collector = Collector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
-        let mut _storage_collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut _collector = TableCollector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut _storage_collector =
+            TableCollector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
         let root =
             generate_interhashes_with_collectors(&tx, &mut _collector, &mut _storage_collector)
                 .await
@@ -826,7 +824,8 @@ mod tests {
             .build()
             .unwrap()
             .block_on(async move {
-                let mut _collector = Collector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+                let mut _collector =
+                    TableCollector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
                 let vec_storage = storage.clone().into_iter().map(Ok).collect::<Vec<_>>();
                 let actual = build_storage_trie(
                     &mut _collector,

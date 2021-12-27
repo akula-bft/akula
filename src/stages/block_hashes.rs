@@ -1,8 +1,5 @@
 use crate::{
-    etl::{
-        collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
-        data_provider::Entry,
-    },
+    etl::collector::*,
     kv::{tables, traits::*},
     models::*,
     stagedsync::stage::*,
@@ -39,7 +36,7 @@ where
         let mut bodies_cursor = tx.mutable_cursor(tables::CanonicalHeader).await?;
         let mut blockhashes_cursor = tx.mutable_cursor(tables::HeaderNumber.erased()).await?;
 
-        let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
         let walker = walk(&mut bodies_cursor, Some(highest_block + 1));
         pin!(walker);
 
@@ -48,7 +45,7 @@ where
                 info!("Processing block {}", block_number);
             }
             // BlockBody Key is block_number + hash, so we just separate and collect
-            collector.collect(Entry::new(block_hash, block_number));
+            collector.push(block_hash, block_number);
 
             highest_block = block_number;
         }

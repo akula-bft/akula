@@ -1,9 +1,6 @@
 use crate::{
     crypto::keccak256,
-    etl::{
-        collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
-        data_provider::Entry,
-    },
+    etl::collector::*,
     kv::{tables, traits::*},
     models::*,
     stagedsync::{stage::*, stages::*},
@@ -23,7 +20,8 @@ where
 {
     txn.clear_table(tables::HashedAccount).await?;
 
-    let mut collector_account = Collector::<tables::HashedAccount>::new(OPTIMAL_BUFFER_CAPACITY);
+    let mut collector_account =
+        TableCollector::<tables::HashedAccount>::new(OPTIMAL_BUFFER_CAPACITY);
 
     let mut src = txn.cursor(tables::Account).await?;
     src.first().await?;
@@ -31,7 +29,7 @@ where
     let walker = walk(&mut src, None);
     pin!(walker);
     while let Some((address, account)) = walker.try_next().await? {
-        collector_account.collect(Entry::new(keccak256(address), account));
+        collector_account.push(keccak256(address), account);
 
         i += 1;
         if i % 5_000_000 == 0 {
@@ -52,7 +50,8 @@ where
 {
     txn.clear_table(tables::HashedStorage).await?;
 
-    let mut collector_storage = Collector::<tables::HashedStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+    let mut collector_storage =
+        TableCollector::<tables::HashedStorage>::new(OPTIMAL_BUFFER_CAPACITY);
 
     let mut src = txn.cursor(tables::Storage).await?;
     src.first().await?;
@@ -60,7 +59,7 @@ where
     let walker = walk(&mut src, None);
     pin!(walker);
     while let Some((address, (location, value))) = walker.try_next().await? {
-        collector_storage.collect(Entry::new(keccak256(address), (keccak256(location), value)));
+        collector_storage.push(keccak256(address), (keccak256(location), value));
 
         i += 1;
         if i % 5_000_000 == 0 {

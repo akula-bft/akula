@@ -1,8 +1,5 @@
 use crate::{
-    etl::{
-        collector::{Collector, OPTIMAL_BUFFER_CAPACITY},
-        data_provider::Entry,
-    },
+    etl::collector::*,
     kv::{tables, traits::*},
     models::BodyForStorage,
     stagedsync::stage::*,
@@ -40,7 +37,7 @@ where
 
         let mut block_txs_cursor = tx.cursor(tables::BlockTransaction).await?;
 
-        let mut collector = Collector::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
 
         let last_processed_block_number = tx
             .mutable_cursor(tables::BlockTransactionLookup)
@@ -62,7 +59,7 @@ where
             pin!(walker_block_txs);
 
             while let Some((_, tx)) = walker_block_txs.try_next().await? {
-                collector.collect(Entry::new(tx.hash(), tables::TruncateStart(block_number)));
+                collector.push(tx.hash(), tables::TruncateStart(block_number));
             }
         }
 
