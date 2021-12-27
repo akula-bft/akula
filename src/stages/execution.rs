@@ -11,8 +11,6 @@ use crate::{
 use anyhow::{format_err, Context};
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
-use tokio::pin;
-use tokio_stream::StreamExt;
 use tracing::*;
 
 #[derive(Debug)]
@@ -244,10 +242,9 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let mut account_cursor = tx.mutable_cursor(tables::Account).await?;
 
         let mut account_cs_cursor = tx.mutable_cursor(tables::AccountChangeSet).await?;
-        let account_walker = walk_back(&mut account_cs_cursor, None);
-        pin!(account_walker);
+
         while let Some((block_number, tables::AccountChange { address, account })) =
-            account_walker.try_next().await?
+            account_cs_cursor.last().await?
         {
             if block_number == input.unwind_to {
                 break;
@@ -258,14 +255,14 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
             } else if account_cursor.seek(address).await?.is_some() {
                 account_cursor.delete_current().await?;
             }
+
+            account_cs_cursor.delete_current().await?;
         }
 
         info!("Unwinding storage");
         let mut storage_cursor = tx.mutable_cursor_dupsort(tables::Storage).await?;
 
-        let mut storage_cs_cursor = tx.mutable_cursor(tables::StorageChangeSet).await?;
-        let storage_walker = walk_back(&mut storage_cs_cursor, None);
-        pin!(storage_walker);
+        let mut storage_cs_cursor = tx.mutable_cursor_dupsort(tables::StorageChangeSet).await?;
 
         while let Some((
             tables::StorageChangeKey {
@@ -273,7 +270,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 address,
             },
             tables::StorageChange { location, value },
-        )) = storage_walker.try_next().await?
+        )) = storage_cs_cursor.last().await?
         {
             if block_number == input.unwind_to {
                 break;
@@ -281,6 +278,8 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
 
             upsert_storage_value(&mut storage_cursor, address, h256_to_u256(location), value)
                 .await?;
+
+            storage_cs_cursor.delete_current().await?;
         }
 
         Ok(UnwindOutput {
