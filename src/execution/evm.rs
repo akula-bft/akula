@@ -1,4 +1,9 @@
-use super::{address::*, analysis_cache::AnalysisCache, precompiled};
+use super::{
+    address::*,
+    analysis_cache::AnalysisCache,
+    precompiled,
+    tracer::{CodeKind, MessageKind, Tracer},
+};
 use crate::{
     chain::protocol_param::{fee, param},
     h256_to_u256,
@@ -26,11 +31,12 @@ pub struct CallResult {
     pub output_data: Bytes,
 }
 
-struct Evm<'r, 'state, 'analysis, 'h, 'c, 't, B>
+struct Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
     B: State,
 {
     state: &'state mut IntraBlockState<'r, B>,
+    tracer: Option<&'tracer mut dyn Tracer>,
     analysis_cache: &'analysis mut AnalysisCache,
     header: &'h PartialHeader,
     block_spec: &'c BlockExecutionSpec,
@@ -40,6 +46,7 @@ where
 
 pub async fn execute<B: State>(
     state: &mut IntraBlockState<'_, B>,
+    tracer: Option<&mut dyn Tracer>,
     analysis_cache: &mut AnalysisCache,
     header: &PartialHeader,
     block_spec: &BlockExecutionSpec,
@@ -48,6 +55,7 @@ pub async fn execute<B: State>(
 ) -> anyhow::Result<CallResult> {
     let mut evm = Evm {
         header,
+        tracer,
         analysis_cache,
         state,
         block_spec,
@@ -87,7 +95,8 @@ pub async fn execute<B: State>(
     })
 }
 
-impl<'r, 'state, 'analysis, 'h, 'c, 't, B> Evm<'r, 'state, 'analysis, 'h, 'c, 't, B>
+impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
+    Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
     B: State,
 {
@@ -122,6 +131,18 @@ where
         };
 
         self.state.access_account(contract_addr);
+
+        if let Some(tracer) = self.tracer.as_mut() {
+            tracer.capture_start(
+                message.depth.try_into().unwrap(),
+                message.sender,
+                contract_addr,
+                MessageKind::Create,
+                message.initcode.clone(),
+                message.gas.try_into().unwrap(),
+                message.endowment,
+            );
+        };
 
         if self.state.get_nonce(contract_addr).await? != 0
             || self.state.get_code_hash(contract_addr).await? != EMPTY_HASH
@@ -217,6 +238,40 @@ where
 
         let precompiled = self.is_precompiled(message.code_address);
 
+        let code = if !precompiled {
+            self.state.get_code(message.code_address).await?
+        } else {
+            None
+        };
+
+        if let Some(tracer) = &mut self.tracer {
+            let call_kind = {
+                match (message.kind, message.is_static) {
+                    (CallKind::Call, true) => super::tracer::CallKind::StaticCall,
+                    (CallKind::Call, false) => super::tracer::CallKind::Call,
+                    (CallKind::CallCode, _) => super::tracer::CallKind::CallCode,
+                    (CallKind::DelegateCall, _) => super::tracer::CallKind::DelegateCall,
+                    _ => unreachable!(),
+                }
+            };
+            tracer.capture_start(
+                message.depth.try_into().unwrap(),
+                message.sender,
+                message.recipient,
+                MessageKind::Call {
+                    call_kind,
+                    code_kind: if precompiled {
+                        CodeKind::Precompile
+                    } else {
+                        CodeKind::Bytecode(None)
+                    },
+                },
+                message.input_data.clone(),
+                message.gas.try_into().unwrap(),
+                value,
+            )
+        }
+
         // https://eips.ethereum.org/EIPS/eip-161
         if value.is_zero()
             && self.block_spec.revision >= Revision::Spurious
@@ -261,11 +316,7 @@ where
                 res.status_code = StatusCode::OutOfGas;
             }
         } else {
-            let code = self
-                .state
-                .get_code(message.code_address)
-                .await?
-                .unwrap_or_default();
+            let code = code.unwrap_or_default();
             if code.is_empty() {
                 return Ok(res);
             }
@@ -628,6 +679,7 @@ mod tests {
     ) -> CallResult {
         super::execute(
             state,
+            None,
             &mut AnalysisCache::default(),
             header,
             &MAINNET.collect_block_spec(header.number),
