@@ -196,7 +196,6 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: max_block,
             done: true,
-            must_commit: true,
         })
     }
     /// Called when the stage should be unwound. The unwind logic should be there.
@@ -259,7 +258,6 @@ where
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
-            must_commit: true,
         })
     }
 }
@@ -449,7 +447,6 @@ mod tests {
             ExecOutput::Progress {
                 stage_progress: BlockNumber(3),
                 done: true,
-                must_commit: true,
             }
         );
 

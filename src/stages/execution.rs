@@ -219,13 +219,11 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
             ExecOutput::Progress {
                 stage_progress: executed_to,
                 done,
-                must_commit: true,
             }
         } else {
             ExecOutput::Progress {
                 stage_progress: prev_progress,
                 done: true,
-                must_commit: false,
             }
         })
     }
@@ -284,7 +282,6 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
-            must_commit: true,
         })
     }
 }

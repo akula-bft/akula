@@ -87,7 +87,6 @@ where
         Ok(ExecOutput::Progress {
             stage_progress,
             done,
-            must_commit: true,
         })
     }
 

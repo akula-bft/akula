@@ -170,7 +170,6 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done: true,
-            must_commit: highest_block > original_highest_block,
         })
     }
 
@@ -212,7 +211,6 @@ where
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
-            must_commit: true,
         })
     }
 }
@@ -393,7 +391,6 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done,
-            must_commit: highest_block > original_highest_block,
         })
     }
     async fn unwind<'tx>(
@@ -426,7 +423,6 @@ where
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
-            must_commit: true,
         })
     }
 }
@@ -465,7 +461,6 @@ where
                 ExecOutput::Progress {
                     stage_progress: prev_stage,
                     done: true,
-                    must_commit: true,
                 }
             } else {
                 if self.exit_after_sync {
@@ -478,7 +473,6 @@ where
                 ExecOutput::Progress {
                     stage_progress: prev_stage,
                     done: true,
-                    must_commit: true,
                 }
             },
         )
@@ -493,7 +487,6 @@ where
     {
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
-            must_commit: true,
         })
     }
 }
@@ -552,7 +545,7 @@ async fn main() -> anyhow::Result<()> {
     let sentry_status_provider = SentryStatusProvider::new(chain_config.clone());
     // staged sync setup
     let mut staged_sync = stagedsync::StagedSync::new();
-    // staged_sync.set_min_progress_to_commit_after_stage(2);
+    staged_sync.set_min_progress_to_commit_after_stage(1024);
     if let Some(erigon_db) = erigon_db.clone() {
         staged_sync.push(ConvertHeaders {
             db: erigon_db,

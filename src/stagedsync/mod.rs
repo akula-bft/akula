@@ -219,15 +219,13 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                             stage::ExecOutput::Progress {
                                 stage_progress,
                                 done,
-                                must_commit,
                             } => {
                                 stage_id.save_progress(&tx, stage_progress).await?;
 
-                                // Stage requested that we commit into database now.
-                                if must_commit
-                                    && stage_progress
-                                        .saturating_sub(start_progress.map(|v| v.0).unwrap_or(0))
-                                        >= self.min_progress_to_commit_after_stage
+                                // Check if we should commit now.
+                                if stage_progress
+                                    .saturating_sub(start_progress.map(|v| v.0).unwrap_or(0))
+                                    >= self.min_progress_to_commit_after_stage
                                 {
                                     // Commit and restart transaction.
                                     debug!("Commit requested");
