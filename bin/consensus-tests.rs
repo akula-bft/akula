@@ -26,8 +26,11 @@ use std::{
     ops::AddAssign,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
+    time::Instant,
 };
 use structopt::StructOpt;
+use tokio::runtime::Builder;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -52,6 +55,10 @@ pub static EXCLUDED_TESTS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
         BLOCKCHAIN_DIR
             .join("GeneralStateTests")
             .join("stTimeConsuming"),
+        BLOCKCHAIN_DIR
+            .join("GeneralStateTests")
+            .join("VMTests")
+            .join("vmPerformance"),
         // We do not have extra data check
         BLOCKCHAIN_DIR
             .join("TransitionTests")
@@ -903,8 +910,9 @@ fn exclude_test(p: &Path, root: &Path) -> bool {
     false
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn run() {
+    let now = Instant::now();
+
     let opt = Opt::from_args();
 
     let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
@@ -921,8 +929,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let root_dir = opt.tests;
-    let test_names = opt.test_names.into_iter().collect();
+    let test_names = Arc::new(opt.test_names.into_iter().collect());
 
+    let mut tasks = Vec::new();
     let mut res = RunResults::default();
 
     let mut skipped = 0;
@@ -940,7 +949,11 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, difficulty_test).await;
+            let p = e.into_path();
+            let test_names = Arc::clone(&test_names);
+            tasks.push(tokio::spawn(async move {
+                run_test_file(p.as_path(), &test_names, difficulty_test).await
+            }));
         }
     }
 
@@ -958,7 +971,11 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, blockchain_test).await;
+            let p = e.into_path();
+            let test_names = Arc::clone(&test_names);
+            tasks.push(tokio::spawn(async move {
+                run_test_file(p.as_path(), &test_names, blockchain_test).await
+            }));
         }
     }
 
@@ -976,16 +993,35 @@ async fn main() -> anyhow::Result<()> {
         let e = entry.unwrap();
 
         if e.file_type().is_file() {
-            res += run_test_file(e.path(), &test_names, transaction_test).await;
+            let p = e.into_path();
+            let test_names = Arc::clone(&test_names);
+            tasks.push(tokio::spawn(async move {
+                run_test_file(p.as_path(), &test_names, transaction_test).await
+            }));
         }
     }
 
+    for task in tasks {
+        res += task.await.unwrap();
+    }
+
     res.skipped += skipped;
-    println!("Ethereum Consensus Tests:\n{:?}", res);
+    println!(
+        "Ethereum Consensus Tests:\n{:?}\nElapsed {:?}",
+        res,
+        now.elapsed()
+    );
 
     if res.failed > 0 {
         std::process::exit(1);
     }
+}
 
-    Ok(())
+fn main() {
+    Builder::new_multi_thread()
+        .enable_all()
+        .thread_stack_size(32 * 1024 * 1024)
+        .build()
+        .unwrap()
+        .block_on(run());
 }
