@@ -26,6 +26,7 @@ use std::{
     ops::AddAssign,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
     time::Instant,
 };
 use structopt::StructOpt;
@@ -830,7 +831,11 @@ async fn difficulty_test(testdata: HashMap<String, Value>) -> anyhow::Result<()>
 }
 
 #[instrument(skip(f))]
-async fn run_test_file<Test, Fut>(path: &Path, f: fn(Test) -> Fut) -> RunResults
+async fn run_test_file<Test, Fut>(
+    path: &Path,
+    test_names: &HashSet<String>,
+    f: fn(Test) -> Fut,
+) -> RunResults
 where
     Fut: Future<Output = anyhow::Result<()>>,
     for<'de> Test: Deserialize<'de>,
@@ -839,6 +844,10 @@ where
 
     let mut out = RunResults::default();
     for (test_name, test) in j {
+        if !test_names.is_empty() && !test_names.contains(&test_name) {
+            continue;
+        }
+
         debug!("Running test {}", test_name);
         out.push({
             if let Err(e) = (f)(test).await {
@@ -859,6 +868,8 @@ pub struct Opt {
     /// Path to consensus tests
     #[structopt(long, env)]
     pub tests: PathBuf,
+    #[structopt(long, env)]
+    pub test_names: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -918,6 +929,7 @@ async fn run() {
         .init();
 
     let root_dir = opt.tests;
+    let test_names = Arc::new(opt.test_names.into_iter().collect());
 
     let mut tasks = Vec::new();
     let mut res = RunResults::default();
@@ -938,8 +950,9 @@ async fn run() {
 
         if e.file_type().is_file() {
             let p = e.into_path();
+            let test_names = Arc::clone(&test_names);
             tasks.push(tokio::spawn(async move {
-                run_test_file(p.as_path(), difficulty_test).await
+                run_test_file(p.as_path(), &test_names, difficulty_test).await
             }));
         }
     }
@@ -959,8 +972,9 @@ async fn run() {
 
         if e.file_type().is_file() {
             let p = e.into_path();
+            let test_names = Arc::clone(&test_names);
             tasks.push(tokio::spawn(async move {
-                run_test_file(p.as_path(), blockchain_test).await
+                run_test_file(p.as_path(), &test_names, blockchain_test).await
             }));
         }
     }
@@ -980,8 +994,9 @@ async fn run() {
 
         if e.file_type().is_file() {
             let p = e.into_path();
+            let test_names = Arc::clone(&test_names);
             tasks.push(tokio::spawn(async move {
-                run_test_file(p.as_path(), transaction_test).await
+                run_test_file(p.as_path(), &test_names, transaction_test).await
             }));
         }
     }
