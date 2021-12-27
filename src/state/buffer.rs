@@ -291,24 +291,29 @@ where
 {
     pub async fn write_history(&mut self) -> anyhow::Result<()> {
         debug!("Writing account changes");
-        let mut account_change_table = self.txn.mutable_cursor(tables::AccountChangeSet).await?;
+        let mut account_change_table = self
+            .txn
+            .mutable_cursor_dupsort(tables::AccountChangeSet)
+            .await?;
         for (block_number, account_entries) in std::mem::take(&mut self.account_changes) {
             for (address, account) in account_entries {
                 account_change_table
-                    .upsert(block_number, AccountChange { address, account })
+                    .append_dup(block_number, AccountChange { address, account })
                     .await?;
             }
         }
 
         debug!("Writing storage changes");
-        let mut storage_change_table = self.txn.mutable_cursor(tables::StorageChangeSet).await?;
+        let mut storage_change_table = self
+            .txn
+            .mutable_cursor_dupsort(tables::StorageChangeSet)
+            .await?;
         for (block_number, storage_entries) in std::mem::take(&mut self.storage_changes) {
             for (address, storage_entries) in storage_entries {
                 for (location, value) in storage_entries {
                     let location = u256_to_h256(location);
-                    let value = value;
                     storage_change_table
-                        .upsert(
+                        .append_dup(
                             StorageChangeKey {
                                 block_number,
                                 address,
