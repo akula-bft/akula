@@ -939,7 +939,7 @@ async fn run() {
         if e.file_type().is_file() {
             let p = e.into_path();
             tasks.push(tokio::spawn(async move {
-                return run_test_file(p.as_path(), difficulty_test).await;
+                run_test_file(p.as_path(), difficulty_test).await
             }));
         }
     }
@@ -960,7 +960,7 @@ async fn run() {
         if e.file_type().is_file() {
             let p = e.into_path();
             tasks.push(tokio::spawn(async move {
-                return run_test_file(p.as_path(), blockchain_test).await;
+                run_test_file(p.as_path(), blockchain_test).await
             }));
         }
     }
@@ -981,7 +981,7 @@ async fn run() {
         if e.file_type().is_file() {
             let p = e.into_path();
             tasks.push(tokio::spawn(async move {
-                return run_test_file(p.as_path(), transaction_test).await;
+                run_test_file(p.as_path(), transaction_test).await
             }));
         }
     }
