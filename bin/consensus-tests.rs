@@ -1004,6 +1004,7 @@ async fn run() {
 
 fn main() {
     Builder::new_multi_thread()
+        .enable_all()
         .thread_stack_size(32 * 1024 * 1024)
         .build()
         .unwrap()
