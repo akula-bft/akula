@@ -10,6 +10,10 @@ impl AkulaDataDir {
     pub fn chain_data_dir(&self) -> PathBuf {
         self.0.join("chaindata")
     }
+
+    pub fn etl_temp_dir(&self) -> PathBuf {
+        self.0.join("etl-temp")
+    }
 }
 
 impl Default for AkulaDataDir {

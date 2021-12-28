@@ -13,7 +13,7 @@ use anyhow::{bail, ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
 use itertools::Itertools;
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -101,6 +101,13 @@ pub struct HeaderDownloadOpts {
 
 async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     std::fs::create_dir_all(&data_dir.0)?;
+
+    let etl_temp_path = data_dir.etl_temp_dir();
+    let _ = std::fs::remove_dir_all(&etl_temp_path);
+    std::fs::create_dir_all(&etl_temp_path)?;
+    let etl_temp_dir =
+        Arc::new(tempfile::tempdir_in(&etl_temp_path).context("failed to create ETL temp dir")?);
+
     let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_rw(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
@@ -108,7 +115,9 @@ async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     )?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(BlockHashes);
+    staged_sync.push(BlockHashes {
+        temp_dir: etl_temp_dir.clone(),
+    });
     staged_sync.run(&env).await?;
 }
 

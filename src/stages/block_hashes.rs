@@ -6,12 +6,16 @@ use crate::{
     StageId,
 };
 use async_trait::async_trait;
+use std::sync::Arc;
+use tempfile::TempDir;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
 #[derive(Debug)]
-pub struct BlockHashes;
+pub struct BlockHashes {
+    pub temp_dir: Arc<TempDir>,
+}
 
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for BlockHashes
@@ -36,7 +40,7 @@ where
         let mut bodies_cursor = tx.mutable_cursor(tables::CanonicalHeader).await?;
         let mut blockhashes_cursor = tx.mutable_cursor(tables::HeaderNumber.erased()).await?;
 
-        let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
         let walker = walk(&mut bodies_cursor, Some(highest_block + 1));
         pin!(walker);
 

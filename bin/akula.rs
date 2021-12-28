@@ -14,7 +14,7 @@ use akula::{
     stages::*,
     version_string, StageId,
 };
-use anyhow::bail;
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use clap::Parser;
 use rayon::prelude::*;
@@ -530,10 +530,21 @@ async fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(&opt.data_dir.0)?;
     let akula_chain_data_dir = opt.data_dir.chain_data_dir();
+    let etl_temp_path = opt.data_dir.etl_temp_dir();
+    let _ = std::fs::remove_dir_all(&etl_temp_path);
+    std::fs::create_dir_all(&etl_temp_path)?;
+    let etl_temp_dir =
+        Arc::new(tempfile::tempdir_in(&etl_temp_path).context("failed to create ETL temp dir")?);
     let db = akula::kv::new_database(&akula_chain_data_dir)?;
     async {
         let txn = db.begin_mutable().await?;
-        if akula::genesis::initialize_genesis(&txn, chain_config.chain_spec().clone()).await? {
+        if akula::genesis::initialize_genesis(
+            &txn,
+            &*etl_temp_dir,
+            chain_config.chain_spec().clone(),
+        )
+        .await?
+        {
             txn.commit().await?;
         }
 
@@ -567,7 +578,9 @@ async fn main() -> anyhow::Result<()> {
             sentry_status_provider,
         )?);
     }
-    staged_sync.push(BlockHashes);
+    staged_sync.push(BlockHashes {
+        temp_dir: etl_temp_dir.clone(),
+    });
     if let Some(erigon_db) = erigon_db {
         staged_sync.push(ConvertBodies { db: erigon_db });
     } else {
@@ -585,8 +598,8 @@ async fn main() -> anyhow::Result<()> {
         commit_every: None,
         prune_from: BlockNumber(0),
     });
-    staged_sync.push(HashState::new(None));
-    staged_sync.push(Interhashes::new(None));
+    staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
+    staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
     staged_sync.push(TerminatingStage {
         max_block: opt.max_block,
         exit_after_sync: opt.exit_after_sync,

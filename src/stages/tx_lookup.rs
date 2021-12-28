@@ -6,12 +6,16 @@ use crate::{
     StageId,
 };
 use async_trait::async_trait;
+use std::sync::Arc;
+use tempfile::TempDir;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
 #[derive(Debug)]
-pub struct TxLookup;
+pub struct TxLookup {
+    temp_dir: Arc<TempDir>,
+}
 
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for TxLookup
@@ -37,7 +41,7 @@ where
 
         let mut block_txs_cursor = tx.cursor(tables::BlockTransaction).await?;
 
-        let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
+        let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
         let last_processed_block_number = tx
             .mutable_cursor(tables::BlockTransactionLookup)
@@ -307,7 +311,9 @@ mod tests {
             .await
             .unwrap();
 
-        let stage = TxLookup {};
+        let stage = TxLookup {
+            temp_dir: Arc::new(TempDir::new().unwrap()),
+        };
 
         let stage_input = StageInput {
             restarted: false,
@@ -344,7 +350,9 @@ mod tests {
     async fn tx_lookup_stage_without_data() {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
-        let stage = TxLookup {};
+        let stage = TxLookup {
+            temp_dir: Arc::new(TempDir::new().unwrap()),
+        };
 
         let stage_input = StageInput {
             restarted: false,
@@ -534,7 +542,9 @@ mod tests {
         chain::tl::write(&tx, hash2_1, 2.into()).await.unwrap();
         chain::tl::write(&tx, hash2_2, 2.into()).await.unwrap();
         chain::tl::write(&tx, hash2_3, 2.into()).await.unwrap();
-        let stage = TxLookup {};
+        let stage = TxLookup {
+            temp_dir: Arc::new(TempDir::new().unwrap()),
+        };
         stage
             .unwind(
                 &mut tx,

@@ -13,7 +13,8 @@ use async_trait::async_trait;
 use ethereum_types::*;
 use futures_core::Stream;
 use rlp::RlpStream;
-use std::{cmp, collections::BTreeMap};
+use std::{cmp, collections::BTreeMap, sync::Arc};
+use tempfile::TempDir;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -226,23 +227,26 @@ trait CollectToTrie {
     fn collect(&mut self, key: Vec<u8>, value: Vec<u8>);
 }
 
-struct StateTrieCollector<'co> {
-    collector: &'co mut TableCollector<tables::TrieAccount>,
+struct StateTrieCollector<'tmp: 'co, 'co> {
+    collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
 }
 
-impl<'co> CollectToTrie for StateTrieCollector<'co> {
+impl<'tmp: 'co, 'co> CollectToTrie for StateTrieCollector<'tmp, 'co> {
     fn collect(&mut self, key: Vec<u8>, value: Vec<u8>) {
         self.collector.push(key, value);
     }
 }
 
-struct StorageTrieCollector<'co> {
-    collector: &'co mut TableCollector<tables::TrieStorage>,
+struct StorageTrieCollector<'tmp: 'co, 'co> {
+    collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
     path_prefix: Vec<u8>,
 }
 
-impl<'co> StorageTrieCollector<'co> {
-    fn new(collector: &'co mut TableCollector<tables::TrieStorage>, hashed_address: H256) -> Self {
+impl<'tmp: 'co, 'co> StorageTrieCollector<'tmp, 'co> {
+    fn new(
+        collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
+        hashed_address: H256,
+    ) -> Self {
         Self {
             collector,
             path_prefix: TableEncode::encode(hashed_address).to_vec(),
@@ -250,7 +254,7 @@ impl<'co> StorageTrieCollector<'co> {
     }
 }
 
-impl<'co> CollectToTrie for StorageTrieCollector<'co> {
+impl<'tmp: 'co, 'co> CollectToTrie for StorageTrieCollector<'tmp, 'co> {
     fn collect(&mut self, key: Vec<u8>, value: Vec<u8>) {
         let mut full_key = self.path_prefix.clone();
         full_key.extend_from_slice(&key);
@@ -384,7 +388,7 @@ where
 }
 
 async fn build_storage_trie(
-    collector: &mut TableCollector<tables::TrieStorage>,
+    collector: &mut TableCollector<'_, tables::TrieStorage>,
     address_hash: H256,
     storage_stream: impl Stream<Item = anyhow::Result<(H256, U256)>>,
 ) -> anyhow::Result<H256> {
@@ -410,23 +414,23 @@ async fn build_storage_trie(
 }
 
 /// Walker over accounts that computes account storage root.
-struct GenerateWalker<'db: 'tx, 'tx: 'co, 'co, RwTx>
+struct GenerateWalker<'db: 'tx, 'tx: 'co, 'tmp: 'co, 'co, RwTx>
 where
     RwTx: MutableTransaction<'db>,
 {
     cursor: RwTx::Cursor<'tx, tables::HashedAccount>,
     storage_cursor: RwTx::CursorDupSort<'tx, tables::HashedStorage>,
-    storage_collector: &'co mut TableCollector<tables::TrieStorage>,
+    storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
 }
 
-impl<'db: 'tx, 'tx: 'co, 'co, RwTx> GenerateWalker<'db, 'tx, 'co, RwTx>
+impl<'db: 'tx, 'tx: 'co, 'tmp: 'co, 'co, RwTx> GenerateWalker<'db, 'tx, 'tmp, 'co, RwTx>
 where
     RwTx: MutableTransaction<'db>,
 {
     async fn new(
         tx: &'tx RwTx,
-        storage_collector: &'co mut TableCollector<tables::TrieStorage>,
-    ) -> anyhow::Result<GenerateWalker<'db, 'tx, 'co, RwTx>>
+        storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
+    ) -> anyhow::Result<GenerateWalker<'db, 'tx, 'tmp, 'co, RwTx>>
     where
         RwTx: MutableTransaction<'db>,
     {
@@ -469,12 +473,15 @@ where
     }
 }
 
-pub async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(tx: &RwTx) -> anyhow::Result<H256>
+pub async fn generate_interhashes<'db: 'tx, 'tx, RwTx>(
+    tx: &RwTx,
+    temp_dir: &TempDir,
+) -> anyhow::Result<H256>
 where
     RwTx: MutableTransaction<'db>,
 {
-    let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
-    let mut storage_collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
+    let mut collector = TableCollector::new(temp_dir, OPTIMAL_BUFFER_CAPACITY);
+    let mut storage_collector = TableCollector::new(temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
     let state_root =
         generate_interhashes_with_collectors(tx, &mut collector, &mut storage_collector).await?;
@@ -487,10 +494,10 @@ where
     Ok(state_root)
 }
 
-async fn generate_interhashes_with_collectors<'db: 'tx, 'tx, RwTx>(
+async fn generate_interhashes_with_collectors<'db: 'tx, 'tx, 'tmp, RwTx>(
     tx: &RwTx,
-    collector: &mut TableCollector<tables::TrieAccount>,
-    storage_collector: &mut TableCollector<tables::TrieStorage>,
+    collector: &mut TableCollector<'tmp, tables::TrieAccount>,
+    storage_collector: &mut TableCollector<'tmp, tables::TrieStorage>,
 ) -> anyhow::Result<H256>
 where
     RwTx: MutableTransaction<'db>,
@@ -516,10 +523,10 @@ where
     Ok(account_trie_builder.get_root())
 }
 
-async fn update_interhashes<'db: 'tx, 'tx, RwTx>(
+async fn update_interhashes<'db: 'tx, 'tx, 'tmp, RwTx>(
     tx: &RwTx,
-    collector: &mut TableCollector<tables::TrieAccount>,
-    storage_collector: &mut TableCollector<tables::TrieStorage>,
+    collector: &mut TableCollector<'tmp, tables::TrieAccount>,
+    storage_collector: &mut TableCollector<'tmp, tables::TrieStorage>,
     from: BlockNumber,
     to: BlockNumber,
 ) -> anyhow::Result<H256>
@@ -534,12 +541,14 @@ where
 
 #[derive(Debug)]
 pub struct Interhashes {
+    temp_dir: Arc<TempDir>,
     clean_promotion_threshold: u64,
 }
 
 impl Interhashes {
-    pub fn new(clean_promotion_threshold: Option<u64>) -> Self {
+    pub fn new(temp_dir: Arc<TempDir>, clean_promotion_threshold: Option<u64>) -> Self {
         Self {
+            temp_dir,
             clean_promotion_threshold: clean_promotion_threshold.unwrap_or(1_000_000_000_000),
         }
     }
@@ -570,8 +579,9 @@ where
         let past_progress = input.stage_progress.unwrap_or(genesis);
 
         if max_block > past_progress {
-            let mut collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
-            let mut storage_collector = TableCollector::new(OPTIMAL_BUFFER_CAPACITY);
+            let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
+            let mut storage_collector =
+                TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
             let trie_root = if should_do_clean_promotion(
                 tx,
@@ -726,9 +736,11 @@ mod tests {
 
         let tx = db.begin_mutable().await.unwrap();
 
-        let mut _collector = TableCollector::<tables::TrieAccount>::new(OPTIMAL_BUFFER_CAPACITY);
+        let temp_dir = TempDir::new().unwrap();
+        let mut _collector =
+            TableCollector::<tables::TrieAccount>::new(&temp_dir, OPTIMAL_BUFFER_CAPACITY);
         let mut _storage_collector =
-            TableCollector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+            TableCollector::<tables::TrieStorage>::new(&temp_dir, OPTIMAL_BUFFER_CAPACITY);
         let root =
             generate_interhashes_with_collectors(&tx, &mut _collector, &mut _storage_collector)
                 .await
@@ -824,8 +836,9 @@ mod tests {
             .build()
             .unwrap()
             .block_on(async move {
+                let temp_dir = TempDir::new().unwrap();
                 let mut _collector =
-                    TableCollector::<tables::TrieStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+                    TableCollector::<tables::TrieStorage>::new(&temp_dir, OPTIMAL_BUFFER_CAPACITY);
                 let vec_storage = storage.clone().into_iter().map(Ok).collect::<Vec<_>>();
                 let actual = build_storage_trie(
                     &mut _collector,

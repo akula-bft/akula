@@ -10,18 +10,20 @@ use crate::{
 use anyhow::format_err;
 use async_trait::async_trait;
 use ethereum_types::*;
+use std::sync::Arc;
+use tempfile::TempDir;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
-pub async fn promote_clean_accounts<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
+pub async fn promote_clean_accounts<'db, Tx>(txn: &Tx, temp_dir: &TempDir) -> anyhow::Result<()>
 where
     Tx: MutableTransaction<'db>,
 {
     txn.clear_table(tables::HashedAccount).await?;
 
     let mut collector_account =
-        TableCollector::<tables::HashedAccount>::new(OPTIMAL_BUFFER_CAPACITY);
+        TableCollector::<tables::HashedAccount>::new(temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
     let mut src = txn.cursor(tables::Account).await?;
     src.first().await?;
@@ -44,14 +46,14 @@ where
     Ok(())
 }
 
-pub async fn promote_clean_storage<'db, Tx>(txn: &Tx) -> anyhow::Result<()>
+pub async fn promote_clean_storage<'db, Tx>(txn: &Tx, path: &TempDir) -> anyhow::Result<()>
 where
     Tx: MutableTransaction<'db>,
 {
     txn.clear_table(tables::HashedStorage).await?;
 
     let mut collector_storage =
-        TableCollector::<tables::HashedStorage>::new(OPTIMAL_BUFFER_CAPACITY);
+        TableCollector::<tables::HashedStorage>::new(path, OPTIMAL_BUFFER_CAPACITY);
 
     let mut src = txn.cursor(tables::Storage).await?;
     src.first().await?;
@@ -135,13 +137,14 @@ where
 
 #[derive(Debug)]
 pub struct HashState {
-    /// Gas threshold beyond which erase hashed state and do clean promotion.
-    pub clean_promotion_threshold: u64,
+    temp_dir: Arc<TempDir>,
+    clean_promotion_threshold: u64,
 }
 
 impl HashState {
-    pub fn new(clean_promotion_threshold: Option<u64>) -> Self {
+    pub fn new(temp_dir: Arc<TempDir>, clean_promotion_threshold: Option<u64>) -> Self {
         Self {
+            temp_dir,
             clean_promotion_threshold: clean_promotion_threshold
                 .unwrap_or(30_000_000_u64 * 1_000_000_u64),
         }
@@ -182,9 +185,9 @@ where
         .await?
         {
             info!("Generating hashed accounts");
-            promote_clean_accounts(tx).await?;
+            promote_clean_accounts(tx, &*self.temp_dir).await?;
             info!("Generating hashed storage");
-            promote_clean_storage(tx).await?;
+            promote_clean_storage(tx, &*self.temp_dir).await?;
         } else {
             info!("Incrementally hashing accounts");
             promote_accounts(tx, past_progress).await?;
@@ -430,6 +433,7 @@ mod tests {
         // ---------------------------------------
         assert_eq!(
             HashState {
+                temp_dir: Arc::new(TempDir::new().unwrap()),
                 clean_promotion_threshold: u64::MAX,
             }
             .execute(

@@ -3,8 +3,9 @@ use std::{
     cmp::Ord,
     fs::File,
     io::{prelude::*, BufReader, BufWriter, SeekFrom},
+    path::Path,
 };
-use tempfile::tempfile;
+use tempfile::tempfile_in;
 
 #[derive(Eq, Clone, PartialEq, PartialOrd, Ord)]
 pub struct Entry<Key, Value> {
@@ -25,6 +26,7 @@ pub struct DataProvider {
 
 impl DataProvider {
     pub fn new<Key, Value>(
+        dir: &Path,
         buffer: Vec<Entry<Key, Value>>,
     ) -> anyhow::Result<DataProvider, std::io::Error>
     where
@@ -32,7 +34,7 @@ impl DataProvider {
         Key: AsRef<[u8]>,
         Value: AsRef<[u8]>,
     {
-        let file = tempfile()?;
+        let file = tempfile_in(dir)?;
         let mut w = BufWriter::new(file);
         for entry in &buffer {
             let k = entry.key.as_ref();
