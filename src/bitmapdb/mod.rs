@@ -3,7 +3,7 @@ use crate::{
     models::*,
 };
 use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
-use std::iter::Peekable;
+use std::{iter::Peekable, ops::RangeInclusive};
 use tokio::pin;
 use tokio_stream::StreamExt;
 
@@ -14,8 +14,7 @@ pub async fn get<'db, Tx, T, K>(
     tx: &Tx,
     table: T,
     key: K,
-    from: impl Into<BlockNumber>,
-    to: impl Into<BlockNumber>,
+    range: RangeInclusive<BlockNumber>,
 ) -> anyhow::Result<RoaringTreemap>
 where
     Tx: Transaction<'db>,
@@ -24,8 +23,8 @@ where
     T: Table<Key = BitmapKey<K>, Value = RoaringTreemap, SeekKey = BitmapKey<K>>,
 {
     let mut out: Option<RoaringTreemap> = None;
-    let from = from.into();
-    let to = to.into();
+    let from = *range.start();
+    let to = *range.end();
 
     let mut c = tx.cursor(table).await?;
 
