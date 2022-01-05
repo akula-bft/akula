@@ -6,61 +6,61 @@ use akula::{
         traits::*,
     },
     models::*,
-    stagedsync::{self},
+    stagedsync,
     stages::*,
 };
 use anyhow::{bail, ensure, format_err, Context};
 use bytes::Bytes;
+use clap::Parser;
 use itertools::Itertools;
 use std::{borrow::Cow, path::PathBuf};
-use structopt::StructOpt;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
-#[derive(StructOpt)]
-#[structopt(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
+#[derive(Parser)]
+#[clap(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
 struct Opt {
-    #[structopt(long = "datadir", help = "Database directory path", default_value)]
+    #[clap(long = "datadir", help = "Database directory path", default_value_t)]
     pub data_dir: AkulaDataDir,
 
-    #[structopt(subcommand)]
+    #[clap(subcommand)]
     pub command: OptCommand,
 }
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 pub enum OptCommand {
     /// Print database statistics
     DbStats {
         /// Whether to print CSV
-        #[structopt(long)]
+        #[clap(long)]
         csv: bool,
     },
 
     /// Query database
     DbQuery {
-        #[structopt(long)]
+        #[clap(long)]
         table: String,
-        #[structopt(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, parse(try_from_str = hex_to_bytes))]
         key: Bytes,
     },
 
     /// Walk over table entries
     DbWalk {
-        #[structopt(long)]
+        #[clap(long)]
         table: String,
-        #[structopt(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, parse(try_from_str = hex_to_bytes))]
         starting_key: Option<Bytes>,
-        #[structopt(long)]
+        #[clap(long)]
         max_entries: Option<usize>,
     },
 
     /// Check table equality in two databases
     CheckEqual {
-        #[structopt(long, parse(from_os_str))]
+        #[clap(long, parse(from_os_str))]
         db1: PathBuf,
-        #[structopt(long, parse(from_os_str))]
+        #[clap(long, parse(from_os_str))]
         db2: PathBuf,
-        #[structopt(long)]
+        #[clap(long)]
         table: String,
     },
 
@@ -68,9 +68,9 @@ pub enum OptCommand {
     Blockhashes,
 
     /// Execute HeaderDownload stage
-    #[structopt(name = "download-headers", about = "Run block headers downloader")]
+    #[clap(name = "download-headers", about = "Run block headers downloader")]
     HeaderDownload {
-        #[structopt(flatten)]
+        #[clap(flatten)]
         opts: HeaderDownloadOpts,
     },
 
@@ -79,23 +79,23 @@ pub enum OptCommand {
     },
 }
 
-#[derive(StructOpt)]
+#[derive(Parser)]
 pub struct HeaderDownloadOpts {
-    #[structopt(
+    #[clap(
         long = "chain",
         help = "Name of the testnet to join",
         default_value = "mainnet"
     )]
     pub chain_name: String,
 
-    #[structopt(
+    #[clap(
         long = "sentry.api.addr",
         help = "Sentry GRPC service URL as 'http://host:port'",
         default_value = "http://localhost:8000"
     )]
     pub sentry_api_addr: akula::sentry::sentry_address::SentryAddress,
 
-    #[structopt(flatten)]
+    #[clap(flatten)]
     pub downloader_opts: akula::downloader::opts::Opts,
 }
 
@@ -372,7 +372,7 @@ async fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::R
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     let filter = if std::env::var(EnvFilter::DEFAULT_ENV)
         .unwrap_or_default()

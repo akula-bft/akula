@@ -10,7 +10,7 @@ use ethereum_types::*;
 use hex_literal::hex;
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 use secp256k1::{
-    recovery::{RecoverableSignature, RecoveryId},
+    ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
 use serde::*;
@@ -782,7 +782,7 @@ impl MessageWithSignature {
 
         let rec = RecoveryId::from_i32(self.v() as i32)?;
 
-        let public = &SECP256K1.recover(
+        let public = &SECP256K1.recover_ecdsa(
             &SecpMessage::from_slice(self.message.hash().as_bytes())?,
             &RecoverableSignature::from_compact(&sig, rec)?,
         )?;

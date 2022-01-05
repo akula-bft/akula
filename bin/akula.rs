@@ -16,31 +16,31 @@ use akula::{
 };
 use anyhow::bail;
 use async_trait::async_trait;
+use clap::Parser;
 use rayon::prelude::*;
 use std::{
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
-use structopt::StructOpt;
 use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
-#[derive(StructOpt)]
-#[structopt(name = "Akula", about = "Next-generation Ethereum implementation.")]
+#[derive(Parser)]
+#[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
     /// Path to Erigon database directory, where to get blocks from.
-    #[structopt(long = "erigon-datadir", parse(from_os_str))]
+    #[clap(long = "erigon-datadir", parse(from_os_str))]
     pub erigon_data_dir: Option<PathBuf>,
 
     /// Path to Akula database directory.
-    #[structopt(long = "datadir", help = "Database directory path", default_value)]
+    #[clap(long = "datadir", help = "Database directory path", default_value_t)]
     pub data_dir: AkulaDataDir,
 
     /// Name of the testnet to join
-    #[structopt(
+    #[clap(
         long = "chain",
         help = "Name of the testnet to join",
         default_value = "mainnet"
@@ -48,7 +48,7 @@ pub struct Opt {
     pub chain_name: String,
 
     /// Sentry GRPC service URL
-    #[structopt(
+    #[clap(
         long = "sentry.api.addr",
         help = "Sentry GRPC service URL as 'http://host:port'",
         default_value = "http://localhost:8000"
@@ -56,31 +56,31 @@ pub struct Opt {
     pub sentry_api_addr: akula::sentry::sentry_address::SentryAddress,
 
     /// Last block where to sync to.
-    #[structopt(long)]
+    #[clap(long)]
     pub max_block: Option<BlockNumber>,
 
     /// Downloader options.
-    #[structopt(flatten)]
+    #[clap(flatten)]
     pub downloader_opts: akula::downloader::opts::Opts,
 
     /// Execution batch size (Ggas).
-    #[structopt(long, default_value = "5000")]
+    #[clap(long, default_value = "5000")]
     pub execution_batch_size: u64,
 
     /// Execution history batch size (Ggas).
-    #[structopt(long, default_value = "250")]
+    #[clap(long, default_value = "250")]
     pub execution_history_batch_size: u64,
 
     /// Exit execution stage after batch.
-    #[structopt(long, env)]
+    #[clap(long)]
     pub execution_exit_after_batch: bool,
 
     /// Exit Akula after sync is complete and there's no progress.
-    #[structopt(long, env)]
+    #[clap(long)]
     pub exit_after_sync: bool,
 
     /// Delay applied at the terminating stage.
-    #[structopt(long, default_value = "2000")]
+    #[clap(long, default_value = "2000")]
     pub delay_after_sync: u64,
 }
 
@@ -494,7 +494,7 @@ where
 #[allow(unreachable_code)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let opt: Opt = Opt::from_args();
+    let opt: Opt = Opt::parse();
 
     // tracing setup
     let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
