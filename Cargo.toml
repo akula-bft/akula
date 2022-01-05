@@ -11,7 +11,7 @@ default-run = "akula"
 anyhow = "1"
 arrayref = "0.3"
 arrayvec = "0.7"
-async-recursion = "0.3"
+async-recursion = "1"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "0.5"
@@ -19,8 +19,8 @@ byte-unit = "4"
 bytes = "1"
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
-clap = "2"
-croaring = "0.5"
+clap = { version = "3", features = ["derive"] }
+croaring = { git = "https://github.com/vorot93/croaring-rs", branch = "staging" }
 crossterm = { version = "0.22", optional = true }
 derive_more = "0.99"
 directories = "4.0"
@@ -59,14 +59,13 @@ ripemd = "0.1"
 rlp = "0.5"
 rlp-derive = "0.1"
 ron = "0.7"
-secp256k1 = { version = "0.20", features = ["global-context", "recovery"] }
+secp256k1 = { version = "0.21", features = ["global-context", "recovery"] }
 serde = "1"
 serde_json = "1"
 serde_with = "1"
 sha2 = "0.10"
 sha3 = "0.10"
 string = { git = "https://github.com/carllerche/string" }
-structopt = "0.3"
 strum = { version = "0.23", features = ["derive"] }
 substrate-bn = "0.6"
 tempfile = "3"

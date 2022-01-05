@@ -7,7 +7,7 @@ use num_bigint::BigUint;
 use num_traits::Zero;
 use ripemd::*;
 use secp256k1::{
-    recovery::{RecoverableSignature, RecoveryId},
+    ecdsa::{RecoverableSignature, RecoveryId},
     Message, SECP256K1,
 };
 use sha2::*;
@@ -106,7 +106,7 @@ fn ecrecover_run_inner(mut input: Bytes) -> Option<Bytes> {
         RecoverableSignature::from_compact(&sig, RecoveryId::from_i32(odd.into()).ok()?).ok()?;
 
     let public = &SECP256K1
-        .recover(&Message::from_slice(&input[..32]).ok()?, &sig)
+        .recover_ecdsa(&Message::from_slice(&input[..32]).ok()?, &sig)
         .ok()?;
 
     let mut out = vec![0; 32];
