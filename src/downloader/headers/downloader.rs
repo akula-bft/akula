@@ -1,11 +1,9 @@
+use super::{
+    downloader_forky, downloader_linear, downloader_preverified,
+    header_slices::align_block_num_to_slice_start,
+};
 use crate::{
-    downloader::{
-        headers::{
-            downloader_linear, downloader_preverified,
-            header_slices::align_block_num_to_slice_start,
-        },
-        ui_system::UISystemShared,
-    },
+    downloader::ui_system::UISystemShared,
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
@@ -15,6 +13,7 @@ use crate::{
 pub struct Downloader {
     downloader_preverified: downloader_preverified::DownloaderPreverified,
     downloader_linear: downloader_linear::DownloaderLinear,
+    downloader_forky: downloader_forky::DownloaderForky,
     genesis_block_hash: ethereum_types::H256,
 }
 
@@ -41,12 +40,18 @@ impl Downloader {
             sentry.clone(),
         )?;
 
-        let downloader_linear =
-            downloader_linear::DownloaderLinear::new(chain_config.clone(), mem_limit, sentry);
+        let downloader_linear = downloader_linear::DownloaderLinear::new(
+            chain_config.clone(),
+            mem_limit,
+            sentry.clone(),
+        );
+
+        let downloader_forky = downloader_forky::DownloaderForky::new(chain_config.clone(), sentry);
 
         let instance = Self {
             downloader_preverified,
             downloader_linear,
+            downloader_forky,
             genesis_block_hash: chain_config.genesis_block_hash(),
         };
         Ok(instance)
@@ -96,6 +101,8 @@ impl Downloader {
         previous_run_state: Option<DownloaderRunState>,
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderReport> {
+        let mut max_blocks_count = max_blocks_count;
+
         let preverified_report = self
             .downloader_preverified
             .run::<RwTx>(
@@ -105,6 +112,7 @@ impl Downloader {
                 ui_system.clone(),
             )
             .await?;
+        max_blocks_count -= preverified_report.loaded_count;
 
         let linear_start_block_id = self
             .linear_start_block_id(db_transaction, preverified_report.final_block_num)
@@ -112,7 +120,6 @@ impl Downloader {
         let linear_estimated_top_block_num = preverified_report
             .estimated_top_block_num
             .or_else(|| previous_run_state.and_then(|state| state.estimated_top_block_num));
-        let linear_max_blocks_count = max_blocks_count - preverified_report.loaded_count;
 
         let linear_report = self
             .downloader_linear
@@ -120,13 +127,28 @@ impl Downloader {
                 db_transaction,
                 linear_start_block_id,
                 linear_estimated_top_block_num,
-                linear_max_blocks_count,
+                max_blocks_count,
+                ui_system.clone(),
+            )
+            .await?;
+        max_blocks_count -= linear_report.loaded_count;
+
+        let forky_start_block_id = self
+            .linear_start_block_id(db_transaction, linear_report.final_block_num)
+            .await?;
+        let forky_report = self
+            .downloader_forky
+            .run::<RwTx>(
+                db_transaction,
+                forky_start_block_id,
+                max_blocks_count,
                 ui_system,
             )
             .await?;
+        // max_blocks_count -= forky_report.loaded_count;
 
         let report = DownloaderReport {
-            final_block_num: linear_report.final_block_num,
+            final_block_num: forky_report.final_block_num,
             target_final_block_num: linear_report.target_final_block_num,
             run_state: DownloaderRunState {
                 estimated_top_block_num: Some(linear_report.estimated_top_block_num),

@@ -9,7 +9,6 @@ use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     ops::{ControlFlow, DerefMut},
     sync::Arc,
-    time::SystemTime,
 };
 use tracing::*;
 
@@ -19,6 +18,7 @@ pub struct VerifyStageLinearLink {
     chain_config: ChainConfig,
     start_block_num: BlockNumber,
     start_block_hash: ethereum_types::H256,
+    invalid_status: HeaderSliceStatus,
     last_verified_header: Option<BlockHeader>,
     pending_watch: HeaderSliceStatusWatch,
     remaining_count: usize,
@@ -30,12 +30,14 @@ impl VerifyStageLinearLink {
         chain_config: ChainConfig,
         start_block_num: BlockNumber,
         start_block_hash: ethereum_types::H256,
+        invalid_status: HeaderSliceStatus,
     ) -> Self {
         Self {
             header_slices: header_slices.clone(),
             chain_config,
             start_block_num,
             start_block_hash,
+            invalid_status,
             last_verified_header: None,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::VerifiedInternally,
@@ -70,21 +72,9 @@ impl VerifyStageLinearLink {
     fn verify_pending_monotonic(&mut self, pending_count: usize) -> anyhow::Result<usize> {
         let mut updated_count: usize = 0;
         for _ in 0..pending_count {
-            let initial_value = Option::<Arc<RwLock<HeaderSlice>>>::None;
-            let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
-                let slice = slice_lock.read();
-                match slice.status {
-                    HeaderSliceStatus::Verified | HeaderSliceStatus::Saved => {
-                        ControlFlow::Continue(None)
-                    }
-                    HeaderSliceStatus::VerifiedInternally => {
-                        ControlFlow::Break(Some(slice_lock.clone()))
-                    }
-                    _ => ControlFlow::Break(None),
-                }
-            });
+            let next_slice_lock = self.find_next_pending_monotonic();
 
-            if let ControlFlow::Break(Some(slice_lock)) = next_slice_lock {
+            if let Some(slice_lock) = next_slice_lock {
                 let is_verified = self.verify_pending_slice(slice_lock);
                 updated_count += 1;
                 if !is_verified {
@@ -95,6 +85,28 @@ impl VerifyStageLinearLink {
             }
         }
         Ok(updated_count)
+    }
+
+    fn find_next_pending_monotonic(&self) -> Option<Arc<RwLock<HeaderSlice>>> {
+        let initial_value = Option::<Arc<RwLock<HeaderSlice>>>::None;
+        let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
+            let slice = slice_lock.read();
+            match slice.status {
+                HeaderSliceStatus::Verified | HeaderSliceStatus::Saved => {
+                    ControlFlow::Continue(None)
+                }
+                HeaderSliceStatus::VerifiedInternally => {
+                    ControlFlow::Break(Some(slice_lock.clone()))
+                }
+                _ => ControlFlow::Break(None),
+            }
+        });
+
+        if let ControlFlow::Break(slice_lock_opt) = next_slice_lock {
+            slice_lock_opt
+        } else {
+            None
+        }
     }
 
     fn verify_pending_slice(&mut self, slice_lock: Arc<RwLock<HeaderSlice>>) -> bool {
@@ -111,17 +123,10 @@ impl VerifyStageLinearLink {
             }
         } else {
             self.header_slices
-                .set_slice_status(slice.deref_mut(), HeaderSliceStatus::Invalid);
+                .set_slice_status(slice.deref_mut(), self.invalid_status);
         }
 
         is_verified
-    }
-
-    fn now_timestamp() -> u64 {
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
     }
 
     fn verify_slice_link(&self, slice: &HeaderSlice, parent: &Option<BlockHeader>) -> bool {
@@ -144,15 +149,7 @@ impl VerifyStageLinearLink {
         }
         let parent = parent.as_ref().unwrap();
 
-        header_slice_verifier::verify_link_by_parent_hash(child, parent)
-            && header_slice_verifier::verify_link_block_nums(child, parent)
-            && header_slice_verifier::verify_link_timestamps(child, parent)
-            && header_slice_verifier::verify_link_difficulties(
-                child,
-                parent,
-                self.chain_config.chain_spec(),
-            )
-            && header_slice_verifier::verify_link_pow(child, parent)
+        header_slice_verifier::verify_link(child, parent, self.chain_config.chain_spec())
     }
 }
 

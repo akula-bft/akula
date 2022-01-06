@@ -1,14 +1,13 @@
 use super::{
     fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
-    header_slices::HeaderSlices, penalize_stage::PenalizeStage, refill_stage::RefillStage,
-    retry_stage::RetryStage, save_stage::SaveStage,
-    top_block_estimate_stage::TopBlockEstimateStage, verify_stage_linear::VerifyStageLinear,
-    verify_stage_linear_link::VerifyStageLinearLink, HeaderSlicesView,
+    header_slices::HeaderSlices, penalize_stage::PenalizeStage, retry_stage::RetryStage,
+    save_stage::SaveStage, verify_stage_forky_link::VerifyStageForkyLink,
+    verify_stage_linear::VerifyStageLinear, HeaderSlicesView,
 };
 use crate::{
     downloader::{
         headers::{
-            header_slices::{align_block_num_to_slice_start, HeaderSliceStatus},
+            header_slices::align_block_num_to_slice_start,
             stage_stream::{make_stage_stream, StageStream},
         },
         ui_system::{UISystemShared, UISystemViewScope},
@@ -22,96 +21,63 @@ use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
 #[derive(Debug)]
-pub struct DownloaderLinear {
+pub struct DownloaderForky {
     chain_config: ChainConfig,
-    mem_limit: usize,
     sentry: SentryClientReactorShared,
 }
 
-pub struct DownloaderLinearReport {
+pub struct DownloaderForkyReport {
     pub loaded_count: usize,
     pub final_block_num: BlockNumber,
-    pub target_final_block_num: BlockNumber,
-    pub estimated_top_block_num: BlockNumber,
 }
 
-impl DownloaderLinear {
-    pub fn new(
-        chain_config: ChainConfig,
-        mem_limit: usize,
-        sentry: SentryClientReactorShared,
-    ) -> Self {
+impl DownloaderForky {
+    pub fn new(chain_config: ChainConfig, sentry: SentryClientReactorShared) -> Self {
         Self {
             chain_config,
-            mem_limit,
             sentry,
         }
-    }
-
-    async fn estimate_top_block_num(
-        &self,
-        start_block_num: BlockNumber,
-    ) -> anyhow::Result<BlockNumber> {
-        info!("DownloaderLinear: waiting to estimate a top block number...");
-        let stage = TopBlockEstimateStage::new(self.sentry.clone());
-        while !stage.is_over() && stage.estimated_top_block_num().is_none() {
-            stage.execute().await?;
-        }
-        let estimated_top_block_num = stage.estimated_top_block_num().unwrap_or(start_block_num);
-        info!(
-            "DownloaderLinear: estimated top block number = {}",
-            estimated_top_block_num.0
-        );
-        Ok(estimated_top_block_num)
     }
 
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_id: BlockHashAndNumber,
-        estimated_top_block_num: Option<BlockNumber>,
         max_blocks_count: usize,
         ui_system: UISystemShared,
-    ) -> anyhow::Result<DownloaderLinearReport> {
+    ) -> anyhow::Result<DownloaderForkyReport> {
         let start_block_num = start_block_id.number;
 
-        let trusted_len: u64 = 90_000;
+        // Assuming we've downloaded all but last 90K headers in previous phases
+        // we need to download them now, plus a bit more,
+        // because extra blocks have been generating while downloading.
+        // (ropsten/mainnet generate about 6500K blocks per day, and the sync is hopefully faster)
+        // It must be less than Opts::headers_batch_size to pass the max_blocks_count check below.
+        let forky_max_blocks_count: usize = 99_000;
 
-        let estimated_top_block_num = match estimated_top_block_num {
-            Some(block_num) => block_num,
-            None => self.estimate_top_block_num(start_block_num).await?,
-        };
-
-        let target_final_block_num = if estimated_top_block_num.0 > trusted_len {
-            align_block_num_to_slice_start(BlockNumber(estimated_top_block_num.0 - trusted_len))
-        } else {
-            BlockNumber(0)
-        };
-        let final_block_num = BlockNumber(std::cmp::min(
-            target_final_block_num.0,
-            align_block_num_to_slice_start(BlockNumber(
-                start_block_num.0 + (max_blocks_count as u64),
-            ))
-            .0,
-        ));
-
-        if start_block_num.0 >= final_block_num.0 {
-            return Ok(DownloaderLinearReport {
+        if max_blocks_count < forky_max_blocks_count {
+            return Ok(DownloaderForkyReport {
                 loaded_count: 0,
                 final_block_num: start_block_num,
-                target_final_block_num,
-                estimated_top_block_num,
             });
         }
 
+        // This is more than enough to store forky_max_blocks_count blocks.
+        // It's not gonna affect the window size or memory usage.
+        let mem_limit = byte_unit::n_gib_bytes!(1) as usize;
+
+        let final_block_num = align_block_num_to_slice_start(BlockNumber(
+            start_block_num.0 + (forky_max_blocks_count as u64),
+        ));
+
         let header_slices = Arc::new(HeaderSlices::new(
-            self.mem_limit,
+            mem_limit,
             start_block_num,
             final_block_num,
         ));
         let sentry = self.sentry.clone();
 
-        let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderLinear");
+        let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderForky");
         let _header_slices_view_scope =
             UISystemViewScope::new(&ui_system, Box::new(header_slices_view));
 
@@ -134,16 +100,14 @@ impl DownloaderLinear {
             header_slices::HEADER_SLICE_SIZE,
             self.chain_config.clone(),
         );
-        let verify_link_stage = VerifyStageLinearLink::new(
+        let verify_link_stage = VerifyStageForkyLink::new(
             header_slices.clone(),
             self.chain_config.clone(),
             start_block_num,
             start_block_id.hash,
-            HeaderSliceStatus::Invalid,
         );
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
-        let refill_stage = RefillStage::new(header_slices.clone());
 
         let can_proceed = fetch_receive_stage.can_proceed_check();
 
@@ -161,7 +125,6 @@ impl DownloaderLinear {
         stream.insert("verify_link_stage", make_stage_stream(verify_link_stage));
         stream.insert("penalize_stage", make_stage_stream(penalize_stage));
         stream.insert("save_stage", make_stage_stream(save_stage));
-        stream.insert("refill_stage", make_stage_stream(refill_stage));
 
         while let Some((key, result)) = stream.next().await {
             if result.is_err() {
@@ -179,11 +142,9 @@ impl DownloaderLinear {
             header_slices.notify_status_watchers();
         }
 
-        let report = DownloaderLinearReport {
+        let report = DownloaderForkyReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
             final_block_num: header_slices.min_block_num(),
-            target_final_block_num,
-            estimated_top_block_num,
         };
 
         Ok(report)

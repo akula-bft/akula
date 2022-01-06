@@ -106,14 +106,12 @@ impl VerifyStageLinear {
             return false;
         }
 
-        header_slice_verifier::verify_slice_is_linked_by_parent_hash(headers)
-            && header_slice_verifier::verify_slice_block_nums(headers, slice.start_block_num)
-            && header_slice_verifier::verify_slice_timestamps(headers, Self::now_timestamp())
-            && header_slice_verifier::verify_slice_difficulties(
-                headers,
-                self.chain_config.chain_spec(),
-            )
-            && header_slice_verifier::verify_slice_pow(headers)
+        header_slice_verifier::verify_slice(
+            headers,
+            slice.start_block_num,
+            Self::now_timestamp(),
+            self.chain_config.chain_spec(),
+        )
     }
 }
 
