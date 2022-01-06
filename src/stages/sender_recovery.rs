@@ -55,6 +55,7 @@ where
             .await?
             .map(|v| v.tx_num);
         let done = loop {
+            let mut read_again = false;
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
                     .take(body.tx_amount)
@@ -66,12 +67,9 @@ where
                 highest_block = block_number;
 
                 if batch.len() > BUFFERING_FACTOR {
+                    read_again = true;
                     break;
                 }
-            }
-
-            if batch.is_empty() {
-                break true;
             }
 
             let mut recovered_senders = batch
@@ -104,6 +102,10 @@ where
 
             for (db_key, db_value) in recovered_senders.drain(..) {
                 senders_cur.append(db_key, db_value).await?;
+            }
+
+            if !read_again {
+                break true;
             }
 
             let now = Instant::now();
