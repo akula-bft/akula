@@ -145,6 +145,36 @@ impl InMemoryState {
         self.difficulty[block_number].entry(hash).insert(d);
     }
 
+    pub fn read_body_with_senders(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
+        if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
+            return body_map
+                .get(&block_hash)
+                .map(|body| {
+                    Ok(BlockBodyWithSenders {
+                        transactions: body
+                            .transactions
+                            .iter()
+                            .map(|tx| {
+                                let sender = tx.recover_sender()?;
+                                Ok(MessageWithSender {
+                                    message: tx.message.clone(),
+                                    sender,
+                                })
+                            })
+                            .collect::<anyhow::Result<_>>()?,
+                        ommers: body.ommers.clone(),
+                    })
+                })
+                .transpose();
+        }
+
+        Ok(None)
+    }
+
     pub fn canonize_block(&mut self, block_number: BlockNumber, block_hash: H256) {
         let block_number = block_number.0 as usize;
 
@@ -250,36 +280,6 @@ impl State for InMemoryState {
     ) -> anyhow::Result<Option<BlockBody>> {
         if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
             return Ok(body_map.get(&block_hash).cloned());
-        }
-
-        Ok(None)
-    }
-
-    async fn read_body_with_senders(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
-        if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
-            return body_map
-                .get(&block_hash)
-                .map(|body| {
-                    Ok(BlockBodyWithSenders {
-                        transactions: body
-                            .transactions
-                            .iter()
-                            .map(|tx| {
-                                let sender = tx.recover_sender()?;
-                                Ok(MessageWithSender {
-                                    message: tx.message.clone(),
-                                    sender,
-                                })
-                            })
-                            .collect::<anyhow::Result<_>>()?,
-                        ommers: body.ommers.clone(),
-                    })
-                })
-                .transpose();
         }
 
         Ok(None)

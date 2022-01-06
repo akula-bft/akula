@@ -194,14 +194,6 @@ where
         accessors::chain::block_body::read_without_senders(self.txn, block_hash, block_number).await
     }
 
-    async fn read_body_with_senders(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
-        accessors::chain::block_body::read_with_senders(self.txn, block_hash, block_number).await
-    }
-
     async fn total_difficulty(
         &self,
         block_number: BlockNumber,
