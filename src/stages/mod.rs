@@ -1,4 +1,5 @@
 mod block_hashes;
+mod call_trace_index;
 mod cumulative_index;
 mod downloader;
 mod execution;
@@ -9,6 +10,7 @@ mod stage_util;
 mod tx_lookup;
 
 pub use block_hashes::BlockHashes;
+pub use call_trace_index::CallTraceIndex;
 pub use cumulative_index::CumulativeIndex;
 pub use downloader::HeaderDownload;
 pub use execution::Execution;

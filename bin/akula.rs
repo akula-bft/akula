@@ -600,6 +600,10 @@ async fn main() -> anyhow::Result<()> {
     });
     staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
     staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
+    staged_sync.push(CallTraceIndex {
+        temp_dir: etl_temp_dir.clone(),
+        flush_interval: 50_000,
+    });
     staged_sync.push(TerminatingStage {
         max_block: opt.max_block,
         exit_after_sync: opt.exit_after_sync,
