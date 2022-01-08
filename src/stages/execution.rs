@@ -261,7 +261,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         while let Some((block_number, tables::AccountChange { address, account })) =
             account_cs_cursor.last().await?
         {
-            if block_number == input.unwind_to {
+            if block_number <= input.unwind_to {
                 break;
             }
 
@@ -287,7 +287,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
             tables::StorageChange { location, value },
         )) = storage_cs_cursor.last().await?
         {
-            if block_number == input.unwind_to {
+            if block_number <= input.unwind_to {
                 break;
             }
 
@@ -300,7 +300,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         info!("Unwinding call trace sets");
         let mut call_trace_set_cursor = tx.mutable_cursor_dupsort(tables::CallTraceSet).await?;
         while let Some((block_number, _)) = call_trace_set_cursor.last().await? {
-            if block_number == input.unwind_to {
+            if block_number <= input.unwind_to {
                 break;
             }
 
