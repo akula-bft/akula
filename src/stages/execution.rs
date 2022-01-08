@@ -79,7 +79,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         let block_spec = chain_config.collect_block_spec(block_number);
 
         let mut call_tracer = CallTracer::default();
-        ExecutionProcessor::new(
+        let receipts = ExecutionProcessor::new(
             &mut buffer,
             Some(&mut call_tracer),
             &mut analysis_cache,
@@ -96,6 +96,8 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                 block_number, block_hash
             )
         })?;
+
+        buffer.insert_receipts(block_number, receipts);
 
         {
             let mut c = tx.mutable_cursor_dupsort(tables::CallTraceSet).await?;
@@ -295,6 +297,16 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 .await?;
 
             storage_cs_cursor.delete_current().await?;
+        }
+
+        info!("Unwinding logs");
+        let mut log_cursor = tx.mutable_cursor(tables::Log).await?;
+        while let Some(((block_number, _), _)) = log_cursor.last().await? {
+            if block_number <= input.unwind_to {
+                break;
+            }
+
+            log_cursor.delete_current().await?;
         }
 
         info!("Unwinding call trace sets");

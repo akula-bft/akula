@@ -64,6 +64,7 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "once_cell",
+ "parity-scale-codec",
  "parking_lot",
  "proptest",
  "rand 0.8.4",

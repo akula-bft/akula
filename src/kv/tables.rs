@@ -347,6 +347,59 @@ macro_rules! ron_table_object {
 
 ron_table_object!(ChainSpec);
 
+impl TableEncode for Vec<crate::models::Log> {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        use parity_scale_codec::*;
+
+        #[derive(Encode)]
+        struct LogEncode<'a> {
+            address: Address,
+            topics: Vec<H256>,
+            data: &'a [u8],
+        }
+
+        let mut out = vec![];
+
+        for log in self {
+            out = <Vec<LogEncode<'_>> as EncodeAppend>::append_or_new(
+                out,
+                std::iter::once(LogEncode {
+                    address: log.address,
+                    topics: log.topics,
+                    data: &*log.data,
+                }),
+            )
+            .unwrap();
+        }
+
+        out
+    }
+}
+
+impl TableDecode for Vec<crate::models::Log> {
+    fn decode(mut b: &[u8]) -> anyhow::Result<Self> {
+        use parity_scale_codec::*;
+
+        #[derive(Decode)]
+        struct LogDecode {
+            address: Address,
+            topics: Vec<H256>,
+            data: Vec<u8>,
+        }
+
+        Ok(Vec::<LogDecode>::decode(&mut b)?
+            .into_iter()
+            .map(|log| crate::models::Log {
+                address: log.address,
+                topics: log.topics,
+                data: log.data.into(),
+            })
+            .collect())
+    }
+}
+
 impl TableEncode for Address {
     type Encoded = [u8; ADDRESS_LENGTH];
 
@@ -815,6 +868,7 @@ decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(CumulativeIndex => BlockNumber => CumulativeData);
+decl_table!(Log => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
@@ -863,6 +917,7 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         BlockBody::const_db_name() => TableInfo::default(),
         BlockTransaction::const_db_name() => TableInfo::default(),
         CumulativeIndex::const_db_name() => TableInfo::default(),
+        Log::const_db_name() => TableInfo::default(),
         LogTopicIndex::const_db_name() => TableInfo::default(),
         LogAddressIndex::const_db_name() => TableInfo::default(),
         CallTraceSet::const_db_name() => TableInfo {
@@ -900,5 +955,27 @@ mod tests {
             assert_eq!(fixture.encode().to_vec(), expected);
             assert_eq!(U256::decode(&expected).unwrap(), fixture);
         }
+    }
+
+    #[test]
+    fn log() {
+        let input = vec![
+            crate::models::Log {
+                address: Address::from([0; 20]),
+                topics: vec![H256([1; 32]), H256([2; 32])],
+                data: hex!("BAADCAFE").to_vec().into(),
+            },
+            crate::models::Log {
+                address: Address::from([1; 20]),
+                topics: vec![H256([3; 32]), H256([4; 32])],
+                data: hex!("DEADBEEF").to_vec().into(),
+            },
+        ];
+
+        let encoded = input.clone().encode();
+
+        println!("{}", hex::encode(&encoded));
+
+        assert_eq!(Vec::<crate::models::Log>::decode(&encoded).unwrap(), input);
     }
 }

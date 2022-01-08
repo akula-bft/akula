@@ -52,6 +52,7 @@ where
     storage_changes: BTreeMap<BlockNumber, StorageChanges>, // per block
 
     hash_to_code: BTreeMap<H256, Bytes>,
+    logs: BTreeMap<(BlockNumber, TxIndex), Vec<Log>>,
 
     // Current block stuff
     block_number: BlockNumber,
@@ -78,8 +79,16 @@ where
             account_changes: Default::default(),
             storage_changes: Default::default(),
             hash_to_code: Default::default(),
+            logs: Default::default(),
             block_number: Default::default(),
             changed_storage: Default::default(),
+        }
+    }
+
+    pub fn insert_receipts(&mut self, block_number: BlockNumber, receipts: Vec<Receipt>) {
+        for (i, receipt) in receipts.into_iter().enumerate() {
+            self.logs
+                .insert((block_number, TxIndex(i.try_into().unwrap())), receipt.logs);
         }
     }
 }
@@ -315,6 +324,12 @@ where
                         .await?;
                 }
             }
+        }
+
+        debug!("Writing logs");
+        let mut log_table = self.txn.mutable_cursor(tables::Log).await?;
+        for ((block_number, idx), logs) in std::mem::take(&mut self.logs) {
+            log_table.append((block_number, idx), logs).await?;
         }
 
         Ok(())
