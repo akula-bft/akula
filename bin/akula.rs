@@ -63,6 +63,10 @@ pub struct Opt {
     #[clap(flatten)]
     pub downloader_opts: akula::downloader::opts::Opts,
 
+    /// Sender recovery batch size (blocks)
+    #[clap(long, default_value = "50000")]
+    pub sender_recovery_batch_size: u64,
+
     /// Execution batch size (Ggas).
     #[clap(long, default_value = "5000")]
     pub execution_batch_size: u64,
@@ -587,7 +591,9 @@ async fn main() -> anyhow::Result<()> {
         // also add body download stage here
     }
     staged_sync.push(CumulativeIndex);
-    staged_sync.push(SenderRecovery);
+    staged_sync.push(SenderRecovery {
+        batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
+    });
     staged_sync.push(Execution {
         batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
         history_batch_size: opt

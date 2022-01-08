@@ -154,18 +154,16 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
                     String::new()
                 } else {
                     let elapsed_since_start = now - first_started_at.0;
+                    let ratio_complete = (current_total_gas - first_started_at_gas) as f64
+                        / (total_gas - first_started_at_gas) as f64;
                     format!(
                         ", progress: {:0>2.2}%, {} remaining",
-                        ((current_total_gas - first_started_at_gas) as f64
-                            / (total_gas - first_started_at_gas) as f64)
-                            * 100_f64,
+                        ratio_complete * 100_f64,
                         format_duration(
                             Duration::from_secs(
-                                (elapsed_since_start.as_secs() as f64
-                                    * ((total_gas - current_total_gas) as f64
-                                        / (current_total_gas - first_started_at_gas) as f64))
-                                    as u64
-                            ),
+                                (elapsed_since_start.as_secs() as f64 / ratio_complete) as u64
+                            )
+                            .saturating_sub(elapsed_since_start),
                             false
                         )
                     )

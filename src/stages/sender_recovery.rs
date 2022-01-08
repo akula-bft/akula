@@ -15,7 +15,9 @@ use tokio_stream::StreamExt as _;
 use tracing::*;
 
 #[derive(Debug)]
-pub struct SenderRecovery;
+pub struct SenderRecovery {
+    pub batch_size: usize,
+}
 
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for SenderRecovery
@@ -37,7 +39,6 @@ where
         let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let mut highest_block = original_highest_block;
 
-        const BUFFERING_FACTOR: usize = 5000;
         let mut body_cur = tx.cursor(tables::BlockBody).await?;
         let mut tx_cur = tx.cursor(tables::BlockTransaction.erased()).await?;
         let mut senders_cur = tx.mutable_cursor(tables::TxSender.erased()).await?;
@@ -45,7 +46,7 @@ where
 
         let walker = walk(&mut body_cur, Some(BlockNumber(highest_block.0 + 1)));
         pin!(walker);
-        let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
+        let mut batch = Vec::with_capacity(self.batch_size);
         let started_at = Instant::now();
         let started_at_txnum = tx
             .get(
@@ -56,6 +57,7 @@ where
             .map(|v| v.tx_num);
         let done = loop {
             let mut read_again = false;
+            debug!("Reading bodies");
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
                     .take(body.tx_amount)
@@ -66,12 +68,13 @@ where
 
                 highest_block = block_number;
 
-                if batch.len() > BUFFERING_FACTOR {
+                if batch.len() >= self.batch_size {
                     read_again = true;
                     break;
                 }
             }
 
+            debug!("Recovering senders from batch of {} bodies", batch.len());
             let mut recovered_senders = batch
                 .par_drain(..)
                 .filter_map(move |(block_number, hash, txs)| {
@@ -100,6 +103,7 @@ where
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
+            debug!("Inserting recovered senders");
             for (db_key, db_value) in recovered_senders.drain(..) {
                 senders_cur.append(db_key, db_value).await?;
             }
@@ -129,17 +133,24 @@ where
                         if let Some(total_txnum) = total_txnum {
                             let elapsed_since_start = now - input.first_started_at.0;
 
+                            let ratio_complete = (current_txnum - started_at_txnum) as f64
+                                / (total_txnum - started_at_txnum) as f64;
+
+                            let estimated_total_time = Duration::from_secs(
+                                (elapsed_since_start.as_secs() as f64 / ratio_complete) as u64,
+                            );
+
+                            debug!(
+                                "Elapsed since start {:?}, ratio complete {:?}, estimated total time {:?}",
+                                elapsed_since_start, ratio_complete, estimated_total_time
+                            );
+
                             format_string = format!(
-                                "{}, progress: {:.2}%, {} remaining",
+                                "{}, progress: {:0>2.2}%, {} remaining",
                                 format_string,
-                                (current_txnum as f64 / total_txnum as f64) * 100_f64,
+                                ratio_complete * 100_f64,
                                 format_duration(
-                                    Duration::from_secs(
-                                        (elapsed_since_start.as_secs() as f64
-                                            * ((total_txnum - current_txnum) as f64
-                                                / (current_txnum - started_at_txnum) as f64))
-                                            as u64
-                                    ),
+                                    estimated_total_time.saturating_sub(elapsed_since_start),
                                     false
                                 )
                             );
@@ -356,7 +367,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stage = SenderRecovery {};
+        let stage = SenderRecovery { batch_size: 50_000 };
 
         let stage_input = StageInput {
             restarted: false,
