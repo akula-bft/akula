@@ -500,6 +500,10 @@ where
 async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
 
+    let nocolor = std::env::var("RUST_LOG_STYLE")
+        .map(|val| val == "never")
+        .unwrap_or(false);
+
     // tracing setup
     let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
         .unwrap_or_default()
@@ -510,7 +514,11 @@ async fn main() -> anyhow::Result<()> {
         EnvFilter::from_default_env()
     };
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_target(false))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_ansi(!nocolor),
+        )
         .with(env_filter)
         .init();
 
