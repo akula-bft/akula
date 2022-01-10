@@ -51,7 +51,7 @@ pub trait Tracer: Send + 'static {
     ) {
     }
     fn capture_end(&mut self, depth: u16, output: Bytes, gas_left: u64, err: StatusCode) {}
-    fn capture_self_destruct(&mut self, from: Address, to: Address, value: U256) {}
+    fn capture_self_destruct(&mut self, caller: Address, beneficiary: Address) {}
     fn capture_account_read(&mut self, account: Address) {}
     fn capture_account_write(&mut self, account: Address) {}
 }
@@ -80,6 +80,11 @@ impl Tracer for CallTracer {
     ) {
         self.addresses.entry(from).or_default().from = true;
         self.addresses.entry(to).or_default().to = true;
+    }
+
+    fn capture_self_destruct(&mut self, caller: Address, beneficiary: Address) {
+        self.addresses.entry(caller).or_default().from = true;
+        self.addresses.entry(beneficiary).or_default().to = true;
     }
 }
 
