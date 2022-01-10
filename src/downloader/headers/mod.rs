@@ -10,6 +10,7 @@ mod parallel;
 pub mod stage;
 mod stage_stream;
 
+mod downloader_stage_loop;
 mod fetch_receive_stage;
 mod fetch_request_stage;
 mod fork_mode_stage;
