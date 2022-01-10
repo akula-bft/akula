@@ -84,11 +84,7 @@ impl DownloaderForky {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStageLinear::new(
-            header_slices.clone(),
-            header_slices::HEADER_SLICE_SIZE,
-            self.chain_config.clone(),
-        );
+        let verify_stage = VerifyStageLinear::new(header_slices.clone(), self.chain_config.clone());
         let verify_link_stage = VerifyStageForkyLink::new(
             header_slices.clone(),
             self.chain_config.clone(),
