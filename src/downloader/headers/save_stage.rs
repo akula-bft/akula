@@ -61,17 +61,9 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
     async fn save_pending_monotonic(&mut self, pending_count: usize) -> anyhow::Result<usize> {
         let mut saved_count: usize = 0;
         for _ in 0..pending_count {
-            let initial_value = Option::<Arc<RwLock<HeaderSlice>>>::None;
-            let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
-                let slice = slice_lock.read();
-                match slice.status {
-                    HeaderSliceStatus::Saved => ControlFlow::Continue(None),
-                    HeaderSliceStatus::Verified => ControlFlow::Break(Some(slice_lock.clone())),
-                    _ => ControlFlow::Break(None),
-                }
-            });
+            let next_slice_lock = self.find_next_pending_monotonic();
 
-            if let ControlFlow::Break(Some(slice_lock)) = next_slice_lock {
+            if let Some(slice_lock) = next_slice_lock {
                 self.save_slice(slice_lock).await?;
                 saved_count += 1;
             } else {
@@ -79,6 +71,24 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
             }
         }
         Ok(saved_count)
+    }
+
+    fn find_next_pending_monotonic(&self) -> Option<Arc<RwLock<HeaderSlice>>> {
+        let initial_value = Option::<Arc<RwLock<HeaderSlice>>>::None;
+        let next_slice_lock = self.header_slices.try_fold(initial_value, |_, slice_lock| {
+            let slice = slice_lock.read();
+            match slice.status {
+                HeaderSliceStatus::Saved => ControlFlow::Continue(None),
+                HeaderSliceStatus::Verified => ControlFlow::Break(Some(slice_lock.clone())),
+                _ => ControlFlow::Break(None),
+            }
+        });
+
+        if let ControlFlow::Break(slice_lock_opt) = next_slice_lock {
+            slice_lock_opt
+        } else {
+            None
+        }
     }
 
     // this is kept for performance comparison with save_pending_monotonic

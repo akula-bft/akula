@@ -103,6 +103,7 @@ impl From<HeaderSliceStatus> for char {
             HeaderSliceStatus::VerifiedInternally => '=',
             HeaderSliceStatus::Verified => '#',
             HeaderSliceStatus::Invalid => 'x',
+            HeaderSliceStatus::Fork => 'Y',
             HeaderSliceStatus::Saved => '+',
         }
     }

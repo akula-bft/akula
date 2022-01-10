@@ -4,6 +4,27 @@ use crate::{
     models::{switch_is_active, BlockNumber, ChainSpec, SealVerificationParams, EMPTY_LIST_HASH},
 };
 
+pub fn verify_link(child: &BlockHeader, parent: &BlockHeader, chain_spec: &ChainSpec) -> bool {
+    verify_link_by_parent_hash(child, parent)
+        && verify_link_block_nums(child, parent)
+        && verify_link_timestamps(child, parent)
+        && verify_link_difficulties(child, parent, chain_spec)
+        && verify_link_pow(child, parent)
+}
+
+pub fn verify_slice(
+    headers: &[BlockHeader],
+    start_block_num: BlockNumber,
+    max_timestamp: u64,
+    chain_spec: &ChainSpec,
+) -> bool {
+    verify_slice_is_linked_by_parent_hash(headers)
+        && verify_slice_block_nums(headers, start_block_num)
+        && verify_slice_timestamps(headers, max_timestamp)
+        && verify_slice_difficulties(headers, chain_spec)
+        && verify_slice_pow(headers)
+}
+
 pub fn verify_link_by_parent_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
     let given_parent_hash = child.parent_hash();
     let expected_parent_hash = parent.hash();

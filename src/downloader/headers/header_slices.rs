@@ -26,6 +26,8 @@ pub enum HeaderSliceStatus {
     Verified,
     // verification failed
     Invalid,
+    // linking to the canonical chain failed, a potential fork
+    Fork,
     // saved in the database
     Saved,
 }
