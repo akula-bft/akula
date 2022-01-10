@@ -1,6 +1,5 @@
 use super::{
     header::BlockHeader,
-    header_slices,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
 use crate::sentry::{
@@ -64,11 +63,8 @@ impl FetchReceiveStage {
         debug!("FetchReceiveStage: received a headers slice");
 
         let headers = message_from_peer.message.headers;
-        if headers.len() < header_slices::HEADER_SLICE_SIZE {
-            warn!(
-                "FetchReceiveStage got a headers slice of a smaller size: {}",
-                headers.len()
-            );
+        if headers.is_empty() {
+            warn!("FetchReceiveStage got an empty slice");
             return;
         }
 
