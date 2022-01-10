@@ -1,15 +1,13 @@
 use super::{
-    fetch_receive_stage::FetchReceiveStage, fetch_request_stage::FetchRequestStage, header_slices,
-    header_slices::HeaderSlices, penalize_stage::PenalizeStage, retry_stage::RetryStage,
-    save_stage::SaveStage, verify_stage_forky_link::VerifyStageForkyLink,
-    verify_stage_linear::VerifyStageLinear, HeaderSlicesView,
+    downloader_stage_loop::DownloaderStageLoop, fetch_receive_stage::FetchReceiveStage,
+    fetch_request_stage::FetchRequestStage, header_slices, header_slices::HeaderSlices,
+    penalize_stage::PenalizeStage, retry_stage::RetryStage, save_stage::SaveStage,
+    verify_stage_forky_link::VerifyStageForkyLink, verify_stage_linear::VerifyStageLinear,
+    HeaderSlicesView,
 };
 use crate::{
     downloader::{
-        headers::{
-            header_slices::align_block_num_to_slice_start,
-            stage_stream::{make_stage_stream, StageStream},
-        },
+        headers::header_slices::align_block_num_to_slice_start,
         ui_system::{UISystemShared, UISystemViewScope},
     },
     kv,
@@ -17,8 +15,6 @@ use crate::{
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
 use std::sync::Arc;
-use tokio_stream::{StreamExt, StreamMap};
-use tracing::*;
 
 #[derive(Debug)]
 pub struct DownloaderForky {
@@ -81,13 +77,6 @@ impl DownloaderForky {
         let _header_slices_view_scope =
             UISystemViewScope::new(&ui_system, Box::new(header_slices_view));
 
-        // Downloading happens with several stages where
-        // each of the stages processes blocks in one status,
-        // and updates them to proceed to the next status.
-        // All stages runs in parallel,
-        // although most of the time only one of the stages is actively running,
-        // while the others are waiting for the status updates or timeouts.
-
         let fetch_request_stage = FetchRequestStage::new(
             header_slices.clone(),
             sentry.clone(),
@@ -111,36 +100,16 @@ impl DownloaderForky {
 
         let can_proceed = fetch_receive_stage.can_proceed_check();
 
-        let mut stream = StreamMap::<&str, StageStream>::new();
-        stream.insert(
-            "fetch_request_stage",
-            make_stage_stream(fetch_request_stage),
-        );
-        stream.insert(
-            "fetch_receive_stage",
-            make_stage_stream(fetch_receive_stage),
-        );
-        stream.insert("retry_stage", make_stage_stream(retry_stage));
-        stream.insert("verify_stage", make_stage_stream(verify_stage));
-        stream.insert("verify_link_stage", make_stage_stream(verify_link_stage));
-        stream.insert("penalize_stage", make_stage_stream(penalize_stage));
-        stream.insert("save_stage", make_stage_stream(save_stage));
+        let mut stages = DownloaderStageLoop::new(&header_slices);
+        stages.insert(fetch_request_stage);
+        stages.insert(fetch_receive_stage);
+        stages.insert(retry_stage);
+        stages.insert(verify_stage);
+        stages.insert(verify_link_stage);
+        stages.insert(penalize_stage);
+        stages.insert(save_stage);
 
-        while let Some((key, result)) = stream.next().await {
-            if result.is_err() {
-                error!("Downloader headers {} failure: {:?}", key, result);
-                break;
-            }
-
-            if !can_proceed() {
-                break;
-            }
-            if header_slices.is_empty_at_final_position() {
-                break;
-            }
-
-            header_slices.notify_status_watchers();
-        }
+        stages.run(can_proceed).await;
 
         let report = DownloaderForkyReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
