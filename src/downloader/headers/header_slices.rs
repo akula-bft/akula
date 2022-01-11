@@ -28,6 +28,8 @@ pub enum HeaderSliceStatus {
     Invalid,
     // linking to the canonical chain failed, a potential fork
     Fork,
+    // request refetching to try linking an alternative slice
+    Refetch,
     // saved in the database
     Saved,
 }
@@ -39,6 +41,8 @@ pub struct HeaderSlice {
     pub from_peer_id: Option<PeerId>,
     pub request_time: Option<time::Instant>,
     pub request_attempt: u16,
+    pub fork_status: HeaderSliceStatus,
+    pub fork_headers: Option<Vec<BlockHeader>>,
 }
 
 struct HeaderSliceStatusWatch {
@@ -97,6 +101,8 @@ impl HeaderSlices {
                 from_peer_id: None,
                 request_time: None,
                 request_attempt: 0,
+                fork_status: HeaderSliceStatus::Empty,
+                fork_headers: None,
             };
             slices.push_back(Arc::new(RwLock::new(slice)));
         }
@@ -168,6 +174,18 @@ impl HeaderSlices {
             .map(Arc::clone)
     }
 
+    pub fn find_by_block_num(&self, block_num: BlockNumber) -> Option<Arc<RwLock<HeaderSlice>>> {
+        let start_block_num = align_block_num_to_slice_start(block_num);
+        let slice_opt = self.find_by_start_block_num(start_block_num);
+        slice_opt.and_then(|slice_lock| {
+            if slice_lock.read().contains_block_num(block_num) {
+                Some(slice_lock)
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn find_by_status(&self, status: HeaderSliceStatus) -> Option<Arc<RwLock<HeaderSlice>>> {
         let slices = self.slices.read();
         slices
@@ -233,6 +251,8 @@ impl HeaderSlices {
                 from_peer_id: None,
                 request_time: None,
                 request_attempt: 0,
+                fork_status: HeaderSliceStatus::Empty,
+                fork_headers: None,
             };
             slices.push_back(Arc::new(RwLock::new(slice)));
             self.max_block_num
@@ -314,4 +334,19 @@ impl HeaderSlices {
 pub fn align_block_num_to_slice_start(num: BlockNumber) -> BlockNumber {
     let slice_size = HEADER_SLICE_SIZE as u64;
     BlockNumber(num.0 / slice_size * slice_size)
+}
+
+impl HeaderSlice {
+    pub fn len(&self) -> usize {
+        self.headers.as_ref().map_or(0, |headers| headers.len())
+    }
+
+    pub fn block_num_range(&self) -> std::ops::Range<BlockNumber> {
+        let end = BlockNumber(self.start_block_num.0 + self.len() as u64);
+        self.start_block_num..end
+    }
+
+    pub fn contains_block_num(&self, num: BlockNumber) -> bool {
+        self.block_num_range().contains(&num)
+    }
 }

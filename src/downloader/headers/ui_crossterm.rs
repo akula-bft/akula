@@ -104,6 +104,7 @@ impl From<HeaderSliceStatus> for char {
             HeaderSliceStatus::Verified => '#',
             HeaderSliceStatus::Invalid => 'x',
             HeaderSliceStatus::Fork => 'Y',
+            HeaderSliceStatus::Refetch => 'R',
             HeaderSliceStatus::Saved => '+',
         }
     }
