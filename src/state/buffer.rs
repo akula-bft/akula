@@ -332,6 +332,8 @@ where
             log_table.append((block_number, idx), logs).await?;
         }
 
+        debug!("History write complete");
+
         Ok(())
     }
 
