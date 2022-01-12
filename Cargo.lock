@@ -400,9 +400,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.0.5"
+version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6f34b09b9ee8c7c7b400fe2f8df39cafc9538b03d6ba7f4ae13e4cb90bfbb7d"
+checksum = "1957aa4a5fb388f0a0a73ce7556c5b42025b874e5cdc2c670775e346e97adec0"
 dependencies = [
  "atty",
  "bitflags",
@@ -417,9 +417,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "3.0.5"
+version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41a0645a430ec9136d2d701e54a95d557de12649a9dd7109ced3187e648ac824"
+checksum = "517358c28fcef6607bf6f76108e02afad7e82297d132a6b846dcc1fc3efcd153"
 dependencies = [
  "heck 0.4.0",
  "proc-macro-error",
@@ -489,9 +489,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06ed27e177f16d65f0f0c22a213e17c696ace5dd64b14258b52f9417ccb52db4"
+checksum = "e54ea8bc3fb1ee042f5aace6e3c6e025d3874866da222930f70ce62aceba0bfa"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -510,9 +510,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.5"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ec02e091aa634e2c3ada4a392989e7c3116673ef0ac5b72232439094d73b7fd"
+checksum = "97242a70df9b89a65d0b6df3c4bf5b9ce03c5b7309019777fbde37e7537f8762"
 dependencies = [
  "cfg-if",
  "crossbeam-utils",
@@ -523,9 +523,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d82cfc11ce7f2c3faef78d8a684447b40d503d9681acebed6cb728d45940c4db"
+checksum = "cfcae03edb34f947e64acdb1c33ec169824e20657e9ecb61cef6c8c74dcb8120"
 dependencies = [
  "cfg-if",
  "lazy_static",
@@ -802,6 +802,15 @@ dependencies = [
  "serde_json",
  "sha3",
  "strum_macros",
+]
+
+[[package]]
+name = "fastrand"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "779d043b6a0b90cc4c0ed7ee380a6504394cee7efd7db050e3774eee387324b2"
+dependencies = [
+ "instant",
 ]
 
 [[package]]
@@ -1267,7 +1276,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee"
 version = "0.7.0"
-source = "git+https://github.com/paritytech/jsonrpsee#3749ae277ff8da1c1bb285420a97055e7b9a137a"
+source = "git+https://github.com/paritytech/jsonrpsee#f509346d801d509ef1bfe477c02a53c3bba7ecde"
 dependencies = [
  "jsonrpsee-core",
  "jsonrpsee-http-server",
@@ -1279,7 +1288,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-core"
 version = "0.7.0"
-source = "git+https://github.com/paritytech/jsonrpsee#3749ae277ff8da1c1bb285420a97055e7b9a137a"
+source = "git+https://github.com/paritytech/jsonrpsee#f509346d801d509ef1bfe477c02a53c3bba7ecde"
 dependencies = [
  "anyhow",
  "arrayvec",
@@ -1303,7 +1312,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-http-server"
 version = "0.7.0"
-source = "git+https://github.com/paritytech/jsonrpsee#3749ae277ff8da1c1bb285420a97055e7b9a137a"
+source = "git+https://github.com/paritytech/jsonrpsee#f509346d801d509ef1bfe477c02a53c3bba7ecde"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -1322,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-proc-macros"
 version = "0.7.0"
-source = "git+https://github.com/paritytech/jsonrpsee#3749ae277ff8da1c1bb285420a97055e7b9a137a"
+source = "git+https://github.com/paritytech/jsonrpsee#f509346d801d509ef1bfe477c02a53c3bba7ecde"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1333,7 +1342,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-types"
 version = "0.7.0"
-source = "git+https://github.com/paritytech/jsonrpsee#3749ae277ff8da1c1bb285420a97055e7b9a137a"
+source = "git+https://github.com/paritytech/jsonrpsee#f509346d801d509ef1bfe477c02a53c3bba7ecde"
 dependencies = [
  "anyhow",
  "beef",
@@ -1346,7 +1355,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-ws-server"
 version = "0.7.0"
-source = "git+https://github.com/paritytech/jsonrpsee#3749ae277ff8da1c1bb285420a97055e7b9a137a"
+source = "git+https://github.com/paritytech/jsonrpsee#f509346d801d509ef1bfe477c02a53c3bba7ecde"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -2554,13 +2563,13 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
-version = "3.2.0"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dac1c663cfc93810f88aed9b8941d48cabf856a1b111c29a40439018d870eb22"
+checksum = "5cdb1ef4eaeeaddc8fbd371e5017057064af0911902ef36b39801f67cc6d79e4"
 dependencies = [
  "cfg-if",
+ "fastrand",
  "libc",
- "rand 0.8.4",
  "redox_syscall",
  "remove_dir_all",
  "winapi",
