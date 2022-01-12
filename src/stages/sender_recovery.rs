@@ -60,7 +60,7 @@ where
             debug!("Reading bodies");
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
-                    .take(body.tx_amount)
+                    .take(body.tx_amount.try_into()?)
                     .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()
                     .await?;

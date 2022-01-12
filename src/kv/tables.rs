@@ -3,7 +3,7 @@ use crate::{models::*, zeroless_view, StageId};
 use anyhow::{bail, format_err};
 use arrayref::array_ref;
 use arrayvec::ArrayVec;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
 use derive_more::*;
 use ethereum_types::*;
@@ -287,45 +287,27 @@ where
     }
 }
 
-macro_rules! rlp_table_object {
+macro_rules! scale_table_object {
     ($ty:ty) => {
         impl TableEncode for $ty {
-            type Encoded = BytesMut;
+            type Encoded = Vec<u8>;
 
             fn encode(self) -> Self::Encoded {
-                rlp::encode(&self)
+                ::parity_scale_codec::Encode::encode(&self)
             }
         }
 
         impl TableDecode for $ty {
-            fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(rlp::decode(b)?)
+            fn decode(mut b: &[u8]) -> anyhow::Result<Self> {
+                Ok(<Self as ::parity_scale_codec::Decode>::decode(&mut b)?)
             }
         }
     };
 }
 
-macro_rules! rlp_standalone_table_object {
-    ($ty:ty) => {
-        impl TableEncode for $ty {
-            type Encoded = Bytes;
-
-            fn encode(self) -> Self::Encoded {
-                crate::crypto::TrieEncode::trie_encode(&self)
-            }
-        }
-
-        impl TableDecode for $ty {
-            fn decode(b: &[u8]) -> anyhow::Result<Self> {
-                Ok(Self::trie_decode(b)?)
-            }
-        }
-    };
-}
-
-rlp_table_object!(BodyForStorage);
-rlp_table_object!(BlockHeader);
-rlp_standalone_table_object!(MessageWithSignature);
+scale_table_object!(BodyForStorage);
+scale_table_object!(BlockHeader);
+scale_table_object!(MessageWithSignature);
 
 macro_rules! ron_table_object {
     ($ty:ident) => {

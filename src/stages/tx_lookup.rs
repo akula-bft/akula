@@ -59,7 +59,8 @@ where
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.try_next().await? {
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
 
-            let walker_block_txs = walk(&mut block_txs_cursor, Some(tx_base_id)).take(tx_count);
+            let walker_block_txs =
+                walk(&mut block_txs_cursor, Some(tx_base_id)).take(tx_count.try_into()?);
             pin!(walker_block_txs);
 
             while let Some((_, tx)) = walker_block_txs.try_next().await? {

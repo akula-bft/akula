@@ -46,7 +46,35 @@ macro_rules! u64_wrapper {
             Deserialize,
         )]
         #[serde(transparent)]
+        #[repr(transparent)]
         pub struct $ty(pub u64);
+
+        impl ::parity_scale_codec::WrapperTypeEncode for $ty {}
+        impl ::parity_scale_codec::EncodeLike for $ty {}
+        impl ::parity_scale_codec::EncodeLike<u64> for $ty {}
+        impl ::parity_scale_codec::EncodeLike<$ty> for u64 {}
+
+        impl ::parity_scale_codec::WrapperTypeDecode for $ty {
+            type Wrapped = u64;
+        }
+
+        impl From<::parity_scale_codec::Compact<$ty>> for $ty {
+            fn from(x: ::parity_scale_codec::Compact<$ty>) -> $ty {
+                x.0
+            }
+        }
+
+        impl ::parity_scale_codec::CompactAs for $ty {
+            type As = u64;
+
+            fn encode_as(&self) -> &Self::As {
+                &self.0
+            }
+
+            fn decode_from(v: Self::As) -> Result<Self, ::parity_scale_codec::Error> {
+                Ok(Self(v))
+            }
+        }
 
         impl Encodable for $ty {
             fn rlp_append(&self, s: &mut rlp::RlpStream) {
@@ -56,7 +84,7 @@ macro_rules! u64_wrapper {
 
         impl Decodable for $ty {
             fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
-                u64::decode(rlp).map(Self)
+                <u64 as Decodable>::decode(rlp).map(Self)
             }
         }
 

@@ -8,6 +8,7 @@ use derive_more::Deref;
 use educe::Educe;
 use ethereum_types::*;
 use hex_literal::hex;
+use parity_scale_codec::{Decode, Encode};
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
@@ -24,7 +25,7 @@ pub enum TxType {
     EIP1559 = 2,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub enum TransactionAction {
     Call(Address),
     Create,
@@ -93,7 +94,7 @@ impl YParityAndChainId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct MessageSignature {
     odd_y_parity: bool,
     r: H256,
@@ -147,7 +148,7 @@ impl MessageSignature {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct AccessListItem {
     pub address: Address,
     pub slots: Vec<H256>,
@@ -172,13 +173,15 @@ impl Decodable for AccessListItem {
 
 pub type AccessList = Vec<AccessListItem>;
 
-#[derive(Clone, Educe, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Educe, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 #[educe(Debug)]
 pub enum Message {
     Legacy {
         chain_id: Option<ChainId>,
+        #[codec(compact)]
         nonce: u64,
         gas_price: U256,
+        #[codec(compact)]
         gas_limit: u64,
         action: TransactionAction,
         value: U256,
@@ -186,9 +189,12 @@ pub enum Message {
         input: Bytes,
     },
     EIP2930 {
+        #[codec(compact)]
         chain_id: ChainId,
+        #[codec(compact)]
         nonce: u64,
         gas_price: U256,
+        #[codec(compact)]
         gas_limit: u64,
         action: TransactionAction,
         value: U256,
@@ -197,10 +203,13 @@ pub enum Message {
         access_list: Vec<AccessListItem>,
     },
     EIP1559 {
+        #[codec(compact)]
         chain_id: ChainId,
+        #[codec(compact)]
         nonce: u64,
         max_priority_fee_per_gas: U256,
         max_fee_per_gas: U256,
+        #[codec(compact)]
         gas_limit: u64,
         action: TransactionAction,
         value: U256,
@@ -301,7 +310,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Debug, Deref, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deref, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct MessageWithSignature {
     #[deref]
     pub message: Message,

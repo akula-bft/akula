@@ -2,6 +2,7 @@ use super::*;
 use crate::crypto::*;
 use derive_more::Deref;
 use ethereum_types::*;
+use parity_scale_codec::*;
 use rlp_derive::*;
 use sha3::*;
 use std::borrow::Borrow;
@@ -92,10 +93,10 @@ pub struct BlockBodyWithSenders {
     pub ommers: Vec<BlockHeader>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode, RlpDecodable)]
 pub struct BodyForStorage {
     pub base_tx_id: TxIndex,
-    pub tx_amount: usize,
+    pub tx_amount: u64,
     pub uncles: Vec<BlockHeader>,
 }
 

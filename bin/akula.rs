@@ -17,6 +17,7 @@ use akula::{
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use clap::Parser;
+use ethereum_types::H256;
 use rayon::prelude::*;
 use std::{
     path::PathBuf,
@@ -120,7 +121,7 @@ where
 
         let mut erigon_canonical_cur = erigon_tx.cursor(tables::CanonicalHeader).await?;
         let mut canonical_cur = tx.mutable_cursor(tables::CanonicalHeader).await?;
-        let mut erigon_header_cur = erigon_tx.cursor(tables::Header).await?;
+        let mut erigon_header_cur = erigon_tx.cursor(tables::Header.erased()).await?;
         let mut header_cur = tx.mutable_cursor(tables::Header).await?;
         let mut erigon_td_cur = erigon_tx.cursor(tables::HeadersTotalDifficulty).await?;
         let mut td_cur = tx.mutable_cursor(tables::HeadersTotalDifficulty).await?;
@@ -148,11 +149,15 @@ where
             header_cur
                 .append(
                     (block_number, canonical_hash),
-                    erigon_header_cur
-                        .seek_exact((block_number, canonical_hash))
-                        .await?
-                        .unwrap()
-                        .1,
+                    rlp::decode(
+                        &erigon_header_cur
+                            .seek_exact(
+                                TableEncode::encode((block_number, canonical_hash)).to_vec(),
+                            )
+                            .await?
+                            .unwrap()
+                            .1,
+                    )?,
                 )
                 .await?;
             td_cur
@@ -264,7 +269,7 @@ where
 
         let mut canonical_header_cur = tx.cursor(tables::CanonicalHeader).await?;
 
-        let mut erigon_body_cur = erigon_tx.cursor(tables::BlockBody).await?;
+        let mut erigon_body_cur = erigon_tx.cursor(tables::BlockBody.erased()).await?;
         let mut body_cur = tx.mutable_cursor(tables::BlockBody).await?;
 
         let mut erigon_tx_cur = erigon_tx.cursor(tables::BlockTransaction.erased()).await?;
@@ -286,7 +291,10 @@ where
         let mut starting_index = prev_body.base_tx_id + prev_body.tx_amount as u64;
         let canonical_header_walker = walk(&mut canonical_header_cur, Some(highest_block + 1));
         pin!(canonical_header_walker);
-        let erigon_body_walker = walk(&mut erigon_body_cur, Some(highest_block + 1));
+        let erigon_body_walker = walk(
+            &mut erigon_body_cur,
+            Some(TableEncode::encode(highest_block + 1).to_vec()),
+        );
         pin!(erigon_body_walker);
         let mut batch = Vec::with_capacity(BUFFERING_FACTOR);
         let mut converted = Vec::new();
@@ -302,9 +310,8 @@ where
             'l: while let Some((block_num, block_hash)) = canonical_header_walker.try_next().await?
             {
                 loop {
-                    if let Some(((body_block_num, body_block_hash), body)) =
-                        erigon_body_walker.try_next().await?
-                    {
+                    if let Some((k, v)) = erigon_body_walker.try_next().await? {
+                        let (body_block_num, body_block_hash) = <(BlockNumber, H256)>::decode(&k)?;
                         if body_block_num > block_num {
                             break 'l;
                         }
@@ -313,25 +320,28 @@ where
                             continue;
                         }
 
+                        let body = rlp::decode::<BodyForStorage>(&v)?;
+
                         let base_tx_id = body.base_tx_id;
 
+                        let tx_amount = usize::try_from(body.tx_amount)?;
                         let txs = walk(&mut erigon_tx_cur, Some(base_tx_id.encode().to_vec()))
                             .map(|res| res.map(|(_, tx)| tx))
-                            .take(body.tx_amount)
+                            .take(tx_amount)
                             .collect::<anyhow::Result<Vec<_>>>()
                             .await?;
 
-                        if txs.len() != body.tx_amount {
+                        if txs.len() != tx_amount {
                             bail!(
                                 "Invalid tx amount in Erigon for block #{}/{}: {} != {}",
                                 block_num,
                                 block_hash,
-                                body.tx_amount,
+                                tx_amount,
                                 txs.len()
                             );
                         }
 
-                        accum_txs += body.tx_amount;
+                        accum_txs += tx_amount;
                         batch.push((block_num, block_hash, body, txs));
 
                         break;
@@ -379,7 +389,7 @@ where
                 highest_block = block_num;
                 let body = BodyForStorage {
                     base_tx_id: starting_index,
-                    tx_amount: txs.len(),
+                    tx_amount: txs.len().try_into()?,
                     uncles,
                 };
 
@@ -447,7 +457,7 @@ where
 
             let mut deleted = 0;
             while deleted < body.tx_amount {
-                let to_delete = body.base_tx_id + deleted.try_into().unwrap();
+                let to_delete = body.base_tx_id + deleted;
                 if block_tx_cur.seek(to_delete).await?.is_some() {
                     block_tx_cur.delete_current().await?;
                 }
