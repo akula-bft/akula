@@ -17,6 +17,7 @@ mod fork_mode_stage;
 mod header_slice_verifier;
 mod penalize_stage;
 mod preverified_hashes_config;
+mod refetch_stage;
 mod refill_stage;
 mod retry_stage;
 mod save_stage;

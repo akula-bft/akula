@@ -34,6 +34,7 @@ pub enum HeaderSliceStatus {
     Saved,
 }
 
+#[derive(Default)]
 pub struct HeaderSlice {
     pub start_block_num: BlockNumber,
     pub status: HeaderSliceStatus,
@@ -41,6 +42,7 @@ pub struct HeaderSlice {
     pub from_peer_id: Option<PeerId>,
     pub request_time: Option<time::Instant>,
     pub request_attempt: u16,
+    pub refetch_attempt: u16,
     pub fork_status: HeaderSliceStatus,
     pub fork_headers: Option<Vec<BlockHeader>>,
 }
@@ -96,13 +98,7 @@ impl HeaderSlices {
         for i in 0..max_slices {
             let slice = HeaderSlice {
                 start_block_num: BlockNumber(start_block_num.0 + (i * HEADER_SLICE_SIZE) as u64),
-                status: HeaderSliceStatus::Empty,
-                headers: None,
-                from_peer_id: None,
-                request_time: None,
-                request_attempt: 0,
-                fork_status: HeaderSliceStatus::Empty,
-                fork_headers: None,
+                ..Default::default()
             };
             slices.push_back(Arc::new(RwLock::new(slice)));
         }
@@ -246,13 +242,7 @@ impl HeaderSlices {
 
             let slice = HeaderSlice {
                 start_block_num: max_block_num,
-                status: HeaderSliceStatus::Empty,
-                headers: None,
-                from_peer_id: None,
-                request_time: None,
-                request_attempt: 0,
-                fork_status: HeaderSliceStatus::Empty,
-                fork_headers: None,
+                ..Default::default()
             };
             slices.push_back(Arc::new(RwLock::new(slice)));
             self.max_block_num
@@ -348,5 +338,11 @@ impl HeaderSlice {
 
     pub fn contains_block_num(&self, num: BlockNumber) -> bool {
         self.block_num_range().contains(&num)
+    }
+}
+
+impl Default for HeaderSliceStatus {
+    fn default() -> Self {
+        HeaderSliceStatus::Empty
     }
 }

@@ -1,9 +1,9 @@
 use super::{
     downloader_stage_loop::DownloaderStageLoop, fetch_receive_stage::FetchReceiveStage,
     fetch_request_stage::FetchRequestStage, header_slices, header_slices::HeaderSlices,
-    penalize_stage::PenalizeStage, retry_stage::RetryStage, save_stage::SaveStage,
-    verify_stage_forky_link::VerifyStageForkyLink, verify_stage_linear::VerifyStageLinear,
-    HeaderSlicesView,
+    penalize_stage::PenalizeStage, refetch_stage::RefetchStage, retry_stage::RetryStage,
+    save_stage::SaveStage, verify_stage_forky_link::VerifyStageForkyLink,
+    verify_stage_linear::VerifyStageLinear, HeaderSlicesView,
 };
 use crate::{
     downloader::{
@@ -91,6 +91,7 @@ impl DownloaderForky {
             start_block_num,
             start_block_id.hash,
         );
+        let refetch_stage = RefetchStage::new(header_slices.clone());
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
 
@@ -102,6 +103,7 @@ impl DownloaderForky {
         stages.insert(retry_stage);
         stages.insert(verify_stage);
         stages.insert(verify_link_stage);
+        stages.insert(refetch_stage);
         stages.insert(penalize_stage);
         stages.insert(save_stage);
 

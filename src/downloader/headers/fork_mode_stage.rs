@@ -156,6 +156,7 @@ impl ForkModeStage {
         if self.verify_canonical_slices_link(continuation_slice, &end_slice) {
             self.header_slices
                 .set_slice_status(continuation_slice, HeaderSliceStatus::Verified);
+            continuation_slice.refetch_attempt = 0;
             self.canonical_range.end = continuation_slice.block_num_range().end;
             true
         } else {
@@ -169,6 +170,7 @@ impl ForkModeStage {
         if self.verify_fork_slices_link(&end_slice, continuation_slice) {
             self.header_slices
                 .set_slice_status(continuation_slice, HeaderSliceStatus::Fork);
+            continuation_slice.refetch_attempt = 0;
             self.fork_range.start = continuation_slice.block_num_range().start;
             true
         } else {
@@ -336,6 +338,7 @@ impl ForkModeStage {
                     .set_slice_status(slice.deref_mut(), new_status);
                 slice.headers = slice.fork_headers.take();
                 slice.fork_status = HeaderSliceStatus::Empty;
+                slice.refetch_attempt = 0;
             }
         }
 
@@ -376,6 +379,7 @@ impl ForkModeStage {
             // cleanup the fork data
             slice.fork_status = HeaderSliceStatus::Empty;
             slice.fork_headers = None;
+            slice.refetch_attempt = 0;
 
             num = BlockNumber(num.0 + slice.len() as u64);
         }
@@ -401,6 +405,7 @@ impl ForkModeStage {
             // cleanup the fork data
             slice.fork_status = HeaderSliceStatus::Empty;
             slice.fork_headers = None;
+            slice.refetch_attempt = 0;
 
             num = BlockNumber(num.0 + slice.len() as u64);
         }
@@ -454,6 +459,7 @@ impl ForkModeStage {
                 // cleanup the fork data
                 slice.fork_status = HeaderSliceStatus::Empty;
                 slice.fork_headers = None;
+                slice.refetch_attempt = 0;
             }
 
             num = BlockNumber(num.0 + len as u64);
