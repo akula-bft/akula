@@ -55,16 +55,17 @@ impl ForkModeStage {
         Ok(())
     }
 
-    fn process_pending(&mut self) -> anyhow::Result<()> {
-        let Some(canonical_continuation_slice_lock) = self.find_canonical_continuation_slice() else { return Ok(()) };
-        let Some(fork_continuation_slice_lock) = self.find_fork_continuation_slice() else { return Ok(()) };
+    // initial setup: start refetching on both ends
+    pub fn setup(&mut self) {
+        let Some(canonical_continuation_slice_lock) = self.find_canonical_continuation_slice() else { return };
+        let Some(fork_continuation_slice_lock) = self.find_fork_continuation_slice() else { return };
 
         let canonical_continuation_slice = canonical_continuation_slice_lock.upgradable_read();
         let fork_continuation_slice = fork_continuation_slice_lock.upgradable_read();
 
-        // initial setup: start refetching on both ends
         if (self.fork_range.start == self.canonical_range.end)
             && (canonical_continuation_slice.status == HeaderSliceStatus::Fork)
+            && (Self::is_canonical_slice_status(fork_continuation_slice.status))
         {
             let mut canonical_continuation_slice_mut =
                 RwLockUpgradableReadGuard::upgrade(canonical_continuation_slice);
@@ -72,8 +73,15 @@ impl ForkModeStage {
                 RwLockUpgradableReadGuard::upgrade(fork_continuation_slice);
             self.refetch_slice(canonical_continuation_slice_mut.deref_mut());
             self.refetch_slice(fork_continuation_slice_mut.deref_mut());
-            return Ok(());
         }
+    }
+
+    fn process_pending(&mut self) -> anyhow::Result<()> {
+        let Some(canonical_continuation_slice_lock) = self.find_canonical_continuation_slice() else { return Ok(()) };
+        let Some(fork_continuation_slice_lock) = self.find_fork_continuation_slice() else { return Ok(()) };
+
+        let canonical_continuation_slice = canonical_continuation_slice_lock.upgradable_read();
+        let fork_continuation_slice = fork_continuation_slice_lock.upgradable_read();
 
         // try to extend the chains
         let mut did_extend_canonical = false;

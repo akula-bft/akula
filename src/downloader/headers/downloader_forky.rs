@@ -25,6 +25,7 @@ pub struct DownloaderForky {
 pub struct DownloaderForkyReport {
     pub loaded_count: usize,
     pub final_block_num: BlockNumber,
+    pub header_slices: Option<Arc<HeaderSlices>>,
 }
 
 impl DownloaderForky {
@@ -35,11 +36,27 @@ impl DownloaderForky {
         }
     }
 
+    fn make_header_slices(
+        start_block_num: BlockNumber,
+        forky_max_blocks_count: usize,
+    ) -> HeaderSlices {
+        // This is more than enough to store forky_max_blocks_count blocks.
+        // It's not gonna affect the window size or memory usage.
+        let mem_limit = byte_unit::n_gib_bytes!(1) as usize;
+
+        let final_block_num = align_block_num_to_slice_start(BlockNumber(
+            start_block_num.0 + (forky_max_blocks_count as u64),
+        ));
+
+        HeaderSlices::new(mem_limit, start_block_num, final_block_num)
+    }
+
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_id: BlockHashAndNumber,
         max_blocks_count: usize,
+        previous_run_header_slices: Option<Arc<HeaderSlices>>,
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderForkyReport> {
         let start_block_num = start_block_id.number;
@@ -55,22 +72,16 @@ impl DownloaderForky {
             return Ok(DownloaderForkyReport {
                 loaded_count: 0,
                 final_block_num: start_block_num,
+                header_slices: previous_run_header_slices,
             });
         }
 
-        // This is more than enough to store forky_max_blocks_count blocks.
-        // It's not gonna affect the window size or memory usage.
-        let mem_limit = byte_unit::n_gib_bytes!(1) as usize;
-
-        let final_block_num = align_block_num_to_slice_start(BlockNumber(
-            start_block_num.0 + (forky_max_blocks_count as u64),
-        ));
-
-        let header_slices = Arc::new(HeaderSlices::new(
-            mem_limit,
-            start_block_num,
-            final_block_num,
-        ));
+        let header_slices = previous_run_header_slices.unwrap_or_else(|| {
+            Arc::new(Self::make_header_slices(
+                start_block_num,
+                forky_max_blocks_count,
+            ))
+        });
         let sentry = self.sentry.clone();
 
         let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderForky");
@@ -112,6 +123,7 @@ impl DownloaderForky {
         let report = DownloaderForkyReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
             final_block_num: header_slices.min_block_num(),
+            header_slices: Some(header_slices),
         };
 
         Ok(report)

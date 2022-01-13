@@ -3,7 +3,7 @@ pub mod downloader;
 mod downloader_forky;
 mod downloader_linear;
 mod downloader_preverified;
-mod header;
+pub mod header;
 mod header_slice_status_watch;
 pub mod header_slices;
 mod parallel;

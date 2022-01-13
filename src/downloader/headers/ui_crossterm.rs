@@ -93,19 +93,3 @@ fn format_counters(counters: Vec<(HeaderSliceStatus, usize)>) -> String {
     }
     line
 }
-
-impl From<HeaderSliceStatus> for char {
-    fn from(status: HeaderSliceStatus) -> Self {
-        match status {
-            HeaderSliceStatus::Empty => '-',
-            HeaderSliceStatus::Waiting => '<',
-            HeaderSliceStatus::Downloaded => '.',
-            HeaderSliceStatus::VerifiedInternally => '=',
-            HeaderSliceStatus::Verified => '#',
-            HeaderSliceStatus::Invalid => 'x',
-            HeaderSliceStatus::Fork => 'Y',
-            HeaderSliceStatus::Refetch => 'R',
-            HeaderSliceStatus::Saved => '+',
-        }
-    }
-}

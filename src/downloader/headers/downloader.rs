@@ -1,12 +1,16 @@
 use super::{
     downloader_forky, downloader_linear, downloader_preverified,
-    header_slices::align_block_num_to_slice_start,
+    header_slices::{align_block_num_to_slice_start, HeaderSlices},
 };
 use crate::{
     downloader::ui_system::UISystemShared,
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
+};
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
 };
 
 #[derive(Debug)]
@@ -23,9 +27,19 @@ pub struct DownloaderReport {
     pub run_state: DownloaderRunState,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DownloaderRunState {
     pub estimated_top_block_num: Option<BlockNumber>,
+    pub forky_header_slices: Option<Arc<HeaderSlices>>,
+}
+
+impl Debug for DownloaderRunState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DownloaderRunState")
+            .field("estimated_top_block_num", &self.estimated_top_block_num)
+            .field("forky_header_slices", &self.forky_header_slices.is_some())
+            .finish()
+    }
 }
 
 impl Downloader {
@@ -117,9 +131,12 @@ impl Downloader {
         let linear_start_block_id = self
             .linear_start_block_id(db_transaction, preverified_report.final_block_num)
             .await?;
-        let linear_estimated_top_block_num = preverified_report
-            .estimated_top_block_num
-            .or_else(|| previous_run_state.and_then(|state| state.estimated_top_block_num));
+        let linear_estimated_top_block_num =
+            preverified_report.estimated_top_block_num.or_else(|| {
+                previous_run_state
+                    .as_ref()
+                    .and_then(|state| state.estimated_top_block_num)
+            });
 
         let linear_report = self
             .downloader_linear
@@ -142,6 +159,9 @@ impl Downloader {
                 db_transaction,
                 forky_start_block_id,
                 max_blocks_count,
+                previous_run_state
+                    .as_ref()
+                    .and_then(|state| state.forky_header_slices.clone()),
                 ui_system,
             )
             .await?;
@@ -152,6 +172,7 @@ impl Downloader {
             target_final_block_num: linear_report.target_final_block_num,
             run_state: DownloaderRunState {
                 estimated_top_block_num: Some(linear_report.estimated_top_block_num),
+                forky_header_slices: forky_report.header_slices,
             },
         };
 
