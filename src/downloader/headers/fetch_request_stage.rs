@@ -1,8 +1,8 @@
+use super::{
+    header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slices::{HeaderSliceStatus, HeaderSlices},
+};
 use crate::{
-    downloader::headers::{
-        header_slice_status_watch::HeaderSliceStatusWatch,
-        header_slices::{HeaderSliceStatus, HeaderSlices},
-    },
     models::BlockNumber,
     sentry::{
         block_id,

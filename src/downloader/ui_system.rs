@@ -1,4 +1,4 @@
-use crate::downloader::ui_view::UIView;
+use super::ui_view::UIView;
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Duration};
 use tokio::{

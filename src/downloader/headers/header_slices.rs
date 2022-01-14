@@ -375,6 +375,10 @@ impl HeaderSlices {
     pub fn is_empty_at_final_position(&self) -> bool {
         (self.max_block_num() >= self.final_block_num) && self.slices.read().is_empty()
     }
+
+    pub fn all_in_status(&self, status: HeaderSliceStatus) -> bool {
+        self.count_slices_in_status(status) == self.slices.read().len()
+    }
 }
 
 pub fn align_block_num_to_slice_start(num: BlockNumber) -> BlockNumber {

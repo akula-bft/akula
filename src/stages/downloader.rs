@@ -27,7 +27,15 @@ impl HeaderDownload {
         sentry: SentryClientReactorShared,
         sentry_status_provider: SentryStatusProvider,
     ) -> anyhow::Result<Self> {
-        let downloader = Downloader::new(chain_config, mem_limit, sentry, sentry_status_provider)?;
+        let verifier = crate::downloader::header_slice_verifier::make_ethash_verifier();
+
+        let downloader = Downloader::new(
+            chain_config,
+            verifier,
+            mem_limit,
+            sentry,
+            sentry_status_provider,
+        )?;
 
         let instance = Self {
             downloader,

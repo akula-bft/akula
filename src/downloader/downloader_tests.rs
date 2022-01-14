@@ -2,6 +2,7 @@ use super::{
     headers::{
         downloader::{DownloaderReport, DownloaderRunState},
         header::BlockHeader,
+        header_slice_verifier_mock::HeaderSliceVerifierMock,
         header_slices,
         header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
     },
@@ -84,6 +85,7 @@ struct DownloaderTest {
 impl DownloaderTest {
     pub fn new(
         sentry: SentryClientMock,
+        verifier: HeaderSliceVerifierMock,
         previous_run_state: Option<DownloaderRunState>,
         expected_report: Option<DownloaderReport>,
     ) -> anyhow::Result<Self> {
@@ -94,6 +96,7 @@ impl DownloaderTest {
         let sentry_reactor = make_sentry_reactor(sentry, status_provider.current_status_stream());
         let downloader = Downloader::new(
             chain_config,
+            Box::new(verifier),
             byte_unit::n_mib_bytes!(50) as usize,
             sentry_reactor.clone(),
             status_provider,
@@ -182,7 +185,8 @@ impl DownloaderTest {
 #[tokio::test]
 async fn noop() {
     let sentry = SentryClientMock::new();
-    let test = DownloaderTest::new(sentry, None, None).unwrap();
+    let verifier = HeaderSliceVerifierMock::new();
+    let test = DownloaderTest::new(sentry, verifier, None, None).unwrap();
     test.run().await.unwrap();
 }
 
@@ -198,7 +202,9 @@ struct DownloaderTestDecl<'t> {
 impl<'t> DownloaderTestDecl<'t> {
     fn into_test(self) -> anyhow::Result<DownloaderTest> {
         let sentry = SentryClientMock::new();
-        let forky_header_slices = HeaderSlices::from_slices_vec(Self::parse_slices(self.slices)?);
+
+        let (forky_header_slices, verifier) = Self::parse_slices(self.slices)?;
+        let forky_header_slices = HeaderSlices::from_slices_vec(forky_header_slices);
 
         let previous_run_state = DownloaderRunState {
             estimated_top_block_num: Some(BlockNumber(10_000)),
@@ -206,7 +212,7 @@ impl<'t> DownloaderTestDecl<'t> {
         };
 
         let expected_forky_header_slices =
-            HeaderSlices::from_slices_vec(Self::parse_slices(self.result)?);
+            HeaderSlices::from_slices_vec(Self::parse_slices(self.result)?.0);
         let expected_report = DownloaderReport {
             final_block_num: BlockNumber(0),
             target_final_block_num: BlockNumber(0),
@@ -216,18 +222,28 @@ impl<'t> DownloaderTestDecl<'t> {
             },
         };
 
-        DownloaderTest::new(sentry, Some(previous_run_state), Some(expected_report))
+        DownloaderTest::new(
+            sentry,
+            verifier,
+            Some(previous_run_state),
+            Some(expected_report),
+        )
     }
 
-    fn parse_slices(desc: &str) -> anyhow::Result<Vec<HeaderSlice>> {
+    fn parse_slices(desc: &str) -> anyhow::Result<(Vec<HeaderSlice>, HeaderSliceVerifierMock)> {
         let mut slices = Vec::<HeaderSlice>::new();
+        let verifier = HeaderSliceVerifierMock::new();
         let mut start_block_num = BlockNumber(0);
+        let mut is_link_broken = false;
         let mut is_fork = false;
 
         for c in desc.chars() {
             match c {
                 ' ' => continue,
-                '|' => continue,
+                '|' => {
+                    is_link_broken = true;
+                    continue;
+                }
                 '/' => {
                     is_fork = true;
                     continue;
@@ -241,43 +257,86 @@ impl<'t> DownloaderTestDecl<'t> {
                     anyhow::format_err!("expected a fork status, but no slices are present")
                 })?;
                 last_slice.fork_status = status;
-                last_slice.fork_headers = Self::generate_slice_headers_if_needed(status);
+                last_slice.fork_headers =
+                    Self::generate_slice_headers_if_needed(status, last_slice.start_block_num);
                 is_fork = false;
                 continue;
             }
 
-            let slice = HeaderSlice {
+            let mut slice = HeaderSlice {
                 start_block_num,
                 status,
-                headers: Self::generate_slice_headers_if_needed(status),
+                headers: Self::generate_slice_headers_if_needed(status, start_block_num),
                 ..Default::default()
             };
+
+            if is_link_broken {
+                let Some(headers) = slice.headers.as_mut() else {
+                    anyhow::bail!("expected a status that has non empty headers");
+                };
+                let first_header = headers.first_mut().unwrap();
+                verifier.mark_broken_link(first_header);
+                is_link_broken = false;
+            }
+
             slices.push(slice);
 
             start_block_num =
                 BlockNumber(start_block_num.0 + header_slices::HEADER_SLICE_SIZE as u64);
         }
 
-        Ok(slices)
+        Ok((slices, verifier))
     }
 
-    fn generate_slice_headers_if_needed(status: HeaderSliceStatus) -> Option<Vec<BlockHeader>> {
+    fn generate_slice_headers_if_needed(
+        status: HeaderSliceStatus,
+        start_block_num: BlockNumber,
+    ) -> Option<Vec<BlockHeader>> {
         match status {
             HeaderSliceStatus::Empty => None,
             HeaderSliceStatus::Waiting => None,
             HeaderSliceStatus::Refetch => None,
-            _ => Some(Self::generate_slice_headers()),
+            _ => Some(Self::generate_slice_headers(start_block_num)),
         }
     }
 
-    fn generate_slice_headers() -> Vec<BlockHeader> {
+    fn generate_slice_headers(start_block_num: BlockNumber) -> Vec<BlockHeader> {
         let header = BlockHeader::from(crate::models::BlockHeader::empty());
-        vec![header; header_slices::HEADER_SLICE_SIZE]
+        let mut headers = vec![header; header_slices::HEADER_SLICE_SIZE];
+
+        // set block numbers
+        let mut num = start_block_num;
+        for header in headers.as_mut_slice() {
+            header.header.number = num;
+            num = BlockNumber(num.0 + 1);
+        }
+
+        headers
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
         self.into_test()?.run().await
     }
+}
+
+#[tokio::test]
+async fn save_verified() {
+    let test = DownloaderTestDecl {
+        sentry: "",
+        slices: "+   +   +   #",
+        result: "+   +   +   +",
+    };
+    test.run().await.unwrap();
+}
+
+#[tokio::test]
+async fn verify_link() {
+    let test = DownloaderTestDecl {
+        sentry: "",
+        slices: "+   +   +   =",
+        result: "+   +   +   +",
+    };
+    test.run().await.unwrap();
 }
 
 #[tokio::test]

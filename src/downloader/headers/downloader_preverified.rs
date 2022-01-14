@@ -1,16 +1,20 @@
 use super::{
-    downloader_stage_loop::DownloaderStageLoop, fetch_receive_stage::FetchReceiveStage,
-    fetch_request_stage::FetchRequestStage, header_slices, header_slices::HeaderSlices,
-    penalize_stage::PenalizeStage, preverified_hashes_config::PreverifiedHashesConfig,
-    refill_stage::RefillStage, retry_stage::RetryStage, save_stage::SaveStage,
+    downloader_stage_loop::DownloaderStageLoop,
+    fetch_receive_stage::FetchReceiveStage,
+    fetch_request_stage::FetchRequestStage,
+    header_slices,
+    header_slices::{align_block_num_to_slice_start, HeaderSlices},
+    penalize_stage::PenalizeStage,
+    preverified_hashes_config::PreverifiedHashesConfig,
+    refill_stage::RefillStage,
+    retry_stage::RetryStage,
+    save_stage::SaveStage,
     top_block_estimate_stage::TopBlockEstimateStage,
-    verify_stage_preverified::VerifyStagePreverified, HeaderSlicesView,
+    verify_stage_preverified::VerifyStagePreverified,
+    HeaderSlicesView,
 };
 use crate::{
-    downloader::{
-        headers::header_slices::align_block_num_to_slice_start,
-        ui_system::{UISystemShared, UISystemViewScope},
-    },
+    downloader::ui_system::{UISystemShared, UISystemViewScope},
     kv,
     models::BlockNumber,
     sentry::sentry_client_reactor::*,
@@ -106,7 +110,11 @@ impl DownloaderPreverified {
         let refill_stage = RefillStage::new(header_slices.clone());
         let top_block_estimate_stage = TopBlockEstimateStage::new(sentry.clone());
 
-        let can_proceed = fetch_receive_stage.can_proceed_check();
+        let fetch_receive_stage_can_proceed = fetch_receive_stage.can_proceed_check();
+        let refill_stage_can_proceed = refill_stage.can_proceed_check();
+        let can_proceed =
+            move |_| -> bool { fetch_receive_stage_can_proceed() && refill_stage_can_proceed() };
+
         let estimated_top_block_num_provider =
             top_block_estimate_stage.estimated_top_block_num_provider();
 

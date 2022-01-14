@@ -1,5 +1,6 @@
 use super::{
     downloader_forky, downloader_linear, downloader_preverified,
+    header_slice_verifier::HeaderSliceVerifier,
     header_slices::{align_block_num_to_slice_start, HeaderSlices},
 };
 use crate::{
@@ -45,9 +46,12 @@ impl Debug for DownloaderRunState {
 impl Downloader {
     pub fn new(
         chain_config: ChainConfig,
+        verifier: Box<dyn HeaderSliceVerifier>,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
     ) -> anyhow::Result<Self> {
+        let verifier = Arc::new(verifier);
+
         let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
             chain_config.chain_name(),
             mem_limit,
@@ -56,11 +60,13 @@ impl Downloader {
 
         let downloader_linear = downloader_linear::DownloaderLinear::new(
             chain_config.clone(),
+            verifier.clone(),
             mem_limit,
             sentry.clone(),
         );
 
-        let downloader_forky = downloader_forky::DownloaderForky::new(chain_config.clone(), sentry);
+        let downloader_forky =
+            downloader_forky::DownloaderForky::new(chain_config.clone(), verifier, sentry);
 
         let instance = Self {
             downloader_preverified,

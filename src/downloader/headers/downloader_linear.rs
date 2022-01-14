@@ -1,16 +1,21 @@
 use super::{
-    downloader_stage_loop::DownloaderStageLoop, fetch_receive_stage::FetchReceiveStage,
-    fetch_request_stage::FetchRequestStage, header_slices, header_slices::HeaderSlices,
-    penalize_stage::PenalizeStage, refill_stage::RefillStage, retry_stage::RetryStage,
-    save_stage::SaveStage, top_block_estimate_stage::TopBlockEstimateStage,
-    verify_stage_linear::VerifyStageLinear, verify_stage_linear_link::VerifyStageLinearLink,
+    downloader_stage_loop::DownloaderStageLoop,
+    fetch_receive_stage::FetchReceiveStage,
+    fetch_request_stage::FetchRequestStage,
+    header_slice_verifier::HeaderSliceVerifier,
+    header_slices,
+    header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+    penalize_stage::PenalizeStage,
+    refill_stage::RefillStage,
+    retry_stage::RetryStage,
+    save_stage::SaveStage,
+    top_block_estimate_stage::TopBlockEstimateStage,
+    verify_stage_linear::VerifyStageLinear,
+    verify_stage_linear_link::VerifyStageLinearLink,
     HeaderSlicesView,
 };
 use crate::{
-    downloader::{
-        headers::header_slices::{align_block_num_to_slice_start, HeaderSliceStatus},
-        ui_system::{UISystemShared, UISystemViewScope},
-    },
+    downloader::ui_system::{UISystemShared, UISystemViewScope},
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
@@ -21,6 +26,7 @@ use tracing::*;
 #[derive(Debug)]
 pub struct DownloaderLinear {
     chain_config: ChainConfig,
+    verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     mem_limit: usize,
     sentry: SentryClientReactorShared,
 }
@@ -35,11 +41,13 @@ pub struct DownloaderLinearReport {
 impl DownloaderLinear {
     pub fn new(
         chain_config: ChainConfig,
+        verifier: Arc<Box<dyn HeaderSliceVerifier>>,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
     ) -> Self {
         Self {
             chain_config,
+            verifier,
             mem_limit,
             sentry,
         }
@@ -119,10 +127,15 @@ impl DownloaderLinear {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStageLinear::new(header_slices.clone(), self.chain_config.clone());
+        let verify_stage = VerifyStageLinear::new(
+            header_slices.clone(),
+            self.chain_config.clone(),
+            self.verifier.clone(),
+        );
         let verify_link_stage = VerifyStageLinearLink::new(
             header_slices.clone(),
             self.chain_config.clone(),
+            self.verifier.clone(),
             start_block_num,
             start_block_id.hash,
             HeaderSliceStatus::Invalid,
@@ -131,7 +144,10 @@ impl DownloaderLinear {
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
         let refill_stage = RefillStage::new(header_slices.clone());
 
-        let can_proceed = fetch_receive_stage.can_proceed_check();
+        let fetch_receive_stage_can_proceed = fetch_receive_stage.can_proceed_check();
+        let refill_stage_can_proceed = refill_stage.can_proceed_check();
+        let can_proceed =
+            move |_| -> bool { fetch_receive_stage_can_proceed() && refill_stage_can_proceed() };
 
         let mut stages = DownloaderStageLoop::new(&header_slices);
         stages.insert(fetch_request_stage);

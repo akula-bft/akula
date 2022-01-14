@@ -1,6 +1,11 @@
-use super::sentry_status_provider::SentryStatusProvider;
+use super::{
+    headers::{
+        downloader::{DownloaderReport, DownloaderRunState},
+        header_slice_verifier::HeaderSliceVerifier,
+    },
+    sentry_status_provider::SentryStatusProvider,
+};
 use crate::{
-    downloader::headers::downloader::{DownloaderReport, DownloaderRunState},
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared},
@@ -17,12 +22,13 @@ pub struct Downloader {
 impl Downloader {
     pub fn new(
         chain_config: ChainConfig,
+        verifier: Box<dyn HeaderSliceVerifier>,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
         sentry_status_provider: SentryStatusProvider,
     ) -> anyhow::Result<Self> {
         let headers_downloader =
-            super::headers::downloader::Downloader::new(chain_config, mem_limit, sentry)?;
+            super::headers::downloader::Downloader::new(chain_config, verifier, mem_limit, sentry)?;
 
         let instance = Self {
             headers_downloader,

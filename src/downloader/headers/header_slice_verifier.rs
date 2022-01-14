@@ -3,47 +3,80 @@ use crate::{
     consensus::difficulty::{canonical_difficulty, BlockDifficultyBombData},
     models::{switch_is_active, BlockNumber, ChainSpec, SealVerificationParams, EMPTY_LIST_HASH},
 };
+use std::fmt::Debug;
 
-pub fn verify_link(child: &BlockHeader, parent: &BlockHeader, chain_spec: &ChainSpec) -> bool {
-    verify_link_by_parent_hash(child, parent)
-        && verify_link_block_nums(child, parent)
-        && verify_link_timestamps(child, parent)
-        && verify_link_difficulties(child, parent, chain_spec)
-        && verify_link_pow(child, parent)
+pub trait HeaderSliceVerifier: Send + Sync + Debug {
+    fn verify_link(
+        &self,
+        child: &BlockHeader,
+        parent: &BlockHeader,
+        chain_spec: &ChainSpec,
+    ) -> bool;
+
+    fn verify_slice(
+        &self,
+        headers: &[BlockHeader],
+        start_block_num: BlockNumber,
+        max_timestamp: u64,
+        chain_spec: &ChainSpec,
+    ) -> bool;
 }
 
-pub fn verify_slice(
-    headers: &[BlockHeader],
-    start_block_num: BlockNumber,
-    max_timestamp: u64,
-    chain_spec: &ChainSpec,
-) -> bool {
-    verify_slice_is_linked_by_parent_hash(headers)
-        && verify_slice_block_nums(headers, start_block_num)
-        && verify_slice_timestamps(headers, max_timestamp)
-        && verify_slice_difficulties(headers, chain_spec)
-        && verify_slice_pow(headers)
+pub fn make_ethash_verifier() -> Box<dyn HeaderSliceVerifier> {
+    Box::new(EthashHeaderSliceVerifier {})
 }
 
-pub fn verify_link_by_parent_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
+#[derive(Debug)]
+struct EthashHeaderSliceVerifier;
+
+impl HeaderSliceVerifier for EthashHeaderSliceVerifier {
+    fn verify_link(
+        &self,
+        child: &BlockHeader,
+        parent: &BlockHeader,
+        chain_spec: &ChainSpec,
+    ) -> bool {
+        verify_link_by_parent_hash(child, parent)
+            && verify_link_block_nums(child, parent)
+            && verify_link_timestamps(child, parent)
+            && verify_link_difficulties(child, parent, chain_spec)
+            && verify_link_pow(child, parent)
+    }
+
+    fn verify_slice(
+        &self,
+        headers: &[BlockHeader],
+        start_block_num: BlockNumber,
+        max_timestamp: u64,
+        chain_spec: &ChainSpec,
+    ) -> bool {
+        verify_slice_is_linked_by_parent_hash(headers)
+            && verify_slice_block_nums(headers, start_block_num)
+            && verify_slice_timestamps(headers, max_timestamp)
+            && verify_slice_difficulties(headers, chain_spec)
+            && verify_slice_pow(headers)
+    }
+}
+
+fn verify_link_by_parent_hash(child: &BlockHeader, parent: &BlockHeader) -> bool {
     let given_parent_hash = child.parent_hash();
     let expected_parent_hash = parent.hash();
     given_parent_hash == expected_parent_hash
 }
 
-pub fn verify_link_block_nums(child: &BlockHeader, parent: &BlockHeader) -> bool {
+fn verify_link_block_nums(child: &BlockHeader, parent: &BlockHeader) -> bool {
     let given_block_num = child.number().0;
     let expected_block_num = parent.number().0 + 1;
     given_block_num == expected_block_num
 }
 
-pub fn verify_link_timestamps(child: &BlockHeader, parent: &BlockHeader) -> bool {
+fn verify_link_timestamps(child: &BlockHeader, parent: &BlockHeader) -> bool {
     let parent_timestamp = parent.timestamp();
     let child_timestamp = child.timestamp();
     parent_timestamp < child_timestamp
 }
 
-pub fn verify_link_difficulties(
+fn verify_link_difficulties(
     child: &BlockHeader,
     parent: &BlockHeader,
     chain_spec: &ChainSpec,
@@ -79,7 +112,7 @@ pub fn verify_link_difficulties(
     given_child_difficulty == expected_child_difficulty
 }
 
-pub fn verify_link_pow(_child: &BlockHeader, _parent: &BlockHeader) -> bool {
+fn verify_link_pow(_child: &BlockHeader, _parent: &BlockHeader) -> bool {
     // TODO: verify_link_pow
     true
 }
@@ -100,7 +133,7 @@ pub fn verify_slice_is_linked_by_parent_hash(headers: &[BlockHeader]) -> bool {
 
 /// Verify that block numbers start from the expected
 /// slice.start_block_num and increase sequentially.
-pub fn verify_slice_block_nums(headers: &[BlockHeader], start_block_num: BlockNumber) -> bool {
+fn verify_slice_block_nums(headers: &[BlockHeader], start_block_num: BlockNumber) -> bool {
     if headers.is_empty() {
         return true;
     }
@@ -118,7 +151,7 @@ pub fn verify_slice_block_nums(headers: &[BlockHeader], start_block_num: BlockNu
 }
 
 /// Verify that timestamps are in the past and increase monotonically.
-pub fn verify_slice_timestamps(headers: &[BlockHeader], max_timestamp: u64) -> bool {
+fn verify_slice_timestamps(headers: &[BlockHeader], max_timestamp: u64) -> bool {
     if headers.is_empty() {
         return true;
     }
@@ -135,13 +168,13 @@ pub fn verify_slice_timestamps(headers: &[BlockHeader], max_timestamp: u64) -> b
 }
 
 /// Verify that difficulty field is calculated properly.
-pub fn verify_slice_difficulties(headers: &[BlockHeader], chain_spec: &ChainSpec) -> bool {
+fn verify_slice_difficulties(headers: &[BlockHeader], chain_spec: &ChainSpec) -> bool {
     enumerate_sequential_pairs(headers)
         .all(|(parent, child)| verify_link_difficulties(child, parent, chain_spec))
 }
 
 /// Verify the headers proof-of-work.
-pub fn verify_slice_pow(_headers: &[BlockHeader]) -> bool {
+fn verify_slice_pow(_headers: &[BlockHeader]) -> bool {
     // TODO: verify_slice_pow
     true
 }

@@ -1,4 +1,4 @@
-use crate::downloader::headers::{
+use super::{
     header_slice_status_watch::HeaderSliceStatusWatch,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
