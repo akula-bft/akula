@@ -95,7 +95,9 @@ impl VerifyStageForkyLink {
     }
 
     fn switch_to_fork_mode(&mut self) {
-        self.mode = Mode::Fork(Box::new(self.make_fork_mode_stage()));
+        let mut fork_mode_stage = self.make_fork_mode_stage();
+        fork_mode_stage.setup();
+        self.mode = Mode::Fork(Box::new(fork_mode_stage));
     }
 }
 

@@ -34,7 +34,7 @@ pub enum HeaderSliceStatus {
     Saved,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HeaderSlice {
     pub start_block_num: BlockNumber,
     pub status: HeaderSliceStatus,
@@ -68,7 +68,7 @@ pub struct HeaderSlices {
     state_watches: HashMap<HeaderSliceStatus, HeaderSliceStatusWatch>,
 }
 
-pub(super) const HEADER_SLICE_SIZE: usize = 192;
+pub const HEADER_SLICE_SIZE: usize = 192;
 
 const ATOMIC_ORDERING: Ordering = Ordering::SeqCst;
 
@@ -116,6 +116,37 @@ impl HeaderSlices {
         }
     }
 
+    #[cfg(test)]
+    pub fn from_slices_vec(slices: Vec<HeaderSlice>) -> Self {
+        let max_slices = slices.len();
+        assert!(max_slices > 0, "slices must not be empty");
+
+        let start_block_num = slices[0].start_block_num;
+        let max_block_num = start_block_num.0 + (max_slices * HEADER_SLICE_SIZE) as u64;
+
+        let state_watches = Self::make_state_watches_from_slices(&slices);
+
+        let slice_locks =
+            VecDeque::from_iter(slices.into_iter().map(|slice| Arc::new(RwLock::new(slice))));
+
+        Self {
+            slices: RwLock::new(slice_locks),
+            max_slices,
+            max_block_num: AtomicU64::new(max_block_num),
+            final_block_num: BlockNumber(max_block_num),
+            state_watches,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn clone_slices_vec(&self) -> Vec<HeaderSlice> {
+        self.slices
+            .read()
+            .iter()
+            .map(|slice_lock| slice_lock.read().clone())
+            .collect()
+    }
+
     fn make_state_watches(max_slices: usize) -> HashMap<HeaderSliceStatus, HeaderSliceStatusWatch> {
         let mut state_watches = HashMap::<HeaderSliceStatus, HeaderSliceStatusWatch>::new();
         for id in HeaderSliceStatus::iter() {
@@ -125,6 +156,31 @@ impl HeaderSlices {
                 0
             };
 
+            let (sender, receiver) = watch::channel(initial_count);
+            let channel = HeaderSliceStatusWatch {
+                sender,
+                receiver,
+                count: AtomicUsize::new(initial_count),
+            };
+
+            state_watches.insert(id, channel);
+        }
+        state_watches
+    }
+
+    fn make_state_watches_from_slices(
+        slices: &[HeaderSlice],
+    ) -> HashMap<HeaderSliceStatus, HeaderSliceStatusWatch> {
+        let mut state_counters = HashMap::<HeaderSliceStatus, usize>::new();
+        for id in HeaderSliceStatus::iter() {
+            state_counters.insert(id, 0);
+        }
+        for slice in slices {
+            state_counters.insert(slice.status, state_counters[&slice.status] + 1);
+        }
+
+        let mut state_watches = HashMap::<HeaderSliceStatus, HeaderSliceStatusWatch>::new();
+        for (id, initial_count) in state_counters {
             let (sender, receiver) = watch::channel(initial_count);
             let channel = HeaderSliceStatusWatch {
                 sender,
@@ -344,5 +400,43 @@ impl HeaderSlice {
 impl Default for HeaderSliceStatus {
     fn default() -> Self {
         HeaderSliceStatus::Empty
+    }
+}
+
+impl From<HeaderSliceStatus> for char {
+    fn from(status: HeaderSliceStatus) -> Self {
+        match status {
+            HeaderSliceStatus::Empty => '-',
+            HeaderSliceStatus::Waiting => '<',
+            HeaderSliceStatus::Downloaded => '.',
+            HeaderSliceStatus::VerifiedInternally => '=',
+            HeaderSliceStatus::Verified => '#',
+            HeaderSliceStatus::Invalid => 'x',
+            HeaderSliceStatus::Fork => 'Y',
+            HeaderSliceStatus::Refetch => 'R',
+            HeaderSliceStatus::Saved => '+',
+        }
+    }
+}
+
+impl TryFrom<char> for HeaderSliceStatus {
+    type Error = anyhow::Error;
+
+    fn try_from(status_code: char) -> anyhow::Result<Self> {
+        match status_code {
+            '-' => Ok(HeaderSliceStatus::Empty),
+            '<' => Ok(HeaderSliceStatus::Waiting),
+            '.' => Ok(HeaderSliceStatus::Downloaded),
+            '=' => Ok(HeaderSliceStatus::VerifiedInternally),
+            '#' => Ok(HeaderSliceStatus::Verified),
+            'x' => Ok(HeaderSliceStatus::Invalid),
+            'Y' => Ok(HeaderSliceStatus::Fork),
+            'R' => Ok(HeaderSliceStatus::Refetch),
+            '+' => Ok(HeaderSliceStatus::Saved),
+            _ => Err(anyhow::format_err!(
+                "unrecognized status code '{:?}'",
+                status_code
+            )),
+        }
     }
 }
