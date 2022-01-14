@@ -1,9 +1,10 @@
 use super::{
     header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier,
+    header_slice_verifier::HeaderSliceVerifier,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    parallel::map_parallel,
 };
-use crate::{downloader::headers::parallel::map_parallel, sentry::chain_config::ChainConfig};
+use crate::sentry::chain_config::ChainConfig;
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc, time::SystemTime};
 use tracing::*;
@@ -12,14 +13,20 @@ use tracing::*;
 pub struct VerifyStageLinear {
     header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
+    verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     pending_watch: HeaderSliceStatusWatch,
 }
 
 impl VerifyStageLinear {
-    pub fn new(header_slices: Arc<HeaderSlices>, chain_config: ChainConfig) -> Self {
+    pub fn new(
+        header_slices: Arc<HeaderSlices>,
+        chain_config: ChainConfig,
+        verifier: Arc<Box<dyn HeaderSliceVerifier>>,
+    ) -> Self {
         Self {
             header_slices: header_slices.clone(),
             chain_config,
+            verifier,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Downloaded,
                 header_slices,
@@ -96,7 +103,7 @@ impl VerifyStageLinear {
             return false;
         };
 
-        header_slice_verifier::verify_slice(
+        self.verifier.verify_slice(
             headers,
             slice.start_block_num,
             Self::now_timestamp(),

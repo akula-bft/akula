@@ -1,22 +1,24 @@
-mod average_delta_counter;
 pub mod downloader;
+pub mod header;
+pub mod header_slice_verifier;
+pub mod header_slice_verifier_mock;
+pub mod header_slices;
+
+mod average_delta_counter;
 mod downloader_forky;
 mod downloader_linear;
 mod downloader_preverified;
-pub mod header;
+mod downloader_stage_loop;
 mod header_slice_status_watch;
-pub mod header_slices;
 mod parallel;
-pub mod stage;
+mod preverified_hashes_config;
+mod stage;
 mod stage_stream;
 
-mod downloader_stage_loop;
 mod fetch_receive_stage;
 mod fetch_request_stage;
 mod fork_mode_stage;
-mod header_slice_verifier;
 mod penalize_stage;
-mod preverified_hashes_config;
 mod refetch_stage;
 mod refill_stage;
 mod retry_stage;

@@ -1,15 +1,20 @@
 use super::{
-    downloader_stage_loop::DownloaderStageLoop, fetch_receive_stage::FetchReceiveStage,
-    fetch_request_stage::FetchRequestStage, header_slices, header_slices::HeaderSlices,
-    penalize_stage::PenalizeStage, refetch_stage::RefetchStage, retry_stage::RetryStage,
-    save_stage::SaveStage, verify_stage_forky_link::VerifyStageForkyLink,
-    verify_stage_linear::VerifyStageLinear, HeaderSlicesView,
+    downloader_stage_loop::DownloaderStageLoop,
+    fetch_receive_stage::FetchReceiveStage,
+    fetch_request_stage::FetchRequestStage,
+    header_slice_verifier::HeaderSliceVerifier,
+    header_slices,
+    header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+    penalize_stage::PenalizeStage,
+    refetch_stage::RefetchStage,
+    retry_stage::RetryStage,
+    save_stage::SaveStage,
+    verify_stage_forky_link::VerifyStageForkyLink,
+    verify_stage_linear::VerifyStageLinear,
+    HeaderSlicesView,
 };
 use crate::{
-    downloader::{
-        headers::header_slices::align_block_num_to_slice_start,
-        ui_system::{UISystemShared, UISystemViewScope},
-    },
+    downloader::ui_system::{UISystemShared, UISystemViewScope},
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
@@ -19,6 +24,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub struct DownloaderForky {
     chain_config: ChainConfig,
+    verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     sentry: SentryClientReactorShared,
 }
 
@@ -29,9 +35,14 @@ pub struct DownloaderForkyReport {
 }
 
 impl DownloaderForky {
-    pub fn new(chain_config: ChainConfig, sentry: SentryClientReactorShared) -> Self {
+    pub fn new(
+        chain_config: ChainConfig,
+        verifier: Arc<Box<dyn HeaderSliceVerifier>>,
+        sentry: SentryClientReactorShared,
+    ) -> Self {
         Self {
             chain_config,
+            verifier,
             sentry,
         }
     }
@@ -95,10 +106,15 @@ impl DownloaderForky {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStageLinear::new(header_slices.clone(), self.chain_config.clone());
+        let verify_stage = VerifyStageLinear::new(
+            header_slices.clone(),
+            self.chain_config.clone(),
+            self.verifier.clone(),
+        );
         let verify_link_stage = VerifyStageForkyLink::new(
             header_slices.clone(),
             self.chain_config.clone(),
+            self.verifier.clone(),
             start_block_num,
             start_block_id.hash,
         );
@@ -106,7 +122,11 @@ impl DownloaderForky {
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
 
-        let can_proceed = fetch_receive_stage.can_proceed_check();
+        let fetch_receive_stage_can_proceed = fetch_receive_stage.can_proceed_check();
+        let can_proceed = move |header_slices: Arc<HeaderSlices>| -> bool {
+            fetch_receive_stage_can_proceed()
+                && !header_slices.all_in_status(HeaderSliceStatus::Saved)
+        };
 
         let mut stages = DownloaderStageLoop::new(&header_slices);
         stages.insert(fetch_request_stage);

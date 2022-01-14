@@ -1,7 +1,8 @@
 use super::{
     header::BlockHeader,
     header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier, header_slices,
+    header_slice_verifier::HeaderSliceVerifier,
+    header_slices,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
@@ -16,6 +17,7 @@ use tracing::*;
 pub struct VerifyStageLinearLink {
     header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
+    verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     start_block_num: BlockNumber,
     start_block_hash: ethereum_types::H256,
     invalid_status: HeaderSliceStatus,
@@ -28,17 +30,21 @@ impl VerifyStageLinearLink {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         chain_config: ChainConfig,
+        verifier: Arc<Box<dyn HeaderSliceVerifier>>,
         start_block_num: BlockNumber,
         start_block_hash: ethereum_types::H256,
         invalid_status: HeaderSliceStatus,
     ) -> Self {
+        let last_verified_header = Self::find_last_verified_header(&header_slices);
+
         Self {
             header_slices: header_slices.clone(),
             chain_config,
+            verifier,
             start_block_num,
             start_block_hash,
             invalid_status,
-            last_verified_header: None,
+            last_verified_header,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::VerifiedInternally,
                 header_slices,
@@ -109,6 +115,27 @@ impl VerifyStageLinearLink {
         }
     }
 
+    fn find_last_verified_header(header_slices: &HeaderSlices) -> Option<BlockHeader> {
+        let mut last_verified_slice = Option::<Arc<RwLock<HeaderSlice>>>::None;
+
+        header_slices.try_fold((), |_, slice_lock| {
+            let slice = slice_lock.read();
+            match slice.status {
+                HeaderSliceStatus::Verified | HeaderSliceStatus::Saved => {
+                    last_verified_slice = Some(slice_lock.clone());
+                    ControlFlow::Continue(())
+                }
+                _ => ControlFlow::Break(()),
+            }
+        });
+
+        last_verified_slice.and_then(|slice_lock| {
+            let slice = slice_lock.read();
+            let headers = slice.headers.as_ref();
+            headers.and_then(|headers| -> Option<BlockHeader> { headers.last().cloned() })
+        })
+    }
+
     fn verify_pending_slice(&mut self, slice_lock: Arc<RwLock<HeaderSlice>>) -> bool {
         let slice = slice_lock.upgradable_read();
 
@@ -153,7 +180,8 @@ impl VerifyStageLinearLink {
         }
         let parent = parent.as_ref().unwrap();
 
-        header_slice_verifier::verify_link(child, parent, self.chain_config.chain_spec())
+        self.verifier
+            .verify_link(child, parent, self.chain_config.chain_spec())
     }
 }
 

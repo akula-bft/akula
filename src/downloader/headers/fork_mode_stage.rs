@@ -1,7 +1,8 @@
 use super::{
     header::BlockHeader,
     header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier, header_slices,
+    header_slice_verifier::HeaderSliceVerifier,
+    header_slices,
     header_slices::{align_block_num_to_slice_start, HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
@@ -16,6 +17,7 @@ use tracing::*;
 pub struct ForkModeStage {
     header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
+    verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     canonical_range: Range<BlockNumber>,
     fork_range: Range<BlockNumber>,
     pending_watch: HeaderSliceStatusWatch,
@@ -23,7 +25,11 @@ pub struct ForkModeStage {
 }
 
 impl ForkModeStage {
-    pub fn new(header_slices: Arc<HeaderSlices>, chain_config: ChainConfig) -> Self {
+    pub fn new(
+        header_slices: Arc<HeaderSlices>,
+        chain_config: ChainConfig,
+        verifier: Arc<Box<dyn HeaderSliceVerifier>>,
+    ) -> Self {
         let Some(fork_slice_lock) = header_slices.find_by_status(HeaderSliceStatus::Fork) else {
             panic!("invalid state: initial fork slice not found");
         };
@@ -33,6 +39,7 @@ impl ForkModeStage {
         Self {
             header_slices: header_slices.clone(),
             chain_config,
+            verifier,
             canonical_range,
             fork_range: fork_slice_lock.read().block_num_range(),
             pending_watch: HeaderSliceStatusWatch::new(
@@ -239,7 +246,8 @@ impl ForkModeStage {
     ) -> bool {
         let child = child_headers.first().unwrap();
         let parent = parent_headers.last().unwrap();
-        header_slice_verifier::verify_link(child, parent, self.chain_config.chain_spec())
+        self.verifier
+            .verify_link(child, parent, self.chain_config.chain_spec())
     }
 
     fn find_fork_connection_block_num(fork_slice: &HeaderSlice) -> Option<BlockNumber> {

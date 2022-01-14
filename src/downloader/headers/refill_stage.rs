@@ -1,4 +1,4 @@
-use crate::downloader::headers::{
+use super::{
     header_slice_status_watch::HeaderSliceStatusWatch,
     header_slices::{HeaderSliceStatus, HeaderSlices},
 };
@@ -40,6 +40,11 @@ impl RefillStage {
     fn refill_pending(&self) {
         self.header_slices.remove(HeaderSliceStatus::Saved);
         self.header_slices.refill();
+    }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        let header_slices = self.header_slices.clone();
+        move || -> bool { !header_slices.is_empty_at_final_position() }
     }
 }
 

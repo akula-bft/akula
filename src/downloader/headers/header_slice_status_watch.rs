@@ -1,4 +1,4 @@
-use crate::downloader::headers::header_slices::{HeaderSliceStatus, HeaderSlices};
+use super::header_slices::{HeaderSliceStatus, HeaderSlices};
 use std::sync::Arc;
 use tokio::sync::watch;
 use tracing::*;

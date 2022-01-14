@@ -30,17 +30,14 @@ impl<'s> DownloaderStageLoop<'s> {
         self.stream.insert(name, make_stage_stream(stage));
     }
 
-    pub async fn run(mut self, can_proceed: impl Fn() -> bool) {
+    pub async fn run(mut self, can_proceed: impl Fn(Arc<HeaderSlices>) -> bool) {
         while let Some((key, result)) = self.stream.next().await {
             if result.is_err() {
                 error!("Downloader headers {} failure: {:?}", key, result);
                 break;
             }
 
-            if !can_proceed() {
-                break;
-            }
-            if self.header_slices.is_empty_at_final_position() {
+            if !can_proceed(self.header_slices.clone()) {
                 break;
             }
 
