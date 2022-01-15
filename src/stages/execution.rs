@@ -20,6 +20,7 @@ use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::*;
 
+/// Execution of blocks through EVM
 #[derive(Debug)]
 pub struct Execution {
     pub batch_size: u64,
@@ -199,11 +200,11 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         EXECUTION
     }
 
-    fn description(&self) -> &'static str {
-        "Execution of blocks through EVM"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -253,7 +254,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: crate::stagedsync::stage::UnwindInput,
     ) -> anyhow::Result<UnwindOutput>

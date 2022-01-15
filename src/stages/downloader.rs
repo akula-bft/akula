@@ -6,13 +6,14 @@ use crate::{
     kv::traits::*,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared},
-    stagedsync::stage::*,
+    stagedsync::{stage::*, stages::HEADERS},
     StageId,
 };
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 
+/// Download of headers
 #[derive(Debug)]
 pub struct HeaderDownload {
     downloader: HeadersDownloader,
@@ -57,14 +58,14 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("HeaderDownload")
+        HEADERS
     }
 
-    fn description(&self) -> &'static str {
-        "Downloading headers"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -110,7 +111,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: crate::stagedsync::stage::UnwindInput,
     ) -> anyhow::Result<UnwindOutput>

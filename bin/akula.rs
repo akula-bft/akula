@@ -10,7 +10,7 @@ use akula::{
         sentry_client_connector::SentryClientConnectorImpl,
         sentry_client_reactor::SentryClientReactor,
     },
-    stagedsync::{self, stage::*, stages::FINISH},
+    stagedsync::{self, stage::*, stages::*},
     stages::*,
     version_string, StageId,
 };
@@ -104,12 +104,14 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("ConvertHeaders")
+        HEADERS
     }
-    fn description(&self) -> &'static str {
-        ""
-    }
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -182,7 +184,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -239,13 +241,15 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("ConvertBodies")
+        BODIES
     }
-    fn description(&self) -> &'static str {
-        ""
-    }
+
     #[allow(clippy::redundant_closure_call)]
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -438,7 +442,7 @@ where
         })
     }
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -472,24 +476,25 @@ where
 }
 
 #[derive(Debug)]
-struct TerminatingStage {
+struct FinishStage {
     max_block: Option<BlockNumber>,
     exit_after_sync: bool,
     delay_after_sync: Duration,
 }
 
 #[async_trait]
-impl<'db, RwTx> Stage<'db, RwTx> for TerminatingStage
+impl<'db, RwTx> Stage<'db, RwTx> for FinishStage
 where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
         FINISH
     }
-    fn description(&self) -> &'static str {
-        ""
-    }
-    async fn execute<'tx>(&self, _: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        _: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -522,7 +527,7 @@ where
         )
     }
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         _: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -661,7 +666,7 @@ async fn main() -> anyhow::Result<()> {
         temp_dir: etl_temp_dir.clone(),
         flush_interval: 50_000,
     });
-    staged_sync.push(TerminatingStage {
+    staged_sync.push(FinishStage {
         max_block: opt.max_block,
         exit_after_sync: opt.exit_after_sync,
         delay_after_sync: Duration::from_millis(opt.delay_after_sync),

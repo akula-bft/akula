@@ -3,7 +3,7 @@ use crate::{
         tables::{self, CumulativeData},
         traits::*,
     },
-    stagedsync::stage::*,
+    stagedsync::{stage::*, stages::CUMULATIVE_INDEX},
     StageId,
 };
 use anyhow::format_err;
@@ -19,14 +19,14 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("CumulativeIndex")
+        CUMULATIVE_INDEX
     }
 
-    fn description(&self) -> &'static str {
-        ""
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -81,7 +81,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>

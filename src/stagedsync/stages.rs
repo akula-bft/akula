@@ -12,6 +12,7 @@ pub const HEADERS: StageId = StageId("Headers");
 pub const BLOCK_HASHES: StageId = StageId("BlockHashes");
 pub const BODIES: StageId = StageId("Bodies");
 pub const SENDERS: StageId = StageId("Senders");
+pub const CUMULATIVE_INDEX: StageId = StageId("CumulativeIndex");
 pub const EXECUTION: StageId = StageId("Execution");
 pub const INTERMEDIATE_HASHES: StageId = StageId("IntermediateHashes");
 pub const HASH_STATE: StageId = StageId("HashState");

@@ -14,6 +14,7 @@ use tokio::pin;
 use tokio_stream::StreamExt as _;
 use tracing::*;
 
+/// Recovery of senders of transactions from signatures
 #[derive(Debug)]
 pub struct SenderRecovery {
     pub batch_size: usize,
@@ -28,11 +29,11 @@ where
         StageId("SenderRecovery")
     }
 
-    fn description(&self) -> &'static str {
-        "Recovering senders of transactions from signatures"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -170,7 +171,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -366,7 +367,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stage = SenderRecovery { batch_size: 50_000 };
+        let mut stage = SenderRecovery { batch_size: 50_000 };
 
         let stage_input = StageInput {
             restarted: false,

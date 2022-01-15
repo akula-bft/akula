@@ -158,12 +158,12 @@ where
     fn id(&self) -> StageId {
         HASH_STATE
     }
-    /// Description of the stage.
-    fn description(&self) -> &'static str {
-        ""
-    }
-    /// Called when the stage is executed. The main logic of the stage should be here.
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -199,9 +199,9 @@ where
             done: true,
         })
     }
-    /// Called when the stage should be unwound. The unwind logic should be there.
+
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>

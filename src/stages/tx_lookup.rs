@@ -2,7 +2,7 @@ use crate::{
     etl::collector::*,
     kv::{tables, traits::*},
     models::BodyForStorage,
-    stagedsync::stage::*,
+    stagedsync::{stage::*, stages::TX_LOOKUP},
     StageId,
 };
 use async_trait::async_trait;
@@ -12,6 +12,7 @@ use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
+/// Generation of TransactionHash => BlockNumber mapping
 #[derive(Debug)]
 pub struct TxLookup {
     temp_dir: Arc<TempDir>,
@@ -23,14 +24,14 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("TxLookup")
+        TX_LOOKUP
     }
 
-    fn description(&self) -> &'static str {
-        "Generating TransactionHash => BlockNumber Mapping"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -80,7 +81,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -311,7 +312,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stage = TxLookup {
+        let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
         };
 
@@ -350,7 +351,7 @@ mod tests {
     async fn tx_lookup_stage_without_data() {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
-        let stage = TxLookup {
+        let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
         };
 
@@ -542,7 +543,7 @@ mod tests {
         chain::tl::write(&tx, hash2_1, 2.into()).await.unwrap();
         chain::tl::write(&tx, hash2_2, 2.into()).await.unwrap();
         chain::tl::write(&tx, hash2_3, 2.into()).await.unwrap();
-        let stage = TxLookup {
+        let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
         };
         stage

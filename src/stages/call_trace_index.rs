@@ -20,6 +20,7 @@ use tempfile::TempDir;
 use tokio::pin;
 use tokio_stream::StreamExt;
 
+/// Generate call trace index
 #[derive(Debug)]
 pub struct CallTraceIndex {
     pub temp_dir: Arc<TempDir>,
@@ -35,11 +36,11 @@ where
         CALL_TRACES
     }
 
-    fn description(&self) -> &'static str {
-        "Generation of call trace index"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -120,7 +121,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
