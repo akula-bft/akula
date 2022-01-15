@@ -1,10 +1,12 @@
-use crate::{crypto::keccak256, models};
+use crate::{
+    crypto::keccak256,
+    models::{BlockHeader as BaseBlockHeader, *},
+};
 use bytes::Bytes;
-use ethereum_types::{H256, U256};
 
 #[derive(Clone, Debug)]
 pub struct BlockHeader {
-    pub header: models::BlockHeader,
+    pub header: BaseBlockHeader,
     rlp_repr_cached: Option<Bytes>,
     hash_cached: Option<H256>,
 }
@@ -13,7 +15,7 @@ impl BlockHeader {
     pub fn difficulty(&self) -> U256 {
         self.header.difficulty
     }
-    pub fn number(&self) -> models::BlockNumber {
+    pub fn number(&self) -> BlockNumber {
         self.header.number
     }
     pub fn ommers_hash(&self) -> H256 {
@@ -65,8 +67,8 @@ impl BlockHeader {
     }
 }
 
-impl From<models::BlockHeader> for BlockHeader {
-    fn from(header: models::BlockHeader) -> Self {
+impl From<BaseBlockHeader> for BlockHeader {
+    fn from(header: BaseBlockHeader) -> Self {
         Self {
             header,
             rlp_repr_cached: None,

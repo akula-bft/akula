@@ -3,13 +3,9 @@ mod blockchain;
 mod ethash;
 
 pub use self::{blockchain::*, ethash::*};
-use crate::{
-    models::{Block, BlockHeader, *},
-    State,
-};
+use crate::{models::*, State};
 use anyhow::bail;
 use async_trait::async_trait;
-use ethereum_types::*;
 use evmodin::Revision;
 use std::fmt::{Debug, Display};
 

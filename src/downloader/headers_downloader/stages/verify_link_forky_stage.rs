@@ -4,7 +4,7 @@ use super::{
     verification::header_slice_verifier::HeaderSliceVerifier,
     verify_link_linear_stage::VerifyLinkLinearStage,
 };
-use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
+use crate::{models::*, sentry::chain_config::ChainConfig};
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
@@ -15,7 +15,7 @@ pub struct VerifyLinkForkyStage {
     chain_config: ChainConfig,
     verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     start_block_num: BlockNumber,
-    start_block_hash: ethereum_types::H256,
+    start_block_hash: H256,
     mode: Mode,
 }
 
@@ -31,7 +31,7 @@ impl VerifyLinkForkyStage {
         chain_config: ChainConfig,
         verifier: Arc<Box<dyn HeaderSliceVerifier>>,
         start_block_num: BlockNumber,
-        start_block_hash: ethereum_types::H256,
+        start_block_hash: H256,
     ) -> Self {
         let mode = if fork_header_slices.is_empty() {
             let linear_mode_stage = VerifyLinkLinearStage::new(

@@ -17,7 +17,6 @@ use akula::{
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use clap::Parser;
-use ethereum_types::H256;
 use rayon::prelude::*;
 use std::{
     path::PathBuf,

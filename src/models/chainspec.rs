@@ -1,6 +1,5 @@
 use crate::{models::*, util::*};
 use bytes::Bytes;
-use ethereum_types::*;
 use evmodin::Revision;
 use serde::*;
 use std::{
@@ -470,7 +469,7 @@ mod tests {
                 contracts: Default::default(),
                 balances: btreemap! {
                     0.into() => hashmap! {
-                        hex!("31b98d14007bdee637298086988a0bbd31184523").into() => "0x200000000000000000000000000000000000000000000000000000000000000".into(),
+                        hex!("31b98d14007bdee637298086988a0bbd31184523").into() => U256::from_be_bytes(hex!("0200000000000000000000000000000000000000000000000000000000000000")),
                     },
                 },
                 p2p: P2PParams {

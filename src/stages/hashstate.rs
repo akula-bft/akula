@@ -9,7 +9,6 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use ethereum_types::*;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::pin;
@@ -121,7 +120,7 @@ where
     {
         let hashed_address = keccak256(address);
         let hashed_location = keccak256(location);
-        let mut v = U256::zero();
+        let mut v = U256::ZERO;
         if let Some((found_location, value)) =
             storage_table.seek_both_range(address, location).await?
         {
@@ -327,7 +326,7 @@ mod tests {
         let mut body = BlockBodyWithSenders {
             transactions: vec![(transaction)(
                 0,
-                0.into(),
+                0.as_u256(),
                 TransactionAction::Create,
                 deployment_code.into_iter().chain(contract_code).collect(),
             )],
@@ -337,7 +336,7 @@ mod tests {
         let mut buffer = Buffer::new(&tx, BlockNumber(0), None);
 
         let sender_account = Account {
-            balance: *ETHER,
+            balance: ETHER.into(),
             ..Account::default()
         };
 
@@ -375,7 +374,7 @@ mod tests {
 
         body.transactions = vec![(transaction)(
             1,
-            1000.into(),
+            1000.as_u256(),
             TransactionAction::Call(contract_address),
             new_val.to_vec().into(),
         )];
@@ -407,9 +406,9 @@ mod tests {
 
         body.transactions = vec![(transaction)(
             2,
-            1000.into(),
+            1000.as_u256(),
             TransactionAction::Call(contract_address),
-            u256_to_h256(new_val.into()).0.to_vec().into(),
+            u256_to_h256(new_val.as_u256()).0.to_vec().into(),
         )];
 
         execute_block(&mut buffer, &MAINNET.clone(), &header, &body)
@@ -465,7 +464,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(account.nonce, 3);
-        assert!(account.balance < *ETHER);
+        assert!(account.balance < ETHER);
 
         // ---------------------------------------
         // Check hashed storage
@@ -480,8 +479,8 @@ mod tests {
         for (location, expected_value) in [(0, new_val), (1, 0x01c9)] {
             let (wk, (hashed_location, value)) = walker.try_next().await.unwrap().unwrap();
             assert_eq!(k, wk);
-            assert_eq!(hashed_location, keccak256(u256_to_h256(location.into())));
-            assert_eq!(value, expected_value.into());
+            assert_eq!(hashed_location, keccak256(u256_to_h256(location.as_u256())));
+            assert_eq!(value, expected_value.as_u256());
         }
 
         assert!(walker.try_next().await.unwrap().is_none());

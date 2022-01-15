@@ -3,7 +3,6 @@ use anyhow::bail;
 use arrayvec::ArrayVec;
 use bytes::{Buf, Bytes};
 use educe::*;
-use ethereum_types::*;
 use modular_bitfield::prelude::*;
 use rlp_derive::*;
 use serde::*;
@@ -28,7 +27,7 @@ impl Default for Account {
     fn default() -> Self {
         Self {
             nonce: 0,
-            balance: U256::zero(),
+            balance: U256::ZERO,
             code_hash: EMPTY_HASH,
         }
     }
@@ -87,9 +86,9 @@ impl Account {
         }
 
         // Encoding balance
-        if !self.balance.is_zero() {
+        if self.balance != 0 {
             field_set.set_balance(true);
-            let b = Self::write_compact(&value_to_bytes(self.balance));
+            let b = Self::write_compact(&self.balance.to_be_bytes());
             buffer.push(b.len().try_into().unwrap());
             buffer.try_extend_from_slice(&b[..]).unwrap();
         }
@@ -128,7 +127,7 @@ impl Account {
         if field_set.balance() {
             let decode_length = enc.get_u8() as usize;
 
-            a.balance = U256::from_big_endian(&enc[..decode_length]);
+            a.balance = U256::from_be_bytes(static_left_pad(&enc[..decode_length]));
             enc.advance(decode_length);
         }
 
@@ -185,7 +184,7 @@ mod tests {
         run_test_storage(
             Account {
                 nonce: 100,
-                balance: U256::zero(),
+                balance: 0.as_u256(),
                 code_hash: EMPTY_HASH,
             },
             hex!("010164"),
@@ -197,7 +196,7 @@ mod tests {
         run_test_storage(
             Account {
                 nonce: 2,
-                balance: 1000.into(),
+                balance: 1000.as_u256(),
                 code_hash: keccak256(&[1, 2, 3]),
             },
             hex!("0701020203e820f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"),
@@ -209,7 +208,7 @@ mod tests {
         run_test_storage(
             Account {
                 nonce: 2,
-                balance: 1000.into(),
+                balance: 1000.as_u256(),
                 code_hash: keccak256(&[1, 2, 3]),
             },
             hex!("0701020203e820f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c9239"),
@@ -221,7 +220,7 @@ mod tests {
         run_test_storage(
             Account {
                 nonce: 2,
-                balance: 1000.into(),
+                balance: 1000.as_u256(),
                 code_hash: EMPTY_HASH,
             },
             hex!("0301020203e8"),
@@ -233,7 +232,7 @@ mod tests {
         run_test_storage(
             Account {
                 nonce: 0,
-                balance: 0.into(),
+                balance: 0.as_u256(),
                 code_hash: H256(hex!(
                     "0000000000000000000000000000000000000000000000000000000000000123"
                 )),
@@ -247,7 +246,7 @@ mod tests {
         run_test_storage(
             Account {
                 nonce: 0,
-                balance: 0.into(),
+                balance: 0.as_u256(),
                 code_hash: EMPTY_HASH,
             },
             hex!("00"),

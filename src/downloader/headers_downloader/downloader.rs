@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     kv,
-    models::BlockNumber,
+    models::*,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
 use std::{
@@ -19,7 +19,7 @@ pub struct Downloader {
     downloader_preverified: downloader_preverified::DownloaderPreverified,
     downloader_linear: downloader_linear::DownloaderLinear,
     downloader_forky: downloader_forky::DownloaderForky,
-    genesis_block_hash: ethereum_types::H256,
+    genesis_block_hash: H256,
 }
 
 pub struct DownloaderReport {

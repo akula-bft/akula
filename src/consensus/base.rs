@@ -2,7 +2,6 @@ use super::*;
 use crate::{chain::protocol_param::param, models::*, state::*};
 use anyhow::Context;
 use async_recursion::*;
-use ethereum_types::*;
 use std::time::SystemTime;
 
 #[derive(Debug)]
@@ -182,7 +181,7 @@ impl ConsensusEngineBase {
                 if parent.gas_used > parent_gas_target {
                     let gas_used_delta = parent.gas_used - parent_gas_target;
                     let base_fee_per_gas_delta = std::cmp::max(
-                        U256::one(),
+                        U256::ONE,
                         parent_base_fee_per_gas * U256::from(gas_used_delta)
                             / U256::from(parent_gas_target)
                             / U256::from(param::BASE_FEE_MAX_CHANGE_DENOMINATOR),
@@ -319,7 +318,7 @@ mod tests {
                 max_fee_per_gas: max_fee_per_gas.into(),
                 gas_limit: 0,
                 action: TransactionAction::Create,
-                value: U256::zero(),
+                value: U256::ZERO,
                 input: vec![].into(),
                 access_list: vec![],
             };

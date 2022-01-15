@@ -2,20 +2,20 @@ use super::{
     chain_config::ChainConfig,
     messages::{EthMessageId, Message},
 };
-use crate::models::BlockNumber;
+use crate::models::*;
 use async_trait::async_trait;
 use futures_core::Stream;
 use std::{fmt::Debug, pin::Pin};
 
 #[derive(Clone, Debug)]
 pub struct Status {
-    pub total_difficulty: ethereum_types::U256,
-    pub best_hash: ethereum_types::H256,
+    pub total_difficulty: U256,
+    pub best_hash: H256,
     pub chain_fork_config: ChainConfig,
     pub max_block: BlockNumber,
 }
 
-pub type PeerId = ethereum_types::H512;
+pub type PeerId = H512;
 
 #[derive(Clone, Debug)]
 pub enum PeerFilter {

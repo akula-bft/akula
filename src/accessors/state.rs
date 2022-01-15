@@ -2,7 +2,6 @@ use crate::{
     kv::{tables, traits::*},
     models::*,
 };
-use ethereum_types::*;
 
 pub mod account {
     use super::*;
@@ -179,7 +178,7 @@ pub mod tests {
             super::storage::read(&txn, address, h256_to_u256(loc4), None)
                 .await
                 .unwrap(),
-            0.into()
+            0.as_u256()
         );
     }
 }

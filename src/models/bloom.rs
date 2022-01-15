@@ -1,5 +1,4 @@
 use super::*;
-use ethereum_types::Bloom;
 use sha3::{Digest, Keccak256};
 
 pub const BLOOM_BYTE_LENGTH: usize = 256;

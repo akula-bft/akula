@@ -2,7 +2,6 @@ use crate::models::*;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::Bytes;
-use ethereum_types::{Address, H256, U256};
 use std::fmt::Debug;
 
 #[async_trait]

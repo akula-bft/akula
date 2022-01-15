@@ -13,7 +13,6 @@ use crate::{
 use anyhow::Context;
 use async_recursion::async_recursion;
 use bytes::Bytes;
-use ethereum_types::{Address, H256, U256};
 use evmodin::{
     continuation::{interrupt::*, interrupt_data::*, resume_data::*, Interrupt},
     host::*,
@@ -273,7 +272,7 @@ where
         }
 
         // https://eips.ethereum.org/EIPS/eip-161
-        if value.is_zero()
+        if value == 0
             && self.block_spec.revision >= Revision::Spurious
             && !precompiled
             && !self.state.exists(message.code_address).await?
@@ -379,13 +378,14 @@ where
                     i.resume(Balance { balance })
                 }
                 InterruptVariant::GetCodeSize(i) => {
-                    let code_size = self
-                        .state
-                        .get_code(i.data().address)
-                        .await?
-                        .map(|c| c.len())
-                        .unwrap_or(0)
-                        .into();
+                    let code_size = u64::try_from(
+                        self.state
+                            .get_code(i.data().address)
+                            .await?
+                            .map(|c| c.len())
+                            .unwrap_or(0),
+                    )?
+                    .into();
                     i.resume(CodeSize { code_size })
                 }
                 InterruptVariant::GetStorage(i) => {
@@ -413,9 +413,9 @@ where
                             || self.block_spec.revision == Revision::Constantinople;
 
                         if !eip1283 {
-                            if current_val.is_zero() {
+                            if current_val == 0 {
                                 StorageStatus::Added
-                            } else if new_val.is_zero() {
+                            } else if new_val == 0 {
                                 self.state.add_refund(fee::R_SCLEAR);
                                 StorageStatus::Deleted
                             } else {
@@ -450,26 +450,26 @@ where
                                 };
 
                             if original_val == current_val {
-                                if original_val.is_zero() {
+                                if original_val == 0 {
                                     StorageStatus::Added
                                 } else {
-                                    if new_val.is_zero() {
+                                    if new_val == 0 {
                                         self.state.add_refund(sstore_clears_refund);
                                     }
                                     StorageStatus::Modified
                                 }
                             } else {
-                                if !original_val.is_zero() {
-                                    if current_val.is_zero() {
+                                if original_val != 0 {
+                                    if current_val == 0 {
                                         self.state.subtract_refund(sstore_clears_refund);
                                     }
-                                    if new_val.is_zero() {
+                                    if new_val == 0 {
                                         self.state.add_refund(sstore_clears_refund);
                                     }
                                 }
                                 if original_val == new_val {
                                     let refund = {
-                                        if original_val.is_zero() {
+                                        if original_val == 0 {
                                             fee::G_SSET - sload_cost
                                         } else {
                                             sstore_reset_gas - sload_cost
@@ -554,7 +554,7 @@ where
                     i.resume(CallOutput { output })
                 }
                 InterruptVariant::GetTxContext(i) => {
-                    let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or_else(U256::zero);
+                    let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
                     let tx_gas_price = self.txn.effective_gas_price(base_fee_per_gas);
                     let tx_origin = self.txn.sender;
                     let block_coinbase = self.beneficiary;
@@ -704,18 +704,18 @@ mod tests {
 
             let sender = hex!("0a6bb546b9208cfab9e8fa2b9b2c042b18df7030").into();
             let to = hex!("8b299e2b7d7f43c0ce3068263545309ff4ffb521").into();
-            let value = 10_200_000_000_000_000_u64.into();
+            let value = 10_200_000_000_000_000_u128;
 
             let mut db = InMemoryState::default();
             let mut state = IntraBlockState::new(&mut db);
 
-            assert_eq!(state.get_balance(sender).await.unwrap(), U256::zero());
-            assert_eq!(state.get_balance(to).await.unwrap(), U256::zero());
+            assert_eq!(state.get_balance(sender).await.unwrap(), 0);
+            assert_eq!(state.get_balance(to).await.unwrap(), 0);
 
             let txn = MessageWithSender {
                 message: Message::Legacy {
                     action: TransactionAction::Call(to),
-                    value,
+                    value: value.into(),
 
                     chain_id: Default::default(),
                     nonce: Default::default(),
@@ -732,13 +732,13 @@ mod tests {
             assert_eq!(res.status_code, StatusCode::InsufficientBalance);
             assert_eq!(res.output_data, vec![]);
 
-            state.add_to_balance(sender, *ETHER).await.unwrap();
+            state.add_to_balance(sender, ETHER).await.unwrap();
 
             let res = execute(&mut state, &header, &txn, gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
             assert_eq!(res.output_data, vec![]);
 
-            assert_eq!(state.get_balance(sender).await.unwrap(), *ETHER - value);
+            assert_eq!(state.get_balance(sender).await.unwrap(), ETHER - value);
             assert_eq!(state.get_balance(to).await.unwrap(), value);
         })
     }
@@ -805,16 +805,16 @@ mod tests {
             assert_eq!(res.output_data, bytes!("600035600055"));
 
             let contract_address = create_address(caller, 1);
-            let key0 = 0.into();
+            let key0 = 0.as_u256();
             assert_eq!(
                 state
                     .get_current_storage(contract_address, key0)
                     .await
                     .unwrap(),
-                0x2a.into()
+                0x2a
             );
 
-            let new_val = 0xf5.into();
+            let new_val = 0xf5.as_u256();
 
             let res = execute(
                 &mut state,
@@ -992,7 +992,7 @@ mod tests {
             assert_eq!(res.status_code, StatusCode::Success);
             assert_eq!(res.output_data, vec![]);
 
-            let key0 = 0.into();
+            let key0 = 0.as_u256();
             assert_eq!(
                 state
                     .get_current_storage(caller_address, key0)
@@ -1070,13 +1070,13 @@ mod tests {
             assert_eq!(res.output_data, vec![]);
 
             let contract_address = create_address(caller, 0);
-            let key0 = 0.into();
+            let key0 = 0.as_u256();
             assert_eq!(
                 state
                     .get_current_storage(contract_address, key0)
                     .await
                     .unwrap(),
-                U256::zero()
+                0
             );
         })
     }

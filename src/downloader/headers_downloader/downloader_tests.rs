@@ -12,7 +12,7 @@ use super::{
 use crate::{
     kv,
     kv::traits::*,
-    models::BlockNumber,
+    models::*,
     sentry::{
         chain_config, sentry_client_connector,
         sentry_client_connector::SentryClientConnectorTest,
@@ -474,7 +474,7 @@ impl HeaderGenerator {
 
         // set difficulty
         for header in headers.as_mut_slice() {
-            header.header.difficulty = ethereum_types::U256::from(1);
+            header.header.difficulty = 1.as_u256();
         }
 
         // set ids - by default they are the same as the block numbers
@@ -519,7 +519,7 @@ impl HeaderGenerator {
         // if the genesis slice (with a block number 0) has a non-zero custom id,
         // then it must fail to link - force it by a bad genesis header hash
         if !headers.is_empty() && (headers[0].number() == BlockNumber(0)) && (start_id != 0) {
-            headers[0].set_hash_cached(Some(ethereum_types::H256::zero()));
+            headers[0].set_hash_cached(Some(H256::zero()));
         }
     }
 }

@@ -6,7 +6,6 @@ use crate::{
 };
 use anyhow::Context;
 use async_recursion::async_recursion;
-use ethereum_types::*;
 use std::{collections::HashMap, convert::TryFrom};
 
 #[derive(Debug)]

@@ -1,7 +1,7 @@
 use crate::{
     accessors,
     kv::{tables, traits::MutableTransaction},
-    models::BlockNumber,
+    models::*,
     stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput, UnwindOutput},
     stages::stage_util::should_do_clean_promotion,
     trie::{increment_intermediate_hashes, regenerate_intermediate_hashes},

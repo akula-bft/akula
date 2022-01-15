@@ -1,6 +1,6 @@
 use crate::{
     genesis::GenesisState,
-    models::{BlockNumber, ChainSpec, NetworkId},
+    models::{ChainSpec, NetworkId, *},
 };
 use std::collections::HashMap;
 
@@ -9,7 +9,7 @@ pub struct ChainsConfig(HashMap<String, ChainConfig>);
 #[derive(Clone, Debug)]
 pub struct ChainConfig {
     chain_spec: ChainSpec,
-    genesis_block_hash: ethereum_types::H256,
+    genesis_block_hash: H256,
 }
 
 impl ChainConfig {

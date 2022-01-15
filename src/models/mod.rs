@@ -12,14 +12,13 @@ pub use self::{
 };
 
 use derive_more::*;
-use ethereum_types::{H256, U256};
 use hex_literal::hex;
-use once_cell::sync::Lazy;
 use rlp::{Decodable, Encodable};
 use serde::{Deserialize, Serialize};
 use std::{iter::Step, mem::size_of, ops::Add};
 
-pub use ethereum_types::Address;
+pub use ethereum_types::{Address, Bloom, H160, H256, H512, H64, U512, U64};
+pub use ethnum::*;
 
 pub const KECCAK_LENGTH: usize = H256::len_bytes();
 pub const ADDRESS_LENGTH: usize = Address::len_bytes();
@@ -117,9 +116,6 @@ u64_wrapper!(ChainId);
 u64_wrapper!(NetworkId);
 u64_wrapper!(TxIndex);
 
-#[allow(non_upper_case_globals)]
-pub const value_to_bytes: fn(U256) -> [u8; 32] = From::<U256>::from;
-
 // Keccak-256 hash of an empty string, KEC("").
 pub const EMPTY_HASH: H256 = H256(hex!(
     "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
@@ -136,4 +132,4 @@ pub const EMPTY_ROOT: H256 = H256(hex!(
 ));
 
 pub const GIGA: u64 = 1_000_000_000; // = 10^9
-pub static ETHER: Lazy<U256> = Lazy::new(|| U256::from(GIGA * GIGA)); // = 10^18
+pub const ETHER: u128 = 1_000_000_000_000_000_000; // = 10^18

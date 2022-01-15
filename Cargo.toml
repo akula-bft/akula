@@ -25,13 +25,18 @@ crossterm = { version = "0.22", optional = true }
 derive_more = "0.99"
 directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
-ethash = { git = "https://github.com/rust-ethereum/ethash" }
-ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", branch = "akula", features = [
+ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
+ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", branch = "vorot93/ethnum", features = [
     "remotekv",
     "sentry",
 ] }
 ethereum-types = { version = "0.12", features = ["codec"] }
-evmodin = { git = "https://github.com/vorot93/evmodin", branch = "akula-staging" }
+ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", features = [
+    "llvm-intrinsics",
+    "rlp",
+    "scale",
+] }
+evmodin = { git = "https://github.com/vorot93/evmodin", branch = "ethnum" }
 futures-core = "0.3"
 futures-util = "0.3"
 hash-db = "0.15"

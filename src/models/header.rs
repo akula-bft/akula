@@ -1,7 +1,6 @@
-use super::BlockNumber;
+use super::*;
 use crate::crypto::*;
 use bytes::Bytes;
-use ethereum_types::*;
 use parity_scale_codec::*;
 use rlp::*;
 use serde::*;
@@ -135,7 +134,7 @@ impl BlockHeader {
             transactions_root: H256::zero(),
             receipts_root: H256::zero(),
             logs_bloom: Bloom::zero(),
-            difficulty: U256::zero(),
+            difficulty: U256::ZERO,
             number: BlockNumber(0),
             gas_limit: 0,
             gas_used: 0,
@@ -269,7 +268,7 @@ impl PartialHeader {
             state_root: H256::zero(),
             receipts_root: H256::zero(),
             logs_bloom: Bloom::zero(),
-            difficulty: U256::zero(),
+            difficulty: U256::ZERO,
             number: BlockNumber(0),
             gas_limit: 0,
             gas_used: 0,

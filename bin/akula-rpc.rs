@@ -6,7 +6,7 @@ use akula::{
 };
 use async_trait::async_trait;
 use clap::Parser;
-use ethereum_types::{Address, U256};
+use ethnum::U256;
 use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -59,7 +59,7 @@ where
         )
         .await?
         .map(|acc| acc.balance)
-        .unwrap_or_else(U256::zero))
+        .unwrap_or(U256::ZERO))
     }
 }
 

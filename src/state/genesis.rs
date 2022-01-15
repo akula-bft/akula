@@ -6,7 +6,6 @@ use crate::{
     models::*,
     state::*,
 };
-use ethereum_types::*;
 use tempfile::TempDir;
 
 #[derive(Clone, Debug)]

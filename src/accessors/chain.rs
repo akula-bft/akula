@@ -2,7 +2,6 @@ use crate::{
     kv::{tables, traits::*},
     models::*,
 };
-use ethereum_types::{Address, H256, U256};
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -318,10 +317,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: None,
                 nonce: 1,
-                gas_price: 20_000.into(),
+                gas_price: 20_000.as_u256(),
                 gas_limit: 3_000_000,
                 action: TransactionAction::Create,
-                value: 0.into(),
+                value: 0.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(false, H256::repeat_byte(2), H256::repeat_byte(3))
@@ -331,10 +330,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: None,
                 nonce: 2,
-                gas_price: 30_000.into(),
+                gas_price: 30_000.as_u256(),
                 gas_limit: 1_000_000,
                 action: TransactionAction::Create,
-                value: 10.into(),
+                value: 10.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(true, H256::repeat_byte(6), H256::repeat_byte(9))

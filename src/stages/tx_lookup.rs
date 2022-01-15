@@ -141,7 +141,6 @@ mod tests {
         models::{MessageWithSignature, *},
     };
     use bytes::Bytes;
-    use ethereum_types::*;
     use hex_literal::hex;
     use std::time::Instant;
 
@@ -152,8 +151,8 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let recipient1 = H160::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
-        let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
+        let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
+        let recipient2 = Address::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
@@ -165,10 +164,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 1,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 1.into(),
+                value: 1.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -188,10 +187,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x100.into(),
+                value: 0x100.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -217,10 +216,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 3,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10000.into(),
+                value: 0x10000.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -241,10 +240,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 6,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10.into(),
+                value: 0x10.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -265,10 +264,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient2),
-                value: 2.into(),
+                value: 2.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -378,8 +377,8 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let recipient1 = H160::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
-        let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
+        let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
+        let recipient2 = Address::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
@@ -391,10 +390,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 1,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 1.into(),
+                value: 1.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -414,10 +413,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x100.into(),
+                value: 0x100.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -443,10 +442,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 3,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10000.into(),
+                value: 0x10000.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -467,10 +466,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 6,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10.into(),
+                value: 0x10.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -491,10 +490,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient2),
-                value: 2.into(),
+                value: 2.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(

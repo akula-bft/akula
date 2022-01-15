@@ -6,8 +6,7 @@ use super::{
     },
     verification::header_slice_verifier::HeaderSliceVerifier,
 };
-use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
-use ethereum_types::U256;
+use crate::{models::*, sentry::chain_config::ChainConfig};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     ops::{ControlFlow, DerefMut, Range},
@@ -355,7 +354,7 @@ impl ForkModeStage {
         range: Range<BlockNumber>,
         connection_block_num: BlockNumber,
     ) -> U256 {
-        let mut difficulty: U256 = U256::zero();
+        let mut difficulty = U256::ZERO;
         let mut num = BlockNumber(connection_block_num.0 + 1);
 
         while range.contains(&num) {

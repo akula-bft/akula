@@ -110,11 +110,11 @@ impl Consensus for Ethash {
         let mut changes = Vec::with_capacity(1 + ommers.len());
         let block_reward = {
             if revision >= Revision::Constantinople {
-                *param::BLOCK_REWARD_CONSTANTINOPLE
+                param::BLOCK_REWARD_CONSTANTINOPLE
             } else if revision >= Revision::Byzantium {
-                *param::BLOCK_REWARD_BYZANTIUM
+                param::BLOCK_REWARD_BYZANTIUM
             } else {
-                *param::BLOCK_REWARD_FRONTIER
+                param::BLOCK_REWARD_FRONTIER
             }
         };
 
@@ -132,7 +132,7 @@ impl Consensus for Ethash {
 
         changes.push(FinalizationChange::Reward {
             address: header.beneficiary,
-            amount: miner_reward,
+            amount: miner_reward.into(),
         });
 
         Ok(changes)

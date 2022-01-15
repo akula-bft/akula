@@ -6,7 +6,7 @@ use crate::{
         tables,
         traits::{Cursor as _Cursor, CursorDupSort, MutableCursor, MutableTransaction, Table},
     },
-    models::BlockNumber,
+    models::*,
     trie::{
         hash_builder::{pack_nibbles, unpack_nibbles, HashBuilder},
         node::{marshal_node, unmarshal_node, Node},
@@ -16,7 +16,6 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use async_recursion::async_recursion;
-use ethereum_types::H256;
 use std::{marker::PhantomData, sync::Mutex};
 use tempfile::TempDir;
 use tokio::sync::Mutex as AsyncMutex;
@@ -794,7 +793,6 @@ mod property_test {
         u256_to_h256, zeroless_view,
     };
     use anyhow::Result;
-    use ethereum_types::{Address, H256, U256};
     use proptest::prelude::*;
     use std::collections::BTreeMap;
     use tempfile::TempDir;
@@ -813,7 +811,7 @@ mod property_test {
     }
 
     fn nonzero_u256s() -> impl Strategy<Value = U256> {
-        u256s().prop_filter("value must not be zero", |x| !x.is_zero())
+        u256s().prop_filter("value must not be zero", |&x| x != 0)
     }
 
     prop_compose! {
@@ -1013,7 +1011,7 @@ mod property_test {
                     let current_storage =
                         current.as_ref().map(|(_, s)| s).unwrap_or(&empty_storage);
                     for (location, value) in previous_storage {
-                        if current_storage.get(location).unwrap_or(&U256::zero()) != value {
+                        if current_storage.get(location).unwrap_or(&U256::ZERO) != value {
                             storage_cursor
                                 .upsert(
                                     StorageChangeKey {
@@ -1038,7 +1036,7 @@ mod property_test {
                                     },
                                     StorageChange {
                                         location: *location,
-                                        value: U256::zero(),
+                                        value: U256::ZERO,
                                     },
                                 )
                                 .await?;
