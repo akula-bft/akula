@@ -485,11 +485,7 @@ where
 }
 
 #[derive(Debug)]
-struct FinishStage {
-    max_block: Option<BlockNumber>,
-    exit_after_sync: bool,
-    delay_after_sync: Duration,
-}
+struct FinishStage;
 
 #[async_trait]
 impl<'db, RwTx> Stage<'db, RwTx> for FinishStage
@@ -511,29 +507,11 @@ where
             .previous_stage
             .map(|(_, b)| b)
             .unwrap_or(BlockNumber(0));
-        let last_cycle_progress = input.stage_progress.unwrap_or(BlockNumber(0));
-        Ok(
-            if prev_stage > last_cycle_progress
-                && prev_stage < self.max_block.unwrap_or(BlockNumber(u64::MAX))
-            {
-                ExecOutput::Progress {
-                    stage_progress: prev_stage,
-                    done: true,
-                }
-            } else {
-                if self.exit_after_sync {
-                    info!("Sync complete, exiting.");
-                    std::process::exit(0)
-                }
 
-                tokio::time::sleep(self.delay_after_sync).await;
-
-                ExecOutput::Progress {
-                    stage_progress: prev_stage,
-                    done: true,
-                }
-            },
-        )
+        Ok(ExecOutput::Progress {
+            stage_progress: prev_stage,
+            done: true,
+        })
     }
     async fn unwind<'tx>(
         &mut self,
@@ -633,6 +611,9 @@ fn main() -> anyhow::Result<()> {
                 // staged sync setup
                 let mut staged_sync = stagedsync::StagedSync::new();
                 staged_sync.set_min_progress_to_commit_after_stage(1024);
+                staged_sync.set_max_block(opt.max_block);
+                staged_sync.set_exit_after_sync(opt.exit_after_sync);
+                staged_sync.set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
                 if let Some(erigon_db) = erigon_db.clone() {
                     staged_sync.push(ConvertHeaders {
                         db: erigon_db,
@@ -688,11 +669,7 @@ fn main() -> anyhow::Result<()> {
                     temp_dir: etl_temp_dir.clone(),
                     flush_interval: 50_000,
                 });
-                staged_sync.push(FinishStage {
-                    max_block: opt.max_block,
-                    exit_after_sync: opt.exit_after_sync,
-                    delay_after_sync: Duration::from_millis(opt.delay_after_sync),
-                });
+                staged_sync.push(FinishStage);
 
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;
