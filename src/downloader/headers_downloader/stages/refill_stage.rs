@@ -25,7 +25,6 @@ impl RefillStage {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("RefillStage: start");
         self.pending_watch.wait().await?;
 
         debug!(
@@ -33,7 +32,6 @@ impl RefillStage {
             self.pending_watch.pending_count()
         );
         self.refill_pending();
-        debug!("RefillStage: done");
         Ok(())
     }
 
@@ -51,6 +49,6 @@ impl RefillStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for RefillStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        RefillStage::execute(self).await
+        Self::execute(self).await
     }
 }

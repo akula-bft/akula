@@ -37,7 +37,6 @@ impl VerifyStagePreverified {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("VerifyStagePreverified: start");
         self.pending_watch.wait().await?;
 
         debug!(
@@ -45,7 +44,6 @@ impl VerifyStagePreverified {
             self.pending_watch.pending_count()
         );
         self.verify_pending().await;
-        debug!("VerifyStagePreverified: done");
         Ok(())
     }
 
@@ -153,6 +151,6 @@ impl VerifyStagePreverified {
 #[async_trait::async_trait]
 impl super::stage::Stage for VerifyStagePreverified {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        VerifyStagePreverified::execute(self).await
+        Self::execute(self).await
     }
 }

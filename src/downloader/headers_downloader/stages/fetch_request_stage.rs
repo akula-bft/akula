@@ -48,7 +48,6 @@ impl FetchRequestStage {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("FetchRequestStage: start");
         self.pending_watch.wait().await?;
 
         debug!(
@@ -70,7 +69,6 @@ impl FetchRequestStage {
             capacity_future.await?;
         }
 
-        debug!("FetchRequestStage: done");
         Ok(())
     }
 
@@ -136,6 +134,6 @@ impl FetchRequestStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for FetchRequestStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        FetchRequestStage::execute(self).await
+        Self::execute(self).await
     }
 }

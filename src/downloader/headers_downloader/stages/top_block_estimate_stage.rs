@@ -45,7 +45,6 @@ impl TopBlockEstimateStage {
     }
 
     pub async fn execute(&self) -> anyhow::Result<()> {
-        debug!("TopBlockEstimateStage: start");
         let mut message_stream = self.message_stream.try_lock()?;
         if message_stream.is_none() {
             let sentry = self.sentry.read().await;
@@ -57,7 +56,6 @@ impl TopBlockEstimateStage {
             Some(message) => self.on_message(message),
             None => self.is_over.store(true, Ordering::SeqCst),
         }
-        debug!("TopBlockEstimateStage: done");
         Ok(())
     }
 
@@ -132,6 +130,6 @@ impl TopBlockEstimateStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for TopBlockEstimateStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        TopBlockEstimateStage::execute(self).await
+        Self::execute(self).await
     }
 }

@@ -52,13 +52,11 @@ impl ForkModeStage {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("ForkModeStage: start");
         self.pending_watch.wait_while(self.remaining_count).await?;
 
         self.process_pending()?;
 
         self.remaining_count = self.pending_watch.pending_count();
-        debug!("ForkModeStage: done");
         Ok(())
     }
 
@@ -508,6 +506,6 @@ impl ForkModeStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for ForkModeStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        ForkModeStage::execute(self).await
+        Self::execute(self).await
     }
 }

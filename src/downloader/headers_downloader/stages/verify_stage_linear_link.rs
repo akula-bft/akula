@@ -57,8 +57,6 @@ impl VerifyStageLinearLink {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("VerifyStageLinearLink: start");
-
         // initially remaining_count = 0, so we wait for any internally verified slices to try to link them
         // since we want to link sequentially, there might be some remaining slices
         // in this case we wait until some more slices become internally verified
@@ -73,7 +71,6 @@ impl VerifyStageLinearLink {
 
         self.remaining_count = pending_count - updated_count;
 
-        debug!("VerifyStageLinearLink: done");
         Ok(())
     }
 
@@ -190,6 +187,6 @@ impl VerifyStageLinearLink {
 #[async_trait::async_trait]
 impl super::stage::Stage for VerifyStageLinearLink {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        VerifyStageLinearLink::execute(self).await
+        Self::execute(self).await
     }
 }

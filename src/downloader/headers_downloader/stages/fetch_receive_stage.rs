@@ -43,7 +43,6 @@ impl FetchReceiveStage {
     }
 
     pub async fn execute(&self) -> anyhow::Result<()> {
-        debug!("FetchReceiveStage: start");
         let mut message_stream = self.message_stream.try_lock()?;
         if message_stream.is_none() {
             let sentry = self.sentry.read().await;
@@ -55,7 +54,6 @@ impl FetchReceiveStage {
             Some(message) => self.on_headers_message(message),
             None => self.is_over.store(true, Ordering::SeqCst),
         }
-        debug!("FetchReceiveStage: done");
         Ok(())
     }
 
@@ -149,6 +147,6 @@ impl FetchReceiveStageCanProceedCheck {
 #[async_trait::async_trait]
 impl super::stage::Stage for FetchReceiveStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        FetchReceiveStage::execute(self).await
+        Self::execute(self).await
     }
 }

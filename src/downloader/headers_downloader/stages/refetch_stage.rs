@@ -26,7 +26,6 @@ impl RefetchStage {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("RefetchStage: start");
         self.pending_watch.wait().await?;
 
         let count = self.reset_pending()?;
@@ -34,7 +33,6 @@ impl RefetchStage {
             debug!("RefetchStage: did reset {} slices for retry", count);
         }
 
-        debug!("RefetchStage: done");
         Ok(())
     }
 
@@ -57,6 +55,6 @@ impl RefetchStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for RefetchStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        RefetchStage::execute(self).await
+        Self::execute(self).await
     }
 }

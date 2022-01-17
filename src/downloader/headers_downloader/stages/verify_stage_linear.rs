@@ -37,7 +37,6 @@ impl VerifyStageLinear {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("VerifyStageLinear: start");
         self.pending_watch.wait().await?;
 
         debug!(
@@ -45,7 +44,6 @@ impl VerifyStageLinear {
             self.pending_watch.pending_count()
         );
         self.verify_pending().await;
-        debug!("VerifyStageLinear: done");
         Ok(())
     }
 
@@ -116,6 +114,6 @@ impl VerifyStageLinear {
 #[async_trait::async_trait]
 impl super::stage::Stage for VerifyStageLinear {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        VerifyStageLinear::execute(self).await
+        Self::execute(self).await
     }
 }
