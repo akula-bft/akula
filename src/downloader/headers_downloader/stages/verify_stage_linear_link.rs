@@ -1,9 +1,11 @@
 use super::{
-    header::BlockHeader,
-    header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier::HeaderSliceVerifier,
-    header_slices,
-    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    headers::{
+        header::BlockHeader,
+        header_slice_status_watch::HeaderSliceStatusWatch,
+        header_slices,
+        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    },
+    verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};

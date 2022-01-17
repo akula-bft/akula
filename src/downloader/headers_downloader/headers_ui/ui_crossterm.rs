@@ -1,8 +1,8 @@
 use super::{
     average_delta_counter::AverageDeltaCounter,
-    header_slices::{HeaderSliceStatus, HeaderSlices},
+    headers::header_slices::{HeaderSliceStatus, HeaderSlices},
+    ui_view::UIView,
 };
-use crate::downloader::ui_view::UIView;
 use crossterm::{cursor, style, terminal, QueueableCommand};
 use std::{
     cell::RefCell,

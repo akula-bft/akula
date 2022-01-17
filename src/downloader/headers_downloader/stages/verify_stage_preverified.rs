@@ -1,9 +1,13 @@
 use super::{
-    header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier, header_slices,
-    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
-    parallel::map_parallel,
-    preverified_hashes_config::PreverifiedHashesConfig,
+    headers::{
+        header_slice_status_watch::HeaderSliceStatusWatch,
+        header_slices,
+        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    },
+    verification::{
+        header_slice_verifier, parallel::map_parallel,
+        preverified_hashes_config::PreverifiedHashesConfig,
+    },
 };
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};

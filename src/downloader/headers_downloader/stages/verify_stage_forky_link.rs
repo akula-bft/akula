@@ -1,7 +1,7 @@
 use super::{
     fork_mode_stage::ForkModeStage,
-    header_slice_verifier::HeaderSliceVerifier,
-    header_slices::{HeaderSliceStatus, HeaderSlices},
+    headers::header_slices::{HeaderSliceStatus, HeaderSlices},
+    verification::header_slice_verifier::HeaderSliceVerifier,
     verify_stage_linear_link::VerifyStageLinearLink,
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};

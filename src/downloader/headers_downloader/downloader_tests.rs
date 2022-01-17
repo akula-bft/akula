@@ -1,13 +1,13 @@
 use super::{
+    super::sentry_status_provider::SentryStatusProvider,
+    downloader::{Downloader, DownloaderReport, DownloaderRunState},
     headers::{
-        downloader::{DownloaderReport, DownloaderRunState},
         header::BlockHeader,
-        header_slice_verifier_mock::HeaderSliceVerifierMock,
         header_slices,
         header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
     },
-    sentry_status_provider::SentryStatusProvider,
-    Downloader,
+    ui::ui_system::UISystem,
+    verification::header_slice_verifier_mock::HeaderSliceVerifierMock,
 };
 use crate::{
     kv,
@@ -21,6 +21,7 @@ use crate::{
     },
 };
 use std::sync::{Arc, Once};
+use tokio::sync::Mutex as AsyncMutex;
 
 fn make_chain_config() -> chain_config::ChainConfig {
     let chains_config = chain_config::ChainsConfig::new().unwrap();
@@ -49,8 +50,16 @@ async fn run_downloader(
     let db = kv::new_mem_database()?;
     let db_transaction = db.begin_mutable().await?;
 
+    let ui_system = Arc::new(AsyncMutex::new(UISystem::new()));
+
     let report = downloader
-        .run(&db_transaction, BlockNumber(0), 100_000, previous_run_state)
+        .run(
+            &db_transaction,
+            BlockNumber(0),
+            100_000,
+            previous_run_state,
+            ui_system,
+        )
         .await?;
 
     db_transaction.commit().await?;
@@ -99,7 +108,6 @@ impl DownloaderTest {
             Box::new(verifier),
             byte_unit::n_mib_bytes!(50) as usize,
             sentry_reactor.clone(),
-            status_provider,
         )?;
 
         let instance = Self {

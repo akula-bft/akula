@@ -1,9 +1,9 @@
 use super::{
-    header::BlockHeader,
-    header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier::HeaderSliceVerifier,
-    header_slices,
-    header_slices::{align_block_num_to_slice_start, HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    headers::{
+        header::BlockHeader, header_slice_status_watch::HeaderSliceStatusWatch, header_slices,
+        header_slices::*,
+    },
+    verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
 use ethereum_types::U256;
@@ -359,7 +359,7 @@ impl ForkModeStage {
         }
 
         // swap fork headers before the connection point to existing canonical
-        // (although in theory they should also be equal)
+        // (although in practice they should also be equal)
         {
             let fork_first_slice_lock = self.find_fork_first_slice().unwrap();
             let mut fork_first_slice = fork_first_slice_lock.write();
