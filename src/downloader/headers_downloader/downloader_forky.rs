@@ -1,20 +1,15 @@
 use super::{
     downloader_stage_loop::DownloaderStageLoop,
-    fetch_receive_stage::FetchReceiveStage,
-    fetch_request_stage::FetchRequestStage,
-    header_slice_verifier::HeaderSliceVerifier,
-    header_slices,
-    header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
-    penalize_stage::PenalizeStage,
-    refetch_stage::RefetchStage,
-    retry_stage::RetryStage,
-    save_stage::SaveStage,
-    verify_stage_forky_link::VerifyStageForkyLink,
-    verify_stage_linear::VerifyStageLinear,
-    HeaderSlicesView,
+    headers::{
+        header_slices,
+        header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+    },
+    headers_ui::HeaderSlicesView,
+    stages::*,
+    ui::ui_system::{UISystemShared, UISystemViewScope},
+    verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{
-    downloader::ui_system::{UISystemShared, UISystemViewScope},
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},

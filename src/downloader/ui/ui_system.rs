@@ -26,6 +26,7 @@ struct UISystemEventLoop {
 }
 
 impl UISystem {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let view_cell = Arc::new(Mutex::new(None));
 

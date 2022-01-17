@@ -1,4 +1,4 @@
-use super::{
+use super::headers::{
     header::BlockHeader,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };

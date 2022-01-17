@@ -1,8 +1,9 @@
 use super::{
-    header_slice_status_watch::HeaderSliceStatusWatch,
-    header_slice_verifier::HeaderSliceVerifier,
-    header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
-    parallel::map_parallel,
+    headers::{
+        header_slice_status_watch::HeaderSliceStatusWatch,
+        header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
+    },
+    verification::{header_slice_verifier::HeaderSliceVerifier, parallel::map_parallel},
 };
 use crate::sentry::chain_config::ChainConfig;
 use parking_lot::RwLock;

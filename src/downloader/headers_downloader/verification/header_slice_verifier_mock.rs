@@ -1,8 +1,5 @@
-use super::header_slice_verifier::HeaderSliceVerifier;
-use crate::{
-    downloader::headers::header::BlockHeader,
-    models::{BlockNumber, ChainSpec},
-};
+use super::{super::headers::header::BlockHeader, header_slice_verifier::HeaderSliceVerifier};
+use crate::models::{BlockNumber, ChainSpec};
 use bytes::Bytes;
 
 #[derive(Debug)]

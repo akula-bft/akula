@@ -1,4 +1,4 @@
-use super::header::BlockHeader;
+use super::super::headers::header::BlockHeader;
 use crate::{
     consensus::difficulty::{canonical_difficulty, BlockDifficultyBombData},
     models::{switch_is_active, BlockNumber, ChainSpec, SealVerificationParams, EMPTY_LIST_HASH},

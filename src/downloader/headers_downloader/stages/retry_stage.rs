@@ -1,4 +1,4 @@
-use super::{
+use super::headers::{
     header_slice_status_watch::HeaderSliceStatusWatch,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };

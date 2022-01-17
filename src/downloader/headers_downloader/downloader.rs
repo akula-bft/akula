@@ -1,10 +1,10 @@
 use super::{
     downloader_forky, downloader_linear, downloader_preverified,
-    header_slice_verifier::HeaderSliceVerifier,
-    header_slices::{align_block_num_to_slice_start, HeaderSlices},
+    headers::header_slices::{align_block_num_to_slice_start, HeaderSlices},
+    ui::ui_system::UISystemShared,
+    verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{
-    downloader::ui_system::UISystemShared,
     kv,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
