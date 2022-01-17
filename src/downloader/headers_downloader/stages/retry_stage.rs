@@ -26,7 +26,6 @@ impl RetryStage {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("RetryStage: start");
         self.pending_watch.wait().await?;
 
         // don't retry more often than once per 1 sec
@@ -36,7 +35,6 @@ impl RetryStage {
         if count > 0 {
             debug!("RetryStage: did reset {} slices for retry", count);
         }
-        debug!("RetryStage: done");
         Ok(())
     }
 
@@ -82,6 +80,6 @@ impl RetryStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for RetryStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        RetryStage::execute(self).await
+        Self::execute(self).await
     }
 }

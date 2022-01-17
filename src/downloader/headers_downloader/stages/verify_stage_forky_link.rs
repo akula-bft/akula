@@ -51,12 +51,16 @@ impl VerifyStageForkyLink {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("VerifyStageForkyLink: start");
-
         // execute sub-stage
         let sub_stage: &mut dyn super::stage::Stage = match self.mode {
-            Mode::Linear(ref mut stage) => stage.as_mut(),
-            Mode::Fork(ref mut stage) => stage.as_mut(),
+            Mode::Linear(ref mut stage) => {
+                debug!("VerifyStageForkyLink: Mode::Linear");
+                stage.as_mut()
+            }
+            Mode::Fork(ref mut stage) => {
+                debug!("VerifyStageForkyLink: Mode::Fork");
+                stage.as_mut()
+            }
         };
         sub_stage.execute().await?;
 
@@ -77,7 +81,6 @@ impl VerifyStageForkyLink {
             }
         }
 
-        debug!("VerifyStageForkyLink: done");
         Ok(())
     }
 
@@ -114,6 +117,6 @@ impl VerifyStageForkyLink {
 #[async_trait::async_trait]
 impl super::stage::Stage for VerifyStageForkyLink {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        VerifyStageForkyLink::execute(self).await
+        Self::execute(self).await
     }
 }

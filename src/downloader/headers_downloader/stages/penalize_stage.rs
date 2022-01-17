@@ -28,7 +28,6 @@ impl PenalizeStage {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("PenalizeStage: start");
         self.pending_watch.wait().await?;
 
         debug!(
@@ -45,7 +44,6 @@ impl PenalizeStage {
         self.penalize_peers(bad_peers).await?;
         self.reset_pending();
 
-        debug!("PenalizeStage: done");
         Ok(())
     }
 
@@ -87,6 +85,6 @@ impl PenalizeStage {
 #[async_trait::async_trait]
 impl super::stage::Stage for PenalizeStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        PenalizeStage::execute(self).await
+        Self::execute(self).await
     }
 }

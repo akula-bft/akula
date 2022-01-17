@@ -38,8 +38,6 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
     }
 
     pub async fn execute(&mut self) -> anyhow::Result<()> {
-        debug!("SaveStage: start");
-
         // initially remaining_count = 0, so we wait for any verified slices to try to save them
         // since we want to save headers sequentially, there might be some remaining slices
         // in this case we wait until some more slices become verified
@@ -54,7 +52,6 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
 
         self.remaining_count = pending_count - saved_count;
 
-        debug!("SaveStage: done");
         Ok(())
     }
 
@@ -178,6 +175,6 @@ impl kv::traits::Table for HeaderTableWithBytes {
 #[async_trait::async_trait]
 impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> super::stage::Stage for SaveStage<'tx, RwTx> {
     async fn execute(&mut self) -> anyhow::Result<()> {
-        SaveStage::<RwTx>::execute(self).await
+        Self::execute(self).await
     }
 }
