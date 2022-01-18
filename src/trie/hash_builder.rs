@@ -2,6 +2,28 @@ use crate::trie::node::Node;
 use ethereum_types::H256;
 use std::boxed::Box;
 
+fn encode_path(nibbles: &[u8], terminating: bool) -> Vec<u8> {
+    let mut res = vec![0u8; nibbles.len() / 2 + 1];
+    let odd = nibbles.len() % 2 != 0;
+    let mut i = 0usize;
+
+    res[0] = if terminating { 0x20 } else { 0x00 };
+    res[0] += if odd { 0x10 } else { 0x00 };
+
+    if odd {
+        res[0] |= nibbles[0];
+        i = 1;
+        assert_eq!(nibbles.len() % 2, 0);
+    }
+
+    for j in 0..res.len() {
+        res[j] = nibbles[i] << 4 + nibbles[i + 1];
+        i += 2;
+    }
+
+    res
+}
+
 type NodeCollector = Box<dyn Fn(&[u8], &Node) -> ()>;
 
 enum HashBuilderValue {
@@ -86,5 +108,12 @@ pub(crate) fn pack_nibbles(nibbles: &[u8]) -> Vec<u8> {
 }
 
 fn unpack_nibbles(packed: &[u8]) -> Vec<u8> {
-    todo!();
+    let mut out = vec![0u8; packed.len() * 2];
+    let mut i = 0;
+    for b in packed {
+        out[i] = b >> 4;
+        out[i + 1] = b & 0x0F;
+        i += 2;
+    }
+    out
 }
