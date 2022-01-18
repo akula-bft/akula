@@ -53,10 +53,10 @@ impl Downloader {
         let verifier = Arc::new(verifier);
 
         let downloader_preverified = downloader_preverified::DownloaderPreverified::new(
-            chain_config.chain_name(),
+            verifier.preverified_hashes_config(&chain_config.chain_name())?,
             mem_limit,
             sentry.clone(),
-        )?;
+        );
 
         let downloader_linear = downloader_linear::DownloaderLinear::new(
             chain_config.clone(),

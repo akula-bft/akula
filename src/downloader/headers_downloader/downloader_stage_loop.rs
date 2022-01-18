@@ -1,6 +1,6 @@
 use super::{headers::header_slices::HeaderSlices, stages::stage::Stage as DownloaderStage};
 use futures_core::Stream;
-use std::{any::type_name, pin::Pin, sync::Arc};
+use std::{any::type_name, collections::HashMap, pin::Pin, sync::Arc};
 use tokio_stream::{StreamExt, StreamMap};
 use tracing::*;
 
@@ -36,6 +36,7 @@ fn short_stage_name<Stage: DownloaderStage>() -> &'static str {
 pub struct DownloaderStageLoop<'s> {
     header_slices: Arc<HeaderSlices>,
     stream: StreamMap<String, StageStream<'s>>,
+    stages_can_proceed: HashMap<String, Box<dyn Fn() -> bool + Send>>,
 }
 
 impl<'s> DownloaderStageLoop<'s> {
@@ -43,24 +44,56 @@ impl<'s> DownloaderStageLoop<'s> {
         Self {
             header_slices: header_slices.clone(),
             stream: StreamMap::<String, StageStream>::new(),
+            stages_can_proceed: HashMap::new(),
         }
     }
 
     pub fn insert<Stage: DownloaderStage + 's>(&mut self, stage: Stage) {
         let name = String::from(short_stage_name::<Stage>());
+        self.stages_can_proceed
+            .insert(name.clone(), stage.can_proceed_check());
         self.stream.insert(name, make_stage_stream(stage));
     }
 
-    pub async fn run(mut self, can_proceed: impl Fn(Arc<HeaderSlices>) -> bool) {
+    fn some_stage_can_proceed(&self) -> bool {
+        self.stages_can_proceed
+            .iter()
+            .any(|(_, can_proceed)| can_proceed())
+    }
+
+    fn find_stage_name_can_proceed(&self) -> Option<&str> {
+        self.stages_can_proceed
+            .iter()
+            .find_map(|(name, can_proceed)| {
+                if can_proceed() {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub async fn run(mut self, is_over_check: impl Fn() -> bool) {
         while let Some((key, result)) = self.stream.next().await {
             if result.is_err() {
                 error!("Downloader headers {} failure: {:?}", key, result);
                 break;
             }
 
-            if !can_proceed(self.header_slices.clone()) {
+            let is_over = is_over_check();
+            let can_proceed = !is_over && self.some_stage_can_proceed();
+            if !can_proceed {
                 break;
             }
+
+            trace!(
+                "DownloaderStageLoop: {:?} can proceed",
+                self.find_stage_name_can_proceed()
+            );
+            trace!(
+                "DownloaderStageLoop: statuses = {:?}",
+                self.header_slices.clone_statuses()
+            );
 
             self.header_slices.notify_status_watchers();
         }
