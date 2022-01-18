@@ -24,7 +24,13 @@ impl Node {
         assert_subset(tree_mask, state_mask);
         assert_subset(hash_mask, state_mask);
         assert_eq!(hash_mask.count_ones() as usize, hashes.len());
-        Self { state_mask, tree_mask, hash_mask, hashes, root_hash }
+        Self {
+            state_mask,
+            tree_mask,
+            hash_mask,
+            hashes,
+            root_hash,
+        }
     }
 
     fn assign(&mut self, other: &Node) {
@@ -35,15 +41,25 @@ impl Node {
         self.root_hash = other.root_hash;
     }
 
-    pub(crate) fn state_mask(&self) -> u16 { self.state_mask }
+    pub(crate) fn state_mask(&self) -> u16 {
+        self.state_mask
+    }
 
-    pub(crate) fn tree_mask(&self) -> u16 { self.tree_mask }
+    pub(crate) fn tree_mask(&self) -> u16 {
+        self.tree_mask
+    }
 
-    pub(crate) fn hash_mask(&self) -> u16 { self.hash_mask }
+    pub(crate) fn hash_mask(&self) -> u16 {
+        self.hash_mask
+    }
 
-    pub(crate) fn hashes(&self) -> Vec<H256> { self.hashes.clone() }
+    pub(crate) fn hashes(&self) -> Vec<H256> {
+        self.hashes.clone()
+    }
 
-    pub(crate) fn root_hash(&self) -> Option<H256> { self.root_hash }
+    pub(crate) fn root_hash(&self) -> Option<H256> {
+        self.root_hash
+    }
 
     fn set_root_hash(&mut self, root_hash: Option<H256>) {
         self.root_hash = root_hash;
