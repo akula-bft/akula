@@ -28,7 +28,8 @@ impl PrefixSet {
         }
 
         if !self.sorted {
-            todo!();
+            self.keys.sort();
+            self.keys.dedup();
             self.sorted = true;
         }
 

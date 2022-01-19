@@ -1,5 +1,7 @@
 use crate::trie::util::assert_subset;
 use ethereum_types::H256;
+use crate::models::KECCAK_LENGTH;
+use crate::sentry::block_id::BlockId::Hash;
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Node {
@@ -63,10 +65,51 @@ impl Node {
     }
 }
 
-fn marshal_node(node: &Node) -> Vec<u8> {
-    todo!();
+fn marshal_node(n: &Node) -> Vec<u8> {
+    let buf_size = 6 + if n.root_hash().is_some()  { KECCAK_LENGTH } else { 0 } + n.hashes().len() * KECCAK_LENGTH;
+    let mut buf = Vec::<u8>::with_capacity(buf_size);
+
+    buf.extend_from_slice(n.state_mask().to_be_bytes().as_slice());
+    buf.extend_from_slice(n.tree_mask().to_be_bytes().as_slice());
+    buf.extend_from_slice(n.hash_mask().to_be_bytes().as_slice());
+
+    if n.root_hash().is_some() {
+        buf.extend_from_slice(&*n.root_hash.unwrap().as_bytes());
+    }
+
+    for hash in n.hashes() {
+        buf.extend_from_slice(hash.as_bytes());
+    }
+
+    buf
 }
 
-fn unmarshal_node(v: &[u8]) -> Option<Node> {
-    todo!();
+pub(crate) fn unmarshal_node(v: &[u8]) -> Option<Node> {
+    if v.len() < 6 {
+        return None;
+    } else {
+        if (v.len() - 6) % KECCAK_LENGTH != 0 {
+            return None;
+        }
+    }
+
+    let state_mask = u16::from_be_bytes(v[0..2].try_into().unwrap());
+    let tree_mask = u16::from_be_bytes(v[2..4].try_into().unwrap());
+    let hash_mask = u16::from_be_bytes(v[4..6].try_into().unwrap());
+    let mut i = 6;
+
+    let mut root_hash = None;
+    if hash_mask.count_ones() as usize + 1 == v[6..].len() / KECCAK_LENGTH {
+        root_hash = Some(H256::from_slice(&v[i..i + KECCAK_LENGTH]));
+        i += KECCAK_LENGTH;
+    }
+
+    let num_hashes = v[i..].len() / KECCAK_LENGTH;
+    let mut hashes = Vec::<H256>::with_capacity(num_hashes);
+    for _ in 0..num_hashes {
+        hashes.push(H256::from_slice(&v[i..i + KECCAK_LENGTH]));
+        i += KECCAK_LENGTH;
+    }
+
+    Some(Node::new(state_mask, tree_mask, hash_mask, hashes, root_hash))
 }
