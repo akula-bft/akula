@@ -9,7 +9,6 @@ use crate::{
 use ethereum_types::H256;
 use rlp::RlpStream;
 use std::{boxed::Box, cmp};
-use crate::crypto::root_hash;
 
 const RLP_EMPTY_STRING_CODE: u8 = 0x80;
 
@@ -24,11 +23,10 @@ fn encode_path(nibbles: &[u8], terminating: bool) -> Vec<u8> {
     if odd {
         res[0] |= nibbles[0];
         i = 1;
-        assert_eq!(nibbles.len() % 2, 0);
     }
 
-    for j in 0..res.len() {
-        res[j] = nibbles[i] << 4 + nibbles[i + 1];
+    for j in 1..res.len() {
+        res[j] = (nibbles[i] << 4) + nibbles[i + 1];
         i += 2;
     }
 
@@ -48,7 +46,7 @@ fn node_ref(rlp: &[u8]) -> Vec<u8> {
     if rlp.len() < KECCAK_LENGTH {
         return rlp.to_vec();
     }
-    let hash = H256::from_slice(rlp);
+    let hash = keccak256(rlp);
     wrap_hash(&hash)
 }
 
@@ -177,15 +175,17 @@ impl HashBuilder {
                 len_from += 1;
             }
 
-            let short_node_key = current[0..len_from].to_vec();
+            let short_node_key = current[len_from..].to_vec();
             if !build_extensions {
                 let value = self.value.clone();
                 match value {
                     HashBuilderValue::Bytes(ref leaf_value) => {
-                        let x = node_ref(self.leaf_node_rlp(short_node_key.as_slice(), leaf_value)
-                                .as_slice());
-                        self.stack.push(node_ref(x.as_slice()));
-                    },
+                        let x = node_ref(
+                            self.leaf_node_rlp(short_node_key.as_slice(), leaf_value)
+                                .as_slice(),
+                        );
+                        self.stack.push(x);
+                    }
                     HashBuilderValue::Hash(ref hash) => {
                         self.stack.push(wrap_hash(hash));
                         if self.node_collector.is_some() {
@@ -286,9 +286,11 @@ impl HashBuilder {
         let mut stream = RlpStream::new_list(17);
         let mut i = first_child_idx;
         for digit in 0..16 {
-            if hash_mask & (1u16 << digit) != 0 {
-                child_hashes.push(self.stack[i].to_vec());
-                stream.append(&self.stack[i]);
+            if state_mask & (1u16 << digit) != 0 {
+                if hash_mask & 1u16 << digit != 0 {
+                    child_hashes.push(self.stack[i].to_vec());
+                }
+                stream.append_raw(&self.stack[i], 1);
                 i = i + 1;
             } else {
                 stream.append_empty_data();
@@ -319,7 +321,7 @@ impl HashBuilder {
 
         let mut stream = RlpStream::new_list(2);
         stream.append(&encoded_path);
-        stream.append(&child_ref);
+        stream.append_raw(&child_ref, 1);
 
         self.rlp_buffer = stream.out().to_vec();
         self.rlp_buffer.clone()
@@ -357,4 +359,113 @@ fn unpack_nibbles(packed: &[u8]) -> Vec<u8> {
         i += 2;
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypto::trie_root;
+    use hex_literal::hex;
+
+    #[test]
+    fn test_hash_builder_empty_trie() {
+        let mut hb = HashBuilder::new();
+        assert_eq!(hb.root_hash(), EMPTY_ROOT);
+    }
+
+    #[test]
+    fn test_hash_builder_1() {
+        let key1 = H256::from_low_u64_be(1);
+        let key2 = H256::from_low_u64_be(2);
+
+        let val1 = vec![1u8];
+        let val2 = vec![2u8];
+
+        let mut hb = HashBuilder::new();
+        hb.add_leaf(unpack_nibbles(key1.as_bytes()), val1.as_slice());
+        hb.add_leaf(unpack_nibbles(key2.as_bytes()), val2.as_slice());
+
+        let hash = trie_root(vec![(key1, val1), (key2, val2)]);
+        let root_hash = hb.root_hash();
+        assert_eq!(hash, root_hash);
+    }
+
+    #[test]
+    fn test_hash_builder_2() {
+        let key0 = hex!("646f").to_vec();
+        let val0 = hex!("76657262").to_vec();
+
+        let mut hb0 = HashBuilder::new();
+        hb0.add_leaf(unpack_nibbles(key0.as_slice()), val0.as_slice());
+
+        let hash0 = trie_root(vec![(key0.clone(), val0.clone())]);
+        assert_eq!(hb0.root_hash(), hash0);
+
+        let key1 = hex!("676f6f64").to_vec();
+        let val1 = hex!("7075707079").to_vec();
+
+        let mut hb1 = HashBuilder::new();
+        hb1.add_leaf(unpack_nibbles(key0.as_slice()), val0.as_slice());
+        hb1.add_leaf(unpack_nibbles(key1.as_slice()), val1.as_slice());
+
+        let hash1 = trie_root(vec![
+            (key0.clone(), val0.clone()),
+            (key1.clone(), val1.clone()),
+        ]);
+        let hash1b = hash1;
+        assert_eq!(hb1.root_hash(), hash1);
+
+        let mut stream0 = RlpStream::new_list(2);
+        let path0 = encode_path(unpack_nibbles(&key0[1..]).as_slice(), true);
+        stream0.append(&path0);
+        stream0.append(&val0);
+        let entry0 = stream0.out().to_vec();
+
+        let mut stream1 = RlpStream::new_list(2);
+        let path1 = encode_path(unpack_nibbles(&key1[1..]).as_slice(), true);
+        stream1.append(&path1);
+        stream1.append(&val1);
+        let entry1 = stream1.out().to_vec();
+
+        let mut stream = RlpStream::new_list(17);
+        for _ in 0..4 {
+            stream.append_empty_data();
+        }
+        stream.append_raw(entry0.as_slice(), 1);
+        for _ in 5..7 {
+            stream.append_empty_data();
+        }
+        stream.append_raw(entry1.as_slice(), 1);
+        for _ in 8..17 {
+            stream.append_empty_data();
+        }
+
+        let branch_node_rlp = stream.out();
+        let branch_node_hash = keccak256(branch_node_rlp.clone());
+
+        let mut hb2 = HashBuilder::new();
+        hb2.add_branch_node(vec![0x6], &branch_node_hash, false);
+
+        assert_eq!(hb2.root_hash(), hash1b);
+    }
+
+    #[test]
+    fn test_hash_builder_known_root_hash() {
+        let root_hash = H256::from(hex!(
+            "9fa752911d55c3a1246133fe280785afbdba41f357e9cae1131d5f5b0a078b9c"
+        ));
+        let mut hb = HashBuilder::new();
+        hb.add_branch_node(vec![], &root_hash, false);
+        assert_eq!(hb.root_hash(), root_hash);
+    }
+
+    #[test]
+    fn test_hash_builder_pack_nibbles() {
+        assert_eq!(pack_nibbles(&[]), Vec::<u8>::new());
+        assert_eq!(pack_nibbles(&[0xa]), vec![0xa0]);
+        assert_eq!(pack_nibbles(&[0xa, 0xb]), vec![0xab]);
+        assert_eq!(pack_nibbles(&[0xa, 0xb, 0x2]), vec![0xab, 0x20]);
+        assert_eq!(pack_nibbles(&[0xa, 0xb, 0x2, 0x0]), vec![0xab, 0x20]);
+        assert_eq!(pack_nibbles(&[0xa, 0xb, 0x2, 0x7]), vec![0xab, 0x27]);
+    }
 }
