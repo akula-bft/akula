@@ -6,7 +6,8 @@ use rlp_derive::*;
 use sha3::*;
 use std::borrow::Borrow;
 
-#[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<MessageWithSignature>,

@@ -308,7 +308,7 @@ pub struct MessageWithSignature {
     pub signature: MessageSignature,
 }
 
-#[derive(Clone, Debug, Deref, PartialEq, Eq)]
+#[derive(Clone, Debug, Deref, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessageWithSender {
     #[deref]
     pub message: Message,

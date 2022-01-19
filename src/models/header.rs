@@ -6,6 +6,7 @@ use rlp::*;
 use serde::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 /// Ethereum block header definition.
 pub struct BlockHeader {
     pub parent_hash: H256,
@@ -124,8 +125,7 @@ impl BlockHeader {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) const fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self {
             parent_hash: H256::zero(),
             ommers_hash: H256::zero(),
@@ -219,7 +219,7 @@ impl BlockHeader {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// Partial header definition without ommers hash and transactions root.
 pub struct PartialHeader {
     pub parent_hash: H256,
