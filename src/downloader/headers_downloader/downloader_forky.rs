@@ -2,7 +2,7 @@ use super::{
     downloader_stage_loop::DownloaderStageLoop,
     headers::{
         header_slices,
-        header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+        header_slices::{align_block_num_to_slice_start, HeaderSlices},
     },
     headers_ui::HeaderSlicesView,
     stages::*,
@@ -117,11 +117,7 @@ impl DownloaderForky {
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
 
-        let fetch_receive_stage_can_proceed = fetch_receive_stage.can_proceed_check();
-        let can_proceed = move |header_slices: Arc<HeaderSlices>| -> bool {
-            fetch_receive_stage_can_proceed()
-                && !header_slices.all_in_status(HeaderSliceStatus::Saved)
-        };
+        let is_over_check = || -> bool { false };
 
         let mut stages = DownloaderStageLoop::new(&header_slices);
         stages.insert(fetch_request_stage);
@@ -133,7 +129,7 @@ impl DownloaderForky {
         stages.insert(penalize_stage);
         stages.insert(save_stage);
 
-        stages.run(can_proceed).await;
+        stages.run(is_over_check).await;
 
         let report = DownloaderForkyReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,

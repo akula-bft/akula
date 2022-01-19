@@ -11,7 +11,10 @@ use anyhow::format_err;
 use parking_lot::RwLock;
 use std::{
     ops::{ControlFlow, DerefMut},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 use tracing::*;
 
@@ -19,7 +22,7 @@ use tracing::*;
 pub struct SaveStage<'tx, RwTx> {
     header_slices: Arc<HeaderSlices>,
     pending_watch: HeaderSliceStatusWatch,
-    remaining_count: usize,
+    remaining_count: Arc<AtomicUsize>,
     db_transaction: &'tx RwTx,
 }
 
@@ -32,7 +35,7 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
                 header_slices,
                 "SaveStage",
             ),
-            remaining_count: 0,
+            remaining_count: Arc::new(AtomicUsize::new(0)),
             db_transaction,
         }
     }
@@ -42,7 +45,9 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         // since we want to save headers sequentially, there might be some remaining slices
         // in this case we wait until some more slices become verified
         // hopefully its the slices at the front so that we can save them
-        self.pending_watch.wait_while(self.remaining_count).await?;
+        self.pending_watch
+            .wait_while(self.get_remaining_count())
+            .await?;
 
         let pending_count = self.pending_watch.pending_count();
 
@@ -50,9 +55,27 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         let saved_count = self.save_pending_monotonic(pending_count).await?;
         debug!("SaveStage: saved {} slices", saved_count);
 
-        self.remaining_count = pending_count - saved_count;
+        self.set_remaining_count(pending_count - saved_count);
 
         Ok(())
+    }
+
+    fn get_remaining_count(&self) -> usize {
+        self.remaining_count.load(Ordering::SeqCst)
+    }
+
+    fn set_remaining_count(&self, value: usize) {
+        self.remaining_count.store(value, Ordering::SeqCst);
+    }
+
+    pub fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        let header_slices = self.header_slices.clone();
+        let remaining_count = self.remaining_count.clone();
+        let check = move || -> bool {
+            header_slices.count_slices_in_status(HeaderSliceStatus::Verified)
+                != remaining_count.load(Ordering::SeqCst)
+        };
+        Box::new(check)
     }
 
     async fn save_pending_monotonic(&mut self, pending_count: usize) -> anyhow::Result<usize> {
@@ -176,5 +199,8 @@ impl kv::traits::Table for HeaderTableWithBytes {
 impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> super::stage::Stage for SaveStage<'tx, RwTx> {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
+    }
+    fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        Self::can_proceed_check(self)
     }
 }

@@ -2,8 +2,11 @@ use super::{
     messages::{EthMessageId, Message},
     sentry_client::{MessageFromPeer, MessageFromPeerStream, PeerFilter, SentryClient, Status},
 };
-use crate::sentry::sentry_client::PeerId;
-use std::collections::HashSet;
+use crate::{
+    models::{BlockHeader, BlockNumber},
+    sentry::{block_id::BlockId, messages::BlockHeadersMessage, sentry_client::PeerId},
+};
+use std::collections::{HashMap, HashSet};
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers, StreamExt};
 
@@ -11,6 +14,7 @@ use tokio_stream::{wrappers, StreamExt};
 pub struct SentryClientMock {
     message_sender: Option<broadcast::Sender<MessageFromPeer>>,
     message_receiver: Option<broadcast::Receiver<MessageFromPeer>>,
+    block_headers: HashMap<BlockNumber, Vec<BlockHeader>>,
 }
 
 impl SentryClientMock {
@@ -19,11 +23,22 @@ impl SentryClientMock {
         SentryClientMock {
             message_sender: Some(message_sender),
             message_receiver: Some(message_receiver),
+            block_headers: HashMap::new(),
         }
     }
 
     fn stop_receiving_messages(&mut self) {
         self.message_sender = None;
+    }
+
+    fn is_empty(&self) -> bool {
+        self.block_headers.is_empty()
+    }
+
+    pub fn add_block_headers(&mut self, headers: Vec<BlockHeader>) {
+        let Some(first_header) = headers.first() else { return };
+        let start_block_num = first_header.number;
+        self.block_headers.insert(start_block_num, headers);
     }
 }
 
@@ -39,10 +54,49 @@ impl SentryClient for SentryClientMock {
 
     async fn send_message(
         &mut self,
-        _message: Message,
+        message: Message,
         _peer_filter: PeerFilter,
     ) -> anyhow::Result<u32> {
-        self.stop_receiving_messages();
+        if self.message_sender.is_none() {
+            return Ok(0);
+        }
+
+        match message {
+            Message::GetBlockHeaders(request) => {
+                let BlockId::Number(start_block_num) = request.params.start_block else {
+                    anyhow::bail!("SentryClientMock::send_message unsupported GetBlockHeaders by hash");
+                };
+                let block_headers = &mut self.block_headers;
+                let Some(headers) = block_headers.remove(&start_block_num) else {
+                    return Ok(1);
+                };
+
+                let response = BlockHeadersMessage {
+                    request_id: request.request_id,
+                    headers,
+                };
+
+                let response_message = MessageFromPeer {
+                    message: Message::BlockHeaders(response),
+                    from_peer_id: None,
+                };
+
+                self.message_sender
+                    .as_ref()
+                    .unwrap()
+                    .send(response_message)?;
+            }
+            _ => {
+                anyhow::bail!(
+                    "SentryClientMock::send_message unsupported message {:?}",
+                    message
+                )
+            }
+        }
+
+        if self.is_empty() {
+            self.stop_receiving_messages();
+        }
         Ok(1)
     }
 
@@ -50,6 +104,10 @@ impl SentryClient for SentryClientMock {
         &mut self,
         filter_ids: &[EthMessageId],
     ) -> anyhow::Result<MessageFromPeerStream> {
+        if self.is_empty() {
+            return Ok(Box::pin(tokio_stream::empty()));
+        }
+
         let filter_ids_set = filter_ids
             .iter()
             .cloned()
@@ -59,7 +117,8 @@ impl SentryClient for SentryClientMock {
             let stream = wrappers::BroadcastStream::new(receiver)
                 .filter_map(|res| res.ok()) // ignore BroadcastStreamRecvError
                 .filter(move |message_from_peer| {
-                    filter_ids_set.contains(&message_from_peer.message.eth_id())
+                    filter_ids_set.is_empty()
+                        || filter_ids_set.contains(&message_from_peer.message.eth_id())
                 })
                 .map(Ok);
 

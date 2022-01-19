@@ -50,11 +50,19 @@ impl RefetchStage {
         });
         Ok(count)
     }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        let header_slices = self.header_slices.clone();
+        move || -> bool { header_slices.contains_status(HeaderSliceStatus::Refetch) }
+    }
 }
 
 #[async_trait::async_trait]
 impl super::stage::Stage for RefetchStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
+    }
+    fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        Box::new(Self::can_proceed_check(self))
     }
 }
