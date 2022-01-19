@@ -1,8 +1,5 @@
+use crate::trie::util::assert_subset;
 use ethereum_types::H256;
-
-fn assert_subset(sub: u16, sup: u16) {
-    assert_eq!(sub & sup, sub);
-}
 
 #[derive(Clone, PartialEq)]
 pub(crate) struct Node {
@@ -14,7 +11,7 @@ pub(crate) struct Node {
 }
 
 impl Node {
-    fn new(
+    pub(crate) fn new(
         state_mask: u16,
         tree_mask: u16,
         hash_mask: u16,
@@ -61,7 +58,7 @@ impl Node {
         self.root_hash
     }
 
-    fn set_root_hash(&mut self, root_hash: Option<H256>) {
+    pub(crate) fn set_root_hash(&mut self, root_hash: Option<H256>) {
         self.root_hash = root_hash;
     }
 }
