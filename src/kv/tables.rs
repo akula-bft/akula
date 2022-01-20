@@ -764,8 +764,8 @@ decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
-decl_table!(CumulativeGasIndex => BlockNumber => u64);
-decl_table!(CumulativeTxIndex => BlockNumber => u64);
+decl_table!(TotalGas => BlockNumber => u64);
+decl_table!(TotalTx => BlockNumber => u64);
 decl_table!(Log => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
@@ -814,8 +814,8 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         HeadersTotalDifficulty::const_db_name() => TableInfo::default(),
         BlockBody::const_db_name() => TableInfo::default(),
         BlockTransaction::const_db_name() => TableInfo::default(),
-        CumulativeGasIndex::const_db_name() => TableInfo::default(),
-        CumulativeTxIndex::const_db_name() => TableInfo::default(),
+        TotalGas::const_db_name() => TableInfo::default(),
+        TotalTx::const_db_name() => TableInfo::default(),
         Log::const_db_name() => TableInfo::default(),
         LogTopicIndex::const_db_name() => TableInfo::default(),
         LogAddressIndex::const_db_name() => TableInfo::default(),

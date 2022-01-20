@@ -1,8 +1,5 @@
 use crate::{
-    kv::{
-        tables::{self, CumulativeData},
-        traits::*,
-    },
+    kv::{tables, traits::*},
     models::*,
     state::*,
 };
@@ -141,12 +138,8 @@ where
     )
     .await?;
 
-    txn.set(
-        tables::CumulativeIndex,
-        genesis,
-        CumulativeData { gas: 0, tx_num: 0 },
-    )
-    .await?;
+    txn.set(tables::TotalGas, genesis, 0).await?;
+    txn.set(tables::TotalTx, genesis, 0).await?;
 
     txn.set(tables::LastHeader, Default::default(), block_hash)
         .await?;

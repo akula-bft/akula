@@ -280,15 +280,8 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let mut tx_num = 0;
         let mut gas = 0;
-        tx.set(
-            tables::CumulativeIndex,
-            0.into(),
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, 0.into(), gas).await.unwrap();
 
         let block_number = BlockNumber(1);
         let miner = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
@@ -349,15 +342,8 @@ mod tests {
             .await
             .unwrap();
 
-        tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
-        tx.set(
-            tables::CumulativeIndex,
-            header.number,
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
 
         let contract_address = create_address(sender, 0);
 
@@ -383,15 +369,8 @@ mod tests {
             .await
             .unwrap();
 
-        tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
-        tx.set(
-            tables::CumulativeIndex,
-            header.number,
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
 
         // ---------------------------------------
         // Execute third block
@@ -417,15 +396,8 @@ mod tests {
 
         buffer.write_to_db().await.unwrap();
 
-        tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
-        tx.set(
-            tables::CumulativeIndex,
-            header.number,
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
 
         // ---------------------------------------
         // Execute stage forward

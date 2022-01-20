@@ -635,6 +635,7 @@ async fn main() -> anyhow::Result<()> {
             sentry_status_provider,
         )?);
     }
+    staged_sync.push(TotalGasIndex);
     staged_sync.push(BlockHashes {
         temp_dir: etl_temp_dir.clone(),
     });
@@ -646,7 +647,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         // also add body download stage here
     }
-    staged_sync.push(CumulativeIndex);
+    staged_sync.push(TotalTxIndex);
     staged_sync.push(SenderRecovery {
         batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
     });

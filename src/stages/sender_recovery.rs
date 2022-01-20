@@ -51,11 +51,10 @@ where
         let started_at = Instant::now();
         let started_at_txnum = tx
             .get(
-                tables::CumulativeIndex,
+                tables::TotalTx,
                 input.first_started_at.1.unwrap_or(BlockNumber(0)),
             )
-            .await?
-            .map(|v| v.tx_num);
+            .await?;
         let done = loop {
             let mut read_again = false;
             debug!("Reading bodies");
@@ -119,16 +118,13 @@ where
                 let mut format_string = format!("Extracted senders from block {}", highest_block);
 
                 if let Some(started_at_txnum) = started_at_txnum {
-                    let current_txnum = tx
-                        .get(tables::CumulativeIndex, highest_block)
-                        .await?
-                        .map(|v| v.tx_num);
+                    let current_txnum = tx.get(tables::TotalTx, highest_block).await?;
                     let total_txnum = tx
-                        .cursor(tables::CumulativeIndex)
+                        .cursor(tables::TotalTx)
                         .await?
                         .last()
                         .await?
-                        .map(|(_, v)| v.tx_num);
+                        .map(|(_, v)| v);
 
                     if let Some(current_txnum) = current_txnum {
                         if let Some(total_txnum) = total_txnum {
