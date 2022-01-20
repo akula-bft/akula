@@ -97,7 +97,12 @@ impl DownloaderPreverified {
             self.preverified_hashes_config.clone(),
         );
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
-        let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
+        let save_stage = SaveStage::<RwTx>::new(
+            header_slices.clone(),
+            db_transaction,
+            save_stage::SaveOrder::Monotonic,
+            true,
+        );
         let refill_stage = RefillStage::new(header_slices.clone());
         let top_block_estimate_stage = TopBlockEstimateStage::new(sentry.clone());
 
@@ -106,7 +111,7 @@ impl DownloaderPreverified {
         let estimated_top_block_num_provider =
             top_block_estimate_stage.estimated_top_block_num_provider();
 
-        let mut stages = DownloaderStageLoop::new(&header_slices);
+        let mut stages = DownloaderStageLoop::new(&header_slices, None);
         stages.insert(fetch_request_stage);
         stages.insert(fetch_receive_stage);
         stages.insert(retry_stage);

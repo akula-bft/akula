@@ -43,8 +43,6 @@ pub struct HeaderSlice {
     pub request_time: Option<time::Instant>,
     pub request_attempt: u16,
     pub refetch_attempt: u16,
-    pub fork_status: HeaderSliceStatus,
-    pub fork_headers: Option<Vec<BlockHeader>>,
 }
 
 struct HeaderSliceStatusWatch {
@@ -92,10 +90,10 @@ impl HeaderSlices {
         );
 
         let total_block_num = final_block_num.0 as usize - start_block_num.0 as usize;
-        let max_slices = std::cmp::min(max_slices, total_block_num / HEADER_SLICE_SIZE);
+        let slices_count = std::cmp::min(max_slices, total_block_num / HEADER_SLICE_SIZE);
 
         let mut slices = VecDeque::new();
-        for i in 0..max_slices {
+        for i in 0..slices_count {
             let slice = HeaderSlice {
                 start_block_num: BlockNumber(start_block_num.0 + (i * HEADER_SLICE_SIZE) as u64),
                 ..Default::default()
@@ -103,9 +101,9 @@ impl HeaderSlices {
             slices.push_back(Arc::new(RwLock::new(slice)));
         }
 
-        let max_block_num = start_block_num.0 + (max_slices * HEADER_SLICE_SIZE) as u64;
+        let max_block_num = start_block_num.0 + (slices_count * HEADER_SLICE_SIZE) as u64;
 
-        let state_watches = Self::make_state_watches(max_slices);
+        let state_watches = Self::make_state_watches(slices_count);
 
         Self {
             slices: RwLock::new(slices),
@@ -117,12 +115,14 @@ impl HeaderSlices {
     }
 
     #[cfg(test)]
-    pub fn from_slices_vec(slices: Vec<HeaderSlice>) -> Self {
-        let max_slices = slices.len();
-        assert!(max_slices > 0, "slices must not be empty");
-
-        let start_block_num = slices[0].start_block_num;
-        let max_block_num = start_block_num.0 + (max_slices * HEADER_SLICE_SIZE) as u64;
+    pub fn from_slices_vec(slices: Vec<HeaderSlice>, max_slices: usize) -> Self {
+        let slices_count = slices.len();
+        let start_block_num = if slices_count > 0 {
+            slices[0].start_block_num
+        } else {
+            BlockNumber(0)
+        };
+        let max_block_num = start_block_num.0 + (slices_count * HEADER_SLICE_SIZE) as u64;
 
         let state_watches = Self::make_state_watches_from_slices(&slices);
 
@@ -147,11 +147,13 @@ impl HeaderSlices {
             .collect()
     }
 
-    fn make_state_watches(max_slices: usize) -> HashMap<HeaderSliceStatus, HeaderSliceStatusWatch> {
+    fn make_state_watches(
+        empty_slices_count: usize,
+    ) -> HashMap<HeaderSliceStatus, HeaderSliceStatusWatch> {
         let mut state_watches = HashMap::<HeaderSliceStatus, HeaderSliceStatusWatch>::new();
         for id in HeaderSliceStatus::iter() {
             let initial_count = if id == HeaderSliceStatus::Empty {
-                max_slices
+                empty_slices_count
             } else {
                 0
             };
@@ -215,6 +217,13 @@ impl HeaderSlices {
         self.slices.read().iter().try_fold(init, f)
     }
 
+    pub fn try_rfold<B, C, F>(&self, init: C, f: F) -> std::ops::ControlFlow<B, C>
+    where
+        F: FnMut(C, &Arc<RwLock<HeaderSlice>>) -> std::ops::ControlFlow<B, C>,
+    {
+        self.slices.read().iter().try_rfold(init, f)
+    }
+
     pub fn find_by_start_block_num(
         &self,
         start_block_num: BlockNumber,
@@ -235,8 +244,7 @@ impl HeaderSlices {
         let is_block_num_in_range: bool = {
             let slice = slice_lock.read();
             let block_num_range = slice.block_num_range();
-            let fork_block_num_range = slice.fork_block_num_range();
-            block_num_range.contains(&block_num) || fork_block_num_range.contains(&block_num)
+            block_num_range.contains(&block_num)
         };
 
         if is_block_num_in_range {
@@ -318,6 +326,69 @@ impl HeaderSlices {
         status_watch.count.fetch_add(count, ATOMIC_ORDERING);
     }
 
+    pub fn clear(&self) {
+        let mut slices = self.slices.write();
+        slices.clear();
+        self.max_block_num.store(0, ATOMIC_ORDERING);
+
+        for watch in self.state_watches.values() {
+            watch.count.store(0, ATOMIC_ORDERING);
+        }
+    }
+
+    pub fn reset_to_single_slice(&self, initial_slice: HeaderSlice) {
+        let start_block_num = initial_slice.start_block_num;
+        let status = initial_slice.status;
+
+        let mut slices = self.slices.write();
+        slices.clear();
+        slices.push_back(Arc::new(RwLock::new(initial_slice)));
+
+        self.max_block_num.store(
+            start_block_num.0 + HEADER_SLICE_SIZE as u64,
+            ATOMIC_ORDERING,
+        );
+
+        for watch in self.state_watches.values() {
+            watch.count.store(0, ATOMIC_ORDERING);
+        }
+        let status_watch = &self.state_watches[&status];
+        status_watch.count.store(1, ATOMIC_ORDERING);
+    }
+
+    pub fn prepend_slice(&self) -> anyhow::Result<()> {
+        let mut slices = self.slices.write();
+
+        if slices.len() >= self.max_slices {
+            return Err(anyhow::format_err!(
+                "can't prepend: max_slices limit reached"
+            ));
+        }
+
+        let Some(first) = slices.iter().next() else {
+            return Err(anyhow::format_err!("can't prepend if empty"));
+        };
+
+        let first_block_num = first.read().start_block_num;
+        if first_block_num.0 < HEADER_SLICE_SIZE as u64 {
+            return Err(anyhow::format_err!(
+                "can't prepend before block {}",
+                first_block_num.0
+            ));
+        }
+        let start_block_num = BlockNumber(first_block_num.0 - HEADER_SLICE_SIZE as u64);
+
+        let slice = HeaderSlice {
+            start_block_num,
+            ..Default::default()
+        };
+        slices.push_front(Arc::new(RwLock::new(slice)));
+
+        let status_watch = &self.state_watches[&HeaderSliceStatus::Empty];
+        status_watch.count.fetch_add(1, ATOMIC_ORDERING);
+        Ok(())
+    }
+
     pub fn has_one_of_statuses(&self, statuses: &[HeaderSliceStatus]) -> bool {
         statuses
             .iter()
@@ -384,6 +455,10 @@ impl HeaderSlices {
         self.final_block_num
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.slices.read().is_empty()
+    }
+
     pub fn is_empty_at_final_position(&self) -> bool {
         (self.max_block_num() >= self.final_block_num) && self.slices.read().is_empty()
     }
@@ -405,17 +480,6 @@ impl HeaderSlice {
 
     pub fn block_num_range(&self) -> std::ops::Range<BlockNumber> {
         let end = BlockNumber(self.start_block_num.0 + self.len() as u64);
-        self.start_block_num..end
-    }
-
-    pub fn fork_len(&self) -> usize {
-        self.fork_headers
-            .as_ref()
-            .map_or(0, |headers| headers.len())
-    }
-
-    pub fn fork_block_num_range(&self) -> std::ops::Range<BlockNumber> {
-        let end = BlockNumber(self.start_block_num.0 + self.fork_len() as u64);
         self.start_block_num..end
     }
 }

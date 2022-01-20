@@ -127,6 +127,13 @@ impl DownloaderTest {
         let actual_forky_header_slices = actual_report.run_state.forky_header_slices;
         let expected_forky_header_slices = expected_report.run_state.forky_header_slices;
         Self::check_forky_header_slices(actual_forky_header_slices, expected_forky_header_slices);
+
+        let actual_forky_fork_header_slices = actual_report.run_state.forky_fork_header_slices;
+        let expected_forky_fork_header_slices = expected_report.run_state.forky_fork_header_slices;
+        Self::check_forky_header_slices(
+            actual_forky_fork_header_slices,
+            expected_forky_fork_header_slices,
+        );
     }
 
     fn check_forky_header_slices(
@@ -153,17 +160,6 @@ impl DownloaderTest {
             .map(|slice| slice.status)
             .collect::<Vec<HeaderSliceStatus>>();
         assert_eq!(actual_statuses, expected_statuses);
-
-        // check fork statuses
-        let actual_fork_statuses = actual_slices
-            .iter()
-            .map(|slice| slice.fork_status)
-            .collect::<Vec<HeaderSliceStatus>>();
-        let expected_fork_statuses = expected_slices
-            .iter()
-            .map(|slice| slice.fork_status)
-            .collect::<Vec<HeaderSliceStatus>>();
-        assert_eq!(actual_fork_statuses, expected_fork_statuses);
     }
 
     // Empty slices might become Waiting at random by the FetchRequestStage
@@ -209,6 +205,8 @@ struct DownloaderTestDecl<'t> {
     pub slices: &'t str,
     // expected header slices descriptor after the test
     pub result: &'t str,
+    // expected forky phase fork header slices descriptor after the test
+    pub forked: &'t str,
 }
 
 impl<'t> DownloaderTestDecl<'t> {
@@ -218,21 +216,27 @@ impl<'t> DownloaderTestDecl<'t> {
         let sentry = Self::parse_sentry(self.sentry, &mut generator)?;
 
         let (forky_header_slices, verifier) = Self::parse_slices(self.slices, &mut generator)?;
-        let forky_header_slices = HeaderSlices::from_slices_vec(forky_header_slices);
+        let forky_header_slices = HeaderSlices::from_slices_vec(forky_header_slices, 100);
 
         let previous_run_state = DownloaderRunState {
             estimated_top_block_num: Some(BlockNumber(10_000)),
             forky_header_slices: Some(Arc::new(forky_header_slices)),
+            forky_fork_header_slices: None,
         };
 
         let expected_forky_header_slices =
-            HeaderSlices::from_slices_vec(Self::parse_slices(self.result, &mut generator)?.0);
+            HeaderSlices::from_slices_vec(Self::parse_slices(self.result, &mut generator)?.0, 100);
+
+        let expected_forky_fork_header_slices =
+            HeaderSlices::from_slices_vec(Self::parse_slices(self.forked, &mut generator)?.0, 100);
+
         let expected_report = DownloaderReport {
             final_block_num: BlockNumber(0),
             target_final_block_num: BlockNumber(0),
             run_state: DownloaderRunState {
                 estimated_top_block_num: Some(BlockNumber(10_000)),
                 forky_header_slices: Some(Arc::new(expected_forky_header_slices)),
+                forky_fork_header_slices: Some(Arc::new(expected_forky_fork_header_slices)),
             },
         };
 
@@ -279,7 +283,6 @@ impl<'t> DownloaderTestDecl<'t> {
         let mut verifier = HeaderSliceVerifierMock::new(HeaderGenerator::header_id);
         let mut start_block_num = BlockNumber(0);
         let mut is_link_broken = false;
-        let mut is_fork = false;
 
         for c in desc.chars() {
             match c {
@@ -288,24 +291,14 @@ impl<'t> DownloaderTestDecl<'t> {
                     is_link_broken = true;
                     continue;
                 }
-                '/' => {
-                    is_fork = true;
+                '_' => {
+                    start_block_num =
+                        BlockNumber(start_block_num.0 + header_slices::HEADER_SLICE_SIZE as u64);
                     continue;
                 }
                 _ => (),
             }
             let status = HeaderSliceStatus::try_from(c)?;
-
-            if is_fork {
-                let last_slice = slices.last_mut().ok_or_else(|| {
-                    anyhow::format_err!("expected a fork status, but no slices are present")
-                })?;
-                last_slice.fork_status = status;
-                last_slice.fork_headers =
-                    generator.generate_slice_headers_if_needed(status, last_slice.start_block_num);
-                is_fork = false;
-                continue;
-            }
 
             let mut slice = HeaderSlice {
                 start_block_num,
@@ -410,6 +403,7 @@ async fn save_verified() {
         sentry: "",
         slices: "+   +   +   #",
         result: "+   +   +   +",
+        forked: "",
     };
     test.run().await.unwrap();
 }
@@ -420,6 +414,7 @@ async fn verify_link() {
         sentry: "",
         slices: "+   +   +   =",
         result: "+   +   +   +",
+        forked: "",
     };
     test.run().await.unwrap();
 }
@@ -428,8 +423,9 @@ async fn verify_link() {
 async fn fork_mode_start() {
     let test = DownloaderTestDecl {
         sentry: "",
-        slices: "+   +   +   |= ",
-        result: "+   +   -/+ -/Y",
+        slices: "+   +   +   |=  ",
+        result: "+   +   +   -",
+        forked: "_   _   -   +",
     };
     test.run().await.unwrap();
 }
@@ -437,9 +433,10 @@ async fn fork_mode_start() {
 #[tokio::test]
 async fn fork_continuation() {
     let test = DownloaderTestDecl {
-        sentry: "-   -   .   -  ",
-        slices: "+   +   +   |= ",
-        result: "+   -/+ Y/+ -/Y",
+        sentry: "-   -   .   -   ",
+        slices: "+   +   +   |=  ",
+        result: "+   +   +   -",
+        forked: "_   -   +   +",
     };
     test.run().await.unwrap();
 }
@@ -449,7 +446,8 @@ async fn canonical_continuation() {
     let test = DownloaderTestDecl {
         sentry: "-   -   -   .   -",
         slices: "+   +   +   |=  -",
-        result: "+   +   -/+ #/Y -",
+        result: "+   +   +   +   -",
+        forked: "_   _   -   +   _",
     };
     test.run().await.unwrap();
 }
@@ -457,9 +455,10 @@ async fn canonical_continuation() {
 #[tokio::test]
 async fn fork_both_chains_continuation() {
     let test = DownloaderTestDecl {
-        sentry: "-   -   .   .  ",
-        slices: "+   +   +   |= ",
-        result: "+   -/+ Y/+ #/Y",
+        sentry: "-   -   .   .   ",
+        slices: "+   +   +   |=  ",
+        result: "+   +   +   +   ",
+        forked: "_   -   +   +   ",
     };
     test.run().await.unwrap();
 }

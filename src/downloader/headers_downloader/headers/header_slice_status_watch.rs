@@ -39,3 +39,50 @@ impl HeaderSliceStatusWatch {
         Ok(())
     }
 }
+
+/// Wait on 2 watches at the same time.
+/// This is useful to track multiple statuses/slices simultaneously.
+pub struct HeaderSliceStatusWatchSelector {
+    name: String,
+    watch1: HeaderSliceStatusWatch,
+    watch2: HeaderSliceStatusWatch,
+}
+
+impl HeaderSliceStatusWatchSelector {
+    pub fn new(name: &str, watch1: HeaderSliceStatusWatch, watch2: HeaderSliceStatusWatch) -> Self {
+        Self {
+            name: String::from(name),
+            watch1,
+            watch2,
+        }
+    }
+
+    pub fn pending_counts(&self) -> (usize, usize) {
+        (self.watch1.pending_count(), self.watch2.pending_count())
+    }
+
+    pub async fn wait_while_all(&mut self, values: (usize, usize)) -> anyhow::Result<()> {
+        if self.watch1.pending_count() != values.0 {
+            return Ok(());
+        }
+        if self.watch2.pending_count() != values.1 {
+            return Ok(());
+        }
+
+        debug!("{}: waiting pending", self.name);
+        while (*self.watch1.pending_watch.borrow_and_update() == values.0)
+            && (*self.watch2.pending_watch.borrow_and_update() == values.1)
+        {
+            tokio::select! {
+                result1 = self.watch1.pending_watch.changed() => {
+                    result1?
+                }
+                result2 = self.watch2.pending_watch.changed() => {
+                    result2?
+                }
+            };
+        }
+        debug!("{}: waiting pending done", self.name);
+        Ok(())
+    }
+}
