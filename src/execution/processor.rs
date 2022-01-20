@@ -120,7 +120,10 @@ where
         Ok(())
     }
 
-    async fn execute_transaction(&mut self, txn: &MessageWithSender) -> anyhow::Result<Receipt> {
+    pub async fn execute_transaction(
+        &mut self,
+        txn: &MessageWithSender,
+    ) -> anyhow::Result<Receipt> {
         let rev = self.block_spec.revision;
 
         self.state.clear_journal_and_substate();
