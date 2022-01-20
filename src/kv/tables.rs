@@ -10,7 +10,7 @@ use maplit::hashmap;
 use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, *};
-use std::{collections::HashMap, fmt::Display, mem::size_of, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 #[derive(Debug)]
 pub struct ErasedTable<T>(pub T)
@@ -307,6 +307,7 @@ macro_rules! scale_table_object {
 scale_table_object!(BodyForStorage);
 scale_table_object!(BlockHeader);
 scale_table_object!(MessageWithSignature);
+scale_table_object!(Vec<crate::models::Log>);
 
 macro_rules! ron_table_object {
     ($ty:ident) => {
@@ -327,59 +328,6 @@ macro_rules! ron_table_object {
 }
 
 ron_table_object!(ChainSpec);
-
-impl TableEncode for Vec<crate::models::Log> {
-    type Encoded = Vec<u8>;
-
-    fn encode(self) -> Self::Encoded {
-        use parity_scale_codec::*;
-
-        #[derive(Encode)]
-        struct LogEncode<'a> {
-            address: Address,
-            topics: Vec<H256>,
-            data: &'a [u8],
-        }
-
-        let mut out = vec![];
-
-        for log in self {
-            out = <Vec<LogEncode<'_>> as EncodeAppend>::append_or_new(
-                out,
-                std::iter::once(LogEncode {
-                    address: log.address,
-                    topics: log.topics,
-                    data: &*log.data,
-                }),
-            )
-            .unwrap();
-        }
-
-        out
-    }
-}
-
-impl TableDecode for Vec<crate::models::Log> {
-    fn decode(mut b: &[u8]) -> anyhow::Result<Self> {
-        use parity_scale_codec::*;
-
-        #[derive(Decode)]
-        struct LogDecode {
-            address: Address,
-            topics: Vec<H256>,
-            data: Vec<u8>,
-        }
-
-        Ok(Vec::<LogDecode>::decode(&mut b)?
-            .into_iter()
-            .map(|log| crate::models::Log {
-                address: log.address,
-                topics: log.topics,
-                data: log.data.into(),
-            })
-            .collect())
-    }
-}
 
 impl TableEncode for Address {
     type Encoded = [u8; ADDRESS_LENGTH];
@@ -749,38 +697,6 @@ impl TableDecode for StorageChange {
 
 pub type HeaderKey = (BlockNumber, H256);
 
-#[derive(Clone, Debug)]
-pub struct CumulativeData {
-    pub tx_num: u64,
-    pub gas: u64,
-}
-
-impl TableEncode for CumulativeData {
-    type Encoded = [u8; size_of::<u64>() + size_of::<u64>()];
-
-    fn encode(self) -> Self::Encoded {
-        let mut out = Self::Encoded::default();
-        out[..size_of::<u64>()].copy_from_slice(&self.tx_num.encode());
-        out[size_of::<u64>()..].copy_from_slice(&self.gas.encode());
-        out
-    }
-}
-
-impl TableDecode for CumulativeData {
-    fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        if b.len() != size_of::<u64>() + size_of::<u64>() {
-            return Err(
-                InvalidLength::<{ size_of::<u64>() + size_of::<u64>() }> { got: b.len() }.into(),
-            );
-        }
-
-        Ok(Self {
-            tx_num: u64::decode(&b[..size_of::<u64>()])?,
-            gas: u64::decode(&b[size_of::<u64>()..])?,
-        })
-    }
-}
-
 #[bitfield]
 #[derive(Clone, Copy, Debug, Default)]
 struct CallTraceSetFlags {
@@ -848,7 +764,8 @@ decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
 decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
 decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
-decl_table!(CumulativeIndex => BlockNumber => CumulativeData);
+decl_table!(CumulativeGasIndex => BlockNumber => u64);
+decl_table!(CumulativeTxIndex => BlockNumber => u64);
 decl_table!(Log => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
 decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
 decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
@@ -897,7 +814,8 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         HeadersTotalDifficulty::const_db_name() => TableInfo::default(),
         BlockBody::const_db_name() => TableInfo::default(),
         BlockTransaction::const_db_name() => TableInfo::default(),
-        CumulativeIndex::const_db_name() => TableInfo::default(),
+        CumulativeGasIndex::const_db_name() => TableInfo::default(),
+        CumulativeTxIndex::const_db_name() => TableInfo::default(),
         Log::const_db_name() => TableInfo::default(),
         LogTopicIndex::const_db_name() => TableInfo::default(),
         LogAddressIndex::const_db_name() => TableInfo::default(),

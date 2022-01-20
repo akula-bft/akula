@@ -1,9 +1,10 @@
 use super::*;
 use bytes::Bytes;
+use parity_scale_codec::*;
 use rlp::*;
 use serde::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct Log {
     pub address: Address,
     pub topics: Vec<H256>,
