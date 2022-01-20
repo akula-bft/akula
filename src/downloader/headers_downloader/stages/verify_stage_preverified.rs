@@ -146,11 +146,19 @@ impl VerifyStagePreverified {
         let index = block_num / preverified_step_size;
         self.preverified_hashes.hashes.get(index as usize)
     }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        let header_slices = self.header_slices.clone();
+        move || -> bool { header_slices.contains_status(HeaderSliceStatus::Downloaded) }
+    }
 }
 
 #[async_trait::async_trait]
 impl super::stage::Stage for VerifyStagePreverified {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
+    }
+    fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        Box::new(Self::can_proceed_check(self))
     }
 }

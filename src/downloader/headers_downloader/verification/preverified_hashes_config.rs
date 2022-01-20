@@ -28,9 +28,17 @@ impl PreverifiedHashesConfig {
             _ => anyhow::bail!("unsupported chain"),
         };
         let config: PreverifiedHashesConfigUnprefixedHex = toml::from_str(config_text)?;
-        Ok(PreverifiedHashesConfig {
+        Ok(Self {
             hashes: config.hashes.iter().map(|hash| hash.0).collect(),
         })
+    }
+
+    pub fn empty() -> Self {
+        Self { hashes: Vec::new() }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.hashes.is_empty()
     }
 }
 

@@ -71,11 +71,13 @@ impl VerifyStageForkyLink {
                     .header_slices
                     .count_slices_in_status(HeaderSliceStatus::Fork);
                 if fork_slice_count > 0 {
+                    debug!("VerifyStageForkyLink: switching to Mode::Fork");
                     self.switch_to_fork_mode();
                 }
             }
             Mode::Fork(ref stage) => {
                 if stage.is_done() {
+                    debug!("VerifyStageForkyLink: switching to Mode::Linear");
                     self.switch_to_linear_mode();
                 }
             }
@@ -112,11 +114,19 @@ impl VerifyStageForkyLink {
         fork_mode_stage.setup();
         self.mode = Mode::Fork(Box::new(fork_mode_stage));
     }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        let header_slices = self.header_slices.clone();
+        move || -> bool { header_slices.contains_status(HeaderSliceStatus::VerifiedInternally) }
+    }
 }
 
 #[async_trait::async_trait]
 impl super::stage::Stage for VerifyStageForkyLink {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
+    }
+    fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        Box::new(Self::can_proceed_check(self))
     }
 }

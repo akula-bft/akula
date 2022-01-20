@@ -85,37 +85,33 @@ impl ForkModeStage {
         let Some(canonical_continuation_slice_lock) = self.find_canonical_continuation_slice() else { return Ok(()) };
         let Some(fork_continuation_slice_lock) = self.find_fork_continuation_slice() else { return Ok(()) };
 
-        let canonical_continuation_slice = canonical_continuation_slice_lock.upgradable_read();
-        let fork_continuation_slice = fork_continuation_slice_lock.upgradable_read();
-
         // try to extend the chains
         let mut did_extend_canonical = false;
         let mut did_extend_fork = false;
 
-        if canonical_continuation_slice.status == HeaderSliceStatus::VerifiedInternally {
-            let mut continuation_slice_mut =
-                RwLockUpgradableReadGuard::upgrade(canonical_continuation_slice);
-            did_extend_canonical = self.try_extend_canonical(continuation_slice_mut.deref_mut());
+        if canonical_continuation_slice_lock.read().status == HeaderSliceStatus::VerifiedInternally
+        {
+            let continuation_slice_lock = canonical_continuation_slice_lock;
+            did_extend_canonical = self.try_extend_canonical(continuation_slice_lock.clone());
             if !did_extend_canonical {
-                self.refetch_slice(continuation_slice_mut.deref_mut());
+                self.refetch_slice(continuation_slice_lock.write().deref_mut());
             }
         }
 
-        if fork_continuation_slice.status == HeaderSliceStatus::VerifiedInternally {
-            let mut continuation_slice_mut =
-                RwLockUpgradableReadGuard::upgrade(fork_continuation_slice);
-            did_extend_fork = self.try_extend_fork(continuation_slice_mut.deref_mut());
+        if fork_continuation_slice_lock.read().status == HeaderSliceStatus::VerifiedInternally {
+            let continuation_slice_lock = fork_continuation_slice_lock;
+            did_extend_fork = self.try_extend_fork(continuation_slice_lock.clone());
             if !did_extend_fork {
-                self.refetch_slice(continuation_slice_mut.deref_mut());
+                self.refetch_slice(continuation_slice_lock.write().deref_mut());
             }
         }
 
         // check termination conditions
         if did_extend_fork {
             let fork_first_slice_lock = self.find_fork_first_slice().unwrap();
-            if let Some(connection_block_num) =
-                Self::find_fork_connection_block_num(&fork_first_slice_lock.read())
-            {
+            let connection_block_num_opt =
+                Self::find_fork_connection_block_num(&fork_first_slice_lock.read());
+            if let Some(connection_block_num) = connection_block_num_opt {
                 if self.fork_range_difficulty(connection_block_num)
                     > self.canonical_range_difficulty(connection_block_num)
                 {
@@ -163,10 +159,15 @@ impl ForkModeStage {
         slice.headers = None;
     }
 
-    fn try_extend_canonical(&mut self, continuation_slice: &mut HeaderSlice) -> bool {
+    fn try_extend_canonical(&mut self, continuation_slice_lock: Arc<RwLock<HeaderSlice>>) -> bool {
         let Some(end_slice_lock) = self.find_canonical_last_slice() else { return false };
         let end_slice = end_slice_lock.read();
-        if self.verify_canonical_slices_link(continuation_slice, &end_slice) {
+        let continuation_slice = continuation_slice_lock.upgradable_read();
+
+        if self.verify_canonical_slices_link(&continuation_slice, &end_slice) {
+            let mut continuation_slice_mut = RwLockUpgradableReadGuard::upgrade(continuation_slice);
+            let continuation_slice = continuation_slice_mut.deref_mut();
+
             self.header_slices
                 .set_slice_status(continuation_slice, HeaderSliceStatus::Verified);
             continuation_slice.refetch_attempt = 0;
@@ -177,10 +178,15 @@ impl ForkModeStage {
         }
     }
 
-    fn try_extend_fork(&mut self, continuation_slice: &mut HeaderSlice) -> bool {
+    fn try_extend_fork(&mut self, continuation_slice_lock: Arc<RwLock<HeaderSlice>>) -> bool {
         let Some(end_slice_lock) = self.find_fork_first_slice() else { return false };
         let end_slice = end_slice_lock.read();
-        if self.verify_fork_slices_link(&end_slice, continuation_slice) {
+        let continuation_slice = continuation_slice_lock.upgradable_read();
+
+        if self.verify_fork_slices_link(&end_slice, &continuation_slice) {
+            let mut continuation_slice_mut = RwLockUpgradableReadGuard::upgrade(continuation_slice);
+            let continuation_slice = continuation_slice_mut.deref_mut();
+
             self.header_slices
                 .set_slice_status(continuation_slice, HeaderSliceStatus::Fork);
             continuation_slice.refetch_attempt = 0;
@@ -410,18 +416,21 @@ impl ForkModeStage {
             let mut slice_mut = slice_lock.write();
             let slice = slice_mut.deref_mut();
 
-            if Self::is_canonical_slice_status(slice.status) {
-                self.header_slices
-                    .set_slice_status(slice, HeaderSliceStatus::Empty);
-                slice.headers = None;
-            }
+            // slices within the canonical range past the fork must be in a canonical status
+            assert!(Self::is_canonical_slice_status(slice.status));
+            let len = slice.len();
+            assert!(len > 0, "a canonical chain slice must have headers");
+
+            self.header_slices
+                .set_slice_status(slice, HeaderSliceStatus::Empty);
+            slice.headers = None;
 
             // cleanup the fork data
             slice.fork_status = HeaderSliceStatus::Empty;
             slice.fork_headers = None;
             slice.refetch_attempt = 0;
 
-            num = BlockNumber(num.0 + slice.len() as u64);
+            num = BlockNumber(num.0 + len as u64);
         }
 
         // done
@@ -437,47 +446,44 @@ impl ForkModeStage {
             num = align_block_num_to_slice_start(BlockNumber(num.0 - 1));
         }
 
-        while num <= self.canonical_range.end {
-            let Some(slice_lock) = self.header_slices.find_by_start_block_num(num) else {
-                if num < self.canonical_range.end {
-                    panic!("discard_fork invalid state: slice not found");
-                } else {
-                    // the canonical chain continuation slice (past canonical_range)
-                    // might not exist yet, this is not a problem
-                    break;
-                }
-            };
-            let slice = slice_lock.upgradable_read();
-            let len = slice.len();
+        let last_fork_slice_start =
+            align_block_num_to_slice_start(BlockNumber(self.fork_range.end.0 - 1));
 
-            if slice.fork_headers.is_some() {
-                let mut slice_mut = RwLockUpgradableReadGuard::upgrade(slice);
-                let slice = slice_mut.deref_mut();
+        while num < last_fork_slice_start {
+            let slice_lock = self.header_slices.find_by_start_block_num(num).unwrap();
+            let mut slice_mut = slice_lock.write();
+            let slice = slice_mut.deref_mut();
 
-                // cleanup the status if needed
-                if (slice.status == HeaderSliceStatus::Fork)
-                    || (slice.status == HeaderSliceStatus::Refetch)
-                {
-                    self.header_slices
-                        .set_slice_status(slice, HeaderSliceStatus::Empty);
-                    slice.headers = None;
-                }
+            // slices within the fork range before the last must have a canonical fork_status
+            // (including the fork continuation slice if any)
+            assert!(Self::is_canonical_slice_status(slice.fork_status));
+            let len = slice.fork_len();
+            assert!(len > 0, "a canonical chain slice must have headers");
 
-                // recover the status if needed
-                if slice.fork_status != HeaderSliceStatus::Fork {
-                    self.header_slices
-                        .set_slice_status(slice, slice.fork_status);
-                    slice.headers = slice.fork_headers.take();
-                }
+            // recover the backed up data
+            self.header_slices
+                .set_slice_status(slice, slice.fork_status);
+            slice.headers = slice.fork_headers.take();
 
-                // cleanup the fork data
-                slice.fork_status = HeaderSliceStatus::Empty;
-                slice.fork_headers = None;
-                slice.refetch_attempt = 0;
-            }
+            // cleanup the fork data
+            slice.fork_status = HeaderSliceStatus::Empty;
+            slice.fork_headers = None;
+            slice.refetch_attempt = 0;
 
             num = BlockNumber(num.0 + len as u64);
         }
+
+        // the last fork slice has X/Y status (typically +/Y)
+        let last_fork_slice_lock = self
+            .header_slices
+            .find_by_start_block_num(last_fork_slice_start)
+            .unwrap();
+        let mut last_fork_slice = last_fork_slice_lock.write();
+
+        // cleanup the fork data
+        last_fork_slice.fork_status = HeaderSliceStatus::Empty;
+        last_fork_slice.fork_headers = None;
+        last_fork_slice.refetch_attempt = 0;
 
         // done
         self.fork_range.start = self.fork_range.end;
@@ -501,11 +507,19 @@ impl ForkModeStage {
     fn find_fork_first_slice(&self) -> Option<Arc<RwLock<HeaderSlice>>> {
         self.header_slices.find_by_block_num(self.fork_range.start)
     }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        let header_slices = self.header_slices.clone();
+        move || -> bool { header_slices.contains_status(HeaderSliceStatus::VerifiedInternally) }
+    }
 }
 
 #[async_trait::async_trait]
 impl super::stage::Stage for ForkModeStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
+    }
+    fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        Box::new(Self::can_proceed_check(self))
     }
 }
