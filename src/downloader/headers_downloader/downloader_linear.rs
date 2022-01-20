@@ -138,10 +138,7 @@ impl DownloaderLinear {
         let save_stage = SaveStage::<RwTx>::new(header_slices.clone(), db_transaction);
         let refill_stage = RefillStage::new(header_slices.clone());
 
-        let fetch_receive_stage_can_proceed = fetch_receive_stage.can_proceed_check();
-        let refill_stage_can_proceed = refill_stage.can_proceed_check();
-        let can_proceed =
-            move |_| -> bool { fetch_receive_stage_can_proceed() && refill_stage_can_proceed() };
+        let refill_stage_is_over = refill_stage.is_over_check();
 
         let mut stages = DownloaderStageLoop::new(&header_slices);
         stages.insert(fetch_request_stage);
@@ -153,7 +150,7 @@ impl DownloaderLinear {
         stages.insert(save_stage);
         stages.insert(refill_stage);
 
-        stages.run(can_proceed).await;
+        stages.run(refill_stage_is_over).await;
 
         let report = DownloaderLinearReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,

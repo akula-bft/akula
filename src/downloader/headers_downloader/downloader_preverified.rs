@@ -28,21 +28,21 @@ pub struct DownloaderPreverifiedReport {
 
 impl DownloaderPreverified {
     pub fn new(
-        chain_name: String,
+        preverified_hashes_config: PreverifiedHashesConfig,
         mem_limit: usize,
         sentry: SentryClientReactorShared,
-    ) -> anyhow::Result<Self> {
-        let preverified_hashes_config = PreverifiedHashesConfig::new(&chain_name)?;
-
-        let instance = Self {
+    ) -> Self {
+        Self {
             preverified_hashes_config,
             mem_limit,
             sentry,
-        };
-        Ok(instance)
+        }
     }
 
     fn target_final_block_num(&self) -> BlockNumber {
+        if self.preverified_hashes_config.is_empty() {
+            return BlockNumber(0);
+        }
         let slice_size = header_slices::HEADER_SLICE_SIZE as u64;
         BlockNumber((self.preverified_hashes_config.hashes.len() as u64 - 1) * slice_size)
     }
@@ -101,10 +101,7 @@ impl DownloaderPreverified {
         let refill_stage = RefillStage::new(header_slices.clone());
         let top_block_estimate_stage = TopBlockEstimateStage::new(sentry.clone());
 
-        let fetch_receive_stage_can_proceed = fetch_receive_stage.can_proceed_check();
-        let refill_stage_can_proceed = refill_stage.can_proceed_check();
-        let can_proceed =
-            move |_| -> bool { fetch_receive_stage_can_proceed() && refill_stage_can_proceed() };
+        let refill_stage_is_over = refill_stage.is_over_check();
 
         let estimated_top_block_num_provider =
             top_block_estimate_stage.estimated_top_block_num_provider();
@@ -119,7 +116,7 @@ impl DownloaderPreverified {
         stages.insert(refill_stage);
         stages.insert(top_block_estimate_stage);
 
-        stages.run(can_proceed).await;
+        stages.run(refill_stage_is_over).await;
 
         let report = DownloaderPreverifiedReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,

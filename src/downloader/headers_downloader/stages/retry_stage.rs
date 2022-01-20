@@ -75,11 +75,22 @@ impl RetryStage {
             _ => Duration::from_secs(30),
         }
     }
+
+    pub fn can_proceed_check(&self) -> impl Fn() -> bool {
+        // If FetchReceiveStage can't proceed when Waiting & is_over, RetryStage still can proceed.
+        // Returning header_slices.contains_status(HeaderSliceStatus::Waiting)
+        // means that some_stage_can_proceed() returns true in this case,
+        // but in tests we'd like to terminate without doing retries.
+        || -> bool { false }
+    }
 }
 
 #[async_trait::async_trait]
 impl super::stage::Stage for RetryStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
+    }
+    fn can_proceed_check(&self) -> Box<dyn Fn() -> bool + Send> {
+        Box::new(Self::can_proceed_check(self))
     }
 }

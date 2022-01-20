@@ -228,14 +228,22 @@ impl HeaderSlices {
 
     pub fn find_by_block_num(&self, block_num: BlockNumber) -> Option<Arc<RwLock<HeaderSlice>>> {
         let start_block_num = align_block_num_to_slice_start(block_num);
-        let slice_opt = self.find_by_start_block_num(start_block_num);
-        slice_opt.and_then(|slice_lock| {
-            if slice_lock.read().contains_block_num(block_num) {
-                Some(slice_lock)
-            } else {
-                None
-            }
-        })
+        let Some(slice_lock) = self.find_by_start_block_num(start_block_num) else {
+            return None;
+        };
+
+        let is_block_num_in_range: bool = {
+            let slice = slice_lock.read();
+            let block_num_range = slice.block_num_range();
+            let fork_block_num_range = slice.fork_block_num_range();
+            block_num_range.contains(&block_num) || fork_block_num_range.contains(&block_num)
+        };
+
+        if is_block_num_in_range {
+            Some(slice_lock)
+        } else {
+            None
+        }
     }
 
     pub fn find_by_status(&self, status: HeaderSliceStatus) -> Option<Arc<RwLock<HeaderSlice>>> {
@@ -314,6 +322,10 @@ impl HeaderSlices {
         statuses
             .iter()
             .any(|status| self.count_slices_in_status(*status) > 0)
+    }
+
+    pub fn contains_status(&self, status: HeaderSliceStatus) -> bool {
+        self.count_slices_in_status(status) > 0
     }
 
     pub fn set_slice_status(&self, slice: &mut HeaderSlice, status: HeaderSliceStatus) {
@@ -396,8 +408,15 @@ impl HeaderSlice {
         self.start_block_num..end
     }
 
-    pub fn contains_block_num(&self, num: BlockNumber) -> bool {
-        self.block_num_range().contains(&num)
+    pub fn fork_len(&self) -> usize {
+        self.fork_headers
+            .as_ref()
+            .map_or(0, |headers| headers.len())
+    }
+
+    pub fn fork_block_num_range(&self) -> std::ops::Range<BlockNumber> {
+        let end = BlockNumber(self.start_block_num.0 + self.fork_len() as u64);
+        self.start_block_num..end
     }
 }
 
