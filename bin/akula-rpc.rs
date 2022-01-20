@@ -95,7 +95,7 @@ where
         Ok(U256::from(
             akula::accessors::state::account::read(&self.db.begin().await?, address, block_number)
                 .await?
-                .unwrap_or_else(Account::default)
+                .unwrap_or_default()
                 .nonce,
         ))
     }
