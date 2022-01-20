@@ -56,6 +56,12 @@ pub trait EthApi {
         block_hash: H256,
         index: U64,
     ) -> RpcResult<MessageWithSender>;
+    #[method(name = "getTransactionByBlockNumberAndIndex")]
+    async fn get_transaction_by_block_number_and_index(
+        &self,
+        block_number: BlockNumber,
+        index: U64,
+    ) -> RpcResult<MessageWithSender>;
     // #[method(name = "getLogs")]
     // async fn get_logs(&self, filter: Filter) -> RpcResult<Vec<Log>>;
 }
@@ -89,7 +95,7 @@ where
         Ok(U256::from(
             akula::accessors::state::account::read(&self.db.begin().await?, address, block_number)
                 .await?
-                .unwrap_or(Account::default())
+                .unwrap_or_else(|| Account::default())
                 .nonce,
         ))
     }
@@ -113,7 +119,7 @@ where
         let header = PartialHeader::from(
             akula::accessors::chain::header::read(&txn, hash, number)
                 .await?
-                .unwrap_or(BlockHeader::empty()),
+                .unwrap_or_else(|| BlockHeader::empty()),
         );
 
         if include_txs {
@@ -160,7 +166,7 @@ where
                 hash,
                 akula::accessors::chain::header_number::read(&txn, hash)
                     .await?
-                    .unwrap_or(BlockNumber(0)),
+                    .unwrap_or_else(|| BlockNumber(0)),
             )
             .await?
             .unwrap()
@@ -217,7 +223,28 @@ where
             block_hash,
             akula::accessors::chain::header_number::read(&txn, block_hash)
                 .await?
-                .unwrap_or(BlockNumber(0)),
+                .unwrap_or_else(|| BlockNumber(0)),
+        )
+        .await?
+        .unwrap()
+        .transactions
+        .into_iter()
+        .nth(index.as_u64() as usize)
+        .unwrap())
+    }
+
+    async fn get_transaction_by_block_number_and_index(
+        &self,
+        block_number: BlockNumber,
+        index: U64,
+    ) -> RpcResult<MessageWithSender> {
+        let txn = self.db.begin().await?;
+        Ok(akula::accessors::chain::block_body::read_with_senders(
+            &txn,
+            akula::accessors::chain::canonical_hash::read(&txn, block_number)
+                .await?
+                .unwrap(),
+            block_number,
         )
         .await?
         .unwrap()
