@@ -2,15 +2,15 @@ use crate::{
     kv::traits::{MutableCursor, Table, TableDecode, Transaction},
     trie::{
         hash_builder::{pack_nibbles, HashBuilder},
-        node::{Node, unmarshal_node},
+        node::{unmarshal_node, Node},
         prefix_set::PrefixSet,
+        util::has_prefix,
     },
 };
 use anyhow::Result;
 use async_recursion::async_recursion;
 use ethereum_types::H256;
 use std::marker::{PhantomData, Sync};
-use crate::trie::util::has_prefix;
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -86,7 +86,7 @@ struct Cursor<'cu, 'tx, 'ps, C, T>
 where
     T: Table<Key = Vec<u8>, SeekKey = Vec<u8>, Value = Vec<u8>>,
     'tx: 'cu,
-    C: MutableCursor<'tx, T> + Sync,
+    C: MutableCursor<'tx, T>,
 {
     cursor: &'cu mut C,
     changed: &'ps mut PrefixSet,
@@ -100,7 +100,7 @@ impl<'cu, 'tx, 'ps, C, T> Cursor<'cu, 'tx, 'ps, C, T>
 where
     T: Table<Key = Vec<u8>, SeekKey = Vec<u8>, Value = Vec<u8>>,
     'tx: 'cu,
-    C: MutableCursor<'tx, T> + Sync,
+    C: MutableCursor<'tx, T>,
 {
     async fn new(
         cursor: &'cu mut C,
@@ -202,8 +202,8 @@ where
 
         let mut node: Option<Node> = None;
         if entry.is_some() {
-            let node = unmarshal_node(entry.as_ref().unwrap().1.as_slice()).unwrap();
-            assert_ne!(node.state_mask(), 0);
+            node = Some(unmarshal_node(entry.as_ref().unwrap().1.as_slice()).unwrap());
+            assert_ne!(node.as_ref().unwrap().state_mask(), 0);
         }
 
         let mut nibble = 0i8;
@@ -229,7 +229,7 @@ where
         Ok(())
     }
 
-    #[async_recursion]
+    #[async_recursion(?Send)]
     async fn move_to_next_sibling(
         &mut self,
         allow_root_to_child_nibble_within_subnode: bool,
@@ -293,4 +293,227 @@ pub fn regenerate_intermediate_hashes() {
 
 pub fn increment_intermediate_hashes() {
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        kv::{
+            new_mem_database,
+            tables,
+            traits::{MutableKV, MutableTransaction},
+        },
+        trie::node::marshal_node,
+    };
+    use hex_literal::hex;
+
+    #[tokio::test]
+    async fn test_intermediate_hashes_cursor_traversal_1() {
+        let db = new_mem_database().unwrap();
+        let txn = db.begin_mutable().await.unwrap();
+        let mut trie = txn.mutable_cursor(tables::TrieAccount).await.unwrap();
+
+        let key1 = vec![0x1u8];
+        let node1 = Node::new(0b1011, 0b1001, 0, vec![], None);
+        trie.upsert(key1, marshal_node(&node1)).await.unwrap();
+
+        let key2 = vec![0x1u8, 0x0, 0xB];
+        let node2 = Node::new(0b1010, 0, 0, vec![], None);
+        trie.upsert(key2, marshal_node(&node2)).await.unwrap();
+
+        let key3 = vec![0x1u8, 0x3];
+        let node3 = Node::new(0b1110, 0, 0, vec![], None);
+        trie.upsert(key3, marshal_node(&node3)).await.unwrap();
+
+        let mut changed = PrefixSet::new();
+        let mut cursor = Cursor::new(&mut trie, &mut changed, &[]).await.unwrap();
+
+        assert!(cursor.key().unwrap().is_empty());
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x0]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x0, 0xB, 0x1]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x0, 0xB, 0x3]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x1]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x3]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x3, 0x1]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x3, 0x2]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x1, 0x3, 0x3]);
+
+        cursor.next().await.unwrap();
+        assert!(cursor.key().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_intermediate_hashes_cursor_traversal_2() {
+        let db = new_mem_database().unwrap();
+        let txn = db.begin_mutable().await.unwrap();
+        let mut trie = txn.mutable_cursor(tables::TrieAccount).await.unwrap();
+
+        let key1 = vec![0x4u8];
+        let node1 = Node::new(
+            0b10100,
+            0,
+            0b00100,
+            vec![H256::from(hex!(
+                "0384e6e2c2b33c4eb911a08a7ff57f83dc3eb86d8d0c92ec112f3b416d6685a9"
+            ))],
+            None,
+        );
+        trie.upsert(key1, marshal_node(&node1)).await.unwrap();
+
+        let key2 = vec![0x6u8];
+        let node2 = Node::new(
+            0b10010,
+            0,
+            0b00010,
+            vec![H256::from(hex!(
+                "7f9a58b00625a6e725559acf327baf88d90e4a5b65a2003acd24f110c0441df1"
+            ))],
+            None,
+        );
+        trie.upsert(key2, marshal_node(&node2)).await.unwrap();
+
+        let mut changed = PrefixSet::new();
+        let mut cursor = Cursor::new(&mut trie, &mut changed, &[]).await.unwrap();
+
+        assert!(cursor.key().unwrap().is_empty());
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x4, 0x2]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x4, 0x4]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x6, 0x1]);
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), vec![0x6, 0x4]);
+
+        cursor.next().await.unwrap();
+        assert!(cursor.key().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_intermediate_hashes_cursor_traversal_within_prefix() {
+        let db = new_mem_database().unwrap();
+        let txn = db.begin_mutable().await.unwrap();
+        let mut trie = txn.mutable_cursor(tables::TrieAccount).await.unwrap();
+
+        let prefix_a = vec![0xau8, 0xa, 0x0, 0x2];
+        let prefix_b = vec![0xbu8, 0xb, 0x0, 0x5];
+        let prefix_c = vec![0xcu8, 0xc, 0x0, 0x1];
+
+        let node_a = Node::new(
+            0b10100,
+            0,
+            0,
+            vec![],
+            Some(H256::from(hex!(
+                "2e1b81393448317fc1834241119c23f9e1763f7a662f8078949accc35b0d3b13"
+            ))),
+        );
+        trie.upsert(prefix_a.clone(), marshal_node(&node_a))
+            .await
+            .unwrap();
+
+        let node_b1 = Node::new(
+            0b10100,
+            0b00100,
+            0,
+            vec![],
+            Some(H256::from(hex!(
+                "c570b66136e99d07c6c6360769de1d9397805849879dd7c79cf0b8e6694bfb0e"
+            ))),
+        );
+        trie.upsert(prefix_b.clone(), marshal_node(&node_b1))
+            .await
+            .unwrap();
+
+        let node_b2 = Node::new(
+            0b00010,
+            0,
+            0b00010,
+            vec![H256::from(hex!(
+                "6fc81f58df057a25ca6b687a6db54aaa12fbea1baf03aa3db44d499fb8a7af65"
+            ))],
+            None,
+        );
+        let mut key_b2 = prefix_b.clone();
+        key_b2.push(0x2);
+        trie.upsert(key_b2, marshal_node(&node_b2)).await.unwrap();
+
+        let node_c = Node::new(
+            0b11110,
+            0,
+            0,
+            vec![],
+            Some(H256::from(hex!(
+                "0f12bed8e3cc4cce692d234e69a4d79c0e74ab05ecb808dad588212eab788c31"
+            ))),
+        );
+        trie.upsert(prefix_c.clone(), marshal_node(&node_c))
+            .await
+            .unwrap();
+
+        let mut changed = PrefixSet::new();
+        let mut cursor = Cursor::new(&mut trie, &mut changed, prefix_b.as_slice())
+            .await
+            .unwrap();
+
+        assert!(cursor.key().unwrap().is_empty());
+        assert!(cursor.can_skip_state());
+
+        cursor.next().await.unwrap();
+        assert!(cursor.key().is_none());
+
+        let mut changed = PrefixSet::new();
+        changed.insert([prefix_b.as_slice(), &[0xdu8, 0x5]].concat().as_slice());
+        changed.insert([prefix_c.as_slice(), &[0xbu8, 0x8]].concat().as_slice());
+        let mut cursor = Cursor::new(&mut trie, &mut changed, prefix_b.as_slice())
+            .await
+            .unwrap();
+
+        assert!(cursor.key().unwrap().is_empty());
+        assert!(!cursor.can_skip_state());
+
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), [0x2]);
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), [0x2, 0x1]);
+        cursor.next().await.unwrap();
+        assert_eq!(cursor.key().unwrap(), [0x4]);
+
+        cursor.next().await.unwrap();
+        assert!(cursor.key().is_none());
+    }
+
+    #[test]
+    fn test_intermediate_hashes_increment_key() {
+        assert_eq!(increment_key(&[]), None);
+        assert_eq!(increment_key(&[0x1, 0x2]), Some(vec![0x1, 0x3]));
+        assert_eq!(increment_key(&[0x1, 0xF]), Some(vec![0x2, 0x0]));
+        assert_eq!(increment_key(&[0xF, 0xF]), None);
+        assert_eq!(increment_key(&[0x1, 0x2, 0x0]), Some(vec![0x1, 0x2, 0x1]));
+        assert_eq!(increment_key(&[0x1, 0x2, 0xE]), Some(vec![0x1, 0x2, 0xF]));
+        assert_eq!(increment_key(&[0x1, 0x2, 0xF]), Some(vec![0x1, 0x3, 0x0]));
+        assert_eq!(increment_key(&[0x1, 0xF, 0xF]), Some(vec![0x2, 0x0, 0x0]));
+        assert_eq!(increment_key(&[0xF, 0xF, 0xF]), None);
+    }
 }

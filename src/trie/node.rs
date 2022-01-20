@@ -63,7 +63,7 @@ impl Node {
     }
 }
 
-fn marshal_node(n: &Node) -> Vec<u8> {
+pub(crate) fn marshal_node(n: &Node) -> Vec<u8> {
     let buf_size =
         6 + if n.root_hash().is_some() {
             KECCAK_LENGTH

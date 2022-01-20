@@ -8,7 +8,7 @@ pub(crate) struct PrefixSet {
 }
 
 impl PrefixSet {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             keys: vec![],
             sorted: false,
@@ -52,7 +52,7 @@ impl PrefixSet {
         }
     }
 
-    fn insert(&mut self, key: &[u8]) {
+    pub(crate) fn insert(&mut self, key: &[u8]) {
         self.keys.push(key.to_vec());
         self.sorted = false;
     }
