@@ -1,17 +1,24 @@
 #![allow(clippy::question_mark)]
 use crate::{
-    kv::traits::{MutableCursor, Table},
+    crypto::keccak256,
+    etl::collector::{TableCollector, OPTIMAL_BUFFER_CAPACITY},
+    kv::{
+        tables,
+        traits::{Cursor as _Cursor, CursorDupSort, MutableCursor, MutableTransaction, Table},
+    },
+    models::BlockNumber,
     trie::{
-        hash_builder::pack_nibbles,
-        node::{unmarshal_node, Node},
+        hash_builder::{pack_nibbles, unpack_nibbles, HashBuilder},
+        node::{marshal_node, unmarshal_node, Node},
         prefix_set::PrefixSet,
         util::has_prefix,
     },
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_recursion::async_recursion;
 use ethereum_types::H256;
-use std::marker::PhantomData;
+use std::{cell::RefCell, marker::PhantomData};
+use tempfile::TempDir;
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -282,18 +289,269 @@ where
             self.can_skip_state = self.stack.last().unwrap().hash_flag();
         }
     }
+
+    fn changed_mut(&mut self) -> &mut PrefixSet {
+        self.changed
+    }
 }
 
-struct DbTrieLoader;
-
-impl DbTrieLoader {}
-
-pub fn regenerate_intermediate_hashes() {
-    todo!()
+struct DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, Tx>
+where
+    Tx: MutableTransaction<'db>,
+    'db: 'tx,
+    'tmp: 'co,
+    'co: 'nc,
+{
+    txn: &'tx mut Tx,
+    hb: HashBuilder<'nc>,
+    storage_collector: RefCell<&'co mut TableCollector<'tmp, tables::TrieStorage>>,
+    rlp: Vec<u8>,
+    _marker: PhantomData<&'db ()>,
 }
 
-pub fn increment_intermediate_hashes() {
-    todo!()
+impl<'db, 'tx, 'tmp, 'co, 'nc, Tx> DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, Tx>
+where
+    Tx: MutableTransaction<'db>,
+    'db: 'tx,
+    'tmp: 'co,
+    'co: 'nc,
+{
+    fn new(
+        txn: &'tx mut Tx,
+        account_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
+        storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
+    ) -> Self {
+        let mut instance = Self {
+            txn,
+            hb: HashBuilder::new(),
+            storage_collector: RefCell::new(storage_collector),
+            rlp: vec![],
+            _marker: PhantomData,
+        };
+
+        let node_collector = |unpacked_key: &[u8], node: &Node| {
+            if unpacked_key.is_empty() {
+                return;
+            }
+
+            account_collector.push(unpacked_key.to_vec(), marshal_node(node));
+        };
+
+        instance.hb.node_collector = Some(Box::new(node_collector));
+
+        instance
+    }
+
+    async fn calculate_root(&mut self, changed: &mut PrefixSet) -> Result<H256> {
+        let mut state = self.txn.cursor(tables::HashedAccount).await?;
+        let mut trie_db_cursor = self.txn.mutable_cursor(tables::TrieAccount).await?;
+
+        let mut trie = Cursor::new(&mut trie_db_cursor, changed, &[]).await?;
+        while trie.key().is_some() {
+            if trie.can_skip_state() {
+                assert!(trie.hash().is_some());
+                self.hb.add_branch_node(
+                    trie.key().unwrap(),
+                    trie.hash().as_ref().unwrap(),
+                    trie.children_are_in_trie(),
+                );
+            }
+
+            let uncovered = trie.first_uncovered_prefix();
+            if uncovered.is_none() {
+                break;
+            }
+
+            trie.next().await?;
+
+            let mut seek_key = uncovered.unwrap().to_vec();
+            seek_key.resize(32, 0);
+
+            let mut acc = state.seek(H256::from_slice(seek_key.as_slice())).await?;
+            while acc.is_some() {
+                let unpacked_key = unpack_nibbles(acc.unwrap().0.as_bytes());
+                if trie.key().is_some() && trie.key().unwrap() < unpacked_key {
+                    break;
+                }
+
+                let account = acc.unwrap().1;
+
+                let storage_root = self
+                    .calculate_storage_root(acc.unwrap().0.as_bytes(), trie.changed_mut())
+                    .await?;
+
+                self.hb.add_leaf(
+                    unpacked_key,
+                    rlp::encode(&account.to_rlp(storage_root)).as_ref(),
+                );
+
+                acc = state.next().await?
+            }
+        }
+
+        Ok(self.hb.root_hash())
+    }
+
+    async fn calculate_storage_root(
+        &self,
+        key_with_inc: &[u8],
+        changed: &mut PrefixSet,
+    ) -> Result<H256> {
+        let mut state = self.txn.cursor_dup_sort(tables::HashedStorage).await?;
+        let mut trie_db_cursor = self.txn.mutable_cursor(tables::TrieStorage).await?;
+
+        let mut hb = HashBuilder::new();
+        hb.node_collector = Some(Box::new(|unpacked_storage_key: &[u8], node: &Node| {
+            let key = [key_with_inc, unpacked_storage_key].concat();
+            self.storage_collector
+                .borrow_mut()
+                .push(key, marshal_node(node));
+        }));
+
+        let mut trie = Cursor::new(&mut trie_db_cursor, changed, key_with_inc).await?;
+        while trie.key().is_some() {
+            if trie.can_skip_state() {
+                assert!(trie.hash().is_some());
+                hb.add_branch_node(
+                    trie.key().unwrap(),
+                    trie.hash().as_ref().unwrap(),
+                    trie.children_are_in_trie(),
+                );
+            }
+
+            let uncovered = trie.first_uncovered_prefix();
+            if uncovered.is_none() {
+                break;
+            }
+
+            trie.next().await?;
+
+            let mut seek_key = uncovered.unwrap().to_vec();
+            seek_key.resize(32, 0);
+
+            let mut storage = state
+                .seek_both_range(
+                    H256::from_slice(key_with_inc),
+                    H256::from_slice(seek_key.as_slice()),
+                )
+                .await?;
+            while storage.is_some() {
+                let (storage_location, value) = storage.unwrap();
+                let unpacked_loc = unpack_nibbles(storage_location.as_bytes());
+                if trie.key().is_some() && trie.key().unwrap() < unpacked_loc {
+                    break;
+                }
+                let rlp = rlp::encode(&value);
+                hb.add_leaf(unpacked_loc, rlp.as_ref());
+                storage = state.next_dup().await?.map(|(_, v)| v);
+            }
+        }
+
+        Ok(hb.root_hash())
+    }
+}
+
+async fn do_increment_intermediate_hashes<'db, 'tx, Tx>(
+    txn: &'tx mut Tx,
+    etl_dir: &TempDir,
+    expected_root: Option<H256>,
+    changed: &mut PrefixSet,
+) -> Result<H256>
+where
+    'db: 'tx,
+    Tx: MutableTransaction<'db>,
+{
+    let mut account_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
+    let mut storage_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
+
+    let root = {
+        let mut loader = DbTrieLoader::new(txn, &mut account_collector, &mut storage_collector);
+
+        loader.calculate_root(changed).await?
+    };
+
+    if expected_root.is_some() && expected_root.unwrap() != root {
+        bail!(
+            "Wrong state root: expected {}, got {}",
+            expected_root.unwrap(),
+            root
+        );
+    }
+
+    let mut target = txn.mutable_cursor(tables::TrieAccount.erased()).await?;
+    account_collector.load(&mut target).await?;
+
+    let mut target = txn.mutable_cursor(tables::TrieStorage.erased()).await?;
+    storage_collector.load(&mut target).await?;
+
+    Ok(root)
+}
+
+async fn gather_changes<'db, 'tx, Tx>(txn: &'tx mut Tx, from: BlockNumber) -> Result<PrefixSet>
+where
+    'db: 'tx,
+    Tx: MutableTransaction<'db>,
+{
+    let starting_key = from + 1;
+
+    let mut out = PrefixSet::new();
+
+    let mut account_changes = txn.cursor_dup_sort(tables::AccountChangeSet).await?;
+    let mut data = account_changes.seek(starting_key).await?;
+    while data.is_some() {
+        let address = data.unwrap().1.address;
+        let hashed_address = keccak256(address);
+        out.insert(unpack_nibbles(hashed_address.as_bytes()).as_slice());
+        data = account_changes.next().await?;
+    }
+
+    let mut storage_changes = txn.cursor_dup_sort(tables::StorageChangeSet).await?;
+    let mut data = storage_changes.seek(starting_key).await?;
+    while data.is_some() {
+        let address = data.as_ref().unwrap().0.address;
+        let location = data.as_ref().unwrap().1.location;
+        let hashed_address = keccak256(address);
+        let hashed_location = keccak256(location);
+
+        let hashed_key = [
+            hashed_address.as_bytes(),
+            unpack_nibbles(hashed_location.as_bytes()).as_slice(),
+        ]
+        .concat();
+        out.insert(hashed_key.as_slice());
+        data = storage_changes.next().await?;
+    }
+
+    Ok(out)
+}
+
+pub async fn increment_intermediate_hashes<'db, 'tx, Tx>(
+    txn: &'tx mut Tx,
+    etl_dir: &TempDir,
+    from: BlockNumber,
+    expected_root: Option<H256>,
+) -> Result<H256>
+where
+    'db: 'tx,
+    Tx: MutableTransaction<'db>,
+{
+    let mut changes = gather_changes(txn, from).await?;
+    do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut changes).await
+}
+
+pub async fn regenerate_intermediate_hashes<'db, 'tx, Tx>(
+    txn: &'tx mut Tx,
+    etl_dir: &TempDir,
+    expected_root: Option<H256>,
+) -> Result<H256>
+where
+    'db: 'tx,
+    Tx: MutableTransaction<'db>,
+{
+    txn.clear_table(tables::TrieAccount).await?;
+    txn.clear_table(tables::TrieStorage).await?;
+    let mut empty = PrefixSet::new();
+    do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut empty).await
 }
 
 #[cfg(test)]
@@ -515,5 +773,344 @@ mod tests {
         assert_eq!(increment_key(&[0x1, 0x2, 0xF]), Some(vec![0x1, 0x3, 0x0]));
         assert_eq!(increment_key(&[0x1, 0xF, 0xF]), Some(vec![0x2, 0x0, 0x0]));
         assert_eq!(increment_key(&[0xF, 0xF, 0xF]), None);
+    }
+}
+
+#[cfg(test)]
+mod property_test {
+    use super::*;
+    use crate::{
+        crypto::{keccak256, trie_root},
+        h256_to_u256,
+        kv::{
+            new_mem_database, tables,
+            tables::{AccountChange, StorageChange, StorageChangeKey},
+            traits::{MutableCursor, MutableKV, MutableTransaction},
+        },
+        models::{Account, BlockNumber, EMPTY_ROOT},
+        trie::regenerate_intermediate_hashes,
+        u256_to_h256, zeroless_view,
+    };
+    use anyhow::Result;
+    use ethereum_types::{Address, H256, U256};
+    use proptest::prelude::*;
+    use std::collections::BTreeMap;
+    use tempfile::TempDir;
+
+    // strategies
+    fn addresses() -> impl Strategy<Value = Address> {
+        any::<[u8; 20]>().prop_map(Address::from)
+    }
+
+    fn h256s() -> impl Strategy<Value = H256> {
+        any::<[u8; 32]>().prop_map(H256::from)
+    }
+
+    fn u256s() -> impl Strategy<Value = U256> {
+        any::<[u8; 32]>().prop_map(|v| h256_to_u256(H256::from(v)))
+    }
+
+    fn nonzero_u256s() -> impl Strategy<Value = U256> {
+        u256s().prop_filter("value must not be zero", |x| !x.is_zero())
+    }
+
+    prop_compose! {
+        fn accounts()(
+            nonce in any::<u64>(),
+            balance in u256s(),
+            code_hash in h256s(),
+        ) -> Account {
+            Account { nonce, balance, code_hash }
+        }
+    }
+
+    type Storage = BTreeMap<H256, U256>;
+
+    fn account_storages() -> impl Strategy<Value = Storage> {
+        prop::collection::btree_map(h256s(), nonzero_u256s(), 0..20)
+    }
+
+    prop_compose! {
+        fn accounts_with_storage()(
+            account in accounts(),
+            storage in account_storages(),
+        ) -> (Account, Storage) {
+            (account, storage)
+        }
+    }
+
+    type ChangingAccount = BTreeMap<u32, Option<(Account, Storage)>>;
+
+    #[derive(Debug)]
+    struct ChangingAccountsFixture {
+        accounts: BTreeMap<Address, ChangingAccount>,
+        before_increment: u32,
+        after_increment: u32,
+    }
+
+    fn changing_accounts(max_height: u32) -> impl Strategy<Value = ChangingAccount> {
+        prop::collection::btree_map(
+            0..max_height,
+            prop::option::of(accounts_with_storage()),
+            1..3,
+        )
+        .prop_filter("does not contain changes", |x| {
+            for v in x.values() {
+                if v.is_some() {
+                    return true;
+                }
+            }
+            false
+        })
+    }
+
+    prop_compose! {
+        fn test_datas()(
+            after_increment in 2u32..,
+        )(
+            before_increment in 0..after_increment - 2,
+            after_increment in Just(after_increment),
+            accounts in prop::collection::btree_map(
+                addresses(),
+                changing_accounts(after_increment - 1),
+                0..100
+            ),
+        ) -> ChangingAccountsFixture {
+            ChangingAccountsFixture {
+                accounts,
+                before_increment,
+                after_increment,
+            }
+        }
+    }
+
+    // helper functions
+    fn expected_storage_root(storage: &Storage) -> H256 {
+        if storage.is_empty() {
+            EMPTY_ROOT
+        } else {
+            trie_root(storage.iter().map(|(k, v)| {
+                (
+                    keccak256(k.to_fixed_bytes()),
+                    rlp::encode(&zeroless_view(&u256_to_h256(*v))),
+                )
+            }))
+        }
+    }
+
+    fn expected_state_root(accounts_with_storage: &BTreeMap<Address, (Account, Storage)>) -> H256 {
+        trie_root(
+            accounts_with_storage
+                .iter()
+                .map(|(&address, (account, storage))| {
+                    let account_rlp = account.to_rlp(expected_storage_root(storage));
+                    (keccak256(address), rlp::encode(&account_rlp))
+                }),
+        )
+    }
+
+    fn accounts_at_height(
+        changing_accounts: &ChangingAccountsFixture,
+        height: u32,
+    ) -> BTreeMap<Address, (Account, Storage)> {
+        let mut result = BTreeMap::new();
+        for (address, state) in &changing_accounts.accounts {
+            if let Some(account_with_storage) = changing_account_at_height(state, height) {
+                result.insert(*address, account_with_storage.clone());
+            }
+        }
+        result
+    }
+
+    async fn add_account_to_hashed_state<'tx, 'cu, AC, SC>(
+        account_cursor: &'cu mut AC,
+        storage_cursor: &'cu mut SC,
+        address: &Address,
+        account: &Account,
+        storage: &Storage,
+    ) -> Result<()>
+    where
+        'tx: 'cu,
+        AC: MutableCursor<'tx, tables::HashedAccount>,
+        SC: MutableCursor<'tx, tables::HashedStorage>,
+    {
+        let address_hash = keccak256(address);
+        account_cursor.upsert(address_hash, *account).await?;
+        for (location, value) in storage {
+            let location_hash = keccak256(location);
+            storage_cursor
+                .upsert(address_hash, (location_hash, *value))
+                .await?
+        }
+        Ok(())
+    }
+
+    async fn populate_hashed_state<'db, 'tx, Tx>(
+        tx: &'tx Tx,
+        accounts_with_storage: BTreeMap<Address, (Account, Storage)>,
+    ) -> Result<()>
+    where
+        'db: 'tx,
+        Tx: MutableTransaction<'db>,
+    {
+        tx.clear_table(tables::HashedAccount).await?;
+        tx.clear_table(tables::HashedStorage).await?;
+
+        let mut account_cursor = tx.mutable_cursor(tables::HashedAccount).await?;
+        let mut storage_cursor = tx.mutable_cursor_dupsort(tables::HashedStorage).await?;
+
+        for (address, (account, storage)) in accounts_with_storage {
+            add_account_to_hashed_state(
+                &mut account_cursor,
+                &mut storage_cursor,
+                &address,
+                &account,
+                &storage,
+            )
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn populate_change_sets<'db, 'tx, Tx>(
+        tx: &'tx Tx,
+        changing_accounts: &BTreeMap<Address, ChangingAccount>,
+    ) -> Result<()>
+    where
+        'db: 'tx,
+        Tx: MutableTransaction<'db>,
+    {
+        tx.clear_table(tables::AccountChangeSet).await?;
+        tx.clear_table(tables::StorageChangeSet).await?;
+
+        let mut account_cursor = tx.mutable_cursor_dupsort(tables::AccountChangeSet).await?;
+        let mut storage_cursor = tx.mutable_cursor_dupsort(tables::StorageChangeSet).await?;
+
+        for (address, states) in changing_accounts {
+            let mut previous: Option<&(Account, Storage)> = None;
+            for (height, current) in states {
+                let block_number = BlockNumber(*height as u64);
+                if current.as_ref() != previous {
+                    let previous_account = previous.as_ref().map(|(a, _)| *a);
+                    let current_account = current.as_ref().map(|(a, _)| *a);
+                    if current_account != previous_account {
+                        account_cursor
+                            .upsert(
+                                block_number,
+                                AccountChange {
+                                    address: *address,
+                                    account: previous_account,
+                                },
+                            )
+                            .await?;
+                    }
+                    let empty_storage = Storage::new();
+                    let previous_storage =
+                        previous.as_ref().map(|(_, s)| s).unwrap_or(&empty_storage);
+                    let current_storage =
+                        current.as_ref().map(|(_, s)| s).unwrap_or(&empty_storage);
+                    for (location, value) in previous_storage {
+                        if current_storage.get(location).unwrap_or(&U256::zero()) != value {
+                            storage_cursor
+                                .upsert(
+                                    StorageChangeKey {
+                                        block_number,
+                                        address: *address,
+                                    },
+                                    StorageChange {
+                                        location: *location,
+                                        value: *value,
+                                    },
+                                )
+                                .await?;
+                        }
+                    }
+                    for location in current_storage.keys() {
+                        if !previous_storage.contains_key(location) {
+                            storage_cursor
+                                .upsert(
+                                    StorageChangeKey {
+                                        block_number,
+                                        address: *address,
+                                    },
+                                    StorageChange {
+                                        location: *location,
+                                        value: U256::zero(),
+                                    },
+                                )
+                                .await?;
+                        }
+                    }
+                }
+                previous = current.as_ref();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn changing_account_at_height(
+        account: &ChangingAccount,
+        height: u32,
+    ) -> Option<&(Account, Storage)> {
+        for (changed_at, state) in account.iter().rev() {
+            if changed_at <= &height {
+                return state.as_ref();
+            }
+        }
+        None
+    }
+
+    // test
+    async fn do_trie_root_matches(test_data: ChangingAccountsFixture) {
+        let db = new_mem_database().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+
+        let tx = db.begin_mutable().await.unwrap();
+        let state_before_increment = accounts_at_height(&test_data, test_data.before_increment);
+        let expected = expected_state_root(&state_before_increment);
+        populate_hashed_state(&tx, state_before_increment)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let mut tx = db.begin_mutable().await.unwrap();
+        let root = regenerate_intermediate_hashes(&mut tx, &temp_dir, None)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        assert_eq!(root, expected);
+
+        let tx = db.begin_mutable().await.unwrap();
+        let state_after_increment = accounts_at_height(&test_data, test_data.after_increment);
+        let expected = expected_state_root(&state_after_increment);
+        populate_hashed_state(&tx, state_after_increment)
+            .await
+            .unwrap();
+        populate_change_sets(&tx, &test_data.accounts)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let mut tx = db.begin_mutable().await.unwrap();
+        let root = increment_intermediate_hashes(
+            &mut tx,
+            &temp_dir,
+            BlockNumber(test_data.before_increment as u64),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(root, expected);
+    }
+
+    proptest! {
+        #[test]
+        fn trie_root_matches(test_data in test_datas()) {
+            tokio_test::block_on(do_trie_root_matches(test_data));
+        }
     }
 }

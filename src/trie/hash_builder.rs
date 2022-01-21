@@ -51,7 +51,7 @@ fn node_ref(rlp: &[u8]) -> Vec<u8> {
     wrap_hash(&hash)
 }
 
-type NodeCollector = Box<dyn Fn(&[u8], &Node)>;
+type NodeCollector<'nc> = Box<dyn FnMut(&[u8], &Node) + 'nc>;
 
 #[derive(Clone)]
 enum HashBuilderValue {
@@ -59,8 +59,8 @@ enum HashBuilderValue {
     Hash(H256),
 }
 
-pub(crate) struct HashBuilder {
-    node_collector: Option<NodeCollector>,
+pub(crate) struct HashBuilder<'nc> {
+    pub(crate) node_collector: Option<NodeCollector<'nc>>,
     key: Vec<u8>,
     value: HashBuilderValue,
     is_in_db_trie: bool,
@@ -71,8 +71,8 @@ pub(crate) struct HashBuilder {
     rlp_buffer: Vec<u8>,
 }
 
-impl HashBuilder {
-    fn new() -> Self {
+impl<'nc> HashBuilder<'nc> {
+    pub(crate) fn new() -> Self {
         Self {
             node_collector: None,
             key: vec![],
@@ -86,7 +86,7 @@ impl HashBuilder {
         }
     }
 
-    fn add_leaf(&mut self, key: Vec<u8>, value: &[u8]) {
+    pub(crate) fn add_leaf(&mut self, key: Vec<u8>, value: &[u8]) {
         assert!(key > self.key);
         if !self.key.is_empty() {
             let self_key = self.key.clone();
@@ -96,7 +96,7 @@ impl HashBuilder {
         self.value = HashBuilderValue::Bytes(value.to_vec());
     }
 
-    fn add_branch_node(&mut self, key: Vec<u8>, value: &H256, is_in_db_trie: bool) {
+    pub(crate) fn add_branch_node(&mut self, key: Vec<u8>, value: &H256, is_in_db_trie: bool) {
         assert!(key > self.key || (self.key.is_empty() && key.is_empty()));
         if !self.key.is_empty() {
             let self_key = self.key.clone();
@@ -109,7 +109,7 @@ impl HashBuilder {
         self.is_in_db_trie = is_in_db_trie;
     }
 
-    fn root_hash(&mut self) -> H256 {
+    pub(crate) fn root_hash(&mut self) -> H256 {
         self.private_root_hash(true)
     }
 
@@ -252,7 +252,7 @@ impl HashBuilder {
                             n.set_root_hash(Some(self.private_root_hash(false)));
                         }
 
-                        self.node_collector.as_ref().unwrap()(&current[0..len], &n);
+                        self.node_collector.as_mut().unwrap()(&current[0..len], &n);
                     }
                 }
             }
@@ -346,7 +346,7 @@ pub(crate) fn pack_nibbles(nibbles: &[u8]) -> Vec<u8> {
     out
 }
 
-fn unpack_nibbles(packed: &[u8]) -> Vec<u8> {
+pub(crate) fn unpack_nibbles(packed: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; packed.len() * 2];
     let mut i = 0;
     for b in packed {
