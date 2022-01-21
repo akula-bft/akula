@@ -30,6 +30,7 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", branc
     "remotekv",
     "sentry",
 ] }
+ethereum-jsonrpc = { package = "ethereum-jsonrpc", git = "https://github.com/rust-ethereum/jsonrpc" }
 ethereum-types = { version = "0.12", features = ["codec"] }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", features = [
     "llvm-intrinsics",
@@ -96,6 +97,11 @@ vergen = "6"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
+jsonrpsee = { git = "https://github.com/paritytech/jsonrpsee", features = [
+    "server",
+    "client",
+    "macros",
+] }
 proptest = "1.0.0"
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4.2"
