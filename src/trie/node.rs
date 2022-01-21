@@ -1,4 +1,5 @@
-use crate::{models::KECCAK_LENGTH, sentry::block_id::BlockId::Hash, trie::util::assert_subset};
+#![allow(clippy::if_same_then_else)]
+use crate::{models::KECCAK_LENGTH, trie::util::assert_subset};
 use ethereum_types::H256;
 
 #[derive(Clone, PartialEq)]
@@ -90,10 +91,8 @@ pub(crate) fn marshal_node(n: &Node) -> Vec<u8> {
 pub(crate) fn unmarshal_node(v: &[u8]) -> Option<Node> {
     if v.len() < 6 {
         return None;
-    } else {
-        if (v.len() - 6) % KECCAK_LENGTH != 0 {
-            return None;
-        }
+    } else if (v.len() - 6) % KECCAK_LENGTH != 0 {
+        return None;
     }
 
     let state_mask = u16::from_be_bytes(v[0..2].try_into().unwrap());

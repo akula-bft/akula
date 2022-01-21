@@ -1,3 +1,4 @@
+#![allow(clippy::manual_memcpy, clippy::needless_range_loop)]
 use crate::{
     crypto::keccak256,
     models::{EMPTY_ROOT, KECCAK_LENGTH},
@@ -50,7 +51,7 @@ fn node_ref(rlp: &[u8]) -> Vec<u8> {
     wrap_hash(&hash)
 }
 
-type NodeCollector = Box<dyn Fn(&[u8], &Node) -> ()>;
+type NodeCollector = Box<dyn Fn(&[u8], &Node)>;
 
 #[derive(Clone)]
 enum HashBuilderValue {
@@ -122,16 +123,11 @@ impl HashBuilder {
         }
 
         let node_ref = self.stack.last().unwrap();
-        let mut res = H256::zero();
         if node_ref.len() == KECCAK_LENGTH + 1 {
-            for i in 0..32 {
-                res = H256::from_slice(&node_ref[1..]);
-            }
+            H256::from_slice(&node_ref[1..])
         } else {
-            res = keccak256(node_ref);
+            keccak256(node_ref)
         }
-
-        res
     }
 
     fn finalize(&mut self) {
@@ -291,7 +287,7 @@ impl HashBuilder {
                     child_hashes.push(self.stack[i].to_vec());
                 }
                 stream.append_raw(&self.stack[i], 1);
-                i = i + 1;
+                i += 1;
             } else {
                 stream.append_empty_data();
             }
@@ -321,7 +317,7 @@ impl HashBuilder {
 
         let mut stream = RlpStream::new_list(2);
         stream.append(&encoded_path);
-        stream.append_raw(&child_ref, 1);
+        stream.append_raw(child_ref, 1);
 
         self.rlp_buffer = stream.out().to_vec();
         self.rlp_buffer.clone()

@@ -1,7 +1,8 @@
+#![allow(clippy::question_mark)]
 use crate::{
-    kv::traits::{MutableCursor, Table, TableDecode, Transaction},
+    kv::traits::{MutableCursor, Table},
     trie::{
-        hash_builder::{pack_nibbles, HashBuilder},
+        hash_builder::pack_nibbles,
         node::{unmarshal_node, Node},
         prefix_set::PrefixSet,
         util::has_prefix,
@@ -10,7 +11,7 @@ use crate::{
 use anyhow::Result;
 use async_recursion::async_recursion;
 use ethereum_types::H256;
-use std::marker::{PhantomData, Sync};
+use std::marker::PhantomData;
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -59,7 +60,7 @@ impl CursorSubNode {
             return self.node.as_ref().unwrap().root_hash();
         }
 
-        let first_nibbles_mask = 1u16 << self.nibble - 1;
+        let first_nibbles_mask = (1u16 << self.nibble) - 1;
         let hash_idx = (self.node.as_ref().unwrap().hash_mask() & first_nibbles_mask).count_ones();
         Some(self.node.as_ref().unwrap().hashes()[hash_idx as usize])
     }
@@ -106,7 +107,7 @@ where
         cursor: &'cu mut C,
         changed: &'ps mut PrefixSet,
         prefix: &[u8],
-    ) -> anyhow::Result<Cursor<'cu, 'tx, 'ps, C, T>> {
+    ) -> Result<Cursor<'cu, 'tx, 'ps, C, T>> {
         let mut new_cursor = Self {
             cursor,
             changed,
@@ -119,7 +120,7 @@ where
         Ok(new_cursor)
     }
 
-    async fn next(&mut self) -> anyhow::Result<()> {
+    async fn next(&mut self) -> Result<()> {
         if self.stack.is_empty() {
             return Ok(()); // end-of-tree
         }
@@ -165,7 +166,7 @@ where
     }
 
     fn first_uncovered_prefix(&self) -> Option<Vec<u8>> {
-        let mut k = self.key().clone();
+        let mut k = self.key();
 
         if self.can_skip_state && k.is_some() {
             k = increment_key(&k.unwrap());
@@ -177,7 +178,7 @@ where
         Some(pack_nibbles(k.as_ref().unwrap()))
     }
 
-    async fn consume_node(&mut self, to: &[u8], exact: bool) -> anyhow::Result<()> {
+    async fn consume_node(&mut self, to: &[u8], exact: bool) -> Result<()> {
         let db_key = [self.prefix.as_slice(), to].concat().to_vec();
         let entry = if exact {
             self.cursor.seek_exact(db_key).await?
@@ -207,7 +208,7 @@ where
         }
 
         let mut nibble = 0i8;
-        if !node.is_some() || node.as_ref().unwrap().root_hash().is_some() {
+        if node.is_none() || node.as_ref().unwrap().root_hash().is_some() {
             nibble = -1;
         } else {
             while node.as_ref().unwrap().state_mask() & (1u16 << nibble) == 0 {
@@ -233,7 +234,7 @@ where
     async fn move_to_next_sibling(
         &mut self,
         allow_root_to_child_nibble_within_subnode: bool,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         if self.stack.is_empty() {
             return Ok(());
         }
@@ -250,7 +251,7 @@ where
 
         sn.nibble += 1;
 
-        if !sn.node.is_some() {
+        if sn.node.is_none() {
             self.consume_node(self.key().as_ref().unwrap(), false)
                 .await?;
             return Ok(());
@@ -300,8 +301,7 @@ mod tests {
     use super::*;
     use crate::{
         kv::{
-            new_mem_database,
-            tables,
+            new_mem_database, tables,
             traits::{MutableKV, MutableTransaction},
         },
         trie::node::marshal_node,
