@@ -14,7 +14,7 @@ use akula::{
     stages::*,
     version_string, StageId,
 };
-use anyhow::{bail, Context};
+use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
 use clap::Parser;
 use rayon::prelude::*;
@@ -132,9 +132,11 @@ where
             .await?
             != tx.get(tables::CanonicalHeader, highest_block).await?
         {
-            return Ok(ExecOutput::Unwind {
-                unwind_to: BlockNumber(highest_block.0 - 1),
-            });
+            let unwind_to = BlockNumber(highest_block.0.checked_sub(1).ok_or_else(|| {
+                format_err!("Attempted to unwind past genesis block, are Erigon and Akula on the same chain?")
+            })?);
+
+            return Ok(ExecOutput::Unwind { unwind_to });
         }
 
         let walker = walk(&mut erigon_canonical_cur, Some(highest_block + 1));
@@ -265,9 +267,11 @@ where
             .await?
             != tx.get(tables::CanonicalHeader, highest_block).await?
         {
-            return Ok(ExecOutput::Unwind {
-                unwind_to: BlockNumber(highest_block.0 - 1),
-            });
+            let unwind_to = BlockNumber(highest_block.0.checked_sub(1).ok_or_else(|| {
+                format_err!("Attempted to unwind past genesis block, are Erigon and Akula on the same chain?")
+            })?);
+
+            return Ok(ExecOutput::Unwind { unwind_to });
         }
 
         let mut canonical_header_cur = tx.cursor(tables::CanonicalHeader).await?;
