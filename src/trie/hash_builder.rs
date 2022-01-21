@@ -437,7 +437,7 @@ mod tests {
         }
 
         let branch_node_rlp = stream.out();
-        let branch_node_hash = keccak256(branch_node_rlp.clone());
+        let branch_node_hash = keccak256(branch_node_rlp);
 
         let mut hb2 = HashBuilder::new();
         hb2.add_branch_node(vec![0x6], &branch_node_hash, false);
