@@ -469,18 +469,14 @@ mod tests {
                 },
                 contracts: Default::default(),
                 balances: btreemap! {
-                    0.into() => (0x00u8..=0xffu8)
-                    .map(|i| Address::from_low_u64_be(i as u64).into())
-                    .collect::<Vec<Address>>()
-                    .into_iter()
-                    .map(|address| (address, U256::from(1u64)))
-                    .collect::<Vec<(Address, U256)>>().into_iter()
+                    0.into() => (0x00..=0xff)
+                    .map(|address| (Address::from_low_u64_be(address), U256::from(1u64)))
                     .chain(vec![(
                         Address::from_slice(hex!("31b98d14007bdee637298086988a0bbd31184523").as_ref()),
                         U256::from(hex!(
                             "0200000000000000000000000000000000000000000000000000000000000000"
                         )),
-                    )].into_iter().collect::<Vec<(Address, U256)>>()).into_iter().collect::<HashMap<Address, U256>>()
+                    )].into_iter()).collect::<HashMap<Address, U256>>(),
                 },
                 p2p: P2PParams {
                     bootnodes: vec![
