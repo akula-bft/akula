@@ -535,18 +535,15 @@ where
                 InterruptVariant::Call(i) => {
                     let output = match i.data() {
                         Call::Create(message) => {
-                            let res = self.create(message.clone()).await?;
+                            let mut res = self.create(message.clone()).await?;
 
                             // https://eips.ethereum.org/EIPS/eip-211
-                            if res.status_code == StatusCode::Revert {
+                            if res.status_code != StatusCode::Revert {
                                 // geth returns CREATE output only in case of REVERT
-                                res
-                            } else {
-                                Output {
-                                    output_data: Default::default(),
-                                    ..res
-                                }
+                                res.output_data = Default::default();
                             }
+
+                            res
                         }
                         Call::Call(message) => self.call(message.clone()).await?,
                     };
