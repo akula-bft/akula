@@ -1,3 +1,4 @@
+pub mod save_stage;
 pub mod stage;
 
 use super::{headers, verification};
@@ -9,7 +10,6 @@ mod penalize_stage;
 mod refetch_stage;
 mod refill_stage;
 mod retry_stage;
-mod save_stage;
 mod top_block_estimate_stage;
 mod verify_stage_forky_link;
 mod verify_stage_linear;

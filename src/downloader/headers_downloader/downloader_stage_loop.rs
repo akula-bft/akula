@@ -6,12 +6,15 @@ use tracing::*;
 
 type StageStream<'a> = Pin<Box<dyn Stream<Item = anyhow::Result<()>> + 'a + Send>>;
 
-fn make_stage_stream<'a, Stage: DownloaderStage + 'a>(mut stage: Stage) -> StageStream<'a> {
+fn make_stage_stream<'a, Stage: DownloaderStage + 'a>(
+    mut stage: Stage,
+    stage_name: String,
+) -> StageStream<'a> {
     let stream = async_stream::stream! {
         loop {
-            debug!("{}: start", short_stage_name::<Stage>());
+            debug!("{}: start", stage_name);
             let result = stage.execute().await;
-            debug!("{}: done", short_stage_name::<Stage>());
+            debug!("{}: done", stage_name);
             yield result;
         }
     };
@@ -35,14 +38,19 @@ fn short_stage_name<Stage: DownloaderStage>() -> &'static str {
 // while the others are waiting for the status updates, IO or timeouts.
 pub struct DownloaderStageLoop<'s> {
     header_slices: Arc<HeaderSlices>,
+    fork_header_slices: Option<Arc<HeaderSlices>>,
     stream: StreamMap<String, StageStream<'s>>,
     stages_can_proceed: HashMap<String, Box<dyn Fn() -> bool + Send>>,
 }
 
 impl<'s> DownloaderStageLoop<'s> {
-    pub fn new(header_slices: &Arc<HeaderSlices>) -> Self {
+    pub fn new(
+        header_slices: &Arc<HeaderSlices>,
+        fork_header_slices: Option<&Arc<HeaderSlices>>,
+    ) -> Self {
         Self {
             header_slices: header_slices.clone(),
+            fork_header_slices: fork_header_slices.cloned(),
             stream: StreamMap::<String, StageStream>::new(),
             stages_can_proceed: HashMap::new(),
         }
@@ -50,9 +58,23 @@ impl<'s> DownloaderStageLoop<'s> {
 
     pub fn insert<Stage: DownloaderStage + 's>(&mut self, stage: Stage) {
         let name = String::from(short_stage_name::<Stage>());
+        self.insert_with_name(stage, name);
+    }
+
+    pub fn insert_with_group_name<Stage: DownloaderStage + 's>(
+        &mut self,
+        stage: Stage,
+        group_name: &str,
+    ) {
+        let name = format!("{}.{}", group_name, short_stage_name::<Stage>());
+        self.insert_with_name(stage, name);
+    }
+
+    fn insert_with_name<Stage: DownloaderStage + 's>(&mut self, stage: Stage, name: String) {
         self.stages_can_proceed
             .insert(name.clone(), stage.can_proceed_check());
-        self.stream.insert(name, make_stage_stream(stage));
+        self.stream
+            .insert(name.clone(), make_stage_stream(stage, name));
     }
 
     fn some_stage_can_proceed(&self) -> bool {
@@ -94,8 +116,18 @@ impl<'s> DownloaderStageLoop<'s> {
                 "DownloaderStageLoop: statuses = {:?}",
                 self.header_slices.clone_statuses()
             );
+            if let Some(fork_header_slices) = &self.fork_header_slices {
+                trace!(
+                    "DownloaderStageLoop: fork statuses = {:?}",
+                    fork_header_slices.clone_statuses()
+                );
+            }
 
             self.header_slices.notify_status_watchers();
+
+            if let Some(fork_header_slices) = &self.fork_header_slices {
+                fork_header_slices.notify_status_watchers();
+            }
         }
     }
 }
