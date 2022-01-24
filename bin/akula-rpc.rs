@@ -1,18 +1,21 @@
 use akula::{
     accessors::{
         chain::*,
-        state::{account, storage},
+        state::{account, storage, },
     },
     binutil::AkulaDataDir,
     kv::{tables, traits::*},
     models::*,
     stagedsync::stages::*,
+    execution::{processor::*, analysis_cache::*},
+    consensus::engine_factory,
+    res::chainspec::MAINNET,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
 use clap::Parser;
 use ethereum_types::{Address, U256, U64, *};
-use jsonrpc::common::{StoragePos, TxIndex, UncleIndex};
+use jsonrpc::common::{StoragePos, TxIndex, TxLog, TxReceipt, UncleIndex};
 use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -70,6 +73,8 @@ pub trait EthApi {
         block_number: BlockNumber,
         index: TxIndex,
     ) -> RpcResult<jsonrpc::common::Tx>;
+    #[method(name = "getTransactionReceipt")]
+    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt>;
     #[method(name = "getUncleByBlockHashAndIndex")]
     async fn get_uncle_by_block_hash_and_index(
         &self,
@@ -271,7 +276,7 @@ where
             .await?
             .unwrap();
 
-        Ok(block_body.tx_amount.into())
+        Ok(U64::from(block_body.tx_amount))
     }
 
     async fn get_block_tx_count_by_number(&self, block_number: BlockNumber) -> RpcResult<U64> {
@@ -283,7 +288,7 @@ where
             .await?
             .unwrap();
 
-        Ok(block_body.tx_amount.into())
+        Ok(U64::from(block_body.tx_amount))
     }
 
     async fn get_code(&self, address: Address, block_number: BlockNumber) -> RpcResult<Bytes> {
@@ -350,6 +355,90 @@ where
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
         Ok(json_tx::assemble_tx(block_hash, block_number, &msgs[i], i).await)
+    }
+
+    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt>{
+
+        let block_number = tl::read(&self.db.begin().await?, tx_hash).await?.unwrap();
+        let block_hash = canonical_hash::read(&self.db.begin().await?, block_number)
+            .await?
+            .unwrap();
+
+        let block = block_body::read_with_senders(&self.db.begin().await?, block_hash, block_number).await?.unwrap();
+        let msgs_with_sender = block.transactions;
+
+        let mut index = 0;
+        while index < msgs_with_sender.len() {
+            if msgs_with_sender[index].hash() == tx_hash {
+                break;
+            }
+            index = index + 1;
+        }
+        let msg = msgs_with_sender[index];
+
+       // let msg = msgs_with_sender.into_iter().find(|tx| tx.hash() == tx_hash).unwrap();
+        
+        let header = header::read(&self.db.begin().await?, block_hash, block_number).await?.unwrap();
+        
+        let mut state = akula::InMemoryState::default();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(block_number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &PartialHeader::from(header.clone()),
+            &block,
+            &block_spec,
+        );
+
+        let receipts = processor.execute_block_no_post_validation().await?;
+        let receipt = receipts[index];
+
+        let mut logs: Vec<TxLog> = Vec::new();
+        let mut i = 0;
+        while i < receipt.logs.len() {
+            logs.push(TxLog{
+                removed: U64::from(0),
+                log_index: Some(U64::from(i)),
+                transaction_index: Some(U64::from(index)),
+                transaction_hash: Some(tx_hash),
+                block_hash: Some(block_hash),
+                block_number: Some(U64::from(block_number.0)),
+                address: receipt.logs[i].address,
+                data: receipt.logs[i].data,
+                topics: receipt.logs[i].topics,
+            });
+            i = i + 1;
+        }
+
+        let to = match msg.action() {
+            TransactionAction::Call(to) => Some(to),
+            TransactionAction::Create => None,
+        };
+
+        let contract_address = match to {
+            Some(t) => None,
+            None => Some(Address::from([0; 20])),
+        };
+
+        Ok(TxReceipt{
+            transaction_hash: tx_hash,
+            transaction_index: U64::from(index),
+            block_hash,
+            block_number: U64::from(block_number.0),
+            from: msg.sender,
+            to,
+            cumulative_gas_used: U64::from(receipt.cumulative_gas_used),
+            gas_used: U64::from(header.gas_used),
+            contract_address,
+            logs,
+            logs_bloom: receipt.bloom,
+            status: U64::from(receipt.success as u64),
+        })
+        
     }
 
     async fn get_uncle_by_block_hash_and_index(
@@ -524,7 +613,7 @@ where
                 .await?
                 .unwrap();
 
-        Ok(block_body.ommers.len().into())
+        Ok(U64::from(block_body.ommers.len()))
     }
 
     async fn get_uncle_count_by_block_number(&self, block_number: BlockNumber) -> RpcResult<U64> {
@@ -537,7 +626,7 @@ where
                 .await?
                 .unwrap();
 
-        Ok(block_body.ommers.len().into())
+        Ok(U64::from(block_body.ommers.len()))
     }
 }
 
