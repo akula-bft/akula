@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use clap::Parser;
 use rayon::prelude::*;
 use std::{
+    panic,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -545,8 +546,7 @@ where
 }
 
 #[allow(unreachable_code)]
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
 
     let nocolor = std::env::var("RUST_LOG_STYLE")
@@ -571,114 +571,129 @@ async fn main() -> anyhow::Result<()> {
         .with(env_filter)
         .init();
 
-    info!("Starting Akula ({})", version_string());
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(64 * 1024 * 1024)
+                .build()?;
 
-    let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
-    let chain_config = chains_config.get(&opt.chain_name)?;
+            rt.block_on(async move {
+                info!("Starting Akula ({})", version_string());
 
-    // database setup
-    let erigon_db = if let Some(erigon_data_dir) = opt.erigon_data_dir {
-        let erigon_chain_data_dir = erigon_data_dir.join("chaindata");
-        let erigon_db = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
-            mdbx::Environment::new(),
-            &erigon_chain_data_dir,
-            akula::kv::tables::CHAINDATA_TABLES.clone(),
-        )?;
-        Some(Arc::new(erigon_db))
-    } else {
-        None
-    };
+                let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
+                let chain_config = chains_config.get(&opt.chain_name)?;
 
-    std::fs::create_dir_all(&opt.data_dir.0)?;
-    let akula_chain_data_dir = opt.data_dir.chain_data_dir();
-    let etl_temp_path = opt.data_dir.etl_temp_dir();
-    let _ = std::fs::remove_dir_all(&etl_temp_path);
-    std::fs::create_dir_all(&etl_temp_path)?;
-    let etl_temp_dir =
-        Arc::new(tempfile::tempdir_in(&etl_temp_path).context("failed to create ETL temp dir")?);
-    let db = akula::kv::new_database(&akula_chain_data_dir)?;
-    async {
-        let txn = db.begin_mutable().await?;
-        if akula::genesis::initialize_genesis(
-            &txn,
-            &*etl_temp_dir,
-            chain_config.chain_spec().clone(),
-        )
-        .await?
-        {
-            txn.commit().await?;
-        }
+                // database setup
+                let erigon_db = if let Some(erigon_data_dir) = opt.erigon_data_dir {
+                    let erigon_chain_data_dir = erigon_data_dir.join("chaindata");
+                    let erigon_db = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
+                        mdbx::Environment::new(),
+                        &erigon_chain_data_dir,
+                        akula::kv::tables::CHAINDATA_TABLES.clone(),
+                    )?;
+                    Some(Arc::new(erigon_db))
+                } else {
+                    None
+                };
 
-        Ok::<_, anyhow::Error>(())
-    }
-    .instrument(span!(Level::INFO, "", " Genesis initialization "))
-    .await?;
+                std::fs::create_dir_all(&opt.data_dir.0)?;
+                let akula_chain_data_dir = opt.data_dir.chain_data_dir();
+                let etl_temp_path = opt.data_dir.etl_temp_dir();
+                let _ = std::fs::remove_dir_all(&etl_temp_path);
+                std::fs::create_dir_all(&etl_temp_path)?;
+                let etl_temp_dir = Arc::new(
+                    tempfile::tempdir_in(&etl_temp_path)
+                        .context("failed to create ETL temp dir")?,
+                );
+                let db = akula::kv::new_database(&akula_chain_data_dir)?;
+                async {
+                    let txn = db.begin_mutable().await?;
+                    if akula::genesis::initialize_genesis(
+                        &txn,
+                        &*etl_temp_dir,
+                        chain_config.chain_spec().clone(),
+                    )
+                    .await?
+                    {
+                        txn.commit().await?;
+                    }
 
-    let sentry_status_provider = SentryStatusProvider::new(chain_config.clone());
-    // staged sync setup
-    let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.set_min_progress_to_commit_after_stage(1024);
-    if let Some(erigon_db) = erigon_db.clone() {
-        staged_sync.push(ConvertHeaders {
-            db: erigon_db,
-            max_block: opt.max_block,
-        });
-    } else {
-        // sentry setup
-        let mut sentry_reactor = SentryClientReactor::new(
-            Box::new(SentryClientConnectorImpl::new(opt.sentry_api_addr.clone())),
-            sentry_status_provider.current_status_stream(),
-        );
-        sentry_reactor.start()?;
+                    Ok::<_, anyhow::Error>(())
+                }
+                .instrument(span!(Level::INFO, "", " Genesis initialization "))
+                .await?;
 
-        staged_sync.push(HeaderDownload::new(
-            chain_config,
-            opt.downloader_opts.headers_mem_limit(),
-            opt.downloader_opts.headers_batch_size,
-            sentry_reactor.into_shared(),
-            sentry_status_provider,
-        )?);
-    }
-    staged_sync.push(TotalGasIndex);
-    staged_sync.push(BlockHashes {
-        temp_dir: etl_temp_dir.clone(),
-    });
-    if let Some(erigon_db) = erigon_db {
-        staged_sync.push(ConvertBodies {
-            db: erigon_db,
-            commit_after: Duration::from_secs(120),
-        });
-    } else {
-        // also add body download stage here
-    }
-    staged_sync.push(TotalTxIndex);
-    staged_sync.push(SenderRecovery {
-        batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
-    });
-    staged_sync.push(Execution {
-        batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
-        history_batch_size: opt
-            .execution_history_batch_size
-            .saturating_mul(1_000_000_000_u64),
-        exit_after_batch: opt.execution_exit_after_batch,
-        batch_until: None,
-        commit_every: None,
-        prune_from: BlockNumber(0),
-    });
-    staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
-    staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
-    staged_sync.push(CallTraceIndex {
-        temp_dir: etl_temp_dir.clone(),
-        flush_interval: 50_000,
-    });
-    staged_sync.push(FinishStage {
-        max_block: opt.max_block,
-        exit_after_sync: opt.exit_after_sync,
-        delay_after_sync: Duration::from_millis(opt.delay_after_sync),
-    });
+                let sentry_status_provider = SentryStatusProvider::new(chain_config.clone());
+                // staged sync setup
+                let mut staged_sync = stagedsync::StagedSync::new();
+                staged_sync.set_min_progress_to_commit_after_stage(1024);
+                if let Some(erigon_db) = erigon_db.clone() {
+                    staged_sync.push(ConvertHeaders {
+                        db: erigon_db,
+                        max_block: opt.max_block,
+                    });
+                } else {
+                    // sentry setup
+                    let mut sentry_reactor = SentryClientReactor::new(
+                        Box::new(SentryClientConnectorImpl::new(opt.sentry_api_addr.clone())),
+                        sentry_status_provider.current_status_stream(),
+                    );
+                    sentry_reactor.start()?;
 
-    info!("Running staged sync");
-    staged_sync.run(&db).await?;
+                    staged_sync.push(HeaderDownload::new(
+                        chain_config,
+                        opt.downloader_opts.headers_mem_limit(),
+                        opt.downloader_opts.headers_batch_size,
+                        sentry_reactor.into_shared(),
+                        sentry_status_provider,
+                    )?);
+                }
+                staged_sync.push(TotalGasIndex);
+                staged_sync.push(BlockHashes {
+                    temp_dir: etl_temp_dir.clone(),
+                });
+                if let Some(erigon_db) = erigon_db {
+                    staged_sync.push(ConvertBodies {
+                        db: erigon_db,
+                        commit_after: Duration::from_secs(120),
+                    });
+                } else {
+                    // also add body download stage here
+                }
+                staged_sync.push(TotalTxIndex);
+                staged_sync.push(SenderRecovery {
+                    batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
+                });
+                staged_sync.push(Execution {
+                    batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
+                    history_batch_size: opt
+                        .execution_history_batch_size
+                        .saturating_mul(1_000_000_000_u64),
+                    exit_after_batch: opt.execution_exit_after_batch,
+                    batch_until: None,
+                    commit_every: None,
+                    prune_from: BlockNumber(0),
+                });
+                staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
+                staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
+                staged_sync.push(CallTraceIndex {
+                    temp_dir: etl_temp_dir.clone(),
+                    flush_interval: 50_000,
+                });
+                staged_sync.push(FinishStage {
+                    max_block: opt.max_block,
+                    exit_after_sync: opt.exit_after_sync,
+                    delay_after_sync: Duration::from_millis(opt.delay_after_sync),
+                });
 
-    Ok(())
+                info!("Running staged sync");
+                staged_sync.run(&db).await?;
+
+                Ok(())
+            })
+        })?
+        .join()
+        .unwrap_or_else(|e| panic::resume_unwind(e))
 }

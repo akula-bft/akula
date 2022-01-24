@@ -36,7 +36,7 @@ ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", fea
     "rlp",
     "scale",
 ] }
-evmodin = { git = "https://github.com/vorot93/evmodin", branch = "ethnum" }
+evmodin = { git = "https://github.com/vorot93/evmodin", branch = "akula-staging" }
 futures-core = "0.3"
 futures-util = "0.3"
 hash-db = "0.15"
@@ -117,4 +117,8 @@ path = "bin/consensus-tests.rs"
 name = "consensus-tests"
 
 [patch.crates-io]
-parity-scale-codec = { git = "https://github.com/vorot93/parity-scale-codec", branch = "bytes" }
+parity-scale-codec = { git = "https://github.com/paritytech/parity-scale-codec" }
+
+[profile.release]
+codegen-units = 1
+lto = true

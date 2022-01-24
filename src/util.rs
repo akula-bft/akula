@@ -121,7 +121,7 @@ pub mod test_util {
     pub fn run_test<F: Future<Output = ()> + Send + 'static>(f: F) {
         Builder::new_multi_thread()
             .enable_all()
-            .thread_stack_size(32 * 1024 * 1024)
+            .thread_stack_size(64 * 1024 * 1024)
             .build()
             .unwrap()
             .block_on(async move { tokio::spawn(f).await.unwrap() })
