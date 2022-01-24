@@ -34,6 +34,12 @@ pub trait EthApi {
         block_hash: H256,
         full_tx_obj: bool,
     ) -> RpcResult<jsonrpc::common::Block>;
+    /*#[method(name = "getBlockByNumber")]
+    async fn get_block_by_number(
+        &self,
+        block_number: BlockNumber,
+        full_tx_obj: bool,
+    ) -> RpcResult<Block>;*/
     #[method(name = "getBlockTransactionCountByHash")]
     async fn get_block_tx_count_by_hash(&self, block_hash: H256) -> RpcResult<U64>;
 }
@@ -87,34 +93,9 @@ where
             match full_tx_obj {
                 false => msg_hashes.push(jsonrpc::common::Transaction::Partial(msgs[index].hash())),
                 true => {
-                    let v = YParityAndChainId {
-                        odd_y_parity: msgs[index].signature.odd_y_parity(),
-                        chain_id: msgs[index].chain_id(),
-                    };
-
-                    let to = match msgs[index].action() {
-                        TransactionAction::Call(to) => Some(to),
-                        TransactionAction::Create => None,
-                    };
-
-                    msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(
-                        jsonrpc::common::Tx {
-                            block_hash: Some(block_hash),
-                            block_number: Some(U64::from(block_number.0)),
-                            from: msgs[index].recover_sender().unwrap(),
-                            gas: U64::from(msgs[index].gas_limit()),
-                            gas_price: msgs[index].max_fee_per_gas(),
-                            hash: msgs[index].hash(),
-                            input: msgs[index].input().clone(),
-                            nonce: U64::from(msgs[index].nonce()),
-                            to,
-                            transaction_index: Some(U64::from(index)),
-                            value: msgs[index].value(),
-                            v: U64::from(v.v()),
-                            r: msgs[index].r(),
-                            s: msgs[index].s(),
-                        },
-                    )))
+                    let tx =
+                        json_tx::assemble_tx(block_hash, block_number, &msgs[index], index).await;
+                    msg_hashes.push(tx)
                 }
             }
         }
@@ -163,6 +144,14 @@ where
         })
     }
 
+    /*async fn get_block_by_number(
+        &self,
+        block_number: BlockNumber,
+        full_tx_obj: bool,
+    ) -> RpcResult<Block> {
+
+    }*/
+
     async fn get_block_tx_count_by_hash(&self, block_hash: H256) -> RpcResult<U64> {
         let block_number = header_number::read(&self.db.begin().await?, block_hash)
             .await?
@@ -173,6 +162,44 @@ where
             .unwrap();
 
         Ok(block_body.tx_amount.into())
+    }
+}
+
+pub mod json_tx {
+    use super::*;
+
+    pub async fn assemble_tx(
+        block_hash: H256,
+        block_number: BlockNumber,
+        msg: &MessageWithSignature,
+        index: usize,
+    ) -> jsonrpc::common::Transaction {
+        let v = YParityAndChainId {
+            odd_y_parity: msg.signature.odd_y_parity(),
+            chain_id: msg.chain_id(),
+        };
+
+        let to = match msg.action() {
+            TransactionAction::Call(to) => Some(to),
+            TransactionAction::Create => None,
+        };
+
+        jsonrpc::common::Transaction::Full(Box::new(jsonrpc::common::Tx {
+            block_hash: Some(block_hash),
+            block_number: Some(U64::from(block_number.0)),
+            from: msg.recover_sender().unwrap(),
+            gas: U64::from(msg.gas_limit()),
+            gas_price: msg.max_fee_per_gas(),
+            hash: msg.hash(),
+            input: msg.input().clone(),
+            nonce: U64::from(msg.nonce()),
+            to,
+            transaction_index: Some(U64::from(index)),
+            value: msg.value(),
+            v: U64::from(v.v()),
+            r: msg.r(),
+            s: msg.s(),
+        }))
     }
 }
 
