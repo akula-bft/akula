@@ -16,7 +16,7 @@ use std::{
 use tracing::*;
 
 /// Verifies the sequence rules to link the slices with the last known verified header and sets Verified status.
-pub struct VerifyStageLinearLink {
+pub struct VerifyLinkLinearStage {
     header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
     verifier: Arc<Box<dyn HeaderSliceVerifier>>,
@@ -28,7 +28,7 @@ pub struct VerifyStageLinearLink {
     remaining_count: usize,
 }
 
-impl VerifyStageLinearLink {
+impl VerifyLinkLinearStage {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         chain_config: ChainConfig,
@@ -50,7 +50,7 @@ impl VerifyStageLinearLink {
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::VerifiedInternally,
                 header_slices,
-                "VerifyStageLinearLink",
+                "VerifyLinkLinearStage",
             ),
             remaining_count: 0,
         }
@@ -65,9 +65,9 @@ impl VerifyStageLinearLink {
 
         let pending_count = self.pending_watch.pending_count();
 
-        debug!("VerifyStageLinearLink: verifying {} slices", pending_count);
+        debug!("VerifyLinkLinearStage: verifying {} slices", pending_count);
         let updated_count = self.verify_pending_monotonic(pending_count)?;
-        debug!("VerifyStageLinearLink: updated {} slices", updated_count);
+        debug!("VerifyLinkLinearStage: updated {} slices", updated_count);
 
         self.remaining_count = pending_count - updated_count;
 
@@ -190,7 +190,7 @@ impl VerifyStageLinearLink {
 }
 
 #[async_trait::async_trait]
-impl super::stage::Stage for VerifyStageLinearLink {
+impl super::stage::Stage for VerifyLinkLinearStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
     }

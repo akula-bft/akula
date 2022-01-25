@@ -92,7 +92,7 @@ impl DownloaderPreverified {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStagePreverified::new(
+        let verify_stage = VerifyPreverifiedStage::new(
             header_slices.clone(),
             self.preverified_hashes_config.clone(),
         );
