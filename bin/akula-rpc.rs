@@ -1,7 +1,7 @@
 use akula::{
     accessors::{
         chain::*,
-        state::{account, storage, },
+        state::{account, storage},
     },
     binutil::AkulaDataDir,
     kv::{tables, traits::*},
@@ -10,6 +10,7 @@ use akula::{
     execution::{processor::*, analysis_cache::*},
     consensus::engine_factory,
     res::chainspec::MAINNET,
+    state::buffer,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -375,12 +376,10 @@ where
             index = index + 1;
         }
         let msg = msgs_with_sender[index];
-
-       // let msg = msgs_with_sender.into_iter().find(|tx| tx.hash() == tx_hash).unwrap();
         
         let header = header::read(&self.db.begin().await?, block_hash, block_number).await?.unwrap();
         
-        let mut state = akula::InMemoryState::default();
+        let mut state = buffer::Buffer::new(None, Some(BlockNumber(block_number.0 - 1)));
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(block_number);
