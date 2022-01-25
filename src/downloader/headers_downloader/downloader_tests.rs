@@ -97,6 +97,7 @@ struct DownloaderTest {
 
 impl DownloaderTest {
     pub fn new(
+        chain_config: chain_config::ChainConfig,
         sentry: SentryClientMock,
         verifier: HeaderSliceVerifierMock,
         previous_run_state: Option<DownloaderRunState>,
@@ -104,7 +105,6 @@ impl DownloaderTest {
     ) -> anyhow::Result<Self> {
         setup_logging_once();
 
-        let chain_config = make_chain_config();
         let status_provider = SentryStatusProvider::new(chain_config.clone());
         let sentry_reactor = make_sentry_reactor(sentry, status_provider.current_status_stream());
         let downloader = Downloader::new(
@@ -192,9 +192,10 @@ impl DownloaderTest {
 
 #[tokio::test]
 async fn noop() {
+    let chain_config = make_chain_config();
     let sentry = SentryClientMock::new();
     let verifier = HeaderSliceVerifierMock::new(HeaderGenerator::header_id);
-    let test = DownloaderTest::new(sentry, verifier, None, None).unwrap();
+    let test = DownloaderTest::new(chain_config, sentry, verifier, None, None).unwrap();
     test.run().await.unwrap();
 }
 
@@ -211,7 +212,8 @@ struct DownloaderTestDecl<'t> {
 
 impl<'t> DownloaderTestDecl<'t> {
     fn into_test(self) -> anyhow::Result<DownloaderTest> {
-        let mut generator = HeaderGenerator::new();
+        let chain_config = make_chain_config();
+        let mut generator = HeaderGenerator::new(chain_config.clone());
 
         let sentry = Self::parse_sentry(self.sentry, &mut generator)?;
 
@@ -241,6 +243,7 @@ impl<'t> DownloaderTestDecl<'t> {
         };
 
         DownloaderTest::new(
+            chain_config,
             sentry,
             verifier,
             Some(previous_run_state),
@@ -311,16 +314,23 @@ impl<'t> DownloaderTestDecl<'t> {
                 let Some(headers) = slice.headers.as_mut() else {
                     anyhow::bail!("expected a status that has non empty headers");
                 };
-                let Some(parent_slice) = slices.last_mut() else {
-                    anyhow::bail!("expected to have a previous slice");
-                };
-                let Some(parent_headers) = parent_slice.headers.as_mut() else {
-                    anyhow::bail!("expected that a previous slice has non empty headers");
-                };
+                if let Some(parent_slice) = slices.last_mut() {
+                    let Some(parent_headers) = parent_slice.headers.as_mut() else {
+                        anyhow::bail!("expected that a previous slice has non empty headers");
+                    };
 
-                let child_header = headers.first_mut().unwrap();
-                let parent_header = parent_headers.last_mut().unwrap();
-                verifier.mark_broken_link(child_header, parent_header);
+                    let child_header = headers.first_mut().unwrap();
+                    let parent_header = parent_headers.last_mut().unwrap();
+                    verifier.mark_broken_link(child_header, parent_header);
+                } else {
+                    // the genesis slice (with a block number 0)
+                    // fails to link if its genesis header hash is wrong
+                    if start_block_num == BlockNumber(0) {
+                        headers[0].set_hash_cached(Some(ethereum_types::H256::zero()));
+                    } else {
+                        anyhow::bail!("expected to have a previous slice");
+                    }
+                }
                 is_link_broken = false;
             }
 
@@ -339,12 +349,16 @@ impl<'t> DownloaderTestDecl<'t> {
 }
 
 struct HeaderGenerator {
+    chain_config: chain_config::ChainConfig,
     last_id: u64,
 }
 
 impl HeaderGenerator {
-    pub fn new() -> Self {
-        Self { last_id: 0 }
+    pub fn new(chain_config: chain_config::ChainConfig) -> Self {
+        Self {
+            chain_config,
+            last_id: 0,
+        }
     }
 
     fn next_id(&mut self) -> u64 {
@@ -393,6 +407,11 @@ impl HeaderGenerator {
             num = BlockNumber(num.0 + 1);
         }
 
+        // set genesis header hash
+        if start_block_num == BlockNumber(0) {
+            headers[0].set_hash_cached(Some(self.chain_config.genesis_block_hash()));
+        }
+
         headers
     }
 }
@@ -414,6 +433,17 @@ async fn verify_link() {
         sentry: "",
         slices: "+   +   +   =",
         result: "+   +   +   +",
+        forked: "",
+    };
+    test.run().await.unwrap();
+}
+
+#[tokio::test]
+async fn verify_link_at_root() {
+    let test = DownloaderTestDecl {
+        sentry: "",
+        slices: "=",
+        result: "+",
         forked: "",
     };
     test.run().await.unwrap();
@@ -453,12 +483,45 @@ async fn canonical_continuation() {
 }
 
 #[tokio::test]
+async fn canonical_continuation_to_top() {
+    let test = DownloaderTestDecl {
+        sentry: "-   -   -   .   ",
+        slices: "+   +   +   |=  ",
+        result: "+   +   +   +   ",
+        forked: "_   _   -   +   ",
+    };
+    test.run().await.unwrap();
+}
+
+#[tokio::test]
 async fn fork_both_chains_continuation() {
     let test = DownloaderTestDecl {
         sentry: "-   -   .   .   ",
         slices: "+   +   +   |=  ",
         result: "+   +   +   +   ",
         forked: "_   -   +   +   ",
+    };
+    test.run().await.unwrap();
+}
+
+#[tokio::test]
+async fn fork_discarded_reaching_root() {
+    let test = DownloaderTestDecl {
+        sentry: ".   -   ",
+        slices: "+   |=  ",
+        result: "+   -   ",
+        forked: "",
+    };
+    test.run().await.unwrap();
+}
+
+#[tokio::test]
+async fn dont_fork_at_root() {
+    let test = DownloaderTestDecl {
+        sentry: "",
+        slices: "|=  ",
+        result: "-   ",
+        forked: "",
     };
     test.run().await.unwrap();
 }

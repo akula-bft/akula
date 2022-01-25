@@ -58,6 +58,11 @@ impl BlockHeader {
         self.hash_cached
             .unwrap_or_else(|| Self::hash_compute(&self.rlp_repr()))
     }
+
+    #[cfg(test)]
+    pub fn set_hash_cached(&mut self, value: Option<H256>) {
+        self.hash_cached = value;
+    }
 }
 
 impl From<models::BlockHeader> for BlockHeader {

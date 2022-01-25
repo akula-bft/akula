@@ -5,7 +5,7 @@ use super::{
     verify_link_linear_stage::VerifyLinkLinearStage,
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
-use std::sync::Arc;
+use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
 /// Verifies the sequence rules to grow the slices chain and sets Verified status.
@@ -81,12 +81,18 @@ impl VerifyLinkForkyStage {
         // check mode switch conditions
         match self.mode {
             Mode::Linear(_) => {
-                let fork_slice_count = self
-                    .header_slices
-                    .count_slices_in_status(HeaderSliceStatus::Fork);
-                if fork_slice_count > 0 {
-                    debug!("VerifyLinkForkyStage: switching to Mode::Fork");
-                    self.switch_to_fork_mode()?;
+                if let Some(fork_slice_lock) =
+                    self.header_slices.find_by_status(HeaderSliceStatus::Fork)
+                {
+                    // do not fork from the start_block_num
+                    if fork_slice_lock.read().start_block_num == self.start_block_num {
+                        let mut fork_slice = fork_slice_lock.write();
+                        self.header_slices
+                            .set_slice_status(fork_slice.deref_mut(), HeaderSliceStatus::Invalid);
+                    } else {
+                        debug!("VerifyLinkForkyStage: switching to Mode::Fork");
+                        self.switch_to_fork_mode()?;
+                    }
                 }
             }
             Mode::Fork(ref stage) => {
