@@ -160,6 +160,23 @@ impl DownloaderTest {
             .map(|slice| slice.status)
             .collect::<Vec<HeaderSliceStatus>>();
         assert_eq!(actual_statuses, expected_statuses);
+
+        // check headers ids
+        let first_header_id = |slice: &HeaderSlice| -> Option<u64> {
+            slice.headers.as_ref().and_then(|headers| {
+                let first_header = headers.iter().next();
+                first_header.map(HeaderGenerator::header_id)
+            })
+        };
+        let actual_header_ids = actual_slices
+            .iter()
+            .map(first_header_id)
+            .collect::<Vec<Option<u64>>>();
+        let expected_header_ids = expected_slices
+            .iter()
+            .map(first_header_id)
+            .collect::<Vec<Option<u64>>>();
+        assert_eq!(actual_header_ids, expected_header_ids);
     }
 
     // Empty slices might become Waiting at random by the FetchRequestStage
@@ -257,11 +274,37 @@ impl<'t> DownloaderTestDecl<'t> {
     ) -> anyhow::Result<SentryClientMock> {
         let mut sentry = SentryClientMock::new();
         let mut start_block_num = BlockNumber(0);
+        let mut has_custom_id = false;
 
         for c in desc.chars() {
-            if c == ' ' {
+            match c {
+                ' ' => continue,
+                '\'' => {
+                    has_custom_id = true;
+                    continue;
+                }
+                '_' => {
+                    start_block_num =
+                        BlockNumber(start_block_num.0 + header_slices::HEADER_SLICE_SIZE as u64);
+                    continue;
+                }
+                _ => (),
+            }
+
+            if has_custom_id {
+                let prev_start_block_num =
+                    BlockNumber(start_block_num.0 - header_slices::HEADER_SLICE_SIZE as u64);
+                let Some(headers) = sentry.block_headers_mut(prev_start_block_num) else {
+                    anyhow::bail!("expected to have headers added");
+                };
+
+                let start_custom_id = Self::parse_custom_id(c)?;
+                generator.mark_headers_ids(start_custom_id, headers.as_mut_slice());
+
+                has_custom_id = false;
                 continue;
             }
+
             let status = HeaderSliceStatus::try_from(c)?;
 
             if let Some(headers) =
@@ -283,15 +326,15 @@ impl<'t> DownloaderTestDecl<'t> {
         generator: &mut HeaderGenerator,
     ) -> anyhow::Result<(Vec<HeaderSlice>, HeaderSliceVerifierMock)> {
         let mut slices = Vec::<HeaderSlice>::new();
-        let mut verifier = HeaderSliceVerifierMock::new(HeaderGenerator::header_id);
+        let verifier = HeaderSliceVerifierMock::new(HeaderGenerator::header_id);
         let mut start_block_num = BlockNumber(0);
-        let mut is_link_broken = false;
+        let mut has_custom_id = false;
 
         for c in desc.chars() {
             match c {
                 ' ' => continue,
-                '|' => {
-                    is_link_broken = true;
+                '\'' => {
+                    has_custom_id = true;
                     continue;
                 }
                 '_' => {
@@ -301,38 +344,30 @@ impl<'t> DownloaderTestDecl<'t> {
                 }
                 _ => (),
             }
+
+            if has_custom_id {
+                let Some(slice) = slices.last_mut() else {
+                    anyhow::bail!("expected to have a slice");
+                };
+                let Some(headers) = slice.headers.as_mut() else {
+                    anyhow::bail!("expected a status that has non empty headers");
+                };
+
+                let start_custom_id = Self::parse_custom_id(c)?;
+                generator.mark_slice_headers_ids(start_custom_id, headers.as_mut_slice());
+
+                has_custom_id = false;
+                continue;
+            }
+
             let status = HeaderSliceStatus::try_from(c)?;
 
-            let mut slice = HeaderSlice {
+            let slice = HeaderSlice {
                 start_block_num,
                 status,
                 headers: generator.generate_slice_headers_if_needed(status, start_block_num),
                 ..Default::default()
             };
-
-            if is_link_broken {
-                let Some(headers) = slice.headers.as_mut() else {
-                    anyhow::bail!("expected a status that has non empty headers");
-                };
-                if let Some(parent_slice) = slices.last_mut() {
-                    let Some(parent_headers) = parent_slice.headers.as_mut() else {
-                        anyhow::bail!("expected that a previous slice has non empty headers");
-                    };
-
-                    let child_header = headers.first_mut().unwrap();
-                    let parent_header = parent_headers.last_mut().unwrap();
-                    verifier.mark_broken_link(child_header, parent_header);
-                } else {
-                    // the genesis slice (with a block number 0)
-                    // fails to link if its genesis header hash is wrong
-                    if start_block_num == BlockNumber(0) {
-                        headers[0].set_hash_cached(Some(ethereum_types::H256::zero()));
-                    } else {
-                        anyhow::bail!("expected to have a previous slice");
-                    }
-                }
-                is_link_broken = false;
-            }
 
             slices.push(slice);
 
@@ -343,6 +378,15 @@ impl<'t> DownloaderTestDecl<'t> {
         Ok((slices, verifier))
     }
 
+    fn parse_custom_id(c: char) -> anyhow::Result<u64> {
+        if !('a'..='z').contains(&c) {
+            anyhow::bail!("expected to lowercase letter to identify a slice");
+        }
+        let slice_id: u64 = ((c as u32) - ('a' as u32)) as u64;
+        let start_custom_id: u64 = slice_id * header_slices::HEADER_SLICE_SIZE as u64;
+        Ok(start_custom_id)
+    }
+
     pub async fn run(self) -> anyhow::Result<()> {
         self.into_test()?.run().await
     }
@@ -350,26 +394,17 @@ impl<'t> DownloaderTestDecl<'t> {
 
 struct HeaderGenerator {
     chain_config: chain_config::ChainConfig,
-    last_id: u64,
 }
 
 impl HeaderGenerator {
     pub fn new(chain_config: chain_config::ChainConfig) -> Self {
-        Self {
-            chain_config,
-            last_id: 0,
-        }
+        Self { chain_config }
     }
 
-    fn next_id(&mut self) -> u64 {
-        self.last_id += 1;
-        self.last_id
-    }
-
-    fn mark_header_id(&self, header: &mut BlockHeader, id: u64) {
+    pub fn mark_header_id(&self, header: &mut crate::models::BlockHeader, id: u64) {
         let mut data = BytesMut::with_capacity(size_of::<u64>());
         data.put_u64(id);
-        header.header.extra_data = data.freeze();
+        header.extra_data = data.freeze();
     }
 
     pub fn header_id(header: &BlockHeader) -> u64 {
@@ -402,10 +437,11 @@ impl HeaderGenerator {
         let mut num = start_block_num;
         for header in headers.as_mut_slice() {
             header.header.number = num;
-            let id = self.next_id();
-            self.mark_header_id(header, id);
             num = BlockNumber(num.0 + 1);
         }
+
+        // set ids - by default they are the same as the block numbers
+        self.mark_slice_headers_ids(start_block_num.0, headers.as_mut_slice());
 
         // set genesis header hash
         if start_block_num == BlockNumber(0) {
@@ -413,6 +449,24 @@ impl HeaderGenerator {
         }
 
         headers
+    }
+
+    fn mark_headers_ids(&self, start_id: u64, headers: &mut [crate::models::BlockHeader]) {
+        for (i, header) in headers.iter_mut().enumerate() {
+            self.mark_header_id(header, start_id + i as u64);
+        }
+    }
+
+    fn mark_slice_headers_ids(&self, start_id: u64, headers: &mut [BlockHeader]) {
+        for (i, header) in headers.iter_mut().enumerate() {
+            self.mark_header_id(&mut header.header, start_id + i as u64);
+        }
+
+        // if the genesis slice (with a block number 0) has a non-zero custom id,
+        // then it must fail to link - force it by a bad genesis header hash
+        if !headers.is_empty() && (headers[0].number() == BlockNumber(0)) && (start_id != 0) {
+            headers[0].set_hash_cached(Some(ethereum_types::H256::zero()));
+        }
     }
 }
 
@@ -453,9 +507,9 @@ async fn verify_link_at_root() {
 async fn fork_mode_start() {
     let test = DownloaderTestDecl {
         sentry: "",
-        slices: "+   +   +   |=  ",
-        result: "+   +   +   -",
-        forked: "_   _   -   +",
+        slices: "+   +   +   ='f  ",
+        result: "+   +   +   -    ",
+        forked: "_   _   -   +'f  ",
     };
     test.run().await.unwrap();
 }
@@ -463,10 +517,10 @@ async fn fork_mode_start() {
 #[tokio::test]
 async fn fork_continuation() {
     let test = DownloaderTestDecl {
-        sentry: "-   -   .   -   ",
-        slices: "+   +   +   |=  ",
-        result: "+   +   +   -",
-        forked: "_   -   +   +",
+        sentry: "_   _   .'e _   ",
+        slices: "+   +   +   ='f ",
+        result: "+   +   +   -   ",
+        forked: "_   -   +'e +'f ",
     };
     test.run().await.unwrap();
 }
@@ -474,10 +528,10 @@ async fn fork_continuation() {
 #[tokio::test]
 async fn canonical_continuation() {
     let test = DownloaderTestDecl {
-        sentry: "-   -   -   .   -",
-        slices: "+   +   +   |=  -",
+        sentry: "_   _   _   .   _",
+        slices: "+   +   +   ='f -",
         result: "+   +   +   +   -",
-        forked: "_   _   -   +   _",
+        forked: "_   _   -   +'f _",
     };
     test.run().await.unwrap();
 }
@@ -485,10 +539,10 @@ async fn canonical_continuation() {
 #[tokio::test]
 async fn canonical_continuation_to_top() {
     let test = DownloaderTestDecl {
-        sentry: "-   -   -   .   ",
-        slices: "+   +   +   |=  ",
+        sentry: "_   _   _   .   ",
+        slices: "+   +   +   ='f ",
         result: "+   +   +   +   ",
-        forked: "_   _   -   +   ",
+        forked: "_   _   -   +'f ",
     };
     test.run().await.unwrap();
 }
@@ -496,10 +550,10 @@ async fn canonical_continuation_to_top() {
 #[tokio::test]
 async fn fork_both_chains_continuation() {
     let test = DownloaderTestDecl {
-        sentry: "-   -   .   .   ",
-        slices: "+   +   +   |=  ",
+        sentry: "_   _   .'e .   ",
+        slices: "+   +   +   ='f ",
         result: "+   +   +   +   ",
-        forked: "_   -   +   +   ",
+        forked: "_   -   +'e +'f ",
     };
     test.run().await.unwrap();
 }
@@ -507,8 +561,8 @@ async fn fork_both_chains_continuation() {
 #[tokio::test]
 async fn fork_discarded_reaching_root() {
     let test = DownloaderTestDecl {
-        sentry: ".   -   ",
-        slices: "+   |=  ",
+        sentry: ".'e _   ",
+        slices: "+   ='f ",
         result: "+   -   ",
         forked: "",
     };
@@ -519,7 +573,7 @@ async fn fork_discarded_reaching_root() {
 async fn dont_fork_at_root() {
     let test = DownloaderTestDecl {
         sentry: "",
-        slices: "|=  ",
+        slices: "='f ",
         result: "-   ",
         forked: "",
     };

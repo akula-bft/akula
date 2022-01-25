@@ -40,6 +40,13 @@ impl SentryClientMock {
         let start_block_num = first_header.number;
         self.block_headers.insert(start_block_num, headers);
     }
+
+    pub fn block_headers_mut(
+        &mut self,
+        start_block_num: BlockNumber,
+    ) -> Option<&mut Vec<BlockHeader>> {
+        self.block_headers.get_mut(&start_block_num)
+    }
 }
 
 #[async_trait::async_trait]
