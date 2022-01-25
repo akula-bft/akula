@@ -4,12 +4,12 @@ use akula::{
         state::{account, storage},
     },
     binutil::AkulaDataDir,
+    consensus::engine_factory,
+    execution::{address::create_address, analysis_cache::*, processor::*},
     kv::{tables, traits::*},
     models::*,
-    stagedsync::stages::*,
-    execution::{processor::*, analysis_cache::*},
-    consensus::engine_factory,
     res::chainspec::MAINNET,
+    stagedsync::stages::*,
     state::buffer,
 };
 use async_trait::async_trait;
@@ -358,14 +358,16 @@ where
         Ok(json_tx::assemble_tx(block_hash, block_number, &msgs[i], i).await)
     }
 
-    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt>{
-
+    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt> {
         let block_number = tl::read(&self.db.begin().await?, tx_hash).await?.unwrap();
         let block_hash = canonical_hash::read(&self.db.begin().await?, block_number)
             .await?
             .unwrap();
 
-        let block = block_body::read_with_senders(&self.db.begin().await?, block_hash, block_number).await?.unwrap();
+        let block =
+            block_body::read_with_senders(&self.db.begin().await?, block_hash, block_number)
+                .await?
+                .unwrap();
         let msgs_with_sender = block.transactions;
 
         let mut index = 0;
@@ -376,9 +378,11 @@ where
             index = index + 1;
         }
         let msg = msgs_with_sender[index];
-        
-        let header = header::read(&self.db.begin().await?, block_hash, block_number).await?.unwrap();
-        
+
+        let header = header::read(&self.db.begin().await?, block_hash, block_number)
+            .await?
+            .unwrap();
+
         let mut state = buffer::Buffer::new(None, Some(BlockNumber(block_number.0 - 1)));
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
@@ -399,8 +403,7 @@ where
         let mut logs: Vec<TxLog> = Vec::new();
         let mut i = 0;
         while i < receipt.logs.len() {
-            logs.push(TxLog{
-                removed: U64::from(0),
+            logs.push(TxLog {
                 log_index: Some(U64::from(i)),
                 transaction_index: Some(U64::from(index)),
                 transaction_hash: Some(tx_hash),
@@ -419,11 +422,11 @@ where
         };
 
         let contract_address = match to {
-            Some(t) => None,
-            None => Some(Address::from([0; 20])),
+            Some(_) => None,
+            None => Some(create_address(msg.sender, msg.nonce())),
         };
 
-        Ok(TxReceipt{
+        Ok(TxReceipt {
             transaction_hash: tx_hash,
             transaction_index: U64::from(index),
             block_hash,
@@ -437,7 +440,6 @@ where
             logs_bloom: receipt.bloom,
             status: U64::from(receipt.success as u64),
         })
-        
     }
 
     async fn get_uncle_by_block_hash_and_index(
