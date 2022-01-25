@@ -7,33 +7,17 @@ use std::fmt::{Debug, Formatter};
 
 pub struct HeaderSliceVerifierMock {
     header_id: fn(header: &BlockHeader) -> u64,
-    broken_links: Vec<(u64, u64)>,
 }
 
 impl Debug for HeaderSliceVerifierMock {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HeaderSliceVerifierMock")
-            .field("broken_links", &self.broken_links)
-            .finish()
+        f.debug_struct("HeaderSliceVerifierMock").finish()
     }
 }
 
 impl HeaderSliceVerifierMock {
     pub fn new(header_id: fn(header: &BlockHeader) -> u64) -> Self {
-        Self {
-            header_id,
-            broken_links: Vec::new(),
-        }
-    }
-
-    pub fn mark_broken_link(&mut self, child: &mut BlockHeader, parent: &mut BlockHeader) {
-        let child_id = (self.header_id)(child);
-        let parent_id = (self.header_id)(parent);
-
-        assert_ne!(child_id, 0);
-        assert_ne!(parent_id, 0);
-
-        self.broken_links.push((child_id, parent_id));
+        Self { header_id }
     }
 }
 
@@ -46,8 +30,7 @@ impl HeaderSliceVerifier for HeaderSliceVerifierMock {
     ) -> bool {
         let child_id = (self.header_id)(child);
         let parent_id = (self.header_id)(parent);
-        let is_link_broken = self.broken_links.contains(&(child_id, parent_id));
-        !is_link_broken
+        child_id == parent_id + 1
     }
 
     fn verify_slice(
