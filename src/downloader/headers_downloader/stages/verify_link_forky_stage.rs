@@ -2,14 +2,14 @@ use super::{
     fork_mode_stage::ForkModeStage,
     headers::header_slices::{HeaderSliceStatus, HeaderSlices},
     verification::header_slice_verifier::HeaderSliceVerifier,
-    verify_stage_linear_link::VerifyStageLinearLink,
+    verify_link_linear_stage::VerifyLinkLinearStage,
 };
 use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
 use std::sync::Arc;
 use tracing::*;
 
 /// Verifies the sequence rules to grow the slices chain and sets Verified status.
-pub struct VerifyStageForkyLink {
+pub struct VerifyLinkForkyStage {
     header_slices: Arc<HeaderSlices>,
     fork_header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
@@ -20,11 +20,11 @@ pub struct VerifyStageForkyLink {
 }
 
 enum Mode {
-    Linear(Box<VerifyStageLinearLink>),
+    Linear(Box<VerifyLinkLinearStage>),
     Fork(Box<ForkModeStage>),
 }
 
-impl VerifyStageForkyLink {
+impl VerifyLinkForkyStage {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         fork_header_slices: Arc<HeaderSlices>,
@@ -34,7 +34,7 @@ impl VerifyStageForkyLink {
         start_block_hash: ethereum_types::H256,
     ) -> Self {
         let mode = if fork_header_slices.is_empty() {
-            let linear_mode_stage = VerifyStageLinearLink::new(
+            let linear_mode_stage = VerifyLinkLinearStage::new(
                 header_slices.clone(),
                 chain_config.clone(),
                 verifier.clone(),
@@ -68,11 +68,11 @@ impl VerifyStageForkyLink {
         // execute sub-stage
         let sub_stage: &mut dyn super::stage::Stage = match self.mode {
             Mode::Linear(ref mut stage) => {
-                debug!("VerifyStageForkyLink: Mode::Linear");
+                debug!("VerifyLinkForkyStage: Mode::Linear");
                 stage.as_mut()
             }
             Mode::Fork(ref mut stage) => {
-                debug!("VerifyStageForkyLink: Mode::Fork");
+                debug!("VerifyLinkForkyStage: Mode::Fork");
                 stage.as_mut()
             }
         };
@@ -85,13 +85,13 @@ impl VerifyStageForkyLink {
                     .header_slices
                     .count_slices_in_status(HeaderSliceStatus::Fork);
                 if fork_slice_count > 0 {
-                    debug!("VerifyStageForkyLink: switching to Mode::Fork");
+                    debug!("VerifyLinkForkyStage: switching to Mode::Fork");
                     self.switch_to_fork_mode()?;
                 }
             }
             Mode::Fork(ref stage) => {
                 if stage.is_done() {
-                    debug!("VerifyStageForkyLink: switching to Mode::Linear");
+                    debug!("VerifyLinkForkyStage: switching to Mode::Linear");
                     self.switch_to_linear_mode();
                 }
             }
@@ -100,8 +100,8 @@ impl VerifyStageForkyLink {
         Ok(())
     }
 
-    fn make_linear_mode_stage(&self) -> VerifyStageLinearLink {
-        VerifyStageLinearLink::new(
+    fn make_linear_mode_stage(&self) -> VerifyLinkLinearStage {
+        VerifyLinkLinearStage::new(
             self.header_slices.clone(),
             self.chain_config.clone(),
             self.verifier.clone(),
@@ -142,7 +142,7 @@ impl VerifyStageForkyLink {
 }
 
 #[async_trait::async_trait]
-impl super::stage::Stage for VerifyStageForkyLink {
+impl super::stage::Stage for VerifyLinkForkyStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
     }

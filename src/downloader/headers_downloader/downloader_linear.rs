@@ -121,12 +121,12 @@ impl DownloaderLinear {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStageLinear::new(
+        let verify_slices_stage = VerifySlicesStage::new(
             header_slices.clone(),
             self.chain_config.clone(),
             self.verifier.clone(),
         );
-        let verify_link_stage = VerifyStageLinearLink::new(
+        let verify_link_stage = VerifyLinkLinearStage::new(
             header_slices.clone(),
             self.chain_config.clone(),
             self.verifier.clone(),
@@ -149,7 +149,7 @@ impl DownloaderLinear {
         stages.insert(fetch_request_stage);
         stages.insert(fetch_receive_stage);
         stages.insert(retry_stage);
-        stages.insert(verify_stage);
+        stages.insert(verify_slices_stage);
         stages.insert(verify_link_stage);
         stages.insert(penalize_stage);
         stages.insert(save_stage);

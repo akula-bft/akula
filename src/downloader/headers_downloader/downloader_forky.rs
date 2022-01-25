@@ -74,7 +74,7 @@ impl DownloaderForky {
         );
         let fetch_receive_stage = FetchReceiveStage::new(header_slices.clone(), sentry.clone());
         let retry_stage = RetryStage::new(header_slices.clone());
-        let verify_stage = VerifyStageLinear::new(
+        let verify_slices_stage = VerifySlicesStage::new(
             header_slices.clone(),
             self.chain_config.clone(),
             self.verifier.clone(),
@@ -85,7 +85,7 @@ impl DownloaderForky {
         stages.insert_with_group_name(fetch_request_stage, group_name);
         stages.insert_with_group_name(fetch_receive_stage, group_name);
         stages.insert_with_group_name(retry_stage, group_name);
-        stages.insert_with_group_name(verify_stage, group_name);
+        stages.insert_with_group_name(verify_slices_stage, group_name);
         stages.insert_with_group_name(refetch_stage, group_name);
         stages.insert_with_group_name(penalize_stage, group_name);
         stages.insert_with_group_name(save_stage, group_name);
@@ -132,7 +132,7 @@ impl DownloaderForky {
         let _header_slices_view_scope =
             UISystemViewScope::new(&ui_system, Box::new(header_slices_view));
 
-        let verify_link_stage = VerifyStageForkyLink::new(
+        let verify_link_stage = VerifyLinkForkyStage::new(
             header_slices.clone(),
             fork_header_slices.clone(),
             self.chain_config.clone(),
