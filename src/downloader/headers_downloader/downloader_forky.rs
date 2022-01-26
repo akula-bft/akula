@@ -14,7 +14,7 @@ use crate::{
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 #[derive(Debug)]
 pub struct DownloaderForky {
@@ -155,6 +155,9 @@ impl DownloaderForky {
             false,
         );
 
+        let timeout_stage = TimeoutStage::new(Duration::from_secs(15));
+        let timeout_stage_is_over = timeout_stage.is_over_check();
+
         let mut stages = DownloaderStageLoop::new(&header_slices, Some(&fork_header_slices));
 
         self.build_stages("main", &mut stages, &header_slices, save_stage);
@@ -162,10 +165,9 @@ impl DownloaderForky {
 
         // verify_link_stage is common for both groups
         stages.insert(verify_link_stage);
+        stages.insert(timeout_stage);
 
-        let is_over_check = || -> bool { false };
-
-        stages.run(is_over_check).await;
+        stages.run(timeout_stage_is_over).await;
 
         let report = DownloaderForkyReport {
             loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
