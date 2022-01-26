@@ -164,9 +164,10 @@ impl ForkModeStage {
         if did_extend_fork {
             let connection_block_num_opt = self.find_fork_connection_block_num();
             if let Some(connection_block_num) = connection_block_num_opt {
-                if self.fork_range_difficulty(connection_block_num)
-                    > self.canonical_range_difficulty(connection_block_num)
-                {
+                let fork_range_difficulty = self.fork_range_difficulty(connection_block_num);
+                let canonical_range_difficulty =
+                    self.canonical_range_difficulty(connection_block_num);
+                if fork_range_difficulty > canonical_range_difficulty {
                     self.switch_to_fork();
                 } else {
                     self.discard_fork();
