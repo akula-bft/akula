@@ -15,5 +15,5 @@ pub use cumulative_index::CumulativeIndex;
 pub use downloader::HeaderDownload;
 pub use execution::Execution;
 pub use hashstate::{promote_clean_accounts, promote_clean_storage, HashState};
-pub use interhashes::{generate_interhashes, Interhashes};
+pub use interhashes::Interhashes;
 pub use sender_recovery::SenderRecovery;

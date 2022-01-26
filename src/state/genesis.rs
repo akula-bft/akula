@@ -96,7 +96,7 @@ where
 
     crate::stages::promote_clean_accounts(txn, etl_temp_dir).await?;
     crate::stages::promote_clean_storage(txn, etl_temp_dir).await?;
-    let state_root = crate::stages::generate_interhashes(txn, etl_temp_dir).await?;
+    let state_root = crate::trie::regenerate_intermediate_hashes(txn, etl_temp_dir, None).await?;
 
     let header = BlockHeader {
         parent_hash: H256::zero(),
