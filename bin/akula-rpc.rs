@@ -5,7 +5,12 @@ use akula::{
     },
     binutil::AkulaDataDir,
     consensus::engine_factory,
-    execution::{address::create_address, analysis_cache::*, processor::*},
+    execution::{
+        address::create_address,
+        analysis_cache::*,
+        evm::{execute, CallResult},
+        processor::*,
+    },
     kv::{tables, traits::*},
     models::*,
     res::chainspec::MAINNET,
@@ -16,7 +21,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use clap::Parser;
 use ethereum_types::{Address, U256, U64, *};
-use jsonrpc::common::{StoragePos, TxIndex, TxLog, TxReceipt, UncleIndex};
+use evmodin::{CallKind, Message as EvmMessage};
+use jsonrpc::common::{CallData, StoragePos, TxIndex, TxLog, TxReceipt, UncleIndex};
 use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -35,6 +41,8 @@ pub struct Opt {
 pub trait EthApi {
     #[method(name = "blockNumber")]
     async fn block_number(&self) -> RpcResult<BlockNumber>;
+    #[method(name = "call")]
+    async fn call(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<Bytes>;
     #[method(name = "getBalance")]
     async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256>;
     #[method(name = "getBlockByHash")]
@@ -111,6 +119,53 @@ where
             .get_progress(&self.db.begin().await?)
             .await?
             .unwrap_or(BlockNumber(0)))
+    }
+
+    async fn call(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<Bytes> {
+        let block_number = self
+            .db
+            .begin()
+            .await?
+            .get(tables::SyncStage, FINISH)
+            .await?
+            .unwrap();
+
+        let block_hash = canonical_hash::read(&self.db.begin().await?, block_number)
+            .await?
+            .unwrap();
+
+        let header = header::read(&self.db.begin().await?, block_hash, block_number)
+            .await?
+            .unwrap();
+
+        let mut state = buffer::Buffer::new(None, Some(block_number));
+        let mut analysis_cache = AnalysisCache::default();
+        let block_spec = MAINNET.collect_block_spec(block_number);
+
+        let msg_with_sender = MessageWithSender {
+            message: Message::Legacy {
+                chain_id: None,
+                nonce: 0,
+                gas_price: U256::from(0),
+                gas_limit: 0,
+                action: TransactionAction::Call(call_data.to),
+                value: call_data.value,
+                input: call_data.data,
+            },
+            sender: call_data.from,
+        };
+
+        Ok(execute(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &PartialHeader::from(header.clone()),
+            &block_spec,
+            &msg_with_sender,
+            call_data.gas as u64,
+        )
+        .await?
+        .output_data)
     }
 
     async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
@@ -404,6 +459,7 @@ where
         let mut i = 0;
         while i < receipt.logs.len() {
             logs.push(TxLog {
+                removed: false,
                 log_index: Some(U64::from(i)),
                 transaction_index: Some(U64::from(index)),
                 transaction_hash: Some(tx_hash),
