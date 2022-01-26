@@ -6,8 +6,10 @@ use super::headers::{
 use crate::{
     kv,
     kv::{tables::HeaderKey, traits::MutableTransaction},
+    models::BlockNumber,
 };
 use anyhow::format_err;
+use ethereum_types::U256;
 use parking_lot::RwLock;
 use std::{
     ops::{ControlFlow, DerefMut},
@@ -176,6 +178,21 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         Ok(())
     }
 
+    async fn read_parent_header_total_difficulty(
+        child: &BlockHeader,
+        tx: &RwTx,
+    ) -> anyhow::Result<Option<U256>> {
+        if child.number() == BlockNumber(0) {
+            return Ok(Some(U256::zero()));
+        }
+        let parent_block_num = BlockNumber(child.number().0 - 1);
+        let parent_header_key: HeaderKey = (parent_block_num, child.parent_hash());
+        let parent_total_difficulty = tx
+            .get(kv::tables::HeadersTotalDifficulty, parent_header_key)
+            .await?;
+        Ok(parent_total_difficulty)
+    }
+
     async fn save_header(&self, header: BlockHeader, tx: &RwTx) -> anyhow::Result<()> {
         let block_num = header.number();
         let header_hash = header.hash();
@@ -193,15 +210,17 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
             tx.set(kv::tables::LastHeader, Default::default(), header_hash)
                 .await?;
 
-            // TODO: fix - get the current value from db
-            let mut total_difficulty = ethereum_types::U256::zero();
-            total_difficulty += header.difficulty();
-            tx.set(
-                kv::tables::HeadersTotalDifficulty,
-                header_key,
-                total_difficulty,
-            )
-            .await?;
+            if let Some(mut total_difficulty) =
+                Self::read_parent_header_total_difficulty(&header, tx).await?
+            {
+                total_difficulty += header.difficulty();
+                tx.set(
+                    kv::tables::HeadersTotalDifficulty,
+                    header_key,
+                    total_difficulty,
+                )
+                .await?;
+            }
         }
 
         Ok(())
