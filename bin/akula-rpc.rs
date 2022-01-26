@@ -82,6 +82,12 @@ pub trait EthApi {
         block_number: BlockNumber,
         index: TxIndex,
     ) -> RpcResult<jsonrpc::common::Tx>;
+    #[method(name = "getTransactionCount")]
+    async fn get_transaction_count(
+        &self,
+        address: Address,
+        block_number: BlockNumber,
+    ) -> RpcResult<U64>;
     #[method(name = "getTransactionReceipt")]
     async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt>;
     #[method(name = "getUncleByBlockHashAndIndex")]
@@ -413,6 +419,19 @@ where
         Ok(json_tx::assemble_tx(block_hash, block_number, &msgs[i], i).await)
     }
 
+    async fn get_transaction_count(
+        &self,
+        address: Address,
+        block_number: BlockNumber,
+    ) -> RpcResult<U64> {
+        Ok(
+            account::read(&self.db.begin().await?, address, Some(block_number))
+                .await?
+                .map(|acc| acc.nonce)
+                .unwrap_or_else(U64::zero),
+        )
+    }
+
     async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt> {
         let block_number = tl::read(&self.db.begin().await?, tx_hash).await?.unwrap();
         let block_hash = canonical_hash::read(&self.db.begin().await?, block_number)
@@ -438,7 +457,11 @@ where
             .await?
             .unwrap();
 
-        let mut state = Buffer::new(&self.db.begin().await?, None, Some(BlockNumber(block_number.0 - 1)));
+        let mut state = Buffer::new(
+            &self.db.begin().await?,
+            None,
+            Some(BlockNumber(block_number.0 - 1)),
+        );
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(block_number);
