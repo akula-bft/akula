@@ -51,7 +51,7 @@ fn node_ref(rlp: &[u8]) -> Vec<u8> {
     wrap_hash(&hash)
 }
 
-type NodeCollector<'nc> = Box<dyn FnMut(&[u8], &Node) + 'nc>;
+type NodeCollector<'nc> = Box<dyn FnMut(&[u8], &Node) + Send + Sync + 'nc>;
 
 #[derive(Clone)]
 enum HashBuilderValue {

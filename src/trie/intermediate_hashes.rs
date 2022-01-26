@@ -19,6 +19,7 @@ use async_recursion::async_recursion;
 use ethereum_types::H256;
 use std::{marker::PhantomData, sync::Mutex};
 use tempfile::TempDir;
+use tokio::sync::Mutex as AsyncMutex;
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -96,7 +97,7 @@ where
     'tx: 'cu,
     C: MutableCursor<'tx, T>,
 {
-    cursor: &'cu mut C,
+    cursor: AsyncMutex<&'cu mut C>,
     changed: &'ps mut PrefixSet,
     prefix: Vec<u8>,
     stack: Vec<CursorSubNode>,
@@ -116,7 +117,7 @@ where
         prefix: &[u8],
     ) -> Result<Cursor<'cu, 'tx, 'ps, C, T>> {
         let mut new_cursor = Self {
-            cursor,
+            cursor: AsyncMutex::new(cursor),
             changed,
             prefix: prefix.to_vec(),
             stack: vec![],
@@ -188,9 +189,9 @@ where
     async fn consume_node(&mut self, to: &[u8], exact: bool) -> Result<()> {
         let db_key = [self.prefix.as_slice(), to].concat().to_vec();
         let entry = if exact {
-            self.cursor.seek_exact(db_key).await?
+            self.cursor.lock().await.seek_exact(db_key).await?
         } else {
-            self.cursor.seek(db_key).await?
+            self.cursor.lock().await.seek(db_key).await?
         };
 
         if entry.is_none() && !exact {
@@ -231,7 +232,7 @@ where
         self.update_skip_state();
 
         if entry.is_some() && (!self.can_skip_state || nibble != -1) {
-            self.cursor.delete_current().await?;
+            self.cursor.lock().await.delete_current().await?;
         }
 
         Ok(())
