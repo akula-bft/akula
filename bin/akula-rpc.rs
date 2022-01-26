@@ -15,7 +15,7 @@ use akula::{
     models::*,
     res::chainspec::MAINNET,
     stagedsync::stages::*,
-    state::buffer,
+    state::buffer::Buffer,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -138,7 +138,7 @@ where
             .await?
             .unwrap();
 
-        let mut state = buffer::Buffer::new(None, Some(block_number));
+        let mut state = Buffer::new(&self.db.begin().await?, None, Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
         let block_spec = MAINNET.collect_block_spec(block_number);
 
@@ -438,7 +438,7 @@ where
             .await?
             .unwrap();
 
-        let mut state = buffer::Buffer::new(None, Some(BlockNumber(block_number.0 - 1)));
+        let mut state = Buffer::new(&self.db.begin().await?, None, Some(BlockNumber(block_number.0 - 1)));
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(block_number);
