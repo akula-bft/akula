@@ -8,20 +8,20 @@ use akula::{
     execution::{
         address::create_address,
         analysis_cache::*,
-        evm::{execute, CallResult},
+        evm::{execute},
         processor::*,
     },
     kv::{tables, traits::*},
     models::*,
     res::chainspec::MAINNET,
     stagedsync::stages::*,
-    state::buffer::Buffer,
+    Buffer,
+    IntraBlockState,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
 use clap::Parser;
 use ethereum_types::{Address, U256, U64, *};
-use evmodin::{CallKind, Message as EvmMessage};
 use jsonrpc::common::{CallData, StoragePos, TxIndex, TxLog, TxReceipt, UncleIndex};
 use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
 use std::{future::pending, net::SocketAddr, sync::Arc};
@@ -43,6 +43,8 @@ pub trait EthApi {
     async fn block_number(&self) -> RpcResult<BlockNumber>;
     #[method(name = "call")]
     async fn call(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<Bytes>;
+    #[method(name = "estimateGas")]
+    async fn estimate_gas(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<U64>;
     #[method(name = "getBalance")]
     async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256>;
     #[method(name = "getBlockByHash")]
@@ -144,34 +146,132 @@ where
             .await?
             .unwrap();
 
-        let mut state = Buffer::new(&self.db.begin().await?, None, Some(block_number));
+        let mut state = Buffer::new(&self.db.begin().await?, BlockNumber(0), Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
         let block_spec = MAINNET.collect_block_spec(block_number);
 
+        let value = match call_data.value {
+            None => Default::default(),
+            Some(v) => v,
+        };
+
+        let input = match call_data.data {
+            None => Default::default(),
+            Some(i) => i,
+        };
+
+        let sender = match call_data.from {
+            None => Default::default(),
+            Some(s) => s,
+        };
+
         let msg_with_sender = MessageWithSender {
             message: Message::Legacy {
-                chain_id: None,
+                chain_id: Some(ChainId(1)),
                 nonce: 0,
                 gas_price: U256::from(0),
                 gas_limit: 0,
                 action: TransactionAction::Call(call_data.to),
-                value: call_data.value,
-                input: call_data.data,
+                value,
+                input,
             },
-            sender: call_data.from,
+            sender,
+        };
+
+        let gas = match call_data.gas {
+            None => Default::default(),
+            Some(g) => g,
         };
 
         Ok(execute(
-            &mut state,
+            &mut IntraBlockState::new(&mut state),
             None,
             &mut analysis_cache,
             &PartialHeader::from(header.clone()),
             &block_spec,
             &msg_with_sender,
-            call_data.gas as u64,
+            gas,
         )
         .await?
         .output_data)
+    }
+
+    async fn estimate_gas(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<U64> {
+        let block_number = self
+            .db
+            .begin()
+            .await?
+            .get(tables::SyncStage, FINISH)
+            .await?
+            .unwrap();
+
+        let block_hash = canonical_hash::read(&self.db.begin().await?, block_number)
+            .await?
+            .unwrap();
+
+        let header = header::read(&self.db.begin().await?, block_hash, block_number)
+            .await?
+            .unwrap();
+
+        let nonce = account::read(&self.db.begin().await?, call_data.from, Some(block_number))
+            .await?
+            .map(|acc| acc.nonce)
+            .unwrap();
+
+            let value = match call_data.value {
+                None => Default::default(),
+                Some(v) => v,
+            };
+    
+            let input = match call_data.data {
+                None => Default::default(),
+                Some(i) => i,
+            };
+    
+            let sender = match call_data.from {
+                None => Default::default(),
+                Some(s) => s,
+            };
+
+        let msg = MessageWithSender {
+            message: Message::Legacy {
+                chain_id: Some(ChainId(1)),
+                nonce,
+                gas_price: Default::default(),
+                gas_limit: header.gas_limit,
+                action: TransactionAction::Call(call_data.to),
+                value,
+                input,
+            },
+            sender,
+        };
+
+        let block = BlockBodyWithSenders {
+            transactions: vec![msg],
+            ommers: vec![],
+        };
+        block.transactions.push(msg);
+
+        let header = header::read(&self.db.begin().await?, block_hash, block_number)
+            .await?
+            .unwrap();
+
+        let mut state = Buffer::new(&self.db.begin().await?, BlockNumber(0), Some(block_number));
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(block_number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &PartialHeader::from(header.clone()),
+            &block,
+            &block_spec,
+        );
+
+        let receipts = processor.execute_block_no_post_validation().await?;
+        Ok(U64::from(receipts[0].cumulative_gas_used))
     }
 
     async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
@@ -424,12 +524,10 @@ where
         address: Address,
         block_number: BlockNumber,
     ) -> RpcResult<U64> {
-        Ok(
-            account::read(&self.db.begin().await?, address, Some(block_number))
+        Ok(U64::from(account::read(&self.db.begin().await?, address, Some(block_number))
                 .await?
                 .map(|acc| acc.nonce)
-                .unwrap_or_else(U64::zero),
-        )
+                .unwrap()))
     }
 
     async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt> {
@@ -482,7 +580,6 @@ where
         let mut i = 0;
         while i < receipt.logs.len() {
             logs.push(TxLog {
-                removed: false,
                 log_index: Some(U64::from(i)),
                 transaction_index: Some(U64::from(index)),
                 transaction_hash: Some(tx_hash),
