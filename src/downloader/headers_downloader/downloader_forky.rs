@@ -2,7 +2,9 @@ use super::{
     downloader_stage_loop::DownloaderStageLoop,
     headers::{
         header_slices,
-        header_slices::{align_block_num_to_slice_start, HeaderSlices},
+        header_slices::{
+            align_block_num_to_slice_start, is_block_num_aligned_to_slice_start, HeaderSlices,
+        },
     },
     headers_ui::HeaderSlicesView,
     stages::*,
@@ -101,6 +103,12 @@ impl DownloaderForky {
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderForkyReport> {
         let start_block_num = start_block_id.number;
+        if !is_block_num_aligned_to_slice_start(start_block_num) {
+            return Err(anyhow::format_err!(
+                "expected an aligned start block, got {}",
+                start_block_num.0
+            ));
+        }
 
         // Assuming we've downloaded all but last 90K headers in previous phases
         // we need to download them now, plus a bit more,
@@ -117,6 +125,12 @@ impl DownloaderForky {
                 fork_header_slices: previous_run_fork_header_slices,
             });
         }
+
+        // don't use previous_run_header_slices if start_block_num is outside of its range
+        let previous_run_header_slices = previous_run_header_slices
+            .filter(|slices| slices.find_by_block_num(start_block_num).is_some());
+        let previous_run_fork_header_slices =
+            previous_run_fork_header_slices.filter(|_| previous_run_header_slices.is_some());
 
         let header_slices = previous_run_header_slices.unwrap_or_else(|| {
             Arc::new(Self::make_header_slices(
