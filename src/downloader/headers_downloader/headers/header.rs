@@ -12,6 +12,14 @@ pub struct BlockHeader {
 }
 
 impl BlockHeader {
+    pub fn new(header: BaseBlockHeader, known_hash: H256) -> Self {
+        Self {
+            header,
+            rlp_repr_cached: None,
+            hash_cached: Some(known_hash),
+        }
+    }
+
     pub fn difficulty(&self) -> U256 {
         self.header.difficulty
     }
