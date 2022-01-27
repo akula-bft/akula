@@ -99,6 +99,7 @@ bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 proptest = "1.0.0"
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4.2"
+fdlimit = "0.2"
 
 [[bin]]
 path = "bin/akula.rs"

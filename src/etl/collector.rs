@@ -225,8 +225,9 @@ mod tests {
 
     #[tokio::test]
     async fn collect_chunks() {
+        fdlimit::raise_fd_limit();
         // generate random entries
-        let mut entries: Vec<(_, _)> = (0..5000)
+        let mut entries: Vec<(_, _)> = (0..10000)
             .map(|_| (rand::random(), BlockNumber(rand::random())))
             .collect();
         let db = new_mem_database().unwrap();
