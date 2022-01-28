@@ -17,8 +17,9 @@ use crate::{
 use anyhow::{bail, Result};
 use async_recursion::async_recursion;
 use ethereum_types::H256;
-use std::{cell::RefCell, marker::PhantomData};
+use std::{marker::PhantomData, sync::Mutex};
 use tempfile::TempDir;
+use tokio::sync::Mutex as AsyncMutex;
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -96,7 +97,7 @@ where
     'tx: 'cu,
     C: MutableCursor<'tx, T>,
 {
-    cursor: &'cu mut C,
+    cursor: AsyncMutex<&'cu mut C>,
     changed: &'ps mut PrefixSet,
     prefix: Vec<u8>,
     stack: Vec<CursorSubNode>,
@@ -116,7 +117,7 @@ where
         prefix: &[u8],
     ) -> Result<Cursor<'cu, 'tx, 'ps, C, T>> {
         let mut new_cursor = Self {
-            cursor,
+            cursor: AsyncMutex::new(cursor),
             changed,
             prefix: prefix.to_vec(),
             stack: vec![],
@@ -188,9 +189,9 @@ where
     async fn consume_node(&mut self, to: &[u8], exact: bool) -> Result<()> {
         let db_key = [self.prefix.as_slice(), to].concat().to_vec();
         let entry = if exact {
-            self.cursor.seek_exact(db_key).await?
+            self.cursor.lock().await.seek_exact(db_key).await?
         } else {
-            self.cursor.seek(db_key).await?
+            self.cursor.lock().await.seek(db_key).await?
         };
 
         if entry.is_none() && !exact {
@@ -231,13 +232,13 @@ where
         self.update_skip_state();
 
         if entry.is_some() && (!self.can_skip_state || nibble != -1) {
-            self.cursor.delete_current().await?;
+            self.cursor.lock().await.delete_current().await?;
         }
 
         Ok(())
     }
 
-    #[async_recursion(?Send)]
+    #[async_recursion]
     async fn move_to_next_sibling(
         &mut self,
         allow_root_to_child_nibble_within_subnode: bool,
@@ -259,8 +260,8 @@ where
         sn.nibble += 1;
 
         if sn.node.is_none() {
-            self.consume_node(self.key().as_ref().unwrap(), false)
-                .await?;
+            let key = self.key().clone();
+            self.consume_node(key.as_ref().unwrap(), false).await?;
             return Ok(());
         }
 
@@ -302,9 +303,9 @@ where
     'tmp: 'co,
     'co: 'nc,
 {
-    txn: &'tx mut Tx,
+    txn: &'tx Tx,
     hb: HashBuilder<'nc>,
-    storage_collector: RefCell<&'co mut TableCollector<'tmp, tables::TrieStorage>>,
+    storage_collector: Mutex<&'co mut TableCollector<'tmp, tables::TrieStorage>>,
     rlp: Vec<u8>,
     _marker: PhantomData<&'db ()>,
 }
@@ -317,14 +318,14 @@ where
     'co: 'nc,
 {
     fn new(
-        txn: &'tx mut Tx,
+        txn: &'tx Tx,
         account_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
         storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
     ) -> Self {
         let mut instance = Self {
             txn,
             hb: HashBuilder::new(),
-            storage_collector: RefCell::new(storage_collector),
+            storage_collector: Mutex::new(storage_collector),
             rlp: vec![],
             _marker: PhantomData,
         };
@@ -404,7 +405,8 @@ where
         hb.node_collector = Some(Box::new(|unpacked_storage_key: &[u8], node: &Node| {
             let key = [key_with_inc, unpacked_storage_key].concat();
             self.storage_collector
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .push(key, marshal_node(node));
         }));
 
@@ -452,7 +454,7 @@ where
 }
 
 async fn do_increment_intermediate_hashes<'db, 'tx, Tx>(
-    txn: &'tx mut Tx,
+    txn: &'tx Tx,
     etl_dir: &TempDir,
     expected_root: Option<H256>,
     changed: &mut PrefixSet,
@@ -487,7 +489,7 @@ where
     Ok(root)
 }
 
-async fn gather_changes<'db, 'tx, Tx>(txn: &'tx mut Tx, from: BlockNumber) -> Result<PrefixSet>
+async fn gather_changes<'db, 'tx, Tx>(txn: &'tx Tx, from: BlockNumber) -> Result<PrefixSet>
 where
     'db: 'tx,
     Tx: MutableTransaction<'db>,
@@ -526,7 +528,7 @@ where
 }
 
 pub async fn increment_intermediate_hashes<'db, 'tx, Tx>(
-    txn: &'tx mut Tx,
+    txn: &'tx Tx,
     etl_dir: &TempDir,
     from: BlockNumber,
     expected_root: Option<H256>,
@@ -540,7 +542,7 @@ where
 }
 
 pub async fn regenerate_intermediate_hashes<'db, 'tx, Tx>(
-    txn: &'tx mut Tx,
+    txn: &'tx Tx,
     etl_dir: &TempDir,
     expected_root: Option<H256>,
 ) -> Result<H256>
@@ -1075,8 +1077,8 @@ mod property_test {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let mut tx = db.begin_mutable().await.unwrap();
-        let root = regenerate_intermediate_hashes(&mut tx, &temp_dir, None)
+        let tx = db.begin_mutable().await.unwrap();
+        let root = regenerate_intermediate_hashes(&tx, &temp_dir, None)
             .await
             .unwrap();
         tx.commit().await.unwrap();
@@ -1094,9 +1096,9 @@ mod property_test {
             .unwrap();
         tx.commit().await.unwrap();
 
-        let mut tx = db.begin_mutable().await.unwrap();
+        let tx = db.begin_mutable().await.unwrap();
         let root = increment_intermediate_hashes(
-            &mut tx,
+            &tx,
             &temp_dir,
             BlockNumber(test_data.before_increment as u64),
             None,
