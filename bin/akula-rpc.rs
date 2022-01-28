@@ -5,18 +5,12 @@ use akula::{
     },
     binutil::AkulaDataDir,
     consensus::engine_factory,
-    execution::{
-        address::create_address,
-        analysis_cache::*,
-        evm::{execute},
-        processor::*,
-    },
+    execution::{address::create_address, analysis_cache::*, evm::execute, processor::*},
     kv::{tables, traits::*},
     models::*,
     res::chainspec::MAINNET,
     stagedsync::stages::*,
-    Buffer,
-    IntraBlockState,
+    Buffer, IntraBlockState,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -218,20 +212,20 @@ where
             .map(|acc| acc.nonce)
             .unwrap();
 
-            let value = match call_data.value {
-                None => Default::default(),
-                Some(v) => v,
-            };
-    
-            let input = match call_data.data {
-                None => Default::default(),
-                Some(i) => i,
-            };
-    
-            let sender = match call_data.from {
-                None => Default::default(),
-                Some(s) => s,
-            };
+        let value = match call_data.value {
+            None => Default::default(),
+            Some(v) => v,
+        };
+
+        let input = match call_data.data {
+            None => Default::default(),
+            Some(i) => i,
+        };
+
+        let sender = match call_data.from {
+            None => Default::default(),
+            Some(s) => s,
+        };
 
         let msg = MessageWithSender {
             message: Message::Legacy {
@@ -250,6 +244,7 @@ where
             transactions: vec![msg],
             ommers: vec![],
         };
+
         block.transactions.push(msg);
 
         let header = header::read(&self.db.begin().await?, block_hash, block_number)
@@ -271,6 +266,7 @@ where
         );
 
         let receipts = processor.execute_block_no_post_validation().await?;
+
         Ok(U64::from(receipts[0].cumulative_gas_used))
     }
 
@@ -292,68 +288,10 @@ where
             .await?
             .unwrap();
 
-        let block_body =
-            block_body::read_without_senders(&self.db.begin().await?, block_hash, block_number)
-                .await?
-                .unwrap();
-
-        let msgs = block_body.transactions;
-        let mut index = 0;
-        let mut msg_hashes: Vec<jsonrpc::common::Transaction> = Vec::new();
-        while index < msgs.len() {
-            match full_tx_obj {
-                false => msg_hashes.push(jsonrpc::common::Transaction::Partial(msgs[index].hash())),
-                true => {
-                    let tx =
-                        json_tx::assemble_tx(block_hash, block_number, &msgs[index], index).await;
-                    msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(tx)));
-                }
-            }
-            index = index + 1;
-        }
-
-        let total_difficulty = td::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        let size = rlp::encode(
-            &(block_body::read_without_senders(&self.db.begin().await?, block_hash, block_number)
-                .await?
-                .unwrap()),
+        Ok(
+            json_obj::assemble_block(&self.db.begin().await?, block_hash, block_number, true)
+                .await?,
         )
-        .len();
-
-        let ommers = block_body.ommers;
-        let mut ommer_hashes: Vec<H256> = Vec::new();
-        for ommer in ommers.iter() {
-            ommer_hashes.push(ommer.hash());
-        }
-
-        let header = header::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        Ok(jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(block_hash),
-            parent_hash: header.parent_hash,
-            nonce: Some(header.nonce),
-            sha3_uncles: header.ommers_hash,
-            logs_bloom: Some(header.logs_bloom),
-            transactions_root: header.transactions_root,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            miner: header.beneficiary,
-            difficulty: header.difficulty,
-            total_difficulty,
-            extra_data: header.extra_data,
-            size: U64::from(size),
-            gas_limit: U64::from(header.gas_limit),
-            gas_used: U64::from(header.gas_used),
-            timestamp: U64::from(header.timestamp),
-            transactions: msg_hashes,
-            uncles: ommer_hashes,
-        })
     }
 
     async fn get_block_by_number(
@@ -365,68 +303,10 @@ where
             .await?
             .unwrap();
 
-        let block_body =
-            block_body::read_without_senders(&self.db.begin().await?, block_hash, block_number)
-                .await?
-                .unwrap();
-
-        let msgs = block_body.transactions;
-        let mut index = 0;
-        let mut msg_hashes: Vec<jsonrpc::common::Transaction> = Vec::new();
-        while index < msgs.len() {
-            match full_tx_obj {
-                false => msg_hashes.push(jsonrpc::common::Transaction::Partial(msgs[index].hash())),
-                true => {
-                    let tx =
-                        json_tx::assemble_tx(block_hash, block_number, &msgs[index], index).await;
-                    msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(tx)));
-                }
-            }
-            index = index + 1;
-        }
-
-        let total_difficulty = td::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        let size = rlp::encode(
-            &(block_body::read_without_senders(&self.db.begin().await?, block_hash, block_number)
-                .await?
-                .unwrap()),
+        Ok(
+            json_obj::assemble_block(&self.db.begin().await?, block_hash, block_number, true)
+                .await?,
         )
-        .len();
-
-        let ommers = block_body.ommers;
-        let mut ommer_hashes: Vec<H256> = Vec::new();
-        for ommer in ommers.iter() {
-            ommer_hashes.push(ommer.hash());
-        }
-
-        let header = header::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        Ok(jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(block_hash),
-            parent_hash: header.parent_hash,
-            nonce: Some(header.nonce),
-            sha3_uncles: header.ommers_hash,
-            logs_bloom: Some(header.logs_bloom),
-            transactions_root: header.transactions_root,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            miner: header.beneficiary,
-            difficulty: header.difficulty,
-            total_difficulty,
-            extra_data: header.extra_data,
-            size: U64::from(size),
-            gas_limit: U64::from(header.gas_limit),
-            gas_used: U64::from(header.gas_used),
-            timestamp: U64::from(header.timestamp),
-            transactions: msg_hashes,
-            uncles: ommer_hashes,
-        })
     }
 
     async fn get_block_tx_count_by_hash(&self, block_hash: H256) -> RpcResult<U64> {
@@ -497,7 +377,8 @@ where
 
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
-        Ok(json_tx::assemble_tx(block_hash, block_number, &msgs[i], i).await)
+
+        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i).await)
     }
 
     async fn get_tx_by_block_number_and_index(
@@ -516,7 +397,8 @@ where
 
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
-        Ok(json_tx::assemble_tx(block_hash, block_number, &msgs[i], i).await)
+
+        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i).await)
     }
 
     async fn get_transaction_count(
@@ -524,10 +406,12 @@ where
         address: Address,
         block_number: BlockNumber,
     ) -> RpcResult<U64> {
-        Ok(U64::from(account::read(&self.db.begin().await?, address, Some(block_number))
+        Ok(U64::from(
+            account::read(&self.db.begin().await?, address, Some(block_number))
                 .await?
                 .map(|acc| acc.nonce)
-                .unwrap()))
+                .unwrap(),
+        ))
     }
 
     async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt> {
@@ -557,7 +441,7 @@ where
 
         let mut state = Buffer::new(
             &self.db.begin().await?,
-            None,
+            BlockNumber(0),
             Some(BlockNumber(block_number.0 - 1)),
         );
         let mut analysis_cache = AnalysisCache::default();
@@ -638,65 +522,13 @@ where
             .await?
             .unwrap();
 
-        let ommer = block_body::read_without_senders(
+        Ok(json_obj::assemble_block(
             &self.db.begin().await?,
             ommer_hash,
             ommer_block_number,
+            true,
         )
-        .await?
-        .unwrap();
-
-        let msgs = ommer.transactions;
-        let mut index = 0;
-        let mut msg_hashes: Vec<jsonrpc::common::Transaction> = Vec::new();
-        while index < msgs.len() {
-            let tx = json_tx::assemble_tx(block_hash, block_number, &msgs[index], index).await;
-            msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(tx)));
-            index = index + 1;
-        }
-
-        let total_difficulty = td::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        let size = rlp::encode(
-            &(block_body::read_without_senders(&self.db.begin().await?, block_hash, block_number)
-                .await?
-                .unwrap()),
-        )
-        .len();
-
-        let ommers = ommer.ommers;
-        let mut ommer_hashes: Vec<H256> = Vec::new();
-        for ommer in ommers.iter() {
-            ommer_hashes.push(ommer.hash());
-        }
-
-        let header = header::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        Ok(jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(block_hash),
-            parent_hash: header.parent_hash,
-            nonce: Some(header.nonce),
-            sha3_uncles: header.ommers_hash,
-            logs_bloom: Some(header.logs_bloom),
-            transactions_root: header.transactions_root,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            miner: header.beneficiary,
-            difficulty: header.difficulty,
-            total_difficulty,
-            extra_data: header.extra_data,
-            size: U64::from(size),
-            gas_limit: U64::from(header.gas_limit),
-            gas_used: U64::from(header.gas_used),
-            timestamp: U64::from(header.timestamp),
-            transactions: msg_hashes,
-            uncles: ommer_hashes,
-        })
+        .await?)
     }
 
     async fn get_uncle_by_block_number_and_index(
@@ -719,65 +551,13 @@ where
             .await?
             .unwrap();
 
-        let ommer = block_body::read_without_senders(
+        Ok(json_obj::assemble_block(
             &self.db.begin().await?,
             ommer_hash,
             ommer_block_number,
+            true,
         )
-        .await?
-        .unwrap();
-
-        let msgs = ommer.transactions;
-        let mut index = 0;
-        let mut msg_hashes: Vec<jsonrpc::common::Transaction> = Vec::new();
-        while index < msgs.len() {
-            let tx = json_tx::assemble_tx(block_hash, block_number, &msgs[index], index).await;
-            msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(tx)));
-            index = index + 1;
-        }
-
-        let total_difficulty = td::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        let size = rlp::encode(
-            &(block_body::read_without_senders(&self.db.begin().await?, block_hash, block_number)
-                .await?
-                .unwrap()),
-        )
-        .len();
-
-        let ommers = ommer.ommers;
-        let mut ommer_hashes: Vec<H256> = Vec::new();
-        for ommer in ommers.iter() {
-            ommer_hashes.push(ommer.hash());
-        }
-
-        let header = header::read(&self.db.begin().await?, block_hash, block_number)
-            .await?
-            .unwrap();
-
-        Ok(jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(block_hash),
-            parent_hash: header.parent_hash,
-            nonce: Some(header.nonce),
-            sha3_uncles: header.ommers_hash,
-            logs_bloom: Some(header.logs_bloom),
-            transactions_root: header.transactions_root,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            miner: header.beneficiary,
-            difficulty: header.difficulty,
-            total_difficulty,
-            extra_data: header.extra_data,
-            size: U64::from(size),
-            gas_limit: U64::from(header.gas_limit),
-            gas_used: U64::from(header.gas_used),
-            timestamp: U64::from(header.timestamp),
-            transactions: msg_hashes,
-            uncles: ommer_hashes,
-        })
+        .await?)
     }
 
     async fn get_uncle_count_by_block_hash(&self, block_hash: H256) -> RpcResult<U64> {
@@ -807,7 +587,7 @@ where
     }
 }
 
-pub mod json_tx {
+pub mod json_obj {
     use super::*;
 
     pub async fn assemble_tx(
@@ -842,6 +622,71 @@ pub mod json_tx {
             r: msg.r(),
             s: msg.s(),
         }
+    }
+
+    pub async fn assemble_block<'db, Tx: Transaction<'db>>(
+        tx: &Tx,
+        block_hash: H256,
+        block_number: BlockNumber,
+        full_tx_obj: bool,
+    ) -> Result<jsonrpc::common::Block, anyhow::Error> {
+        let block_body = block_body::read_without_senders(tx, block_hash, block_number)
+            .await?
+            .unwrap();
+
+        let msgs = block_body.transactions;
+        let mut index = 0;
+        let mut msg_hashes: Vec<jsonrpc::common::Transaction> = Vec::new();
+        while index < msgs.len() {
+            match full_tx_obj {
+                false => msg_hashes.push(jsonrpc::common::Transaction::Partial(msgs[index].hash())),
+                true => {
+                    let tx =
+                        json_obj::assemble_tx(block_hash, block_number, &msgs[index], index).await;
+                    msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(tx)));
+                }
+            }
+            index = index + 1;
+        }
+
+        let total_difficulty = td::read(tx, block_hash, block_number).await?.unwrap();
+
+        let size = rlp::encode(
+            &(block_body::read_without_senders(tx, block_hash, block_number)
+                .await?
+                .unwrap()),
+        )
+        .len();
+
+        let ommers = block_body.ommers;
+        let mut ommer_hashes: Vec<H256> = Vec::new();
+        for ommer in ommers.iter() {
+            ommer_hashes.push(ommer.hash());
+        }
+
+        let header = header::read(tx, block_hash, block_number).await?.unwrap();
+
+        Ok(jsonrpc::common::Block {
+            number: Some(U64::from(header.number.0)),
+            hash: Some(block_hash),
+            parent_hash: header.parent_hash,
+            nonce: Some(header.nonce),
+            sha3_uncles: header.ommers_hash,
+            logs_bloom: Some(header.logs_bloom),
+            transactions_root: header.transactions_root,
+            state_root: header.state_root,
+            receipts_root: header.receipts_root,
+            miner: header.beneficiary,
+            difficulty: header.difficulty,
+            total_difficulty,
+            extra_data: header.extra_data,
+            size: U64::from(size),
+            gas_limit: U64::from(header.gas_limit),
+            gas_used: U64::from(header.gas_used),
+            timestamp: U64::from(header.timestamp),
+            transactions: msg_hashes,
+            uncles: ommer_hashes,
+        })
     }
 }
 
