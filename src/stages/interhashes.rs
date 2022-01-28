@@ -2,7 +2,10 @@ use crate::{
     accessors,
     kv::{tables, traits::MutableTransaction},
     models::*,
-    stagedsync::stage::{ExecOutput, Stage, StageInput, UnwindInput, UnwindOutput},
+    stagedsync::{
+        stage::{ExecOutput, Stage, StageInput, UnwindInput, UnwindOutput},
+        stages::*,
+    },
     stages::stage_util::should_do_clean_promotion,
     trie::{increment_intermediate_hashes, regenerate_intermediate_hashes},
     StageId,
@@ -34,7 +37,7 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("Interhashes")
+        INTERMEDIATE_HASHES
     }
 
     fn description(&self) -> &'static str {
