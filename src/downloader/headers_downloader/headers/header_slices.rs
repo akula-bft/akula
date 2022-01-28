@@ -473,6 +473,10 @@ pub fn align_block_num_to_slice_start(num: BlockNumber) -> BlockNumber {
     BlockNumber(num.0 / slice_size * slice_size)
 }
 
+pub fn is_block_num_aligned_to_slice_start(num: BlockNumber) -> bool {
+    num.0 % (HEADER_SLICE_SIZE as u64) == 0
+}
+
 impl HeaderSlice {
     pub fn len(&self) -> usize {
         self.headers.as_ref().map_or(0, |headers| headers.len())

@@ -74,7 +74,7 @@ pub enum Message {
 }
 
 impl Message {
-    pub fn eth_id(self: &Message) -> EthMessageId {
+    pub fn eth_id(&self) -> EthMessageId {
         match self {
             Message::NewBlockHashes(_) => EthMessageId::NewBlockHashes,
             Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,

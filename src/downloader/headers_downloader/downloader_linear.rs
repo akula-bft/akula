@@ -2,7 +2,10 @@ use super::{
     downloader_stage_loop::DownloaderStageLoop,
     headers::{
         header_slices,
-        header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+        header_slices::{
+            align_block_num_to_slice_start, is_block_num_aligned_to_slice_start, HeaderSliceStatus,
+            HeaderSlices,
+        },
     },
     headers_ui::HeaderSlicesView,
     stages::*,
@@ -73,6 +76,12 @@ impl DownloaderLinear {
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderLinearReport> {
         let start_block_num = start_block_id.number;
+        if !is_block_num_aligned_to_slice_start(start_block_num) {
+            return Err(anyhow::format_err!(
+                "expected an aligned start block, got {}",
+                start_block_num.0
+            ));
+        }
 
         let trusted_len: u64 = 90_000;
 
