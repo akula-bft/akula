@@ -17,7 +17,7 @@ use rlp::{Decodable, Encodable};
 use serde::{Deserialize, Serialize};
 use std::{iter::Step, mem::size_of, ops::Add};
 
-pub use ethereum_types::{Address, Bloom, H160, H256, H512, H64, U512, U64};
+pub use ethereum_types::{Address, Bloom, H128, H160, H256, H512, H64, U512, U64};
 pub use ethnum::*;
 
 pub const KECCAK_LENGTH: usize = H256::len_bytes();

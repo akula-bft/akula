@@ -57,3 +57,33 @@ impl PrefixSet {
         self.sorted = false;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prefix_set() {
+        let mut ps = PrefixSet::new();
+        assert!(!ps.contains(b""));
+        assert!(!ps.contains(b"a"));
+
+        ps.insert(b"abc");
+        ps.insert(b"fg");
+        ps.insert(b"abc"); // duplicate
+        ps.insert(b"ab");
+
+        assert!(ps.contains(b""));
+        assert!(ps.contains(b"a"));
+        assert!(!ps.contains(b"aac"));
+        assert!(ps.contains(b"ab"));
+        assert!(ps.contains(b"abc"));
+        assert!(!ps.contains(b"abcd"));
+        assert!(!ps.contains(b"b"));
+        assert!(ps.contains(b"f"));
+        assert!(ps.contains(b"fg"));
+        assert!(!ps.contains(b"fgk"));
+        assert!(!ps.contains(b"fy"));
+        assert!(!ps.contains(b"yyz"));
+    }
+}

@@ -2,7 +2,7 @@
 use crate::{models::KECCAK_LENGTH, trie::util::assert_subset};
 use ethereum_types::H256;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Node {
     state_mask: u16,
     tree_mask: u16,
@@ -116,4 +116,28 @@ pub(crate) fn unmarshal_node(v: &[u8]) -> Option<Node> {
     Some(Node::new(
         state_mask, tree_mask, hash_mask, hashes, root_hash,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hex_literal::hex;
+
+    #[test]
+    fn node_marshalling() {
+        let n = Node::new(
+            0xf607,
+            0x0005,
+            0x4004,
+            vec![
+                hex!("90d53cd810cc5d4243766cd4451e7b9d14b736a1148b26b3baac7617f617d321").into(),
+                hex!("cc35c964dda53ba6c0b87798073a9628dbc9cd26b5cce88eb69655a9c609caf1").into(),
+            ],
+            Some(hex!("aaaabbbb0006767767776fffffeee44444000005567645600000000eeddddddd").into()),
+        );
+
+        // REQUIRE(std::bitset<16>(n.hash_mask()).count() == n.hashes().size());
+
+        assert_eq!(unmarshal_node(&marshal_node(&n)).unwrap(), n);
+    }
 }
