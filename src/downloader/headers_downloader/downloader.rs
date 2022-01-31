@@ -154,8 +154,8 @@ impl Downloader {
             .run::<RwTx>(
                 db_transaction,
                 linear_start_block_id,
-                linear_estimated_top_block_num,
                 max_blocks_count,
+                linear_estimated_top_block_num,
                 ui_system.clone(),
             )
             .await?;
@@ -170,6 +170,7 @@ impl Downloader {
                 db_transaction,
                 forky_start_block_id,
                 max_blocks_count,
+                linear_report.target_final_block_num,
                 previous_run_state
                     .as_ref()
                     .and_then(|state| state.forky_header_slices.clone()),
