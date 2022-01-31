@@ -18,7 +18,7 @@ use crate::{
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
-use std::{sync::Arc, time::Duration};
+use std::{ops::ControlFlow, sync::Arc, time::Duration};
 
 #[derive(Debug)]
 pub struct DownloaderForky {
@@ -102,6 +102,23 @@ impl DownloaderForky {
         let header_slices =
             HeaderSlices::from_slices_vec(slices, Some(start_block_num), Some(max_slices), None);
         Ok(header_slices)
+    }
+
+    fn downloaded_count(header_slices: &HeaderSlices, start_block_num: BlockNumber) -> usize {
+        let mut count = 0;
+        header_slices.try_fold((), |_, slice_lock| {
+            let slice = slice_lock.read();
+
+            if slice.status == HeaderSliceStatus::Saved {
+                if slice.start_block_num >= start_block_num {
+                    count += slice.len();
+                }
+                ControlFlow::Continue(())
+            } else {
+                ControlFlow::Break(())
+            }
+        });
+        count
     }
 
     fn build_stages<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
@@ -229,9 +246,11 @@ impl DownloaderForky {
 
         stages.run(timeout_stage_is_over).await;
 
+        let loaded_count = Self::downloaded_count(header_slices.as_ref(), start_block_num);
+
         let report = DownloaderForkyReport {
-            loaded_count: (header_slices.min_block_num().0 - start_block_num.0) as usize,
-            final_block_num: header_slices.min_block_num(),
+            loaded_count,
+            final_block_num: BlockNumber(start_block_num.0 + loaded_count as u64),
             header_slices: Some(header_slices),
             fork_header_slices: Some(fork_header_slices),
         };

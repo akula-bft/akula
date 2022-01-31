@@ -1,8 +1,12 @@
 use super::{
     average_delta_counter::AverageDeltaCounter,
-    headers::header_slices::{HeaderSliceStatus, HeaderSlices},
+    headers::{
+        header_slices,
+        header_slices::{HeaderSliceStatus, HeaderSlices},
+    },
     ui_view::UIView,
 };
+use crate::models::BlockNumber;
 use crossterm::{cursor, style, terminal, QueueableCommand};
 use std::{
     cell::RefCell,
@@ -30,6 +34,11 @@ impl UIView for HeaderSlicesView {
     fn draw(&self) -> anyhow::Result<()> {
         let phase_name = &self.phase_name;
         let min_block_num = self.header_slices.min_block_num();
+        let saved_blocks_count = self
+            .header_slices
+            .count_slices_in_status(HeaderSliceStatus::Saved)
+            * header_slices::HEADER_SLICE_SIZE;
+        let current_block_num = BlockNumber(min_block_num.0 + saved_blocks_count as u64);
         let max_block_num = self.header_slices.max_block_num();
         let final_block_num = self.header_slices.final_block_num();
         let counters = self.header_slices.status_counters();
@@ -37,7 +46,7 @@ impl UIView for HeaderSlicesView {
 
         // speed
         let mut speed_counter = self.speed_counter.borrow_mut();
-        speed_counter.update(min_block_num.0);
+        speed_counter.update(current_block_num.0);
         let speed = speed_counter.average();
 
         let mut stdout = stdout();
@@ -53,7 +62,7 @@ impl UIView for HeaderSlicesView {
         let progress_desc = std::format!(
             "{} headers {} - {} of {} at {} blk/sec ...",
             phase_name,
-            min_block_num.0,
+            current_block_num.0,
             max_block_num.0,
             final_block_num.0,
             speed,
