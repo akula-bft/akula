@@ -235,7 +235,6 @@ impl<'t> DownloaderTestDecl<'t> {
         let sentry = Self::parse_sentry(self.sentry, &mut generator)?;
 
         let (forky_header_slices, verifier) = Self::parse_slices(self.slices, &mut generator)?;
-        let forky_header_slices = HeaderSlices::from_slices_vec(forky_header_slices, 100);
 
         let previous_run_state = DownloaderRunState {
             estimated_top_block_num: Some(BlockNumber(10_000)),
@@ -243,11 +242,9 @@ impl<'t> DownloaderTestDecl<'t> {
             forky_fork_header_slices: None,
         };
 
-        let expected_forky_header_slices =
-            HeaderSlices::from_slices_vec(Self::parse_slices(self.result, &mut generator)?.0, 100);
+        let expected_forky_header_slices = Self::parse_slices(self.result, &mut generator)?.0;
 
-        let expected_forky_fork_header_slices =
-            HeaderSlices::from_slices_vec(Self::parse_slices(self.forked, &mut generator)?.0, 100);
+        let expected_forky_fork_header_slices = Self::parse_slices(self.forked, &mut generator)?.0;
 
         let expected_report = DownloaderReport {
             final_block_num: BlockNumber(0),
@@ -337,7 +334,7 @@ impl<'t> DownloaderTestDecl<'t> {
     fn parse_slices(
         desc: &str,
         generator: &mut HeaderGenerator,
-    ) -> anyhow::Result<(Vec<HeaderSlice>, HeaderSliceVerifierMock)> {
+    ) -> anyhow::Result<(HeaderSlices, HeaderSliceVerifierMock)> {
         let mut slices = Vec::<HeaderSlice>::new();
         let verifier = HeaderSliceVerifierMock::new(HeaderGenerator::header_id);
         let mut start_block_num = BlockNumber(0);
@@ -407,7 +404,8 @@ impl<'t> DownloaderTestDecl<'t> {
                 BlockNumber(start_block_num.0 + header_slices::HEADER_SLICE_SIZE as u64);
         }
 
-        Ok((slices, verifier))
+        let header_slices = HeaderSlices::from_slices_vec(slices, None, None, None);
+        Ok((header_slices, verifier))
     }
 
     fn parse_custom_id(c: char) -> anyhow::Result<u64> {

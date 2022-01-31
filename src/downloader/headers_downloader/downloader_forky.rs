@@ -1,9 +1,10 @@
 use super::{
     downloader_stage_loop::DownloaderStageLoop,
     headers::{
+        header::BlockHeader,
         header_slices,
         header_slices::{
-            align_block_num_to_slice_start, is_block_num_aligned_to_slice_start, HeaderSlices,
+            is_block_num_aligned_to_slice_start, HeaderSlice, HeaderSliceStatus, HeaderSlices,
         },
     },
     headers_ui::HeaderSlicesView,
@@ -13,6 +14,7 @@ use super::{
 };
 use crate::{
     kv,
+    kv::tables::HeaderKey,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
 };
@@ -45,19 +47,61 @@ impl DownloaderForky {
         }
     }
 
-    fn make_header_slices(
+    async fn load_header_slices<'tx, 'db: 'tx>(
+        db_transaction: &'tx impl kv::traits::MutableTransaction<'db>,
         start_block_num: BlockNumber,
-        forky_max_blocks_count: usize,
-    ) -> HeaderSlices {
-        // This is more than enough to store forky_max_blocks_count blocks.
-        // It's not gonna affect the window size or memory usage.
-        let mem_limit = byte_unit::n_gib_bytes!(1) as usize;
+        max_blocks_count: usize,
+    ) -> anyhow::Result<HeaderSlices> {
+        let max_slices = max_blocks_count / header_slices::HEADER_SLICE_SIZE;
+        let max_blocks_count = max_slices * header_slices::HEADER_SLICE_SIZE;
 
-        let final_block_num = align_block_num_to_slice_start(BlockNumber(
-            start_block_num.0 + (forky_max_blocks_count as u64),
-        ));
+        let mut header_keys = Vec::<HeaderKey>::with_capacity(max_blocks_count);
+        for i in 0..max_blocks_count {
+            let num = BlockNumber(start_block_num.0 + i as u64);
+            if let Some(hash) = db_transaction.get(kv::tables::CanonicalHeader, num).await? {
+                header_keys.push((num, hash));
+            } else {
+                break;
+            }
+        }
 
-        HeaderSlices::new(mem_limit, start_block_num, final_block_num)
+        let mut slices =
+            Vec::<HeaderSlice>::with_capacity(header_keys.len() / header_slices::HEADER_SLICE_SIZE);
+        for slice_header_keys in header_keys.chunks_exact(header_slices::HEADER_SLICE_SIZE) {
+            let mut headers = Vec::<BlockHeader>::with_capacity(header_slices::HEADER_SLICE_SIZE);
+            let mut is_full_slice = true;
+
+            for header_key in slice_header_keys {
+                if let Some(header) = db_transaction.get(kv::tables::Header, *header_key).await? {
+                    let known_hash = header_key.1;
+                    let header = BlockHeader::new(header, known_hash);
+                    headers.push(header);
+                } else {
+                    tracing::warn!("load_header_slices: header {:?} not found although present in tables::CanonicalHeader", header_key);
+                    is_full_slice = false;
+                    break;
+                }
+            }
+
+            if !is_full_slice {
+                break;
+            }
+
+            let first_header_block_num = slice_header_keys[0].0;
+
+            let slice = HeaderSlice {
+                start_block_num: first_header_block_num,
+                status: HeaderSliceStatus::Saved,
+                headers: Some(headers),
+                ..Default::default()
+            };
+
+            slices.push(slice);
+        }
+
+        let header_slices =
+            HeaderSlices::from_slices_vec(slices, Some(start_block_num), Some(max_slices), None);
+        Ok(header_slices)
     }
 
     fn build_stages<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
@@ -132,15 +176,17 @@ impl DownloaderForky {
         let previous_run_fork_header_slices =
             previous_run_fork_header_slices.filter(|_| previous_run_header_slices.is_some());
 
-        let header_slices = previous_run_header_slices.unwrap_or_else(|| {
-            Arc::new(Self::make_header_slices(
-                start_block_num,
-                forky_max_blocks_count,
-            ))
-        });
+        let header_slices = if let Some(previous_run_header_slices) = previous_run_header_slices {
+            previous_run_header_slices
+        } else {
+            let loaded_header_slices =
+                Self::load_header_slices(db_transaction, start_block_num, forky_max_blocks_count)
+                    .await?;
+            Arc::new(loaded_header_slices)
+        };
 
         let fork_header_slices = previous_run_fork_header_slices
-            .unwrap_or_else(|| Arc::new(Self::make_header_slices(BlockNumber(0), 0)));
+            .unwrap_or_else(|| Arc::new(HeaderSlices::empty(header_slices.max_slices())));
 
         let header_slices_view = HeaderSlicesView::new(header_slices.clone(), "DownloaderForky");
         let _header_slices_view_scope =
