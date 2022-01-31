@@ -203,6 +203,18 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         Ok(Some(total_difficulty))
     }
 
+    pub async fn load_canonical_header_by_num(
+        block_num: BlockNumber,
+        tx: &'tx RwTx,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        let Some(header_hash) = tx.get(kv::tables::CanonicalHeader, block_num).await? else {
+            return Ok(None);
+        };
+        let header_key: HeaderKey = (block_num, header_hash);
+        let header_opt = tx.get(kv::tables::Header, header_key).await?;
+        Ok(header_opt.map(|header| BlockHeader::new(header, header_hash)))
+    }
+
     async fn save_header(&self, header: BlockHeader, tx: &'tx RwTx) -> anyhow::Result<()> {
         let block_num = header.number();
         let header_hash = header.hash();
