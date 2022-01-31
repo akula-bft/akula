@@ -179,7 +179,7 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
 
     async fn read_parent_header_total_difficulty(
         child: &BlockHeader,
-        tx: &RwTx,
+        tx: &'tx RwTx,
     ) -> anyhow::Result<Option<U256>> {
         if child.number() == BlockNumber(0) {
             return Ok(Some(U256::ZERO));
@@ -192,13 +192,29 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         Ok(parent_total_difficulty)
     }
 
-    async fn save_header(&self, header: BlockHeader, tx: &RwTx) -> anyhow::Result<()> {
+    async fn header_total_difficulty(
+        header: &BlockHeader,
+        tx: &'tx RwTx,
+    ) -> anyhow::Result<Option<U256>> {
+        let Some(parent_total_difficulty) = Self::read_parent_header_total_difficulty(header, tx).await? else {
+            return Ok(None)
+        };
+        let total_difficulty = parent_total_difficulty + header.difficulty();
+        Ok(Some(total_difficulty))
+    }
+
+    async fn save_header(&self, header: BlockHeader, tx: &'tx RwTx) -> anyhow::Result<()> {
         let block_num = header.number();
         let header_hash = header.hash();
         let header_key: HeaderKey = (block_num, header_hash);
 
-        // saving a precomputed RLP representation
-        tx.set(HeaderTableWithBytes, header_key, header.rlp_repr())
+        let total_difficulty_opt = if self.is_canonical_chain {
+            Self::header_total_difficulty(&header, tx).await?
+        } else {
+            None
+        };
+
+        tx.set(kv::tables::Header, header_key, header.header)
             .await?;
         tx.set(kv::tables::HeaderNumber, header_hash, block_num)
             .await?;
@@ -209,10 +225,7 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
             tx.set(kv::tables::LastHeader, Default::default(), header_hash)
                 .await?;
 
-            if let Some(mut total_difficulty) =
-                Self::read_parent_header_total_difficulty(&header, tx).await?
-            {
-                total_difficulty += header.difficulty();
+            if let Some(total_difficulty) = total_difficulty_opt {
                 tx.set(
                     kv::tables::HeadersTotalDifficulty,
                     header_key,
@@ -223,20 +236,6 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct HeaderTableWithBytes;
-
-impl kv::traits::Table for HeaderTableWithBytes {
-    type Key = <kv::tables::Header as kv::traits::Table>::Key;
-    type Value = bytes::Bytes;
-    type SeekKey = <kv::tables::Header as kv::traits::Table>::SeekKey;
-
-    fn db_name(&self) -> string::String<bytes::Bytes> {
-        let table = kv::tables::Header;
-        table.db_name()
     }
 }
 
