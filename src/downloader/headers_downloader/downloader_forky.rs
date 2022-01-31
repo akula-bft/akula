@@ -154,11 +154,13 @@ impl DownloaderForky {
         stages.insert_with_group_name(save_stage, group_name);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_id: BlockHashAndNumber,
         max_blocks_count: usize,
+        no_forks_final_block_num: BlockNumber,
         previous_run_header_slices: Option<Arc<HeaderSlices>>,
         previous_run_fork_header_slices: Option<Arc<HeaderSlices>>,
         ui_system: UISystemShared,
@@ -178,7 +180,9 @@ impl DownloaderForky {
         // It must be less than Opts::headers_batch_size to pass the max_blocks_count check below.
         let forky_max_blocks_count: usize = 99_000;
 
-        if max_blocks_count < forky_max_blocks_count {
+        if (max_blocks_count < forky_max_blocks_count)
+            || (start_block_num < no_forks_final_block_num)
+        {
             return Ok(DownloaderForkyReport {
                 loaded_count: 0,
                 final_block_num: start_block_num,
@@ -196,9 +200,12 @@ impl DownloaderForky {
         let header_slices = if let Some(previous_run_header_slices) = previous_run_header_slices {
             previous_run_header_slices
         } else {
-            let loaded_header_slices =
-                Self::load_header_slices(db_transaction, start_block_num, forky_max_blocks_count)
-                    .await?;
+            let loaded_header_slices = Self::load_header_slices(
+                db_transaction,
+                no_forks_final_block_num,
+                forky_max_blocks_count,
+            )
+            .await?;
             Arc::new(loaded_header_slices)
         };
 

@@ -71,8 +71,8 @@ impl DownloaderLinear {
         &'downloader self,
         db_transaction: &'downloader RwTx,
         start_block_id: BlockHashAndNumber,
-        estimated_top_block_num: Option<BlockNumber>,
         max_blocks_count: usize,
+        estimated_top_block_num: Option<BlockNumber>,
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderLinearReport> {
         let start_block_num = start_block_id.number;
