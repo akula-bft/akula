@@ -18,7 +18,7 @@ use clap::Parser;
 use ethereum_types::{Address, U64};
 use ethnum::U256;
 use jsonrpc::common::{CallData, StoragePos, TxIndex, TxLog, TxReceipt, UncleIndex};
-use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
+use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc, core::Error::*};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -217,12 +217,18 @@ where
             Some(s) => s,
         };
 
+        // TODO: retrieval of pending block to set gas_limit if gas not supplied
+        let gas = match call_data.gas {
+            None => return Err(Request("gas must be manually set".to_owned())),
+            Some(s) => s,
+        };
+
         let msg = MessageWithSender {
             message: Message::Legacy {
                 chain_id: Some(ChainId(1)),
                 nonce,
                 gas_price: Default::default(),
-                gas_limit: header.gas_limit,
+                gas_limit: gas.0[0],
                 action: TransactionAction::Call(call_data.to),
                 value,
                 input,

@@ -68,7 +68,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "parity-scale-codec",
- "parking_lot",
+ "parking_lot 0.11.2",
  "proptest",
  "rand 0.8.4",
  "rayon",
@@ -580,7 +580,7 @@ dependencies = [
  "crossterm_winapi",
  "libc",
  "mio",
- "parking_lot",
+ "parking_lot 0.11.2",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -1383,7 +1383,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
@@ -1398,7 +1398,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-client-transport"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "futures",
  "http",
@@ -1418,7 +1418,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-core"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "anyhow",
  "arrayvec",
@@ -1429,7 +1429,7 @@ dependencies = [
  "futures-util",
  "hyper",
  "jsonrpsee-types",
- "parking_lot",
+ "parking_lot 0.12.0",
  "rand 0.8.4",
  "rustc-hash",
  "serde",
@@ -1443,7 +1443,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-http-client"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "async-trait",
  "hyper",
@@ -1461,7 +1461,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-http-server"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -1480,7 +1480,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-proc-macros"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1491,7 +1491,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-types"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "anyhow",
  "beef",
@@ -1504,7 +1504,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-ws-client"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
@@ -1514,7 +1514,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-ws-server"
 version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#5ffc037aca0f62417132ad1f108b778ec6e29ebf"
+source = "git+https://github.com/paritytech/jsonrpsee#2864756dce6ff4dd38f3e985a312bcb19ef33417"
 dependencies = [
  "async-channel",
  "futures-channel",
@@ -1589,7 +1589,7 @@ dependencies = [
  "indexmap",
  "libc",
  "mdbx-sys",
- "parking_lot",
+ "parking_lot 0.11.2",
  "thiserror",
 ]
 
@@ -1855,7 +1855,17 @@ checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
 dependencies = [
  "instant",
  "lock_api",
- "parking_lot_core",
+ "parking_lot_core 0.8.5",
+]
+
+[[package]]
+name = "parking_lot"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87f5ec2493a61ac0506c0f4199f99070cbe83857b0337006a30f3e6719b8ef58"
+dependencies = [
+ "lock_api",
+ "parking_lot_core 0.9.0",
 ]
 
 [[package]]
@@ -1870,6 +1880,19 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "winapi",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2f4f894f3865f6c0e02810fc597300f34dc2510f66400da262d8ae10e75767d"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "redox_syscall",
+ "smallvec",
+ "windows-sys",
 ]
 
 [[package]]
@@ -2552,9 +2575,9 @@ dependencies = [
 
 [[package]]
 name = "security-framework"
-version = "2.5.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d09d3c15d814eda1d6a836f2f2b56a6abc1446c8a34351cb3180d3db92ffe4ce"
+checksum = "3fed7948b6c68acbb6e20c334f55ad635dc0f75506963de4464289fbd3b051ac"
 dependencies = [
  "bitflags",
  "core-foundation",
@@ -2565,9 +2588,9 @@ dependencies = [
 
 [[package]]
 name = "security-framework-sys"
-version = "2.5.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e90dd10c41c6bfc633da6e0c659bd25d31e0791e5974ac42970267d59eba87f7"
+checksum = "a57321bf8bc2362081b2599912d2961fe899c0efadf1b4b2f8d48b3e253bb96c"
 dependencies = [
  "core-foundation-sys",
  "libc",
@@ -2945,7 +2968,7 @@ dependencies = [
  "mio",
  "num_cpus",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.11.2",
  "pin-project-lite",
  "signal-hook-registry",
  "tokio-macros",
@@ -3465,6 +3488,49 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "windows-sys"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ceb069ac8b2117d36924190469735767f0990833935ab430155e71a44bafe148"
+dependencies = [
+ "windows_aarch64_msvc",
+ "windows_i686_gnu",
+ "windows_i686_msvc",
+ "windows_x86_64_gnu",
+ "windows_x86_64_msvc",
+]
+
+[[package]]
+name = "windows_aarch64_msvc"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d027175d00b01e0cbeb97d6ab6ebe03b12330a35786cbaca5252b1c4bf5d9b"
+
+[[package]]
+name = "windows_i686_gnu"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8793f59f7b8e8b01eda1a652b2697d87b93097198ae85f823b969ca5b89bba58"
+
+[[package]]
+name = "windows_i686_msvc"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8602f6c418b67024be2996c512f5f995de3ba417f4c75af68401ab8756796ae4"
+
+[[package]]
+name = "windows_x86_64_gnu"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3d615f419543e0bd7d2b3323af0d86ff19cbc4f816e6453f36a2c2ce889c354"
+
+[[package]]
+name = "windows_x86_64_msvc"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11d95421d9ed3672c280884da53201a5c46b7b2765ca6faf34b0d71cf34a3561"
 
 [[package]]
 name = "wyz"
