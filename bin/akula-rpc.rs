@@ -18,7 +18,11 @@ use clap::Parser;
 use ethereum_types::{Address, U64};
 use ethnum::U256;
 use jsonrpc::common::{CallData, StoragePos, TxIndex, TxLog, TxReceipt, UncleIndex};
-use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc, core::Error::*};
+use jsonrpsee::{
+    core::{Error::*, RpcResult},
+    http_server::HttpServerBuilder,
+    proc_macros::rpc,
+};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
