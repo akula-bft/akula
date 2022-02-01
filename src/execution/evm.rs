@@ -13,7 +13,6 @@ use crate::{
 use anyhow::Context;
 use async_recursion::async_recursion;
 use bytes::Bytes;
-use ethereum_types::{Address, H256, U256};
 use evmodin::{
     continuation::{interrupt::*, interrupt_data::*, resume_data::*, Interrupt},
     host::*,
@@ -273,7 +272,7 @@ where
         }
 
         // https://eips.ethereum.org/EIPS/eip-161
-        if value.is_zero()
+        if value == 0
             && self.block_spec.revision >= Revision::Spurious
             && !precompiled
             && !self.state.exists(message.code_address).await?
@@ -364,9 +363,9 @@ where
 
         let output = loop {
             interrupt = match interrupt {
-                InterruptVariant::InstructionStart(_) => unreachable!("tracing is disabled"),
-                InterruptVariant::AccountExists(i) => {
-                    let address = i.data().address;
+                InterruptVariant::InstructionStart(_, _) => unreachable!("tracing is disabled"),
+                InterruptVariant::AccountExists(data, i) => {
+                    let address = data.address;
                     let exists = if self.block_spec.revision >= Revision::Spurious {
                         !self.state.is_dead(address).await?
                     } else {
@@ -374,34 +373,36 @@ where
                     };
                     i.resume(AccountExistsStatus { exists })
                 }
-                InterruptVariant::GetBalance(i) => {
-                    let balance = self.state.get_balance(i.data().address).await?;
+                InterruptVariant::GetBalance(data, i) => {
+                    let balance = self.state.get_balance(data.address).await?;
                     i.resume(Balance { balance })
                 }
-                InterruptVariant::GetCodeSize(i) => {
-                    let code_size = self
-                        .state
-                        .get_code(i.data().address)
-                        .await?
-                        .map(|c| c.len())
-                        .unwrap_or(0)
-                        .into();
+                InterruptVariant::GetCodeSize(data, i) => {
+                    let code_size = u64::try_from(
+                        self.state
+                            .get_code(data.address)
+                            .await?
+                            .map(|c| c.len())
+                            .unwrap_or(0),
+                    )?
+                    .into();
                     i.resume(CodeSize { code_size })
                 }
-                InterruptVariant::GetStorage(i) => {
+                InterruptVariant::GetStorage(data, i) => {
                     let value = self
                         .state
-                        .get_current_storage(i.data().address, i.data().key)
+                        .get_current_storage(data.address, data.key)
                         .await?;
                     i.resume(StorageValue { value })
                 }
-                InterruptVariant::SetStorage(i) => {
-                    let &SetStorage {
+                InterruptVariant::SetStorage(
+                    SetStorage {
                         address,
                         key,
                         value: new_val,
-                    } = i.data();
-
+                    },
+                    i,
+                ) => {
                     let current_val = self.state.get_current_storage(address, key).await?;
 
                     let status = if current_val == new_val {
@@ -413,9 +414,9 @@ where
                             || self.block_spec.revision == Revision::Constantinople;
 
                         if !eip1283 {
-                            if current_val.is_zero() {
+                            if current_val == 0 {
                                 StorageStatus::Added
-                            } else if new_val.is_zero() {
+                            } else if new_val == 0 {
                                 self.state.add_refund(fee::R_SCLEAR);
                                 StorageStatus::Deleted
                             } else {
@@ -450,26 +451,26 @@ where
                                 };
 
                             if original_val == current_val {
-                                if original_val.is_zero() {
+                                if original_val == 0 {
                                     StorageStatus::Added
                                 } else {
-                                    if new_val.is_zero() {
+                                    if new_val == 0 {
                                         self.state.add_refund(sstore_clears_refund);
                                     }
                                     StorageStatus::Modified
                                 }
                             } else {
-                                if !original_val.is_zero() {
-                                    if current_val.is_zero() {
+                                if original_val != 0 {
+                                    if current_val == 0 {
                                         self.state.subtract_refund(sstore_clears_refund);
                                     }
-                                    if new_val.is_zero() {
+                                    if new_val == 0 {
                                         self.state.add_refund(sstore_clears_refund);
                                     }
                                 }
                                 if original_val == new_val {
                                     let refund = {
-                                        if original_val.is_zero() {
+                                        if original_val == 0 {
                                             fee::G_SSET - sload_cost
                                         } else {
                                             sstore_reset_gas - sload_cost
@@ -485,8 +486,8 @@ where
 
                     i.resume(StorageStatusInfo { status })
                 }
-                InterruptVariant::GetCodeHash(i) => {
-                    let address = i.data().address;
+                InterruptVariant::GetCodeHash(data, i) => {
+                    let address = data.address;
                     let hash = h256_to_u256({
                         if self.state.is_dead(address).await? {
                             H256::zero()
@@ -496,13 +497,14 @@ where
                     });
                     i.resume(CodeHash { hash })
                 }
-                InterruptVariant::CopyCode(i) => {
-                    let &CopyCode {
+                InterruptVariant::CopyCode(
+                    CopyCode {
                         address,
                         offset,
                         max_size,
-                    } = i.data();
-
+                    },
+                    i,
+                ) => {
                     let mut buffer = vec![0; max_size];
 
                     let code = self.state.get_code(address).await?.unwrap_or_default();
@@ -518,43 +520,38 @@ where
 
                     i.resume(Code { code })
                 }
-                InterruptVariant::Selfdestruct(i) => {
-                    self.state.record_selfdestruct(i.data().address);
-                    let balance = self.state.get_balance(i.data().address).await?;
-                    self.state
-                        .add_to_balance(i.data().beneficiary, balance)
-                        .await?;
-                    self.state.set_balance(i.data().address, 0).await?;
+                InterruptVariant::Selfdestruct(data, i) => {
+                    self.state.record_selfdestruct(data.address);
+                    let balance = self.state.get_balance(data.address).await?;
+                    self.state.add_to_balance(data.beneficiary, balance).await?;
+                    self.state.set_balance(data.address, 0).await?;
 
                     if let Some(tracer) = &mut self.tracer {
-                        tracer.capture_self_destruct(i.data().address, i.data().beneficiary);
+                        tracer.capture_self_destruct(data.address, data.beneficiary);
                     }
 
                     i.resume(())
                 }
-                InterruptVariant::Call(i) => {
-                    let output = match i.data() {
+                InterruptVariant::Call(data, i) => {
+                    let output = match data {
                         Call::Create(message) => {
-                            let res = self.create(message.clone()).await?;
+                            let mut res = self.create(message).await?;
 
                             // https://eips.ethereum.org/EIPS/eip-211
-                            if res.status_code == StatusCode::Revert {
+                            if res.status_code != StatusCode::Revert {
                                 // geth returns CREATE output only in case of REVERT
-                                res
-                            } else {
-                                Output {
-                                    output_data: Default::default(),
-                                    ..res
-                                }
+                                res.output_data = Default::default();
                             }
+
+                            res
                         }
-                        Call::Call(message) => self.call(message.clone()).await?,
+                        Call::Call(message) => self.call(message).await?,
                     };
 
                     i.resume(CallOutput { output })
                 }
                 InterruptVariant::GetTxContext(i) => {
-                    let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or_else(U256::zero);
+                    let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
                     let tx_gas_price = self.txn.effective_gas_price(base_fee_per_gas);
                     let tx_origin = self.txn.sender;
                     let block_coinbase = self.beneficiary;
@@ -579,8 +576,8 @@ where
 
                     i.resume(TxContextData { context })
                 }
-                InterruptVariant::GetBlockHash(i) => {
-                    let n = i.data().block_number;
+                InterruptVariant::GetBlockHash(data, i) => {
+                    let n = data.block_number;
 
                     let base_number = self.header.number;
                     let distance = base_number.0 - n;
@@ -601,17 +598,17 @@ where
                     let hash = h256_to_u256(hash);
                     i.resume(BlockHash { hash })
                 }
-                InterruptVariant::EmitLog(i) => {
+                InterruptVariant::EmitLog(data, i) => {
                     self.state.add_log(Log {
-                        address: i.data().address,
-                        topics: i.data().topics.iter().copied().map(u256_to_h256).collect(),
-                        data: i.data().data.clone(),
+                        address: data.address,
+                        topics: data.topics.into_iter().map(u256_to_h256).collect(),
+                        data: data.data,
                     });
 
                     i.resume(())
                 }
-                InterruptVariant::AccessAccount(i) => {
-                    let address = i.data().address;
+                InterruptVariant::AccessAccount(data, i) => {
+                    let address = data.address;
 
                     let status = if self.is_precompiled(address) {
                         AccessStatus::Warm
@@ -620,12 +617,12 @@ where
                     };
                     i.resume(AccessAccountStatus { status })
                 }
-                InterruptVariant::AccessStorage(i) => {
-                    let status = self.state.access_storage(i.data().address, i.data().key);
+                InterruptVariant::AccessStorage(data, i) => {
+                    let status = self.state.access_storage(data.address, data.key);
                     i.resume(AccessStorageStatus { status })
                 }
-                InterruptVariant::Complete(i) => {
-                    let output = match i {
+                InterruptVariant::Complete(res, _) => {
+                    let output = match res {
                         Ok(output) => output.into(),
                         Err(status_code) => Output {
                             status_code,
@@ -704,18 +701,18 @@ mod tests {
 
             let sender = hex!("0a6bb546b9208cfab9e8fa2b9b2c042b18df7030").into();
             let to = hex!("8b299e2b7d7f43c0ce3068263545309ff4ffb521").into();
-            let value = 10_200_000_000_000_000_u64.into();
+            let value = 10_200_000_000_000_000_u128;
 
             let mut db = InMemoryState::default();
             let mut state = IntraBlockState::new(&mut db);
 
-            assert_eq!(state.get_balance(sender).await.unwrap(), U256::zero());
-            assert_eq!(state.get_balance(to).await.unwrap(), U256::zero());
+            assert_eq!(state.get_balance(sender).await.unwrap(), 0);
+            assert_eq!(state.get_balance(to).await.unwrap(), 0);
 
             let txn = MessageWithSender {
                 message: Message::Legacy {
                     action: TransactionAction::Call(to),
-                    value,
+                    value: value.into(),
 
                     chain_id: Default::default(),
                     nonce: Default::default(),
@@ -732,13 +729,13 @@ mod tests {
             assert_eq!(res.status_code, StatusCode::InsufficientBalance);
             assert_eq!(res.output_data, vec![]);
 
-            state.add_to_balance(sender, *ETHER).await.unwrap();
+            state.add_to_balance(sender, ETHER).await.unwrap();
 
             let res = execute(&mut state, &header, &txn, gas).await;
             assert_eq!(res.status_code, StatusCode::Success);
             assert_eq!(res.output_data, vec![]);
 
-            assert_eq!(state.get_balance(sender).await.unwrap(), *ETHER - value);
+            assert_eq!(state.get_balance(sender).await.unwrap(), ETHER - value);
             assert_eq!(state.get_balance(to).await.unwrap(), value);
         })
     }
@@ -805,16 +802,16 @@ mod tests {
             assert_eq!(res.output_data, bytes!("600035600055"));
 
             let contract_address = create_address(caller, 1);
-            let key0 = 0.into();
+            let key0 = 0.as_u256();
             assert_eq!(
                 state
                     .get_current_storage(contract_address, key0)
                     .await
                     .unwrap(),
-                0x2a.into()
+                0x2a
             );
 
-            let new_val = 0xf5.into();
+            let new_val = 0xf5.as_u256();
 
             let res = execute(
                 &mut state,
@@ -992,7 +989,7 @@ mod tests {
             assert_eq!(res.status_code, StatusCode::Success);
             assert_eq!(res.output_data, vec![]);
 
-            let key0 = 0.into();
+            let key0 = 0.as_u256();
             assert_eq!(
                 state
                     .get_current_storage(caller_address, key0)
@@ -1070,13 +1067,13 @@ mod tests {
             assert_eq!(res.output_data, vec![]);
 
             let contract_address = create_address(caller, 0);
-            let key0 = 0.into();
+            let key0 = 0.as_u256();
             assert_eq!(
                 state
                     .get_current_storage(contract_address, key0)
                     .await
                     .unwrap(),
-                U256::zero()
+                0
             );
         })
     }

@@ -1,12 +1,8 @@
 use crate::{
-    kv::{
-        tables::{self, CumulativeData},
-        traits::*,
-    },
+    kv::{tables, traits::*},
     models::*,
     state::*,
 };
-use ethereum_types::*;
 use tempfile::TempDir;
 
 #[derive(Clone, Debug)]
@@ -96,7 +92,7 @@ where
 
     crate::stages::promote_clean_accounts(txn, etl_temp_dir).await?;
     crate::stages::promote_clean_storage(txn, etl_temp_dir).await?;
-    let state_root = crate::stages::generate_interhashes(txn, etl_temp_dir).await?;
+    let state_root = crate::trie::regenerate_intermediate_hashes(txn, etl_temp_dir, None).await?;
 
     let header = BlockHeader {
         parent_hash: H256::zero(),
@@ -142,12 +138,8 @@ where
     )
     .await?;
 
-    txn.set(
-        tables::CumulativeIndex,
-        genesis,
-        CumulativeData { gas: 0, tx_num: 0 },
-    )
-    .await?;
+    txn.set(tables::TotalGas, genesis, 0).await?;
+    txn.set(tables::TotalTx, genesis, 0).await?;
 
     txn.set(tables::LastHeader, Default::default(), block_hash)
         .await?;

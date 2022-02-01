@@ -1,5 +1,5 @@
+use crate::models::*;
 use bytes::Bytes;
-use ethereum_types::*;
 use evmodin::{ExecutionState, OpCode, StatusCode};
 use std::collections::{BTreeMap, HashMap};
 

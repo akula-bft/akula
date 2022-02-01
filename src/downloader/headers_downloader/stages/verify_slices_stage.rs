@@ -11,14 +11,14 @@ use std::{ops::DerefMut, sync::Arc, time::SystemTime};
 use tracing::*;
 
 /// Verifies the block structure and sequence rules in each slice and sets VerifiedInternally status.
-pub struct VerifyStageLinear {
+pub struct VerifySlicesStage {
     header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
     verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     pending_watch: HeaderSliceStatusWatch,
 }
 
-impl VerifyStageLinear {
+impl VerifySlicesStage {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         chain_config: ChainConfig,
@@ -31,7 +31,7 @@ impl VerifyStageLinear {
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Downloaded,
                 header_slices,
-                "VerifyStageLinear",
+                "VerifySlicesStage",
             ),
         }
     }
@@ -40,7 +40,7 @@ impl VerifyStageLinear {
         self.pending_watch.wait().await?;
 
         debug!(
-            "VerifyStageLinear: verifying {} slices",
+            "VerifySlicesStage: verifying {} slices",
             self.pending_watch.pending_count()
         );
         self.verify_pending().await;
@@ -117,7 +117,7 @@ impl VerifyStageLinear {
 }
 
 #[async_trait::async_trait]
-impl super::stage::Stage for VerifyStageLinear {
+impl super::stage::Stage for VerifySlicesStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
     }

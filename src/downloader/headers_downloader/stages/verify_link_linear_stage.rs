@@ -7,7 +7,7 @@ use super::{
     },
     verification::header_slice_verifier::HeaderSliceVerifier,
 };
-use crate::{models::BlockNumber, sentry::chain_config::ChainConfig};
+use crate::{models::*, sentry::chain_config::ChainConfig};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     ops::{ControlFlow, DerefMut},
@@ -16,41 +16,44 @@ use std::{
 use tracing::*;
 
 /// Verifies the sequence rules to link the slices with the last known verified header and sets Verified status.
-pub struct VerifyStageLinearLink {
+pub struct VerifyLinkLinearStage {
     header_slices: Arc<HeaderSlices>,
     chain_config: ChainConfig,
     verifier: Arc<Box<dyn HeaderSliceVerifier>>,
-    start_block_num: BlockNumber,
-    start_block_hash: ethereum_types::H256,
     invalid_status: HeaderSliceStatus,
     last_verified_header: Option<BlockHeader>,
     pending_watch: HeaderSliceStatusWatch,
     remaining_count: usize,
 }
 
-impl VerifyStageLinearLink {
+impl VerifyLinkLinearStage {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         chain_config: ChainConfig,
         verifier: Arc<Box<dyn HeaderSliceVerifier>>,
-        start_block_num: BlockNumber,
-        start_block_hash: ethereum_types::H256,
+        last_verified_header: Option<BlockHeader>,
         invalid_status: HeaderSliceStatus,
     ) -> Self {
-        let last_verified_header = Self::find_last_verified_header(&header_slices);
+        if let Some(last_verified_header) = &last_verified_header {
+            assert_eq!(
+                BlockNumber(last_verified_header.number().0 + 1),
+                header_slices.min_block_num()
+            );
+        }
+
+        let last_verified_header =
+            Self::find_last_verified_header(&header_slices).or(last_verified_header);
 
         Self {
             header_slices: header_slices.clone(),
             chain_config,
             verifier,
-            start_block_num,
-            start_block_hash,
             invalid_status,
             last_verified_header,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::VerifiedInternally,
                 header_slices,
-                "VerifyStageLinearLink",
+                "VerifyLinkLinearStage",
             ),
             remaining_count: 0,
         }
@@ -65,9 +68,9 @@ impl VerifyStageLinearLink {
 
         let pending_count = self.pending_watch.pending_count();
 
-        debug!("VerifyStageLinearLink: verifying {} slices", pending_count);
+        debug!("VerifyLinkLinearStage: verifying {} slices", pending_count);
         let updated_count = self.verify_pending_monotonic(pending_count)?;
-        debug!("VerifyStageLinearLink: updated {} slices", updated_count);
+        debug!("VerifyLinkLinearStage: updated {} slices", updated_count);
 
         self.remaining_count = pending_count - updated_count;
 
@@ -169,9 +172,9 @@ impl VerifyStageLinearLink {
 
         let child = &headers[0];
 
-        // for the start header we just verify its hash
-        if child.number() == self.start_block_num {
-            return child.hash() == self.start_block_hash;
+        // for the genesis header we just verify its hash
+        if child.number() == BlockNumber(0) {
+            return child.hash() == self.chain_config.genesis_block_hash();
         }
         // otherwise we expect that we have a verified parent
         if parent.is_none() {
@@ -190,7 +193,7 @@ impl VerifyStageLinearLink {
 }
 
 #[async_trait::async_trait]
-impl super::stage::Stage for VerifyStageLinearLink {
+impl super::stage::Stage for VerifyLinkLinearStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
     }

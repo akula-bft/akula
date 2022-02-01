@@ -1,6 +1,5 @@
 use crate::{models::*, util::*};
 use bytes::Bytes;
-use ethereum_types::*;
 use evmodin::Revision;
 use serde::*;
 use std::{
@@ -470,10 +469,10 @@ mod tests {
                 contracts: Default::default(),
                 balances: btreemap! {
                     0.into() => (0x00..=0xff)
-                    .map(|address| (Address::from_low_u64_be(address), U256::from(1u64)))
+                    .map(|address| (Address::from_low_u64_be(address), 1u64.as_u256()))
                     .chain(vec![(
-                        Address::from_slice(hex!("31b98d14007bdee637298086988a0bbd31184523").as_ref()),
-                        U256::from(hex!(
+                        Address::from(hex!("31b98d14007bdee637298086988a0bbd31184523")),
+                        U256::from_be_bytes(hex!(
                             "0200000000000000000000000000000000000000000000000000000000000000"
                         )),
                     )].into_iter()).collect::<HashMap<Address, U256>>(),

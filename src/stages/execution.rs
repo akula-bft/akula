@@ -20,6 +20,7 @@ use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::*;
 
+/// Execution of blocks through EVM
 #[derive(Debug)]
 pub struct Execution {
     pub batch_size: u64,
@@ -54,12 +55,11 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
     let batch_started_at = Instant::now();
     let first_started_at_gas = tx
         .get(
-            tables::CumulativeIndex,
+            tables::TotalGas,
             first_started_at.1.unwrap_or(BlockNumber(0)),
         )
         .await?
-        .unwrap()
-        .gas;
+        .unwrap();
     let mut last_message = Instant::now();
     let mut printed_at_least_once = false;
     loop {
@@ -129,20 +129,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
         let elapsed = now - last_message;
         if elapsed > Duration::from_secs(30) || (end_of_batch && !printed_at_least_once) {
-            let current_total_gas = tx
-                .get(tables::CumulativeIndex, block_number)
-                .await?
-                .unwrap()
-                .gas;
+            let current_total_gas = tx.get(tables::TotalGas, block_number).await?.unwrap();
 
-            let total_gas = tx
-                .cursor(tables::CumulativeIndex)
-                .await?
-                .last()
-                .await?
-                .unwrap()
-                .1
-                .gas;
+            let total_gas = tx.cursor(tables::TotalGas).await?.last().await?.unwrap().1;
             let mgas_sec = gas_since_last_message as f64
                 / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
                 / 1_000_000f64;
@@ -199,11 +188,11 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         EXECUTION
     }
 
-    fn description(&self) -> &'static str {
-        "Execution of blocks through EVM"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -253,7 +242,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: crate::stagedsync::stage::UnwindInput,
     ) -> anyhow::Result<UnwindOutput>

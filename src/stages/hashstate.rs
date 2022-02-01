@@ -9,7 +9,6 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use ethereum_types::*;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::pin;
@@ -121,7 +120,7 @@ where
     {
         let hashed_address = keccak256(address);
         let hashed_location = keccak256(location);
-        let mut v = U256::zero();
+        let mut v = U256::ZERO;
         if let Some((found_location, value)) =
             storage_table.seek_both_range(address, location).await?
         {
@@ -159,12 +158,12 @@ where
     fn id(&self) -> StageId {
         HASH_STATE
     }
-    /// Description of the stage.
-    fn description(&self) -> &'static str {
-        ""
-    }
-    /// Called when the stage is executed. The main logic of the stage should be here.
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -200,9 +199,9 @@ where
             done: true,
         })
     }
-    /// Called when the stage should be unwound. The unwind logic should be there.
+
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -281,15 +280,8 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let mut tx_num = 0;
         let mut gas = 0;
-        tx.set(
-            tables::CumulativeIndex,
-            0.into(),
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, 0.into(), gas).await.unwrap();
 
         let block_number = BlockNumber(1);
         let miner = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
@@ -327,7 +319,7 @@ mod tests {
         let mut body = BlockBodyWithSenders {
             transactions: vec![(transaction)(
                 0,
-                0.into(),
+                0.as_u256(),
                 TransactionAction::Create,
                 deployment_code.into_iter().chain(contract_code).collect(),
             )],
@@ -337,7 +329,7 @@ mod tests {
         let mut buffer = Buffer::new(&tx, BlockNumber(0), None);
 
         let sender_account = Account {
-            balance: *ETHER,
+            balance: ETHER.into(),
             ..Account::default()
         };
 
@@ -350,15 +342,8 @@ mod tests {
             .await
             .unwrap();
 
-        tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
-        tx.set(
-            tables::CumulativeIndex,
-            header.number,
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
 
         let contract_address = create_address(sender, 0);
 
@@ -375,7 +360,7 @@ mod tests {
 
         body.transactions = vec![(transaction)(
             1,
-            1000.into(),
+            1000.as_u256(),
             TransactionAction::Call(contract_address),
             new_val.to_vec().into(),
         )];
@@ -384,15 +369,8 @@ mod tests {
             .await
             .unwrap();
 
-        tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
-        tx.set(
-            tables::CumulativeIndex,
-            header.number,
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
 
         // ---------------------------------------
         // Execute third block
@@ -407,9 +385,9 @@ mod tests {
 
         body.transactions = vec![(transaction)(
             2,
-            1000.into(),
+            1000.as_u256(),
             TransactionAction::Call(contract_address),
-            u256_to_h256(new_val.into()).0.to_vec().into(),
+            u256_to_h256(new_val.as_u256()).0.to_vec().into(),
         )];
 
         execute_block(&mut buffer, &MAINNET.clone(), &header, &body)
@@ -418,15 +396,8 @@ mod tests {
 
         buffer.write_to_db().await.unwrap();
 
-        tx_num += body.transactions.len() as u64;
         gas += header.gas_used;
-        tx.set(
-            tables::CumulativeIndex,
-            header.number,
-            tables::CumulativeData { tx_num, gas },
-        )
-        .await
-        .unwrap();
+        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
 
         // ---------------------------------------
         // Execute stage forward
@@ -465,7 +436,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(account.nonce, 3);
-        assert!(account.balance < *ETHER);
+        assert!(account.balance < ETHER);
 
         // ---------------------------------------
         // Check hashed storage
@@ -480,8 +451,8 @@ mod tests {
         for (location, expected_value) in [(0, new_val), (1, 0x01c9)] {
             let (wk, (hashed_location, value)) = walker.try_next().await.unwrap().unwrap();
             assert_eq!(k, wk);
-            assert_eq!(hashed_location, keccak256(u256_to_h256(location.into())));
-            assert_eq!(value, expected_value.into());
+            assert_eq!(hashed_location, keccak256(u256_to_h256(location.as_u256())));
+            assert_eq!(value, expected_value.as_u256());
         }
 
         assert!(walker.try_next().await.unwrap().is_none());

@@ -1,5 +1,4 @@
 use crate::{crypto::*, models::*, u256_to_h256};
-use ethereum_types::*;
 use rlp_derive::*;
 
 pub fn create_address(caller: Address, nonce: u64) -> Address {

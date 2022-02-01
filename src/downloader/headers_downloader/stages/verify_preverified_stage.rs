@@ -9,18 +9,19 @@ use super::{
         preverified_hashes_config::PreverifiedHashesConfig,
     },
 };
+use crate::models::*;
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
 /// Checks that block hashes are matching the expected ones and sets Verified status.
-pub struct VerifyStagePreverified {
+pub struct VerifyPreverifiedStage {
     header_slices: Arc<HeaderSlices>,
     pending_watch: HeaderSliceStatusWatch,
     preverified_hashes: PreverifiedHashesConfig,
 }
 
-impl VerifyStagePreverified {
+impl VerifyPreverifiedStage {
     pub fn new(
         header_slices: Arc<HeaderSlices>,
         preverified_hashes: PreverifiedHashesConfig,
@@ -30,7 +31,7 @@ impl VerifyStagePreverified {
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Downloaded,
                 header_slices,
-                "VerifyStagePreverified",
+                "VerifyPreverifiedStage",
             ),
             preverified_hashes,
         }
@@ -40,7 +41,7 @@ impl VerifyStagePreverified {
         self.pending_watch.wait().await?;
 
         debug!(
-            "VerifyStagePreverified: verifying {} slices",
+            "VerifyPreverifiedStage: verifying {} slices",
             self.pending_watch.pending_count()
         );
         self.verify_pending().await;
@@ -138,7 +139,7 @@ impl VerifyStagePreverified {
         header_slice_verifier::verify_slice_is_linked_by_parent_hash(headers)
     }
 
-    fn preverified_hash(&self, block_num: u64) -> Option<&ethereum_types::H256> {
+    fn preverified_hash(&self, block_num: u64) -> Option<&H256> {
         let preverified_step_size = header_slices::HEADER_SLICE_SIZE as u64;
         if block_num % preverified_step_size != 0 {
             return None;
@@ -154,7 +155,7 @@ impl VerifyStagePreverified {
 }
 
 #[async_trait::async_trait]
-impl super::stage::Stage for VerifyStagePreverified {
+impl super::stage::Stage for VerifyPreverifiedStage {
     async fn execute(&mut self) -> anyhow::Result<()> {
         Self::execute(self).await
     }

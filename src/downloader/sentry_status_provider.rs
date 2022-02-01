@@ -1,7 +1,7 @@
 use crate::{
     kv,
     kv::tables::HeaderKey,
-    models::BlockNumber,
+    models::*,
     sentry::{chain_config::ChainConfig, sentry_client::Status, sentry_client_connector},
 };
 use std::fmt;
@@ -17,8 +17,8 @@ pub struct SentryStatusProvider {
 impl SentryStatusProvider {
     pub fn new(chain_config: ChainConfig) -> Self {
         let genesis_status = Status {
-            total_difficulty: ethereum_types::U256::zero(),
-            best_hash: ethereum_types::H256::zero(),
+            total_difficulty: U256::ZERO,
+            best_hash: H256::zero(),
             chain_fork_config: chain_config.clone(),
             max_block: BlockNumber(0),
         };

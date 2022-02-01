@@ -12,14 +12,13 @@ pub use self::{
 };
 
 use derive_more::*;
-use ethereum_types::{H256, U256};
 use hex_literal::hex;
-use once_cell::sync::Lazy;
 use rlp::{Decodable, Encodable};
 use serde::{Deserialize, Serialize};
 use std::{iter::Step, mem::size_of, ops::Add};
 
-pub use ethereum_types::Address;
+pub use ethereum_types::{Address, Bloom, H128, H160, H256, H512, H64, U512, U64};
+pub use ethnum::*;
 
 pub const KECCAK_LENGTH: usize = H256::len_bytes();
 pub const ADDRESS_LENGTH: usize = Address::len_bytes();
@@ -46,7 +45,35 @@ macro_rules! u64_wrapper {
             Deserialize,
         )]
         #[serde(transparent)]
+        #[repr(transparent)]
         pub struct $ty(pub u64);
+
+        impl ::parity_scale_codec::WrapperTypeEncode for $ty {}
+        impl ::parity_scale_codec::EncodeLike for $ty {}
+        impl ::parity_scale_codec::EncodeLike<u64> for $ty {}
+        impl ::parity_scale_codec::EncodeLike<$ty> for u64 {}
+
+        impl ::parity_scale_codec::WrapperTypeDecode for $ty {
+            type Wrapped = u64;
+        }
+
+        impl From<::parity_scale_codec::Compact<$ty>> for $ty {
+            fn from(x: ::parity_scale_codec::Compact<$ty>) -> $ty {
+                x.0
+            }
+        }
+
+        impl ::parity_scale_codec::CompactAs for $ty {
+            type As = u64;
+
+            fn encode_as(&self) -> &Self::As {
+                &self.0
+            }
+
+            fn decode_from(v: Self::As) -> Result<Self, ::parity_scale_codec::Error> {
+                Ok(Self(v))
+            }
+        }
 
         impl Encodable for $ty {
             fn rlp_append(&self, s: &mut rlp::RlpStream) {
@@ -56,7 +83,7 @@ macro_rules! u64_wrapper {
 
         impl Decodable for $ty {
             fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
-                u64::decode(rlp).map(Self)
+                <u64 as Decodable>::decode(rlp).map(Self)
             }
         }
 
@@ -89,9 +116,6 @@ u64_wrapper!(ChainId);
 u64_wrapper!(NetworkId);
 u64_wrapper!(TxIndex);
 
-#[allow(non_upper_case_globals)]
-pub const value_to_bytes: fn(U256) -> [u8; 32] = From::<U256>::from;
-
 // Keccak-256 hash of an empty string, KEC("").
 pub const EMPTY_HASH: H256 = H256(hex!(
     "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
@@ -108,4 +132,4 @@ pub const EMPTY_ROOT: H256 = H256(hex!(
 ));
 
 pub const GIGA: u64 = 1_000_000_000; // = 10^9
-pub static ETHER: Lazy<U256> = Lazy::new(|| U256::from(GIGA * GIGA)); // = 10^18
+pub const ETHER: u128 = 1_000_000_000_000_000_000; // = 10^18

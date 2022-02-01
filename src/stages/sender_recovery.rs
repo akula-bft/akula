@@ -14,6 +14,7 @@ use tokio::pin;
 use tokio_stream::StreamExt as _;
 use tracing::*;
 
+/// Recovery of senders of transactions from signatures
 #[derive(Debug)]
 pub struct SenderRecovery {
     pub batch_size: usize,
@@ -28,11 +29,11 @@ where
         StageId("SenderRecovery")
     }
 
-    fn description(&self) -> &'static str {
-        "Recovering senders of transactions from signatures"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -50,17 +51,16 @@ where
         let started_at = Instant::now();
         let started_at_txnum = tx
             .get(
-                tables::CumulativeIndex,
+                tables::TotalTx,
                 input.first_started_at.1.unwrap_or(BlockNumber(0)),
             )
-            .await?
-            .map(|v| v.tx_num);
+            .await?;
         let done = loop {
             let mut read_again = false;
             debug!("Reading bodies");
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
-                    .take(body.tx_amount)
+                    .take(body.tx_amount.try_into()?)
                     .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()
                     .await?;
@@ -118,16 +118,13 @@ where
                 let mut format_string = format!("Extracted senders from block {}", highest_block);
 
                 if let Some(started_at_txnum) = started_at_txnum {
-                    let current_txnum = tx
-                        .get(tables::CumulativeIndex, highest_block)
-                        .await?
-                        .map(|v| v.tx_num);
+                    let current_txnum = tx.get(tables::TotalTx, highest_block).await?;
                     let total_txnum = tx
-                        .cursor(tables::CumulativeIndex)
+                        .cursor(tables::TotalTx)
                         .await?
                         .last()
                         .await?
-                        .map(|(_, v)| v.tx_num);
+                        .map(|(_, v)| v);
 
                     if let Some(current_txnum) = current_txnum {
                         if let Some(total_txnum) = total_txnum {
@@ -170,7 +167,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -198,7 +195,6 @@ mod tests {
     use super::*;
     use crate::{accessors::*, kv::new_mem_database};
     use bytes::Bytes;
-    use ethereum_types::*;
     use hex_literal::hex;
 
     const CHAIN_ID: Option<ChainId> = Some(ChainId(1));
@@ -208,11 +204,11 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let sender1 = H160::from(hex!("de1ef574fd619979b16fd043ea97c4f4536af2e6"));
-        let sender2 = H160::from(hex!("c93c9f9cac833846a66bce3bd9dc7c85e36463af"));
+        let sender1 = Address::from(hex!("de1ef574fd619979b16fd043ea97c4f4536af2e6"));
+        let sender2 = Address::from(hex!("c93c9f9cac833846a66bce3bd9dc7c85e36463af"));
 
-        let recipient1 = H160::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
-        let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
+        let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
+        let recipient2 = Address::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
@@ -224,10 +220,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 1,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 1.into(),
+                value: 1.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -246,10 +242,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x100.into(),
+                value: 0x100.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -274,10 +270,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 3,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10000.into(),
+                value: 0x10000.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -296,10 +292,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 6,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10.into(),
+                value: 0x10.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -318,10 +314,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient2),
-                value: 2.into(),
+                value: 2.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -367,7 +363,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stage = SenderRecovery { batch_size: 50_000 };
+        let mut stage = SenderRecovery { batch_size: 50_000 };
 
         let stage_input = StageInput {
             restarted: false,

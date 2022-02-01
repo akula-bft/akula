@@ -2,7 +2,7 @@ use crate::{
     etl::collector::*,
     kv::{tables, traits::*},
     models::BodyForStorage,
-    stagedsync::stage::*,
+    stagedsync::{stage::*, stages::TX_LOOKUP},
     StageId,
 };
 use async_trait::async_trait;
@@ -12,6 +12,7 @@ use tokio::pin;
 use tokio_stream::StreamExt;
 use tracing::*;
 
+/// Generation of TransactionHash => BlockNumber mapping
 #[derive(Debug)]
 pub struct TxLookup {
     temp_dir: Arc<TempDir>,
@@ -23,14 +24,14 @@ where
     RwTx: MutableTransaction<'db>,
 {
     fn id(&self) -> StageId {
-        StageId("TxLookup")
+        TX_LOOKUP
     }
 
-    fn description(&self) -> &'static str {
-        "Generating TransactionHash => BlockNumber Mapping"
-    }
-
-    async fn execute<'tx>(&self, tx: &'tx mut RwTx, input: StageInput) -> anyhow::Result<ExecOutput>
+    async fn execute<'tx>(
+        &mut self,
+        tx: &'tx mut RwTx,
+        input: StageInput,
+    ) -> anyhow::Result<ExecOutput>
     where
         'db: 'tx,
     {
@@ -59,7 +60,8 @@ where
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.try_next().await? {
             let (tx_count, tx_base_id) = (body_rpl.tx_amount, body_rpl.base_tx_id);
 
-            let walker_block_txs = walk(&mut block_txs_cursor, Some(tx_base_id)).take(tx_count);
+            let walker_block_txs =
+                walk(&mut block_txs_cursor, Some(tx_base_id)).take(tx_count.try_into()?);
             pin!(walker_block_txs);
 
             while let Some((_, tx)) = walker_block_txs.try_next().await? {
@@ -79,7 +81,7 @@ where
     }
 
     async fn unwind<'tx>(
-        &self,
+        &mut self,
         tx: &'tx mut RwTx,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
@@ -140,7 +142,6 @@ mod tests {
         models::{MessageWithSignature, *},
     };
     use bytes::Bytes;
-    use ethereum_types::*;
     use hex_literal::hex;
     use std::time::Instant;
 
@@ -151,8 +152,8 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let recipient1 = H160::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
-        let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
+        let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
+        let recipient2 = Address::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
@@ -164,10 +165,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 1,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 1.into(),
+                value: 1.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -187,10 +188,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x100.into(),
+                value: 0x100.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -216,10 +217,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 3,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10000.into(),
+                value: 0x10000.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -240,10 +241,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 6,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10.into(),
+                value: 0x10.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -264,10 +265,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient2),
-                value: 2.into(),
+                value: 2.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -311,7 +312,7 @@ mod tests {
             .await
             .unwrap();
 
-        let stage = TxLookup {
+        let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
         };
 
@@ -350,7 +351,7 @@ mod tests {
     async fn tx_lookup_stage_without_data() {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
-        let stage = TxLookup {
+        let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
         };
 
@@ -377,8 +378,8 @@ mod tests {
         let db = new_mem_database().unwrap();
         let mut tx = db.begin_mutable().await.unwrap();
 
-        let recipient1 = H160::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
-        let recipient2 = H160::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
+        let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
+        let recipient2 = Address::from(hex!("d7fa8303df7073290f66ced1add5fe89dac0c462"));
 
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
@@ -390,10 +391,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 1,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 1.into(),
+                value: 1.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -413,10 +414,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x100.into(),
+                value: 0x100.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -442,10 +443,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 3,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10000.into(),
+                value: 0x10000.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -466,10 +467,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 6,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient1),
-                value: 0x10.into(),
+                value: 0x10.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -490,10 +491,10 @@ mod tests {
             message: Message::Legacy {
                 chain_id: CHAIN_ID,
                 nonce: 2,
-                gas_price: 1_000_000.into(),
+                gas_price: 1_000_000.as_u256(),
                 gas_limit: 21_000,
                 action: TransactionAction::Call(recipient2),
-                value: 2.into(),
+                value: 2.as_u256(),
                 input: Bytes::new(),
             },
             signature: MessageSignature::new(
@@ -542,7 +543,7 @@ mod tests {
         chain::tl::write(&tx, hash2_1, 2.into()).await.unwrap();
         chain::tl::write(&tx, hash2_2, 2.into()).await.unwrap();
         chain::tl::write(&tx, hash2_3, 2.into()).await.unwrap();
-        let stage = TxLookup {
+        let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
         };
         stage

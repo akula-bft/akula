@@ -27,15 +27,13 @@ pub mod fee {
 
 pub mod param {
     use crate::models::*;
-    use ethereum_types::*;
-    use once_cell::sync::Lazy;
 
     // https://eips.ethereum.org/EIPS/eip-170
     pub const MAX_CODE_SIZE: usize = 0x6000;
 
-    pub static BLOCK_REWARD_FRONTIER: Lazy<U256> = Lazy::new(|| U256::from(5) * *ETHER);
-    pub static BLOCK_REWARD_BYZANTIUM: Lazy<U256> = Lazy::new(|| U256::from(3) * *ETHER);
-    pub static BLOCK_REWARD_CONSTANTINOPLE: Lazy<U256> = Lazy::new(|| U256::from(2) * *ETHER);
+    pub const BLOCK_REWARD_FRONTIER: u128 = 5 * ETHER;
+    pub const BLOCK_REWARD_BYZANTIUM: u128 = 3 * ETHER;
+    pub const BLOCK_REWARD_CONSTANTINOPLE: u128 = 2 * ETHER;
 
     pub const G_QUAD_DIVISOR_BYZANTIUM: u64 = 20; // EIP-198
     pub const G_QUAD_DIVISOR_BERLIN: u64 = 3; // EIP-2565

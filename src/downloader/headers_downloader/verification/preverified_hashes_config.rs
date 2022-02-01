@@ -1,3 +1,4 @@
+use crate::models::*;
 use serde::{de, Deserialize};
 use std::str::FromStr;
 
@@ -10,10 +11,10 @@ use std::str::FromStr;
 /// https://github.com/ledgerwatch/erigon/blob/devel/turbo/stages/headerdownload/preverified_hashes_ropsten.go
 #[derive(Clone, Debug)]
 pub struct PreverifiedHashesConfig {
-    pub hashes: Vec<ethereum_types::H256>,
+    pub hashes: Vec<H256>,
 }
 
-struct UnprefixedHexH256(pub ethereum_types::H256);
+struct UnprefixedHexH256(pub H256);
 
 #[derive(Deserialize)]
 struct PreverifiedHashesConfigUnprefixedHex {
@@ -48,7 +49,7 @@ impl FromStr for UnprefixedHexH256 {
     fn from_str(hash_str: &str) -> Result<Self, Self::Err> {
         let mut hash_bytes = [0u8; 32];
         hex::decode_to_slice(hash_str, &mut hash_bytes)?;
-        let hash = ethereum_types::H256::from(hash_bytes);
+        let hash = H256::from(hash_bytes);
 
         Ok(UnprefixedHexH256(hash))
     }

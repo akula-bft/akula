@@ -43,8 +43,6 @@ pub struct HeaderSlice {
     pub request_time: Option<time::Instant>,
     pub request_attempt: u16,
     pub refetch_attempt: u16,
-    pub fork_status: HeaderSliceStatus,
-    pub fork_headers: Option<Vec<BlockHeader>>,
 }
 
 struct HeaderSliceStatusWatch {
@@ -78,51 +76,53 @@ impl HeaderSlices {
         start_block_num: BlockNumber,
         final_block_num: BlockNumber,
     ) -> Self {
-        let max_slices = mem_limit / std::mem::size_of::<BlockHeader>() / HEADER_SLICE_SIZE;
-
-        assert_eq!(
-            (start_block_num.0 as usize) % HEADER_SLICE_SIZE,
-            0,
-            "start_block_num must be at the slice boundary"
-        );
-        assert_eq!(
-            (final_block_num.0 as usize) % HEADER_SLICE_SIZE,
-            0,
-            "final_block_num must be at the slice boundary"
+        let total_block_num = (final_block_num.0 - start_block_num.0) as usize;
+        let max_slices = std::cmp::min(
+            estimate_max_slices_for_mem_limit(mem_limit),
+            (total_block_num + HEADER_SLICE_SIZE - 1) / HEADER_SLICE_SIZE,
         );
 
-        let total_block_num = final_block_num.0 as usize - start_block_num.0 as usize;
-        let max_slices = std::cmp::min(max_slices, total_block_num / HEADER_SLICE_SIZE);
-
-        let mut slices = VecDeque::new();
-        for i in 0..max_slices {
-            let slice = HeaderSlice {
-                start_block_num: BlockNumber(start_block_num.0 + (i * HEADER_SLICE_SIZE) as u64),
-                ..Default::default()
-            };
-            slices.push_back(Arc::new(RwLock::new(slice)));
-        }
-
-        let max_block_num = start_block_num.0 + (max_slices * HEADER_SLICE_SIZE) as u64;
-
-        let state_watches = Self::make_state_watches(max_slices);
-
-        Self {
-            slices: RwLock::new(slices),
-            max_slices,
-            max_block_num: AtomicU64::new(max_block_num),
-            final_block_num,
-            state_watches,
-        }
+        Self::from_slices_vec(
+            Vec::new(),
+            Some(start_block_num),
+            Some(max_slices),
+            Some(final_block_num),
+        )
     }
 
-    #[cfg(test)]
-    pub fn from_slices_vec(slices: Vec<HeaderSlice>) -> Self {
-        let max_slices = slices.len();
-        assert!(max_slices > 0, "slices must not be empty");
+    #[allow(clippy::needless_range_loop)]
+    pub fn from_slices_vec(
+        mut slices: Vec<HeaderSlice>,
+        start_block_num_opt: Option<BlockNumber>,
+        max_slices_opt: Option<usize>,
+        final_block_num_opt: Option<BlockNumber>,
+    ) -> Self {
+        let slices_count = slices.len();
+        let start_block_num = if slices_count > 0 {
+            slices[0].start_block_num
+        } else {
+            start_block_num_opt.unwrap_or(BlockNumber(0))
+        };
+        assert!(
+            is_block_num_aligned_to_slice_start(start_block_num),
+            "start_block_num must be at the slice boundary"
+        );
 
-        let start_block_num = slices[0].start_block_num;
+        let max_slices = max_slices_opt.unwrap_or(slices_count);
+
+        slices.resize(max_slices, Default::default());
+        for i in slices_count..max_slices {
+            let block_num = start_block_num.0 + (i * HEADER_SLICE_SIZE) as u64;
+            slices[i].start_block_num = BlockNumber(block_num);
+        }
+
         let max_block_num = start_block_num.0 + (max_slices * HEADER_SLICE_SIZE) as u64;
+
+        let final_block_num = final_block_num_opt.unwrap_or(BlockNumber(max_block_num));
+        assert!(
+            is_block_num_aligned_to_slice_start(final_block_num),
+            "final_block_num must be at the slice boundary"
+        );
 
         let state_watches = Self::make_state_watches_from_slices(&slices);
 
@@ -133,8 +133,18 @@ impl HeaderSlices {
             slices: RwLock::new(slice_locks),
             max_slices,
             max_block_num: AtomicU64::new(max_block_num),
-            final_block_num: BlockNumber(max_block_num),
+            final_block_num,
             state_watches,
+        }
+    }
+
+    pub fn empty(max_slices: usize) -> Self {
+        Self {
+            slices: RwLock::new(VecDeque::new()),
+            max_slices,
+            max_block_num: AtomicU64::new(0),
+            final_block_num: BlockNumber(0),
+            state_watches: Self::make_state_watches_from_slices(&[]),
         }
     }
 
@@ -145,27 +155,6 @@ impl HeaderSlices {
             .iter()
             .map(|slice_lock| slice_lock.read().clone())
             .collect()
-    }
-
-    fn make_state_watches(max_slices: usize) -> HashMap<HeaderSliceStatus, HeaderSliceStatusWatch> {
-        let mut state_watches = HashMap::<HeaderSliceStatus, HeaderSliceStatusWatch>::new();
-        for id in HeaderSliceStatus::iter() {
-            let initial_count = if id == HeaderSliceStatus::Empty {
-                max_slices
-            } else {
-                0
-            };
-
-            let (sender, receiver) = watch::channel(initial_count);
-            let channel = HeaderSliceStatusWatch {
-                sender,
-                receiver,
-                count: AtomicUsize::new(initial_count),
-            };
-
-            state_watches.insert(id, channel);
-        }
-        state_watches
     }
 
     fn make_state_watches_from_slices(
@@ -215,6 +204,13 @@ impl HeaderSlices {
         self.slices.read().iter().try_fold(init, f)
     }
 
+    pub fn try_rfold<B, C, F>(&self, init: C, f: F) -> std::ops::ControlFlow<B, C>
+    where
+        F: FnMut(C, &Arc<RwLock<HeaderSlice>>) -> std::ops::ControlFlow<B, C>,
+    {
+        self.slices.read().iter().try_rfold(init, f)
+    }
+
     pub fn find_by_start_block_num(
         &self,
         start_block_num: BlockNumber,
@@ -235,8 +231,7 @@ impl HeaderSlices {
         let is_block_num_in_range: bool = {
             let slice = slice_lock.read();
             let block_num_range = slice.block_num_range();
-            let fork_block_num_range = slice.fork_block_num_range();
-            block_num_range.contains(&block_num) || fork_block_num_range.contains(&block_num)
+            block_num_range.contains(&block_num)
         };
 
         if is_block_num_in_range {
@@ -318,6 +313,94 @@ impl HeaderSlices {
         status_watch.count.fetch_add(count, ATOMIC_ORDERING);
     }
 
+    pub fn clear(&self) {
+        let mut slices = self.slices.write();
+        slices.clear();
+        self.max_block_num.store(0, ATOMIC_ORDERING);
+
+        for watch in self.state_watches.values() {
+            watch.count.store(0, ATOMIC_ORDERING);
+        }
+    }
+
+    pub fn reset_to_single_slice(&self, initial_slice: HeaderSlice) {
+        let start_block_num = initial_slice.start_block_num;
+        let status = initial_slice.status;
+
+        let mut slices = self.slices.write();
+        slices.clear();
+        slices.push_back(Arc::new(RwLock::new(initial_slice)));
+
+        self.max_block_num.store(
+            start_block_num.0 + HEADER_SLICE_SIZE as u64,
+            ATOMIC_ORDERING,
+        );
+
+        for watch in self.state_watches.values() {
+            watch.count.store(0, ATOMIC_ORDERING);
+        }
+        let status_watch = &self.state_watches[&status];
+        status_watch.count.store(1, ATOMIC_ORDERING);
+    }
+
+    pub fn prepend_slice(&self) -> anyhow::Result<()> {
+        let mut slices = self.slices.write();
+
+        if slices.len() >= self.max_slices {
+            return Err(anyhow::format_err!(
+                "can't prepend: max_slices limit reached"
+            ));
+        }
+
+        let Some(first) = slices.iter().next() else {
+            return Err(anyhow::format_err!("can't prepend if empty"));
+        };
+
+        let first_block_num = first.read().start_block_num;
+        if first_block_num.0 < HEADER_SLICE_SIZE as u64 {
+            return Err(anyhow::format_err!(
+                "can't prepend before block {}",
+                first_block_num.0
+            ));
+        }
+        let start_block_num = BlockNumber(first_block_num.0 - HEADER_SLICE_SIZE as u64);
+
+        let slice = HeaderSlice {
+            start_block_num,
+            ..Default::default()
+        };
+        slices.push_front(Arc::new(RwLock::new(slice)));
+
+        let status_watch = &self.state_watches[&HeaderSliceStatus::Empty];
+        status_watch.count.fetch_add(1, ATOMIC_ORDERING);
+        Ok(())
+    }
+
+    pub fn append_slice(&self) -> anyhow::Result<()> {
+        let mut slices = self.slices.write();
+        let slice = HeaderSlice {
+            start_block_num: self.max_block_num(),
+            ..Default::default()
+        };
+        slices.push_back(Arc::new(RwLock::new(slice)));
+        self.max_block_num
+            .fetch_add(HEADER_SLICE_SIZE as u64, ATOMIC_ORDERING);
+
+        let status_watch = &self.state_watches[&HeaderSliceStatus::Empty];
+        status_watch.count.fetch_add(1, ATOMIC_ORDERING);
+        Ok(())
+    }
+
+    pub fn trim_start_to_fit_max_slices(&self) {
+        let mut slices = self.slices.write();
+        while slices.len() > self.max_slices {
+            let removed_slice_lock = slices.pop_front().unwrap();
+            let removed_status = removed_slice_lock.read().status;
+            let status_watch = &self.state_watches[&removed_status];
+            status_watch.count.fetch_sub(1, ATOMIC_ORDERING);
+        }
+    }
+
     pub fn has_one_of_statuses(&self, statuses: &[HeaderSliceStatus]) -> bool {
         statuses
             .iter()
@@ -369,6 +452,10 @@ impl HeaderSlices {
         counters
     }
 
+    pub fn max_slices(&self) -> usize {
+        self.max_slices
+    }
+
     pub fn min_block_num(&self) -> BlockNumber {
         if let Some(first_slice) = self.slices.read().front() {
             return first_slice.read().start_block_num;
@@ -382,6 +469,10 @@ impl HeaderSlices {
 
     pub fn final_block_num(&self) -> BlockNumber {
         self.final_block_num
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slices.read().is_empty()
     }
 
     pub fn is_empty_at_final_position(&self) -> bool {
@@ -398,6 +489,14 @@ pub fn align_block_num_to_slice_start(num: BlockNumber) -> BlockNumber {
     BlockNumber(num.0 / slice_size * slice_size)
 }
 
+pub fn is_block_num_aligned_to_slice_start(num: BlockNumber) -> bool {
+    num.0 % (HEADER_SLICE_SIZE as u64) == 0
+}
+
+fn estimate_max_slices_for_mem_limit(mem_limit: usize) -> usize {
+    mem_limit / std::mem::size_of::<BlockHeader>() / HEADER_SLICE_SIZE
+}
+
 impl HeaderSlice {
     pub fn len(&self) -> usize {
         self.headers.as_ref().map_or(0, |headers| headers.len())
@@ -405,17 +504,6 @@ impl HeaderSlice {
 
     pub fn block_num_range(&self) -> std::ops::Range<BlockNumber> {
         let end = BlockNumber(self.start_block_num.0 + self.len() as u64);
-        self.start_block_num..end
-    }
-
-    pub fn fork_len(&self) -> usize {
-        self.fork_headers
-            .as_ref()
-            .map_or(0, |headers| headers.len())
-    }
-
-    pub fn fork_block_num_range(&self) -> std::ops::Range<BlockNumber> {
-        let end = BlockNumber(self.start_block_num.0 + self.fork_len() as u64);
         self.start_block_num..end
     }
 }

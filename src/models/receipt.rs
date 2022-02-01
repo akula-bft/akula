@@ -1,7 +1,6 @@
 use super::*;
 use crate::crypto::*;
 use bytes::{BufMut, Bytes, BytesMut};
-use ethereum_types::Bloom;
 use rlp::{Encodable, RlpStream};
 use serde::*;
 
