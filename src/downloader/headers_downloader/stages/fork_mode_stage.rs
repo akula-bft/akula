@@ -449,6 +449,17 @@ impl ForkModeStage {
         self.fork_range.start = self.fork_range.end;
     }
 
+    // If header_slices are trimmed, the fork_header_slices might need to be trimmed as well.
+    // In this case it hits the canonical chain root and needs to be discarded.
+    pub fn adjust_fork_slices_after_header_slices_trim(
+        fork_header_slices: &HeaderSlices,
+        header_slices: &HeaderSlices,
+    ) {
+        if fork_header_slices.min_block_num() <= header_slices.min_block_num() {
+            fork_header_slices.clear();
+        }
+    }
+
     fn find_canonical_continuation_slice(&self) -> Option<Arc<RwLock<HeaderSlice>>> {
         self.header_slices
             .find_by_block_num(self.canonical_range.end)

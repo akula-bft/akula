@@ -376,6 +376,31 @@ impl HeaderSlices {
         Ok(())
     }
 
+    pub fn append_slice(&self) -> anyhow::Result<()> {
+        let mut slices = self.slices.write();
+        let slice = HeaderSlice {
+            start_block_num: self.max_block_num(),
+            ..Default::default()
+        };
+        slices.push_back(Arc::new(RwLock::new(slice)));
+        self.max_block_num
+            .fetch_add(HEADER_SLICE_SIZE as u64, ATOMIC_ORDERING);
+
+        let status_watch = &self.state_watches[&HeaderSliceStatus::Empty];
+        status_watch.count.fetch_add(1, ATOMIC_ORDERING);
+        Ok(())
+    }
+
+    pub fn trim_start_to_fit_max_slices(&self) {
+        let mut slices = self.slices.write();
+        while slices.len() > self.max_slices {
+            let removed_slice_lock = slices.pop_front().unwrap();
+            let removed_status = removed_slice_lock.read().status;
+            let status_watch = &self.state_watches[&removed_status];
+            status_watch.count.fetch_sub(1, ATOMIC_ORDERING);
+        }
+    }
+
     pub fn has_one_of_statuses(&self, statuses: &[HeaderSliceStatus]) -> bool {
         statuses
             .iter()
