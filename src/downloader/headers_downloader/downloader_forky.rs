@@ -259,6 +259,8 @@ impl DownloaderForky {
             false,
         );
 
+        let extend_stage = ExtendStage::new(header_slices.clone());
+
         let timeout_stage = TimeoutStage::new(Duration::from_secs(15));
         let timeout_stage_is_over = timeout_stage.is_over_check();
 
@@ -269,11 +271,19 @@ impl DownloaderForky {
 
         // verify_link_stage is common for both groups
         stages.insert(verify_link_stage);
+        stages.insert(extend_stage);
         stages.insert(timeout_stage);
 
         stages.run(timeout_stage_is_over).await;
 
         let loaded_count = Self::downloaded_count(header_slices.as_ref(), progress_start_block_num);
+
+        // maintenance after ExtendStage
+        header_slices.trim_start_to_fit_max_slices();
+        ForkModeStage::adjust_fork_slices_after_header_slices_trim(
+            fork_header_slices.as_ref(),
+            header_slices.as_ref(),
+        );
 
         let report = DownloaderForkyReport {
             loaded_count,

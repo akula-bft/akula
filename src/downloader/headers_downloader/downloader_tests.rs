@@ -526,8 +526,8 @@ impl HeaderGenerator {
 async fn save_verified() {
     let test = DownloaderTestDecl {
         sentry: "",
-        slices: "+   +   +   #",
-        result: "+   +   +   +",
+        slices: "+   +   +   #   -",
+        result: "+   +   +   +   -",
         forked: "",
     };
     test.run().await.unwrap();
@@ -537,8 +537,8 @@ async fn save_verified() {
 async fn verify_link() {
     let test = DownloaderTestDecl {
         sentry: "",
-        slices: "+   +   +   =",
-        result: "+   +   +   +",
+        slices: "+   +   +   =   -",
+        result: "+   +   +   +   -",
         forked: "",
     };
     test.run().await.unwrap();
@@ -548,8 +548,19 @@ async fn verify_link() {
 async fn verify_link_at_root() {
     let test = DownloaderTestDecl {
         sentry: "",
-        slices: "=",
-        result: "+",
+        slices: "=   -",
+        result: "+   -",
+        forked: "",
+    };
+    test.run().await.unwrap();
+}
+
+#[tokio::test]
+async fn slide_full() {
+    let test = DownloaderTestDecl {
+        sentry: "",
+        slices: "+   +",
+        result: "_   +   -",
         forked: "",
     };
     test.run().await.unwrap();
@@ -593,7 +604,7 @@ async fn canonical_continuation_to_top() {
     let test = DownloaderTestDecl {
         sentry: "_   _   _   .   ",
         slices: "+   +   +   ='f ",
-        result: "+   +   +   +   ",
+        result: "_   +   +   +   -   ",
         forked: "_   _   -   +'f ",
     };
     test.run().await.unwrap();
@@ -602,10 +613,10 @@ async fn canonical_continuation_to_top() {
 #[tokio::test]
 async fn fork_both_chains_continuation() {
     let test = DownloaderTestDecl {
-        sentry: "_   _   .'e .   ",
-        slices: "+   +   +   ='f ",
-        result: "+   +   +   +   ",
-        forked: "_   -   +'e +'f ",
+        sentry: "_   _   .'e .    ",
+        slices: "+   +   +   ='f -",
+        result: "+   +   +   +   -",
+        forked: "_   -   +'e +'f  ",
     };
     test.run().await.unwrap();
 }
@@ -635,9 +646,9 @@ async fn dont_fork_at_root() {
 #[tokio::test]
 async fn fork_connect_and_switch() {
     let test = DownloaderTestDecl {
-        sentry: "_   _   .`e _   ",
-        slices: "+   +   +   ='f ",
-        result: "+   +   +`e +'f ",
+        sentry: "_   _   .`e _    ",
+        slices: "+   +   +   ='f -",
+        result: "+   +   +`e +'f -",
         forked: "",
     };
     test.run().await.unwrap();
@@ -646,9 +657,9 @@ async fn fork_connect_and_switch() {
 #[tokio::test]
 async fn fork_connect_and_discard() {
     let test = DownloaderTestDecl {
-        sentry: "_   .`i .'j .   ",
-        slices: "+   +   +   ='k ",
-        result: "+   +   +   +   ",
+        sentry: "_   .`i .'j .    ",
+        slices: "+   +   +   ='k -",
+        result: "+   +   +   +   -",
         forked: "",
     };
     test.run().await.unwrap();
