@@ -1,7 +1,7 @@
 [package]
 name = "akula"
 version = "0.1.0"
-authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
+authors = ["Artem Vorotnikov <artem@vorotnikov.me>", "Emilia Hane <emiliaha95@gmail.com>"]
 edition = "2021"
 description = "Ethereum client based on turbo-geth client architecture"
 license = "Apache-2.0"
@@ -45,7 +45,7 @@ hex = "0.4"
 hex-literal = "0.3"
 http = "0.2"
 itertools = "0.10"
-jsonrpc = { package = "ethereum-jsonrpc", git = "https://github.com/rust-ethereum/jsonrpc", branch = "emhane/rpc" }
+jsonrpc = { package = "ethereum-jsonrpc", git = "https://github.com/rust-ethereum/jsonrpc" }
 jsonrpsee = { git = "https://github.com/paritytech/jsonrpsee", features = [
     "server",
     "macros",
