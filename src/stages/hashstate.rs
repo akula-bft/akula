@@ -412,7 +412,7 @@ mod tests {
                 StageInput {
                     restarted: false,
                     first_started_at: (Instant::now(), None),
-                    previous_stage: Some((StageId(""), BlockNumber(3))),
+                    previous_stage: Some((EXECUTION, BlockNumber(3))),
                     stage_progress: None,
                 },
             )
