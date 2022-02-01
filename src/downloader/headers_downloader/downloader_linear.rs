@@ -15,7 +15,7 @@ use super::{
 use crate::{
     kv,
     models::BlockNumber,
-    sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
+    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use std::sync::Arc;
 use tracing::*;
@@ -70,12 +70,11 @@ impl DownloaderLinear {
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
-        start_block_id: BlockHashAndNumber,
+        start_block_num: BlockNumber,
         max_blocks_count: usize,
         estimated_top_block_num: Option<BlockNumber>,
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderLinearReport> {
-        let start_block_num = start_block_id.number;
         if !is_block_num_aligned_to_slice_start(start_block_num) {
             return Err(anyhow::format_err!(
                 "expected an aligned start block, got {}",
@@ -112,6 +111,20 @@ impl DownloaderLinear {
             });
         }
 
+        // load start block parent header
+        let start_block_parent_num = if start_block_num.0 > 0 {
+            Some(BlockNumber(start_block_num.0 - 1))
+        } else {
+            None
+        };
+        let start_block_parent_header = match start_block_parent_num {
+            Some(num) => SaveStage::load_canonical_header_by_num(num, db_transaction).await?,
+            None => None,
+        };
+        if start_block_parent_num.is_some() && start_block_parent_header.is_none() {
+            anyhow::bail!("expected a saved parent header of {}", start_block_num.0);
+        }
+
         let header_slices = Arc::new(HeaderSlices::new(
             self.mem_limit,
             start_block_num,
@@ -139,8 +152,7 @@ impl DownloaderLinear {
             header_slices.clone(),
             self.chain_config.clone(),
             self.verifier.clone(),
-            start_block_num,
-            start_block_id.hash,
+            start_block_parent_header,
             HeaderSliceStatus::Invalid,
         );
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());

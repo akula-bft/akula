@@ -16,7 +16,7 @@ use crate::{
     kv,
     kv::tables::HeaderKey,
     models::BlockNumber,
-    sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
+    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use std::{ops::ControlFlow, sync::Arc, time::Duration};
 
@@ -110,7 +110,11 @@ impl DownloaderForky {
             let slice = slice_lock.read();
 
             if slice.status == HeaderSliceStatus::Saved {
-                if slice.start_block_num >= start_block_num {
+                let slice_range = slice.block_num_range();
+                // if start_block_num is in the middle of the slice - ignore blocks before it
+                if slice_range.contains(&start_block_num) {
+                    count += slice.len() - (start_block_num.0 - slice_range.start.0) as usize;
+                } else if slice.start_block_num > start_block_num {
                     count += slice.len();
                 }
                 ControlFlow::Continue(())
@@ -158,14 +162,26 @@ impl DownloaderForky {
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
-        start_block_id: BlockHashAndNumber,
+        progress_start_block_num: BlockNumber,
         max_blocks_count: usize,
         no_forks_final_block_num: BlockNumber,
         previous_run_header_slices: Option<Arc<HeaderSlices>>,
         previous_run_fork_header_slices: Option<Arc<HeaderSlices>>,
         ui_system: UISystemShared,
     ) -> anyhow::Result<DownloaderForkyReport> {
-        let start_block_num = start_block_id.number;
+        // don't use previous_run_header_slices if progress_start_block_num is before its range
+        let previous_run_header_slices = previous_run_header_slices
+            .filter(|slices| (progress_start_block_num >= slices.min_block_num()));
+        let previous_run_fork_header_slices =
+            previous_run_fork_header_slices.filter(|_| previous_run_header_slices.is_some());
+
+        // header slices window start block number
+        let start_block_num = if let Some(previous_run_header_slices) = &previous_run_header_slices
+        {
+            previous_run_header_slices.min_block_num()
+        } else {
+            no_forks_final_block_num
+        };
         if !is_block_num_aligned_to_slice_start(start_block_num) {
             return Err(anyhow::format_err!(
                 "expected an aligned start block, got {}",
@@ -181,31 +197,36 @@ impl DownloaderForky {
         let forky_max_blocks_count: usize = 99_000;
 
         if (max_blocks_count < forky_max_blocks_count)
-            || (start_block_num < no_forks_final_block_num)
+            || (progress_start_block_num < start_block_num)
         {
             return Ok(DownloaderForkyReport {
                 loaded_count: 0,
-                final_block_num: start_block_num,
+                final_block_num: progress_start_block_num,
                 header_slices: previous_run_header_slices,
                 fork_header_slices: previous_run_fork_header_slices,
             });
         }
 
-        // don't use previous_run_header_slices if start_block_num is outside of its range
-        let previous_run_header_slices = previous_run_header_slices
-            .filter(|slices| slices.find_by_block_num(start_block_num).is_some());
-        let previous_run_fork_header_slices =
-            previous_run_fork_header_slices.filter(|_| previous_run_header_slices.is_some());
+        // load start block parent header
+        let start_block_parent_num = if start_block_num.0 > 0 {
+            Some(BlockNumber(start_block_num.0 - 1))
+        } else {
+            None
+        };
+        let start_block_parent_header = match start_block_parent_num {
+            Some(num) => SaveStage::load_canonical_header_by_num(num, db_transaction).await?,
+            None => None,
+        };
+        if start_block_parent_num.is_some() && start_block_parent_header.is_none() {
+            anyhow::bail!("expected a saved parent header of {}", start_block_num.0);
+        }
 
         let header_slices = if let Some(previous_run_header_slices) = previous_run_header_slices {
             previous_run_header_slices
         } else {
-            let loaded_header_slices = Self::load_header_slices(
-                db_transaction,
-                no_forks_final_block_num,
-                forky_max_blocks_count,
-            )
-            .await?;
+            let loaded_header_slices =
+                Self::load_header_slices(db_transaction, start_block_num, forky_max_blocks_count)
+                    .await?;
             Arc::new(loaded_header_slices)
         };
 
@@ -221,8 +242,7 @@ impl DownloaderForky {
             fork_header_slices.clone(),
             self.chain_config.clone(),
             self.verifier.clone(),
-            start_block_id.number,
-            start_block_id.hash,
+            start_block_parent_header,
         );
 
         let save_stage = SaveStage::<RwTx>::new(
@@ -253,11 +273,11 @@ impl DownloaderForky {
 
         stages.run(timeout_stage_is_over).await;
 
-        let loaded_count = Self::downloaded_count(header_slices.as_ref(), start_block_num);
+        let loaded_count = Self::downloaded_count(header_slices.as_ref(), progress_start_block_num);
 
         let report = DownloaderForkyReport {
             loaded_count,
-            final_block_num: BlockNumber(start_block_num.0 + loaded_count as u64),
+            final_block_num: BlockNumber(progress_start_block_num.0 + loaded_count as u64),
             header_slices: Some(header_slices),
             fork_header_slices: Some(fork_header_slices),
         };

@@ -1,13 +1,12 @@
 use super::{
     downloader_forky, downloader_linear, downloader_preverified,
-    headers::header_slices::{align_block_num_to_slice_start, HeaderSlices},
-    ui::ui_system::UISystemShared,
+    headers::header_slices::HeaderSlices, ui::ui_system::UISystemShared,
     verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{
     kv,
     models::*,
-    sentry::{chain_config::ChainConfig, messages::BlockHashAndNumber, sentry_client_reactor::*},
+    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use std::{
     fmt::{Debug, Formatter},
@@ -82,42 +81,6 @@ impl Downloader {
         Ok(instance)
     }
 
-    async fn linear_start_block_id<
-        'downloader,
-        'db: 'downloader,
-        RwTx: kv::traits::MutableTransaction<'db>,
-    >(
-        &'downloader self,
-        db_transaction: &'downloader RwTx,
-        prev_final_block_num: BlockNumber,
-    ) -> anyhow::Result<BlockHashAndNumber> {
-        // start from one slice back where the hash is known
-        let linear_start_block_num = if prev_final_block_num.0 > 0 {
-            align_block_num_to_slice_start(BlockNumber(prev_final_block_num.0 - 1))
-        } else {
-            BlockNumber(0)
-        };
-
-        let linear_start_block_hash = if linear_start_block_num.0 > 0 {
-            let hash_opt = db_transaction
-                .get(kv::tables::CanonicalHeader, linear_start_block_num)
-                .await?;
-            hash_opt.ok_or_else(|| {
-                anyhow::format_err!("Downloader inconsistent state: reported done until header {}, but header {} hash not found.",
-                    prev_final_block_num.0,
-                    linear_start_block_num.0)
-            })?
-        } else {
-            self.genesis_block_hash
-        };
-
-        let linear_start_block_id = BlockHashAndNumber {
-            number: linear_start_block_num,
-            hash: linear_start_block_hash,
-        };
-        Ok(linear_start_block_id)
-    }
-
     pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
         &'downloader self,
         db_transaction: &'downloader RwTx,
@@ -139,9 +102,6 @@ impl Downloader {
             .await?;
         max_blocks_count -= preverified_report.loaded_count;
 
-        let linear_start_block_id = self
-            .linear_start_block_id(db_transaction, preverified_report.final_block_num)
-            .await?;
         let linear_estimated_top_block_num =
             preverified_report.estimated_top_block_num.or_else(|| {
                 previous_run_state
@@ -153,7 +113,7 @@ impl Downloader {
             .downloader_linear
             .run::<RwTx>(
                 db_transaction,
-                linear_start_block_id,
+                preverified_report.final_block_num,
                 max_blocks_count,
                 linear_estimated_top_block_num,
                 ui_system.clone(),
@@ -161,14 +121,11 @@ impl Downloader {
             .await?;
         max_blocks_count -= linear_report.loaded_count;
 
-        let forky_start_block_id = self
-            .linear_start_block_id(db_transaction, linear_report.final_block_num)
-            .await?;
         let forky_report = self
             .downloader_forky
             .run::<RwTx>(
                 db_transaction,
-                forky_start_block_id,
+                linear_report.final_block_num,
                 max_blocks_count,
                 linear_report.target_final_block_num,
                 previous_run_state
