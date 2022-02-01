@@ -11,7 +11,7 @@ pub struct StageId(pub &'static str);
 pub const HEADERS: StageId = StageId("Headers");
 pub const BLOCK_HASHES: StageId = StageId("BlockHashes");
 pub const BODIES: StageId = StageId("Bodies");
-pub const SENDERS: StageId = StageId("Senders");
+pub const SENDERS: StageId = StageId("SenderRecovery");
 pub const TOTAL_GAS_INDEX: StageId = StageId("TotalGasIndex");
 pub const TOTAL_TX_INDEX: StageId = StageId("TotalTxIndex");
 pub const EXECUTION: StageId = StageId("Execution");

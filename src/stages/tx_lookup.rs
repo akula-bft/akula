@@ -2,7 +2,7 @@ use crate::{
     etl::collector::*,
     kv::{tables, traits::*},
     models::BodyForStorage,
-    stagedsync::{stage::*, stages::TX_LOOKUP},
+    stagedsync::{stage::*, stages::*},
     StageId,
 };
 use async_trait::async_trait;
@@ -319,7 +319,7 @@ mod tests {
         let stage_input = StageInput {
             restarted: false,
             first_started_at: (Instant::now(), Some(BlockNumber(0))),
-            previous_stage: Some((StageId("BodyDownload"), 3.into())),
+            previous_stage: Some((BODIES, 3.into())),
             stage_progress: Some(0.into()),
         };
 
@@ -358,7 +358,7 @@ mod tests {
         let stage_input = StageInput {
             restarted: false,
             first_started_at: (Instant::now(), Some(BlockNumber(0))),
-            previous_stage: Some((StageId("BodyDownload"), 3.into())),
+            previous_stage: Some((BODIES, 3.into())),
             stage_progress: Some(0.into()),
         };
 
