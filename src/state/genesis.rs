@@ -171,11 +171,10 @@ mod tests {
             genesis_header_hash(&crate::res::chainspec::ROPSTEN),
             hex!("41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d").into()
         );
-        // TODO: fix rinkeby.ron so that the genesis_header_hash is correct
-        // assert_eq!(
-        //     genesis_header_hash(&crate::res::chainspec::RINKEBY),
-        //     hex!("6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177").into()
-        // );
+        assert_eq!(
+            genesis_header_hash(&crate::res::chainspec::RINKEBY),
+            hex!("6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177").into()
+        );
     }
 
     #[tokio::test]
