@@ -125,15 +125,19 @@ where
         Ok(FINISH
             .get_progress(&self.db.begin().await?)
             .await?
-            .unwrap_or(BlockNumber(0)))
+            .unwrap_or_default())
     }
 
     async fn call(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<Bytes> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
-        let header = header::read(tx, block_hash, block_number).await?.unwrap();
+        let header = header::read(tx, block_hash, block_number)
+            .await?
+            .unwrap_or_default();
 
         let mut state = Buffer::new(tx, BlockNumber(0), Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
@@ -188,12 +192,14 @@ where
     async fn estimate_gas(&self, call_data: CallData, block_number: BlockNumber) -> RpcResult<U64> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
-        let nonce = account::read(tx, call_data.from.unwrap(), Some(block_number))
+        let nonce = account::read(tx, call_data.from.unwrap_or_default(), Some(block_number))
             .await?
             .map(|acc| acc.nonce)
-            .unwrap();
+            .unwrap_or_default();
 
         let value = match call_data.value {
             None => Default::default(),
@@ -234,8 +240,11 @@ where
             ommers: vec![],
         };
 
-        let header =
-            &PartialHeader::from(header::read(tx, block_hash, block_number).await?.unwrap());
+        let header = &PartialHeader::from(
+            header::read(tx, block_hash, block_number)
+                .await?
+                .unwrap_or_default(),
+        );
 
         let mut state = Buffer::new(tx, BlockNumber(0), Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
@@ -253,7 +262,9 @@ where
 
         let receipts = processor.execute_block_no_post_validation().await?;
 
-        Ok(U64::from(receipts[0].cumulative_gas_used))
+        Ok(U64::from(
+            receipts.first().map(|r| r.cumulative_gas_used).unwrap_or(0),
+        ))
     }
 
     async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
@@ -272,7 +283,9 @@ where
     ) -> RpcResult<jsonrpc::common::Block> {
         let tx = &self.db.begin().await?;
 
-        let block_number = header_number::read(tx, block_hash).await?.unwrap();
+        let block_number = header_number::read(tx, block_hash)
+            .await?
+            .unwrap_or_default();
 
         Ok(json_obj::assemble_block(tx, block_hash, block_number, full_tx_obj).await?)
     }
@@ -284,7 +297,9 @@ where
     ) -> RpcResult<jsonrpc::common::Block> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
         Ok(json_obj::assemble_block(tx, block_hash, block_number, full_tx_obj).await?)
     }
@@ -292,11 +307,13 @@ where
     async fn get_block_tx_count_by_hash(&self, block_hash: H256) -> RpcResult<U64> {
         let tx = &self.db.begin().await?;
 
-        let block_number = header_number::read(tx, block_hash).await?.unwrap();
+        let block_number = header_number::read(tx, block_hash)
+            .await?
+            .unwrap_or_default();
 
         let block_body = storage_body::read(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         Ok(U64::from(block_body.tx_amount))
     }
@@ -304,11 +321,13 @@ where
     async fn get_block_tx_count_by_number(&self, block_number: BlockNumber) -> RpcResult<U64> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
         let block_body = storage_body::read(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         Ok(U64::from(block_body.tx_amount))
     }
@@ -318,13 +337,13 @@ where
 
         let code_hash = account::read(tx, address, Some(block_number))
             .await?
-            .unwrap()
+            .unwrap_or_default()
             .code_hash;
 
         Ok(
             akula::read_account_code(tx, Address::from([1; 20]), code_hash)
                 .await?
-                .unwrap(),
+                .unwrap_or_default(),
         )
     }
 
@@ -350,11 +369,13 @@ where
     ) -> RpcResult<jsonrpc::common::Tx> {
         let tx = &self.db.begin().await?;
 
-        let block_number = header_number::read(tx, block_hash).await?.unwrap();
+        let block_number = header_number::read(tx, block_hash)
+            .await?
+            .unwrap_or_default();
 
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
@@ -369,11 +390,13 @@ where
     ) -> RpcResult<jsonrpc::common::Tx> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
@@ -390,20 +413,22 @@ where
             account::read(&self.db.begin().await?, address, Some(block_number))
                 .await?
                 .map(|acc| acc.nonce)
-                .unwrap(),
+                .unwrap_or_default(),
         ))
     }
 
     async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt> {
         let tx = &self.db.begin().await?;
 
-        let block_number = tl::read(tx, tx_hash).await?.unwrap();
+        let block_number = tl::read(tx, tx_hash).await?.unwrap_or_default();
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
         let msgs_with_sender = block_body::read_with_senders(tx, block_hash, block_number)
             .await?
-            .unwrap()
+            .unwrap_or_default()
             .transactions;
 
         let mut index = 0;
@@ -415,7 +440,9 @@ where
         }
         let msg = &msgs_with_sender[index];
 
-        let header = header::read(tx, block_hash, block_number).await?.unwrap();
+        let header = header::read(tx, block_hash, block_number)
+            .await?
+            .unwrap_or_default();
 
         let mut state = Buffer::new(tx, BlockNumber(0), Some(BlockNumber(block_number.0 - 1)));
 
@@ -423,7 +450,7 @@ where
 
         let block = block_body::read_with_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
@@ -489,15 +516,19 @@ where
     ) -> RpcResult<jsonrpc::common::Block> {
         let tx = &self.db.begin().await?;
 
-        let block_number = header_number::read(tx, block_hash).await?.unwrap();
+        let block_number = header_number::read(tx, block_hash)
+            .await?
+            .unwrap_or_default();
 
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         let ommer_hash = block_body.ommers[index.as_u64() as usize].hash();
 
-        let ommer_block_number = header_number::read(tx, ommer_hash).await?.unwrap();
+        let ommer_block_number = header_number::read(tx, ommer_hash)
+            .await?
+            .unwrap_or_default();
 
         Ok(json_obj::assemble_block(tx, ommer_hash, ommer_block_number, true).await?)
     }
@@ -509,15 +540,19 @@ where
     ) -> RpcResult<jsonrpc::common::Block> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         let ommer_hash = block_body.ommers[index.as_u64() as usize].hash();
 
-        let ommer_block_number = header_number::read(tx, ommer_hash).await?.unwrap();
+        let ommer_block_number = header_number::read(tx, ommer_hash)
+            .await?
+            .unwrap_or_default();
 
         Ok(json_obj::assemble_block(tx, ommer_hash, ommer_block_number, true).await?)
     }
@@ -525,11 +560,13 @@ where
     async fn get_uncle_count_by_block_hash(&self, block_hash: H256) -> RpcResult<U64> {
         let tx = &self.db.begin().await?;
 
-        let block_number = header_number::read(tx, block_hash).await?.unwrap();
+        let block_number = header_number::read(tx, block_hash)
+            .await?
+            .unwrap_or_default();
 
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         Ok(U64::from(block_body.ommers.len()))
     }
@@ -537,11 +574,13 @@ where
     async fn get_uncle_count_by_block_number(&self, block_number: BlockNumber) -> RpcResult<U64> {
         let tx = &self.db.begin().await?;
 
-        let block_hash = canonical_hash::read(tx, block_number).await?.unwrap();
+        let block_hash = canonical_hash::read(tx, block_number)
+            .await?
+            .unwrap_or_default();
 
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         Ok(U64::from(block_body.ommers.len()))
     }
@@ -569,7 +608,7 @@ pub mod json_obj {
         jsonrpc::common::Tx {
             block_hash: Some(block_hash),
             block_number: Some(U64::from(block_number.0)),
-            from: msg.recover_sender().unwrap(),
+            from: msg.recover_sender().unwrap_or_default(),
             gas: U64::from(msg.gas_limit()),
             gas_price: msg.max_fee_per_gas(),
             hash: msg.hash(),
@@ -592,7 +631,7 @@ pub mod json_obj {
     ) -> Result<jsonrpc::common::Block, anyhow::Error> {
         let block_body = block_body::read_without_senders(tx, block_hash, block_number)
             .await?
-            .unwrap();
+            .unwrap_or_default();
 
         let msgs = block_body.transactions;
         let mut index = 0;
@@ -609,12 +648,14 @@ pub mod json_obj {
             index += 1;
         }
 
-        let total_difficulty = td::read(tx, block_hash, block_number).await?.unwrap();
+        let total_difficulty = td::read(tx, block_hash, block_number)
+            .await?
+            .unwrap_or_default();
 
         let size = rlp::encode(
             &(block_body::read_without_senders(tx, block_hash, block_number)
                 .await?
-                .unwrap()),
+                .unwrap_or_default()),
         )
         .len();
 
@@ -624,7 +665,9 @@ pub mod json_obj {
             ommer_hashes.push(ommer.hash());
         }
 
-        let header = header::read(tx, block_hash, block_number).await?.unwrap();
+        let header = header::read(tx, block_hash, block_number)
+            .await?
+            .unwrap_or_default();
 
         Ok(jsonrpc::common::Block {
             number: Some(U64::from(header.number.0)),

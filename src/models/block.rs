@@ -71,7 +71,7 @@ impl From<Block> for BlockWithSenders {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Clone, Debug, PartialEq, RlpEncodable, RlpDecodable, Default)]
 pub struct BlockBody {
     pub transactions: Vec<MessageWithSignature>,
     pub ommers: Vec<BlockHeader>,
@@ -92,7 +92,9 @@ pub struct BlockBodyWithSenders {
     pub ommers: Vec<BlockHeader>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode, RlpDecodable)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Encode, Decode, RlpDecodable, Default,
+)]
 pub struct BodyForStorage {
     pub base_tx_id: TxIndex,
     pub tx_amount: u64,
