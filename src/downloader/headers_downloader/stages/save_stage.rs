@@ -249,6 +249,33 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
 
         Ok(())
     }
+
+    pub async fn unwind(unwind_to_block_num: BlockNumber, tx: &'tx RwTx) -> anyhow::Result<()> {
+        // headers after unwind_to_block_num are not canonical anymore
+        for i in unwind_to_block_num.0 + 1.. {
+            let num = BlockNumber(i);
+            let was_found = tx.del(kv::tables::CanonicalHeader, num, None).await?;
+            if !was_found {
+                break;
+            }
+        }
+
+        // update LastHeader to point to unwind_to_block_num
+        let last_header_hash_opt = tx
+            .get(kv::tables::CanonicalHeader, unwind_to_block_num)
+            .await?;
+        if let Some(hash) = last_header_hash_opt {
+            tx.set(kv::tables::LastHeader, Default::default(), hash)
+                .await?;
+        } else {
+            anyhow::bail!(
+                "unwind: not found header hash of the top block after unwind {}",
+                unwind_to_block_num.0
+            );
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]

@@ -1,7 +1,7 @@
 use super::{
+    fork_switch_command::ForkSwitchCommand,
     headers::{
         header_slice_status_watch::{HeaderSliceStatusWatch, HeaderSliceStatusWatchSelector},
-        header_slices,
         header_slices::*,
     },
     verification::header_slice_verifier::HeaderSliceVerifier,
@@ -21,6 +21,7 @@ pub struct ForkModeStage {
     verifier: Arc<Box<dyn HeaderSliceVerifier>>,
     canonical_range: Range<BlockNumber>,
     fork_range: Range<BlockNumber>,
+    pending_switch_to_fork_command: Option<ForkSwitchCommand>,
     pending_watch: HeaderSliceStatusWatchSelector,
     remaining_count: usize,
     fork_remaining_count: usize,
@@ -57,6 +58,7 @@ impl ForkModeStage {
             verifier,
             canonical_range,
             fork_range,
+            pending_switch_to_fork_command: None,
             pending_watch,
             remaining_count: 0,
             fork_remaining_count: 0,
@@ -167,7 +169,7 @@ impl ForkModeStage {
                 let canonical_range_difficulty =
                     self.canonical_range_difficulty(connection_block_num);
                 if fork_range_difficulty > canonical_range_difficulty {
-                    self.switch_to_fork();
+                    self.switch_to_fork(connection_block_num);
                 } else {
                     self.discard_fork();
                 }
@@ -206,6 +208,14 @@ impl ForkModeStage {
 
     pub fn is_done(&self) -> bool {
         self.fork_header_slices.is_empty()
+    }
+
+    pub fn is_over(&self) -> bool {
+        self.pending_switch_to_fork_command.is_some()
+    }
+
+    pub fn take_pending_termination_command(&mut self) -> Option<ForkSwitchCommand> {
+        self.pending_switch_to_fork_command.take()
     }
 
     fn refetch_canonical_slice(&self, slice: &mut HeaderSlice) {
@@ -388,60 +398,16 @@ impl ForkModeStage {
         difficulty
     }
 
-    fn switch_to_fork(&mut self) {
-        // promote the fork chain
-        let mut num = self.fork_range.start;
-        while num < self.fork_range.end {
-            let slice_lock = self.header_slices.find_by_start_block_num(num).unwrap();
-            let fork_slice_lock = self
-                .fork_header_slices
-                .find_by_start_block_num(num)
-                .unwrap();
+    fn switch_to_fork(&mut self, connection_block_num: BlockNumber) {
+        let command = ForkSwitchCommand::new(
+            self.header_slices.clone(),
+            self.fork_header_slices.clone(),
+            self.canonical_range.clone(),
+            self.fork_range.clone(),
+            connection_block_num,
+        );
 
-            let mut slice_mut = slice_lock.write();
-            let slice = slice_mut.deref_mut();
-
-            let mut fork_slice_mut = fork_slice_lock.write();
-            let fork_slice = fork_slice_mut.deref_mut();
-
-            // promote the status
-            self.header_slices
-                .set_slice_status(slice, fork_slice.status);
-            slice.headers = fork_slice.headers.take();
-            slice.refetch_attempt = 0;
-
-            num = BlockNumber(num.0 + slice.len() as u64);
-        }
-
-        // adjust num to point to the first canonical slice after the fork
-        // in case if the last fork slice is partial
-        num = align_block_num_to_slice_start(BlockNumber(
-            num.0 + (header_slices::HEADER_SLICE_SIZE as u64) - 1,
-        ));
-
-        // discard the canonical chain after the fork
-        while num < self.canonical_range.end {
-            let slice_lock = self.header_slices.find_by_start_block_num(num).unwrap();
-            let mut slice_mut = slice_lock.write();
-            let slice = slice_mut.deref_mut();
-
-            // slices within the canonical range past the fork must be in a canonical status
-            assert!(Self::is_canonical_slice_status(slice.status));
-            let len = slice.len();
-            assert!(len > 0, "a canonical chain slice must have headers");
-
-            // reset the status
-            self.header_slices
-                .set_slice_status(slice, HeaderSliceStatus::Empty);
-            slice.headers = None;
-            slice.refetch_attempt = 0;
-
-            num = BlockNumber(num.0 + len as u64);
-        }
-
-        // done
-        self.canonical_range.end = self.fork_range.end;
-        self.discard_fork();
+        self.pending_switch_to_fork_command = Some(command);
     }
 
     fn discard_fork(&mut self) {

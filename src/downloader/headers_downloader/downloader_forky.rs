@@ -8,7 +8,7 @@ use super::{
         },
     },
     headers_ui::HeaderSlicesView,
-    stages::*,
+    stages::{fork_switch_command::ForkSwitchCommand, *},
     ui::ui_system::{UISystemShared, UISystemViewScope},
     verification::header_slice_verifier::HeaderSliceVerifier,
 };
@@ -32,6 +32,7 @@ pub struct DownloaderForkyReport {
     pub final_block_num: BlockNumber,
     pub header_slices: Option<Arc<HeaderSlices>>,
     pub fork_header_slices: Option<Arc<HeaderSlices>>,
+    pub termination_command: Option<ForkSwitchCommand>,
 }
 
 impl DownloaderForky {
@@ -204,6 +205,7 @@ impl DownloaderForky {
                 final_block_num: progress_start_block_num,
                 header_slices: previous_run_header_slices,
                 fork_header_slices: previous_run_fork_header_slices,
+                termination_command: None,
             });
         }
 
@@ -262,7 +264,12 @@ impl DownloaderForky {
         let extend_stage = ExtendStage::new(header_slices.clone());
 
         let timeout_stage = TimeoutStage::new(Duration::from_secs(15));
+
         let timeout_stage_is_over = timeout_stage.is_over_check();
+        let verify_link_stage_is_over = verify_link_stage.is_over_check();
+        let is_over_check =
+            move || -> bool { timeout_stage_is_over() || verify_link_stage_is_over() };
+        let termination_command_lock = verify_link_stage.termination_command();
 
         let mut stages = DownloaderStageLoop::new(&header_slices, Some(&fork_header_slices));
 
@@ -274,7 +281,7 @@ impl DownloaderForky {
         stages.insert(extend_stage);
         stages.insert(timeout_stage);
 
-        stages.run(timeout_stage_is_over).await;
+        stages.run(is_over_check).await;
 
         let loaded_count = Self::downloaded_count(header_slices.as_ref(), progress_start_block_num);
 
@@ -290,6 +297,7 @@ impl DownloaderForky {
             final_block_num: BlockNumber(progress_start_block_num.0 + loaded_count as u64),
             header_slices: Some(header_slices),
             fork_header_slices: Some(fork_header_slices),
+            termination_command: termination_command_lock.write().take(),
         };
 
         Ok(report)
