@@ -173,7 +173,7 @@ where
 
         let gas = match call_data.gas {
             None => Default::default(),
-            Some(g) => g,
+            Some(g) => g.low_u64(),
         };
 
         Ok(execute(
@@ -183,7 +183,7 @@ where
             &PartialHeader::from(header.clone()),
             &block_spec,
             &msg_with_sender,
-            gas.0[0],
+            gas,
         )
         .await?
         .output_data)
@@ -217,9 +217,9 @@ where
         };
 
         // TODO: retrieval of pending block to set gas_limit if gas not supplied
-        let gas = match call_data.gas {
+        let gas_limit = match call_data.gas {
             None => return Err(Request("gas must be manually set".to_owned())),
-            Some(s) => s,
+            Some(g) => g.low_u64(),
         };
 
         let msg = MessageWithSender {
@@ -227,7 +227,7 @@ where
                 chain_id: Some(ChainId(1)),
                 nonce,
                 gas_price: Default::default(),
-                gas_limit: gas.0[0],
+                gas_limit,
                 action: TransactionAction::Call(call_data.to),
                 value,
                 input,
