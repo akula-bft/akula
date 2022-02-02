@@ -14,6 +14,8 @@ use bytes::Bytes;
 use clap::Parser;
 use itertools::Itertools;
 use std::{borrow::Cow, path::PathBuf, sync::Arc};
+use tokio::pin;
+use tokio_stream::StreamExt;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -76,6 +78,22 @@ pub enum OptCommand {
 
     ReadBlock {
         block_number: BlockNumber,
+    },
+
+    ReadAccount {
+        address: Address,
+    },
+
+    ReadAccountChanges {
+        block: BlockNumber,
+    },
+
+    ReadStorage {
+        address: Address,
+    },
+
+    ReadStorageChanges {
+        block: BlockNumber,
     },
 }
 
@@ -157,12 +175,19 @@ async fn header_download(data_dir: AkulaDataDir, opts: HeaderDownloadOpts) -> an
     sentry.write().await.stop().await
 }
 
-async fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
-    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
+fn open_db(
+    data_dir: AkulaDataDir,
+) -> anyhow::Result<akula::kv::mdbx::Environment<mdbx::NoWriteMap>> {
+    akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
-        Default::default(),
-    )?;
+        CHAINDATA_TABLES.clone(),
+    )
+}
+
+async fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
+    let env = open_db(data_dir)?;
+
     let mut sizes = env
         .begin()
         .await?
@@ -194,11 +219,7 @@ async fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
 }
 
 async fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::Result<()> {
-    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
-        mdbx::Environment::new(),
-        &data_dir.chain_data_dir(),
-        Default::default(),
-    )?;
+    let env = open_db(data_dir)?;
 
     let txn = env.begin_ro_txn()?;
     let db = txn
@@ -224,11 +245,7 @@ async fn db_walk(
     starting_key: Option<Bytes>,
     max_entries: Option<usize>,
 ) -> anyhow::Result<()> {
-    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
-        mdbx::Environment::new(),
-        &data_dir.chain_data_dir(),
-        Default::default(),
-    )?;
+    let env = open_db(data_dir)?;
 
     let txn = env.begin_ro_txn()?;
     let db = txn
@@ -327,11 +344,7 @@ async fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> 
 }
 
 async fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::Result<()> {
-    let env = akula::kv::mdbx::Environment::<mdbx::NoWriteMap>::open_ro(
-        mdbx::Environment::new(),
-        &data_dir.chain_data_dir(),
-        CHAINDATA_TABLES.clone(),
-    )?;
+    let env = open_db(data_dir)?;
 
     let tx = env.begin().await?;
 
@@ -379,6 +392,87 @@ async fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::R
     Ok(())
 }
 
+async fn read_account(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> {
+    let env = open_db(data_dir)?;
+
+    let tx = env.begin().await?;
+
+    let account = akula::accessors::state::account::read(&tx, address, None).await?;
+
+    println!("{:?}", account);
+
+    Ok(())
+}
+
+async fn read_account_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::Result<()> {
+    let env = open_db(data_dir)?;
+
+    let tx = env.begin().await?;
+
+    let mut cur = tx.cursor_dup_sort(tables::AccountChangeSet).await?;
+
+    let walker = walk_dup::<_, tables::AccountChangeSet>(&mut cur, block);
+
+    pin!(walker);
+
+    while let Some(tables::AccountChange { address, account }) = walker.try_next().await? {
+        println!("{:?}: {:?}", address, account);
+    }
+
+    Ok(())
+}
+
+async fn read_storage(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> {
+    let env = open_db(data_dir)?;
+
+    let tx = env.begin().await?;
+
+    println!("{:?}", tx.get(tables::Storage, address).await?);
+
+    Ok(())
+}
+
+async fn read_storage_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::Result<()> {
+    let env = open_db(data_dir)?;
+
+    let tx = env.begin().await?;
+
+    let mut cur = tx.cursor_dup_sort(tables::StorageChangeSet).await?;
+
+    let walker = walk::<_, tables::StorageChangeSet>(&mut cur, Some(block));
+
+    pin!(walker);
+
+    let mut current_entry = None;
+    while let Some((
+        tables::StorageChangeKey {
+            block_number,
+            address,
+        },
+        tables::StorageChange { location, value },
+    )) = walker.try_next().await?
+    {
+        let finished = block_number >= block;
+
+        let (current_address, current_storage) =
+            current_entry.get_or_insert_with(|| (address, vec![]));
+
+        if address != *current_address || finished {
+            println!("{:?}: {:?}", current_address, current_storage);
+            *current_address = address;
+            *current_storage = vec![];
+        }
+
+        if finished {
+            break;
+        }
+
+        current_storage.push((location, value));
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
@@ -408,6 +502,14 @@ async fn main() -> anyhow::Result<()> {
         OptCommand::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table).await?,
         OptCommand::HeaderDownload { opts } => header_download(opt.data_dir, opts).await?,
         OptCommand::ReadBlock { block_number } => read_block(opt.data_dir, block_number).await?,
+        OptCommand::ReadAccount { address } => read_account(opt.data_dir, address).await?,
+        OptCommand::ReadAccountChanges { block } => {
+            read_account_changes(opt.data_dir, block).await?
+        }
+        OptCommand::ReadStorage { address } => read_storage(opt.data_dir, address).await?,
+        OptCommand::ReadStorageChanges { block } => {
+            read_storage_changes(opt.data_dir, block).await?
+        }
     }
 
     Ok(())
