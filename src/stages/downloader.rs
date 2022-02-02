@@ -74,9 +74,7 @@ where
         // finalize unwind request
         if let Some(mut state) = self.load_previous_run_state().await {
             if let Some(unwind_request) = state.unwind_request.take() {
-                if let Some(finalize) = unwind_request.finalize.lock().take() {
-                    finalize();
-                }
+                self.downloader.unwind_finalize(tx, unwind_request).await?;
                 self.save_run_state(state).await;
             }
         }

@@ -1,8 +1,11 @@
-use super::headers::{
-    header_slices,
-    header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+use super::{
+    headers::{
+        header_slices,
+        header_slices::{align_block_num_to_slice_start, HeaderSliceStatus, HeaderSlices},
+    },
+    SaveStage,
 };
-use crate::models::BlockNumber;
+use crate::{kv::traits::MutableTransaction, models::BlockNumber};
 use std::{
     ops::{DerefMut, Range},
     sync::Arc,
@@ -41,7 +44,15 @@ impl ForkSwitchCommand {
         (status == HeaderSliceStatus::Verified) || (status == HeaderSliceStatus::Saved)
     }
 
-    pub fn execute(self) {
+    pub async fn execute<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>>(
+        self,
+        tx: &'tx RwTx,
+    ) -> anyhow::Result<()> {
+        self.switch_to_fork();
+        self.update_canonical_chain_headers(tx).await
+    }
+
+    fn switch_to_fork(&self) {
         // promote the fork chain
         let mut num = self.fork_range.start;
         while num < self.fork_range.end {
@@ -94,5 +105,39 @@ impl ForkSwitchCommand {
 
         // discard fork
         self.fork_header_slices.clear();
+    }
+
+    async fn update_canonical_chain_headers<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>>(
+        &self,
+        tx: &'tx RwTx,
+    ) -> anyhow::Result<()> {
+        let mut num = self.fork_range.start;
+        while num < self.fork_range.end {
+            let slice_lock = self.header_slices.find_by_start_block_num(num).unwrap();
+            let len = slice_lock.read().len();
+
+            let headers = {
+                let slice = slice_lock.read();
+                if slice.status == HeaderSliceStatus::Saved {
+                    // this clone happens mostly on the stack (except extra_data)
+                    slice.headers.clone()
+                } else {
+                    None
+                }
+            };
+
+            if let Some(headers) = headers {
+                for header in headers {
+                    if header.number() <= self.connection_block_num {
+                        continue;
+                    }
+                    SaveStage::update_canonical_chain_header(&header, tx).await?;
+                }
+            }
+
+            num = BlockNumber(num.0 + len as u64);
+        }
+
+        Ok(())
     }
 }
