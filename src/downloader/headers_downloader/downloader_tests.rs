@@ -56,7 +56,7 @@ async fn run_downloader(
 
     let ui_system = Arc::new(AsyncMutex::new(UISystem::new()));
 
-    let report = downloader
+    let mut report = downloader
         .run(
             &db_transaction,
             BlockNumber(0),
@@ -65,6 +65,12 @@ async fn run_downloader(
             ui_system,
         )
         .await?;
+
+    if let Some(unwind_request) = report.run_state.unwind_request.take() {
+        if let Some(finalize) = unwind_request.finalize.lock().take() {
+            finalize();
+        }
+    }
 
     db_transaction.commit().await?;
 
@@ -240,6 +246,7 @@ impl<'t> DownloaderTestDecl<'t> {
             estimated_top_block_num: Some(BlockNumber(10_000)),
             forky_header_slices: Some(Arc::new(forky_header_slices)),
             forky_fork_header_slices: None,
+            unwind_request: None,
         };
 
         let expected_forky_header_slices = Self::parse_slices(self.result, &mut generator)?.0;
@@ -253,6 +260,7 @@ impl<'t> DownloaderTestDecl<'t> {
                 estimated_top_block_num: Some(BlockNumber(10_000)),
                 forky_header_slices: Some(Arc::new(expected_forky_header_slices)),
                 forky_fork_header_slices: Some(Arc::new(expected_forky_fork_header_slices)),
+                unwind_request: None,
             },
         };
 
@@ -648,7 +656,7 @@ async fn fork_connect_and_switch() {
     let test = DownloaderTestDecl {
         sentry: "_   _   .`e _    ",
         slices: "+   +   +   ='f -",
-        result: "+   +   +`e +'f -",
+        result: "+   +   #`e +'f -",
         forked: "",
     };
     test.run().await.unwrap();

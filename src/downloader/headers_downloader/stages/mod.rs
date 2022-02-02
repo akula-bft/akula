@@ -1,3 +1,4 @@
+pub(super) mod fork_switch_command;
 pub mod save_stage;
 pub mod stage;
 
