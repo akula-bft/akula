@@ -39,7 +39,7 @@ pub struct DownloaderRunState {
 #[derive(Clone)]
 pub struct DownloaderUnwindRequest {
     pub unwind_to_block_num: BlockNumber,
-    pub finalize: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+    finalize: Arc<Mutex<Option<ForkSwitchCommand>>>,
 }
 
 impl Debug for DownloaderRunState {
@@ -59,7 +59,7 @@ impl From<ForkSwitchCommand> for DownloaderUnwindRequest {
     fn from(command: ForkSwitchCommand) -> Self {
         Self {
             unwind_to_block_num: command.connection_block_num(),
-            finalize: Arc::new(Mutex::new(Some(Box::new(move || command.execute())))),
+            finalize: Arc::new(Mutex::new(Some(command))),
         }
     }
 }
@@ -182,5 +182,20 @@ impl Downloader {
         unwind_to_block_num: BlockNumber,
     ) -> anyhow::Result<()> {
         super::stages::SaveStage::unwind(unwind_to_block_num, db_transaction).await
+    }
+
+    pub async fn unwind_finalize<
+        'downloader,
+        'db: 'downloader,
+        RwTx: kv::traits::MutableTransaction<'db>,
+    >(
+        &'downloader self,
+        db_transaction: &'downloader RwTx,
+        unwind_request: DownloaderUnwindRequest,
+    ) -> anyhow::Result<()> {
+        let Some(finalize) = unwind_request.finalize.lock().take() else {
+            anyhow::bail!("unwind_finalize: finalize command expected in unwind_request");
+        };
+        finalize.execute(db_transaction).await
     }
 }
