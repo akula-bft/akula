@@ -260,10 +260,10 @@ where
             &block_spec,
         );
 
-        let receipts = processor.execute_block_no_post_validation().await?;
+        let mut receipts = processor.execute_block_no_post_validation().await?;
 
         Ok(U64::from(
-            receipts.first().map(|r| r.cumulative_gas_used).unwrap_or(0),
+            receipts.pop().map(|r| r.cumulative_gas_used).unwrap_or(0),
         ))
     }
 
@@ -380,7 +380,7 @@ where
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
 
-        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i).await)
+        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i))
     }
 
     async fn get_tx_by_block_number_and_index(
@@ -401,7 +401,7 @@ where
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
 
-        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i).await)
+        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i))
     }
 
     async fn get_transaction_count(
@@ -431,14 +431,20 @@ where
             .unwrap_or_default()
             .transactions;
 
-        let mut index = 0;
-        while index < msgs_with_sender.len() {
-            if msgs_with_sender[index].hash() == tx_hash {
-                break;
-            }
-            index += 1;
-        }
-        let msg = &msgs_with_sender[index];
+        let msgs: Vec<(usize, MessageWithSender)> = msgs_with_sender
+            .into_iter()
+            .filter(|msg| msg.hash() == tx_hash)
+            .enumerate()
+            .map(|(index, msg)| (index, msg))
+            .collect();
+        let (index, msg) = msgs[0].clone();
+        /*let msgs: Vec<(usize, &MessageWithSender)> = msgs_with_sender
+            .iter()
+            .filter(|msg| msg.hash() == tx_hash)
+            .enumerate()
+            .map(|(index, msg)| (index, msg))
+            .collect();
+        let (index, msg) = msgs[0];*/
 
         let header = header::read(tx, block_hash, block_number)
             .await?
@@ -467,21 +473,21 @@ where
 
         let receipt = processor.execute_block_no_post_validation().await?[index].clone();
 
-        let mut logs: Vec<TxLog> = Vec::new();
-        let mut i = 0;
-        while i < receipt.logs.len() {
-            logs.push(TxLog {
+        let logs: Vec<TxLog> = receipt
+            .logs
+            .into_iter()
+            .enumerate()
+            .map(|(i, log)| TxLog {
                 log_index: Some(U64::from(i)),
                 transaction_index: Some(U64::from(index)),
                 transaction_hash: Some(tx_hash),
                 block_hash: Some(block_hash),
                 block_number: Some(U64::from(block_number.0)),
-                address: receipt.logs[i].address,
-                data: receipt.logs[i].data.clone(),
-                topics: receipt.logs[i].topics.clone(),
-            });
-            i += 1;
-        }
+                address: log.address,
+                data: log.data,
+                topics: log.topics,
+            })
+            .collect();
 
         let to = match msg.action() {
             TransactionAction::Call(to) => Some(to),
@@ -589,7 +595,7 @@ where
 pub mod json_obj {
     use super::*;
 
-    pub async fn assemble_tx(
+    pub fn assemble_tx(
         block_hash: H256,
         block_number: BlockNumber,
         msg: &MessageWithSignature,
@@ -634,19 +640,25 @@ pub mod json_obj {
             .unwrap_or_default();
 
         let msgs = block_body.transactions;
-        let mut index = 0;
-        let mut msg_hashes: Vec<jsonrpc::common::Transaction> = Vec::new();
-        while index < msgs.len() {
-            match full_tx_obj {
-                false => msg_hashes.push(jsonrpc::common::Transaction::Partial(msgs[index].hash())),
-                true => {
-                    let tx =
-                        json_obj::assemble_tx(block_hash, block_number, &msgs[index], index).await;
-                    msg_hashes.push(jsonrpc::common::Transaction::Full(Box::new(tx)));
-                }
-            }
-            index += 1;
-        }
+
+        let txns: Vec<jsonrpc::common::Transaction> = match full_tx_obj {
+            true => msgs
+                .into_iter()
+                .enumerate()
+                .map(|(index, msg)| {
+                    jsonrpc::common::Transaction::Full(Box::new(json_obj::assemble_tx(
+                        block_hash,
+                        block_number,
+                        &msg,
+                        index,
+                    )))
+                })
+                .collect(),
+            false => msgs
+                .into_iter()
+                .map(|msg| jsonrpc::common::Transaction::Partial(msg.hash()))
+                .collect(),
+        };
 
         let total_difficulty = td::read(tx, block_hash, block_number)
             .await?
@@ -660,10 +672,7 @@ pub mod json_obj {
         .len();
 
         let ommers = block_body.ommers;
-        let mut ommer_hashes: Vec<H256> = Vec::new();
-        for ommer in ommers.iter() {
-            ommer_hashes.push(ommer.hash());
-        }
+        let ommer_hashes: Vec<H256> = ommers.into_iter().map(|ommer| ommer.hash()).collect();
 
         let header = header::read(tx, block_hash, block_number)
             .await?
@@ -687,7 +696,7 @@ pub mod json_obj {
             gas_limit: U64::from(header.gas_limit),
             gas_used: U64::from(header.gas_used),
             timestamp: U64::from(header.timestamp),
-            transactions: msg_hashes,
+            transactions: txns,
             uncles: ommer_hashes,
         })
     }
