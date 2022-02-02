@@ -5,6 +5,8 @@ Next-generation implementation of Ethereum protocol ("client") written in Rust, 
 
 ## Why run Akula?
 
+Look at Mgas/s.
+
 ![](./src/res/readme-screenshot.png)
 
 
@@ -34,6 +36,10 @@ akula --datadir=<path to Akula database directory> --erigon-datadir=<path to Eri
 ```
 akula-toolbox --help
 ```
+
+## Contributing and getting support
+
+Please join [our Telegram chat](https://t.me/akula_bft) to meet the developers and find out how you can help.
 
 ---
 Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
