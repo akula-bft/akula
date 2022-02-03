@@ -158,12 +158,17 @@ where
             Some(s) => s,
         };
 
+        let gas_limit = match call_data.gas {
+            None => return Err(Request("gas must be set".to_owned())),
+            Some(g) => g.low_u64(),
+        };
+
         let msg_with_sender = MessageWithSender {
             message: Message::Legacy {
                 chain_id: Some(ChainId(1)),
                 nonce: 0,
                 gas_price: Default::default(),
-                gas_limit: 0,
+                gas_limit,
                 action: TransactionAction::Call(call_data.to),
                 value,
                 input,
@@ -216,9 +221,14 @@ where
             Some(s) => s,
         };
 
-        // TODO: retrieval of pending block to set gas_limit if gas not supplied
+        // TODO: retrieval of pending block to set gas_limit if optional default_block param is None variant
         let gas_limit = match call_data.gas {
-            None => return Err(Request("gas must be manually set".to_owned())),
+            None => {
+                header::read(tx, block_hash, block_number)
+                    .await?
+                    .unwrap_or_default()
+                    .gas_limit
+            }
             Some(g) => g.low_u64(),
         };
 
