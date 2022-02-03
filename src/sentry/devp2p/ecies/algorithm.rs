@@ -25,10 +25,7 @@ use std::convert::TryFrom;
 const PROTOCOL_VERSION: usize = 4;
 
 fn ecdh_x(public_key: &PublicKey, secret_key: &SecretKey) -> H256 {
-    H256::from_slice(
-        &secp256k1::ecdh::SharedSecret::new_with_hash(public_key, secret_key, |x, _| x.into())
-            [0..32],
-    )
+    H256::from_slice(&secp256k1::ecdh::shared_secret_point(public_key, secret_key)[..32])
 }
 
 fn kdf(secret: H256, s1: &[u8], dest: &mut [u8]) {

@@ -38,7 +38,7 @@ educe = { version = "0.4", features = ["Debug", "Default"] }
 enr = { version = "0.5", default-features = false, features = [
     "rust-secp256k1",
 ] }
-enum-as-inner = "0.3"
+enum-as-inner = "0.4"
 enum-primitive-derive = "0.2"
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
 ethereum-forkid = "0.7.0"
@@ -96,7 +96,11 @@ ripemd = "0.1"
 rlp = "0.5"
 rlp-derive = "0.1"
 ron = "0.7"
-secp256k1 = { version = "0.21", features = ["global-context", "recovery"] }
+secp256k1 = { version = "0.22", features = [
+    "global-context",
+    "rand-std",
+    "recovery",
+] }
 serde = "1"
 serde_json = "1"
 serde_with = "1"
@@ -104,8 +108,8 @@ sha2 = "0.10"
 sha3 = "0.10"
 snap = "1"
 string = { git = "https://github.com/carllerche/string" }
-strum = { version = "0.23", features = ["derive"] }
-strum_macros = "0.23"
+strum = { version = "0.24", features = ["derive"] }
+strum_macros = "0.24"
 stubborn-io = "0.3"
 substrate-bn = "0.6"
 tempfile = "3"
@@ -125,20 +129,20 @@ tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 triehash = "0.8"
-trust-dns-resolver = "0.20"
+trust-dns-resolver = "0.21"
 url = "2"
 uuid = { version = "0.8", features = ["v4"] }
 walkdir = "2"
 
 [build-dependencies]
 anyhow = "1"
-vergen = "6"
+vergen = "7"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 criterion = { version = "0.3", default-features = false }
 include_dir = "0.7"
-pprof = { version = "0.6", features = ["flamegraph"] }
+pprof = { version = "0.7", features = ["flamegraph"] }
 proptest = "1.0.0"
 rand = { version = "0.8", features = ["std"] }
 tokio = { version = "1", features = ["full"] }
