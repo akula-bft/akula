@@ -147,14 +147,12 @@ impl DownloaderForky {
             self.chain_config.clone(),
             self.verifier.clone(),
         );
-        let refetch_stage = RefetchStage::new(header_slices.clone());
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry);
 
         stages.insert_with_group_name(fetch_request_stage, group_name);
         stages.insert_with_group_name(fetch_receive_stage, group_name);
         stages.insert_with_group_name(retry_stage, group_name);
         stages.insert_with_group_name(verify_slices_stage, group_name);
-        stages.insert_with_group_name(refetch_stage, group_name);
         stages.insert_with_group_name(penalize_stage, group_name);
         stages.insert_with_group_name(save_stage, group_name);
     }
