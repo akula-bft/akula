@@ -51,13 +51,13 @@ pub trait EthApi {
         &self,
         block_hash: H256,
         full_tx_obj: bool,
-    ) -> RpcResult<jsonrpc::common::Block>;
+    ) -> RpcResult<Option<jsonrpc::common::Block>>;
     #[method(name = "getBlockByNumber")]
     async fn get_block_by_number(
         &self,
         block_number: BlockNumber,
         full_tx_obj: bool,
-    ) -> RpcResult<jsonrpc::common::Block>;
+    ) -> RpcResult<Option<jsonrpc::common::Block>>;
     #[method(name = "getBlockTransactionCountByHash")]
     async fn get_block_tx_count_by_hash(&self, block_hash: H256) -> RpcResult<U64>;
     #[method(name = "getBlockTransactionCountByNumber")]
@@ -76,13 +76,13 @@ pub trait EthApi {
         &self,
         block_hash: H256,
         index: TxIndex,
-    ) -> RpcResult<jsonrpc::common::Tx>;
+    ) -> RpcResult<Option<jsonrpc::common::Tx>>;
     #[method(name = "getTransactionByBlockNumberAndIndex")]
     async fn get_tx_by_block_number_and_index(
         &self,
         block_number: BlockNumber,
         index: TxIndex,
-    ) -> RpcResult<jsonrpc::common::Tx>;
+    ) -> RpcResult<Option<jsonrpc::common::Tx>>;
     #[method(name = "getTransactionCount")]
     async fn get_transaction_count(
         &self,
@@ -90,7 +90,7 @@ pub trait EthApi {
         block_number: BlockNumber,
     ) -> RpcResult<U64>;
     #[method(name = "getTransactionReceipt")]
-    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt>;
+    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<Option<TxReceipt>>;
     #[method(name = "getUncleByBlockHashAndIndex")]
     async fn get_uncle_by_block_hash_and_index(
         &self,
@@ -290,28 +290,32 @@ where
         &self,
         block_hash: H256,
         full_tx_obj: bool,
-    ) -> RpcResult<jsonrpc::common::Block> {
+    ) -> RpcResult<Option<jsonrpc::common::Block>> {
         let tx = &self.db.begin().await?;
 
         let block_number = header_number::read(tx, block_hash)
             .await?
             .unwrap_or_default();
 
-        Ok(json_obj::assemble_block(tx, block_hash, block_number, full_tx_obj).await?)
+        Ok(Some(
+            json_obj::assemble_block(tx, block_hash, block_number, full_tx_obj).await?,
+        ))
     }
 
     async fn get_block_by_number(
         &self,
         block_number: BlockNumber,
         full_tx_obj: bool,
-    ) -> RpcResult<jsonrpc::common::Block> {
+    ) -> RpcResult<Option<jsonrpc::common::Block>> {
         let tx = &self.db.begin().await?;
 
         let block_hash = canonical_hash::read(tx, block_number)
             .await?
             .unwrap_or_default();
 
-        Ok(json_obj::assemble_block(tx, block_hash, block_number, full_tx_obj).await?)
+        Ok(Some(
+            json_obj::assemble_block(tx, block_hash, block_number, full_tx_obj).await?,
+        ))
     }
 
     async fn get_block_tx_count_by_hash(&self, block_hash: H256) -> RpcResult<U64> {
@@ -376,7 +380,7 @@ where
         &self,
         block_hash: H256,
         index: TxIndex,
-    ) -> RpcResult<jsonrpc::common::Tx> {
+    ) -> RpcResult<Option<jsonrpc::common::Tx>> {
         let tx = &self.db.begin().await?;
 
         let block_number = header_number::read(tx, block_hash)
@@ -390,14 +394,19 @@ where
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
 
-        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i))
+        Ok(Some(json_obj::assemble_tx(
+            block_hash,
+            block_number,
+            &msgs[i],
+            i,
+        )))
     }
 
     async fn get_tx_by_block_number_and_index(
         &self,
         block_number: BlockNumber,
         index: TxIndex,
-    ) -> RpcResult<jsonrpc::common::Tx> {
+    ) -> RpcResult<Option<jsonrpc::common::Tx>> {
         let tx = &self.db.begin().await?;
 
         let block_hash = canonical_hash::read(tx, block_number)
@@ -411,7 +420,12 @@ where
         let i = index.as_u64() as usize;
         let msgs = block_body.transactions;
 
-        Ok(json_obj::assemble_tx(block_hash, block_number, &msgs[i], i))
+        Ok(Some(json_obj::assemble_tx(
+            block_hash,
+            block_number,
+            &msgs[i],
+            i,
+        )))
     }
 
     async fn get_transaction_count(
@@ -427,7 +441,7 @@ where
         ))
     }
 
-    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<TxReceipt> {
+    async fn get_transaction_receipt(&self, tx_hash: H256) -> RpcResult<Option<TxReceipt>> {
         let tx = &self.db.begin().await?;
 
         let block_number = tl::read(tx, tx_hash).await?.unwrap_or_default();
@@ -502,7 +516,7 @@ where
             None => Some(create_address(msg.sender, msg.nonce())),
         };
 
-        Ok(TxReceipt {
+        Ok(Some(TxReceipt {
             transaction_hash: tx_hash,
             transaction_index: U64::from(index),
             block_hash,
@@ -515,7 +529,7 @@ where
             logs,
             logs_bloom: receipt.bloom,
             status: U64::from(receipt.success as u64),
-        })
+        }))
     }
 
     async fn get_uncle_by_block_hash_and_index(
