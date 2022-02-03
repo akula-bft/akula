@@ -462,7 +462,6 @@ impl HeaderGenerator {
         match status {
             HeaderSliceStatus::Empty => None,
             HeaderSliceStatus::Waiting => None,
-            HeaderSliceStatus::Refetch => None,
             _ => Some(self.generate_slice_headers(start_block_num)),
         }
     }
