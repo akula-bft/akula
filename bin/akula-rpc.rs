@@ -431,20 +431,13 @@ where
             .unwrap_or_default()
             .transactions;
 
-        let msgs: Vec<(usize, MessageWithSender)> = msgs_with_sender
-            .into_iter()
-            .filter(|msg| msg.hash() == tx_hash)
-            .enumerate()
-            .map(|(index, msg)| (index, msg))
-            .collect();
-        let (index, msg) = msgs[0].clone();
-        /*let msgs: Vec<(usize, &MessageWithSender)> = msgs_with_sender
+        let msgs: Vec<(usize, &MessageWithSender)> = msgs_with_sender
             .iter()
             .filter(|msg| msg.hash() == tx_hash)
             .enumerate()
             .map(|(index, msg)| (index, msg))
             .collect();
-        let (index, msg) = msgs[0];*/
+        let (index, msg) = msgs[0];
 
         let header = header::read(tx, block_hash, block_number)
             .await?
@@ -639,6 +632,8 @@ pub mod json_obj {
             .await?
             .unwrap_or_default();
 
+        let size = rlp::encode(&block_body).len();
+
         let msgs = block_body.transactions;
 
         let txns: Vec<jsonrpc::common::Transaction> = match full_tx_obj {
@@ -663,13 +658,6 @@ pub mod json_obj {
         let total_difficulty = td::read(tx, block_hash, block_number)
             .await?
             .unwrap_or_default();
-
-        let size = rlp::encode(
-            &(block_body::read_without_senders(tx, block_hash, block_number)
-                .await?
-                .unwrap_or_default()),
-        )
-        .len();
 
         let ommers = block_body.ommers;
         let ommer_hashes: Vec<H256> = ommers.into_iter().map(|ommer| ommer.hash()).collect();
