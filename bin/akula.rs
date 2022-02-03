@@ -65,7 +65,7 @@ pub struct Opt {
     pub downloader_opts: akula::downloader::opts::Opts,
 
     /// Sender recovery batch size (blocks)
-    #[clap(long, default_value = "50000")]
+    #[clap(long, default_value = "500000")]
     pub sender_recovery_batch_size: u64,
 
     /// Execution batch size (Ggas).
