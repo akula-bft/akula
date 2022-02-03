@@ -222,6 +222,7 @@ async fn noop() {
     test.run().await.unwrap();
 }
 
+/// see docs/testing.md
 struct DownloaderTestDecl<'t> {
     // SentryClientMock descriptor
     pub sentry: &'t str,
@@ -528,6 +529,8 @@ impl HeaderGenerator {
         }
     }
 }
+
+/// see docs/testing.md
 
 #[tokio::test]
 async fn save_verified() {
