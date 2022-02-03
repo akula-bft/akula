@@ -806,7 +806,7 @@ dependencies = [
 [[package]]
 name = "ethereum-jsonrpc"
 version = "0.1.0"
-source = "git+https://github.com/rust-ethereum/jsonrpc#c7b933b3940be47ed9cdbff733ec6e5e19cd4dd8"
+source = "git+https://github.com/rust-ethereum/jsonrpc#12af51bae99bc84745a20e951944b8e18ae672d8"
 dependencies = [
  "bytes",
  "ethereum-types",
@@ -1382,8 +1382,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
@@ -1397,8 +1397,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-client-transport"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "futures",
  "http",
@@ -1417,8 +1417,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-core"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "anyhow",
  "arrayvec",
@@ -1442,8 +1442,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-http-client"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "async-trait",
  "hyper",
@@ -1460,8 +1460,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-http-server"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -1479,8 +1479,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-proc-macros"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1490,8 +1490,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-types"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "anyhow",
  "beef",
@@ -1503,8 +1503,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-ws-client"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
@@ -1513,8 +1513,8 @@ dependencies = [
 
 [[package]]
 name = "jsonrpsee-ws-server"
-version = "0.8.0"
-source = "git+https://github.com/paritytech/jsonrpsee#425ae56dc871a406b6b789a111ddfaaf9dcf1e21"
+version = "0.9.0"
+source = "git+https://github.com/paritytech/jsonrpsee#f66ef5517d7936d87cd72141963659fa6f3e4328"
 dependencies = [
  "async-channel",
  "futures-channel",
@@ -1551,9 +1551,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.116"
+version = "0.2.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "565dbd88872dbe4cc8a46e527f26483c1d1f7afa6b884a3bd6cd893d4f98da74"
+checksum = "e74d72e0f9b65b5b4ca49a346af3976df0f9c61d550727f349ecd559f251a26c"
 
 [[package]]
 name = "libgit2-sys"
