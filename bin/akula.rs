@@ -60,6 +60,10 @@ pub struct Opt {
     #[clap(long)]
     pub max_block: Option<BlockNumber>,
 
+    /// Use incremental staged sync.
+    #[clap(long)]
+    pub increment: Option<u64>,
+
     /// Downloader options.
     #[clap(flatten)]
     pub downloader_opts: akula::downloader::opts::Opts,
@@ -100,6 +104,7 @@ where
 {
     db: Arc<Source>,
     max_block: Option<BlockNumber>,
+    exit_after_progress: Option<u64>,
 }
 
 #[async_trait]
@@ -149,6 +154,17 @@ where
         while let Some((block_number, canonical_hash)) = walker.try_next().await? {
             if block_number > self.max_block.unwrap_or(BlockNumber(u64::MAX)) {
                 break;
+            }
+
+            if let Some(exit_after_progress) = self.exit_after_progress {
+                if block_number
+                    .0
+                    .checked_sub(original_highest_block.0)
+                    .unwrap()
+                    > exit_after_progress
+                {
+                    break;
+                }
             }
 
             highest_block = block_number;
@@ -618,6 +634,7 @@ fn main() -> anyhow::Result<()> {
                     staged_sync.push(ConvertHeaders {
                         db: erigon_db,
                         max_block: opt.max_block,
+                        exit_after_progress: opt.increment,
                     });
                 } else {
                     // sentry setup
