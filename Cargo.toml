@@ -120,6 +120,7 @@ name = "consensus-tests"
 [patch.crates-io]
 parity-scale-codec = { git = "https://github.com/paritytech/parity-scale-codec" }
 
-[profile.release]
+[profile.production]
+inherits = "release"
 codegen-units = 1
 lto = true

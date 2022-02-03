@@ -19,10 +19,10 @@ git clone https://github.com/akula-bft/akula
 
 cd akula
 
-cargo build --all --release
+cargo build --all --profile=production
 ```
 
-You can find built binaries in `target/release` folder.
+You can find built binaries in `target/production` folder.
 
 ## Running
 
