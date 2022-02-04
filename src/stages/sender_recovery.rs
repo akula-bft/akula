@@ -57,6 +57,7 @@ where
             .await?;
         let done = loop {
             let mut read_again = false;
+            let mut batch_txs = 0;
             debug!("Reading bodies");
             while let Some(((block_number, hash), body)) = walker.try_next().await? {
                 let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
@@ -64,11 +65,12 @@ where
                     .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()
                     .await?;
+                batch_txs += txs.len();
                 batch.push((block_number, hash, txs));
 
                 highest_block = block_number;
 
-                if batch.len() >= self.batch_size {
+                if batch_txs >= self.batch_size {
                     read_again = true;
                     break;
                 }
@@ -363,7 +365,9 @@ mod tests {
             .await
             .unwrap();
 
-        let mut stage = SenderRecovery { batch_size: 50_000 };
+        let mut stage = SenderRecovery {
+            batch_size: 500_000,
+        };
 
         let stage_input = StageInput {
             restarted: false,

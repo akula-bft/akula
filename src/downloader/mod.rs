@@ -8,6 +8,7 @@ pub use headers_downloader::{
     downloader::{
         Downloader as HeadersDownloader, DownloaderReport as HeadersDownloaderReport,
         DownloaderRunState as HeadersDownloaderRunState,
+        DownloaderUnwindRequest as HeadersDownloaderUnwindRequest,
     },
     verification::header_slice_verifier,
 };

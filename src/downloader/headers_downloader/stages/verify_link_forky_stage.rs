@@ -1,5 +1,6 @@
 use super::{
     fork_mode_stage::ForkModeStage,
+    fork_switch_command::ForkSwitchCommand,
     headers::{
         header::BlockHeader,
         header_slices::{HeaderSliceStatus, HeaderSlices},
@@ -8,6 +9,7 @@ use super::{
     verify_link_linear_stage::VerifyLinkLinearStage,
 };
 use crate::{models::*, sentry::chain_config::ChainConfig};
+use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;
 
@@ -20,6 +22,7 @@ pub struct VerifyLinkForkyStage {
     last_verified_header: Option<BlockHeader>,
     start_block_num: BlockNumber,
     mode: Mode,
+    termination_command: Arc<RwLock<Option<ForkSwitchCommand>>>,
 }
 
 enum Mode {
@@ -68,6 +71,7 @@ impl VerifyLinkForkyStage {
             last_verified_header,
             start_block_num,
             mode,
+            termination_command: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -102,8 +106,11 @@ impl VerifyLinkForkyStage {
                     }
                 }
             }
-            Mode::Fork(ref stage) => {
-                if stage.is_done() {
+            Mode::Fork(ref mut stage) => {
+                if stage.is_over() {
+                    debug!("VerifyLinkForkyStage: ForkModeStage is over, request termination");
+                    *self.termination_command.write() = stage.take_pending_termination_command();
+                } else if stage.is_done() {
                     debug!("VerifyLinkForkyStage: switching to Mode::Linear");
                     self.switch_to_linear_mode();
                 }
@@ -141,6 +148,15 @@ impl VerifyLinkForkyStage {
         fork_mode_stage.setup()?;
         self.mode = Mode::Fork(Box::new(fork_mode_stage));
         Ok(())
+    }
+
+    pub fn termination_command(&self) -> Arc<RwLock<Option<ForkSwitchCommand>>> {
+        self.termination_command.clone()
+    }
+
+    pub fn is_over_check(&self) -> impl Fn() -> bool {
+        let termination_command = self.termination_command.clone();
+        move || -> bool { termination_command.read().is_some() }
     }
 
     pub fn can_proceed_check(&self) -> impl Fn() -> bool {

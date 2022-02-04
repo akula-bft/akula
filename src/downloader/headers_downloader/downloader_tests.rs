@@ -56,7 +56,7 @@ async fn run_downloader(
 
     let ui_system = Arc::new(AsyncMutex::new(UISystem::new()));
 
-    let report = downloader
+    let mut report = downloader
         .run(
             &db_transaction,
             BlockNumber(0),
@@ -65,6 +65,12 @@ async fn run_downloader(
             ui_system,
         )
         .await?;
+
+    if let Some(unwind_request) = report.run_state.unwind_request.take() {
+        downloader
+            .unwind_finalize(&db_transaction, unwind_request)
+            .await?;
+    }
 
     db_transaction.commit().await?;
 
@@ -216,6 +222,7 @@ async fn noop() {
     test.run().await.unwrap();
 }
 
+/// see docs/testing.md
 struct DownloaderTestDecl<'t> {
     // SentryClientMock descriptor
     pub sentry: &'t str,
@@ -240,6 +247,7 @@ impl<'t> DownloaderTestDecl<'t> {
             estimated_top_block_num: Some(BlockNumber(10_000)),
             forky_header_slices: Some(Arc::new(forky_header_slices)),
             forky_fork_header_slices: None,
+            unwind_request: None,
         };
 
         let expected_forky_header_slices = Self::parse_slices(self.result, &mut generator)?.0;
@@ -253,6 +261,7 @@ impl<'t> DownloaderTestDecl<'t> {
                 estimated_top_block_num: Some(BlockNumber(10_000)),
                 forky_header_slices: Some(Arc::new(expected_forky_header_slices)),
                 forky_fork_header_slices: Some(Arc::new(expected_forky_fork_header_slices)),
+                unwind_request: None,
             },
         };
 
@@ -454,7 +463,6 @@ impl HeaderGenerator {
         match status {
             HeaderSliceStatus::Empty => None,
             HeaderSliceStatus::Waiting => None,
-            HeaderSliceStatus::Refetch => None,
             _ => Some(self.generate_slice_headers(start_block_num)),
         }
     }
@@ -521,6 +529,8 @@ impl HeaderGenerator {
         }
     }
 }
+
+/// see docs/testing.md
 
 #[tokio::test]
 async fn save_verified() {
@@ -648,7 +658,7 @@ async fn fork_connect_and_switch() {
     let test = DownloaderTestDecl {
         sentry: "_   _   .`e _    ",
         slices: "+   +   +   ='f -",
-        result: "+   +   +`e +'f -",
+        result: "+   +   #`e +'f -",
         forked: "",
     };
     test.run().await.unwrap();
