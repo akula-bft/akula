@@ -1,4 +1,5 @@
 use crate::{
+    accessors::{chain, state},
     consensus::engine_factory,
     execution::{analysis_cache::AnalysisCache, evm, processor::ExecutionProcessor},
     kv::{
@@ -10,13 +11,13 @@ use crate::{
     stagedsync::stages::FINISH,
     Buffer, InMemoryState, IntraBlockState,
 };
+
 use async_trait::async_trait;
-use ethereum_jsonrpc::{
-    common::{Balance, CallData, ReturnData},
-    EthApiServer,
-};
+use ethereum_jsonrpc::{types, EthApiServer};
 use jsonrpsee::core::RpcResult;
 use std::sync::Arc;
+
+use super::helpers;
 
 pub struct EthApiServerImpl<DB>
 where
@@ -44,29 +45,27 @@ where
 
     async fn call(
         &self,
-        call_data: CallData,
-        block_number: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::ReturnData> {
-        let tx = &self.db.begin().await?;
+        call_data: types::MessageCall,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<types::Bytes> {
+        let txn = self.db.begin().await?;
 
-        let block_number = BlockNumber(block_number.as_u64());
-        let block_hash = crate::accessors::chain::canonical_hash::read(tx, block_number)
+        let block_number = helpers::get_block_number(&txn, block_number).await?;
+        let block_hash = chain::canonical_hash::read(&txn, block_number)
             .await?
             .unwrap();
 
-        let header = crate::accessors::chain::header::read(tx, block_hash, block_number)
+        let header = chain::header::read(&txn, block_hash, block_number)
             .await?
             .unwrap();
 
-        let mut state = Buffer::new(tx, BlockNumber(0), Some(block_number));
+        let mut state = Buffer::new(&txn, BlockNumber(0), Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
         let block_spec = MAINNET.collect_block_spec(block_number);
 
-        let value = call_data.value.unwrap_or(U256::ZERO);
-
-        let input = call_data.data.unwrap_or_default();
-
+        let input = call_data.data.unwrap_or_default().into();
         let sender = call_data.from.unwrap_or_else(Address::zero);
+        let value = call_data.value.unwrap_or_default();
 
         let msg_with_sender = MessageWithSender {
             message: Message::Legacy {
@@ -83,7 +82,7 @@ where
 
         let gas = call_data.gas.map(|v| v.as_u64()).unwrap_or(100_000_000);
 
-        Ok(ReturnData(
+        Ok(types::Bytes(
             evm::execute(
                 &mut IntraBlockState::new(&mut state),
                 None,
@@ -98,9 +97,13 @@ where
         ))
     }
 
-    async fn estimate_gas(&self, call_data: CallData, block_number: U64) -> RpcResult<U64> {
+    async fn estimate_gas(
+        &self,
+        call_data: types::MessageCall,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<U64> {
         let txn = self.db.begin().await?;
-        let block_number = BlockNumber(block_number.as_u64());
+        let block_number = helpers::get_block_number(&txn, block_number).await?;
         let hash = txn
             .get(tables::CanonicalHeader, block_number)
             .await?
@@ -123,7 +126,7 @@ where
                     .unwrap_or_else(|| header.gas_limit),
                 action: TransactionAction::Call(call_data.to),
                 value: call_data.value.unwrap_or(U256::ZERO),
-                input: call_data.data.unwrap_or_default(),
+                input: call_data.data.unwrap_or_default().into(),
             },
             sender: call_data.from.unwrap_or_else(Address::zero),
         };
@@ -156,204 +159,97 @@ where
         ))
     }
 
-    async fn get_balance(&self, address: Address, block_number: U64) -> RpcResult<Balance> {
-        Ok(crate::accessors::state::account::read(
-            &self.db.begin().await?,
+    async fn get_balance(
+        &self,
+        address: Address,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<U256> {
+        let txn = self.db.begin().await?;
+
+        Ok(state::account::read(
+            &txn,
             address,
-            Some(BlockNumber(block_number.as_u64())),
+            Some(helpers::get_block_number(&txn, block_number).await?),
         )
         .await?
         .map(|acc| acc.balance)
         .unwrap_or(U256::ZERO))
     }
 
-    async fn get_block_by_hash(
-        &self,
-        hash: H256,
-        full_tx_obj: bool,
-    ) -> RpcResult<ethereum_jsonrpc::common::Block> {
+    async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<types::Block> {
         let txn = self.db.begin().await?;
-        let block_number = crate::accessors::chain::header_number::read(&txn, hash)
-            .await?
-            .unwrap();
-        let header = crate::accessors::chain::header::read(&txn, hash, block_number)
-            .await?
-            .unwrap();
-        let body =
-            crate::accessors::chain::block_body::read_without_senders(&txn, hash, block_number)
-                .await?
-                .unwrap();
-        let transactions: Vec<ethereum_jsonrpc::common::Transaction> = match full_tx_obj {
-            true => {
-                let senders =
-                    crate::accessors::chain::tx_sender::read(&txn, hash, block_number).await?;
-                body.transactions
-                    .into_iter()
-                    .zip(senders)
-                    .enumerate()
-                    .map(|(index, (tx, sender))| {
-                        ethereum_jsonrpc::common::Transaction::Full(Box::new(
-                            ethereum_jsonrpc::common::Tx {
-                                block_number: Some(U64::from(block_number.0)),
-                                block_hash: Some(hash),
-                                from: sender,
-                                gas: U64::from(tx.message.gas_limit()),
-                                gas_price: match tx.message {
-                                    Message::Legacy { gas_price, .. } => gas_price,
-                                    Message::EIP2930 { gas_price, .. } => gas_price,
-                                    Message::EIP1559 {
-                                        max_fee_per_gas, ..
-                                    } => max_fee_per_gas,
-                                },
-                                hash: tx.message.hash(),
-                                input: tx.message.input().clone(),
-                                nonce: U64::from(tx.message.nonce()),
-                                to: match tx.message.action() {
-                                    TransactionAction::Call(to) => Some(to),
-                                    TransactionAction::Create => None,
-                                },
-                                transaction_index: Some(U64::from(index as u64)),
-                                value: tx.message.value(),
-                                v: U64::from(tx.v()),
-                                r: tx.r(),
-                                s: tx.s(),
-                            },
-                        ))
-                    })
-                    .collect()
-            }
-            false => body
-                .transactions
-                .into_iter()
-                .map(|tx| ethereum_jsonrpc::common::Transaction::Partial(tx.message.hash()))
-                .collect(),
-        };
-
-        let td = crate::accessors::chain::td::read(&txn, hash, block_number)
-            .await?
-            .unwrap();
-
-        Ok(ethereum_jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(hash),
-            parent_hash: header.parent_hash,
-            nonce: Some(header.nonce),
-            sha3_uncles: header.ommers_hash,
-            logs_bloom: Some(header.logs_bloom),
-            transactions_root: header.transactions_root,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            miner: header.beneficiary,
-            difficulty: header.difficulty,
-            total_difficulty: td,
-            extra_data: header.extra_data,
-            size: U64::zero(),
-            gas_limit: U64::from(header.gas_limit),
-            gas_used: U64::from(header.gas_used),
-            timestamp: U64::from(header.timestamp),
-            transactions,
-            uncles: body.ommers.into_iter().map(|uncle| uncle.hash()).collect(),
-        })
+        Ok(helpers::construct_block(&txn, hash.into(), Some(include_txs), None).await?)
     }
     async fn get_block_by_number(
         &self,
-        block_number: U64,
-        full_tx_obj: bool,
-    ) -> RpcResult<ethereum_jsonrpc::common::Block> {
+        block_number: types::BlockNumber,
+        include_txs: bool,
+    ) -> RpcResult<types::Block> {
+        Ok(helpers::construct_block(
+            &self.db.begin().await?,
+            block_number.into(),
+            Some(include_txs),
+            None,
+        )
+        .await?)
+    }
+    async fn get_transaction(&self, hash: H256) -> RpcResult<Option<types::Transaction>> {
         let txn = self.db.begin().await?;
-        let block_number = BlockNumber(block_number.as_u64());
-        let hash = crate::accessors::chain::canonical_hash::read(&txn, block_number)
+        let block_number = match chain::tl::read(&txn, hash).await? {
+            Some(tl) => tl,
+            None => return Ok(None),
+        };
+        let block_hash = chain::canonical_hash::read(&txn, block_number)
             .await?
             .unwrap();
-        let header = crate::accessors::chain::header::read(&txn, hash, block_number)
-            .await?
-            .unwrap();
-        let body =
-            crate::accessors::chain::block_body::read_without_senders(&txn, hash, block_number)
+        let (index, transaction) =
+            chain::block_body::read_without_senders(&txn, block_hash, block_number)
                 .await?
-                .unwrap();
-        let transactions: Vec<ethereum_jsonrpc::common::Transaction> = match full_tx_obj {
-            true => {
-                let senders =
-                    crate::accessors::chain::tx_sender::read(&txn, hash, block_number).await?;
-                body.transactions
-                    .into_iter()
-                    .zip(senders)
-                    .enumerate()
-                    .map(|(index, (tx, sender))| {
-                        ethereum_jsonrpc::common::Transaction::Full(Box::new(
-                            ethereum_jsonrpc::common::Tx {
-                                block_number: Some(U64::from(block_number.0)),
-                                block_hash: Some(hash),
-                                from: sender,
-                                gas: U64::from(tx.message.gas_limit()),
-                                gas_price: match tx.message {
-                                    Message::Legacy { gas_price, .. } => gas_price,
-                                    Message::EIP2930 { gas_price, .. } => gas_price,
-                                    Message::EIP1559 {
-                                        max_fee_per_gas, ..
-                                    } => max_fee_per_gas,
-                                },
-                                hash: tx.message.hash(),
-                                input: tx.message.input().clone(),
-                                nonce: U64::from(tx.message.nonce()),
-                                to: match tx.message.action() {
-                                    TransactionAction::Call(to) => Some(to),
-                                    TransactionAction::Create => None,
-                                },
-                                transaction_index: Some(U64::from(index as u64)),
-                                value: tx.message.value(),
-                                v: U64::from(tx.v()),
-                                r: tx.r(),
-                                s: tx.s(),
-                            },
-                        ))
-                    })
-                    .collect()
-            }
-            false => body
+                .unwrap()
                 .transactions
                 .into_iter()
-                .map(|tx| ethereum_jsonrpc::common::Transaction::Partial(tx.message.hash()))
-                .collect(),
-        };
-
-        let td = crate::accessors::chain::td::read(&txn, hash, block_number)
+                .enumerate()
+                .find(|(_, tx)| tx.hash() == hash)
+                .unwrap();
+        let sender = chain::tx_sender::read(&txn, block_hash, block_number)
             .await?
+            .into_iter()
+            .nth(index)
             .unwrap();
-
-        Ok(ethereum_jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(hash),
-            parent_hash: header.parent_hash,
-            nonce: Some(header.nonce),
-            sha3_uncles: header.ommers_hash,
-            logs_bloom: Some(header.logs_bloom),
-            transactions_root: header.transactions_root,
-            state_root: header.state_root,
-            receipts_root: header.receipts_root,
-            miner: header.beneficiary,
-            difficulty: header.difficulty,
-            total_difficulty: td,
-            extra_data: header.extra_data,
-            size: U64::zero(),
-            gas_limit: U64::from(header.gas_limit),
-            gas_used: U64::from(header.gas_used),
-            timestamp: U64::from(header.timestamp),
-            transactions,
-            uncles: body.ommers.into_iter().map(|uncle| uncle.hash()).collect(),
-        })
+        Ok(Some(types::Transaction {
+            hash,
+            nonce: transaction.nonce().into(),
+            block_hash: Some(block_hash),
+            block_number: Some(block_number.0.into()),
+            from: sender,
+            gas: transaction.gas_limit().into(),
+            gas_price: match transaction.message {
+                Message::Legacy { gas_price, .. } => gas_price,
+                Message::EIP2930 { gas_price, .. } => gas_price,
+                Message::EIP1559 {
+                    max_fee_per_gas, ..
+                } => max_fee_per_gas,
+            },
+            input: transaction.input().clone().into(),
+            to: match transaction.action() {
+                TransactionAction::Call(to) => Some(to),
+                TransactionAction::Create => None,
+            },
+            transaction_index: Some(U64::from(index)),
+            value: transaction.value(),
+            v: transaction.v().into(),
+            r: transaction.r(),
+            s: transaction.s(),
+        }))
     }
 
-    async fn get_block_tx_count_by_hash(&self, hash: H256) -> RpcResult<U64> {
+    async fn get_block_transaction_count_by_hash(&self, hash: H256) -> RpcResult<U64> {
         let txn = self.db.begin().await?;
         Ok(U64::from(
-            crate::accessors::chain::block_body::read_without_senders(
+            chain::block_body::read_without_senders(
                 &txn,
                 hash,
-                crate::accessors::chain::header_number::read(&txn, hash)
-                    .await?
-                    .unwrap(),
+                chain::header_number::read(&txn, hash).await?.unwrap(),
             )
             .await?
             .unwrap()
@@ -362,188 +258,126 @@ where
         ))
     }
 
-    async fn get_block_tx_count_by_number(&self, block_number: U64) -> RpcResult<U64> {
+    async fn get_block_transaction_count_by_number(
+        &self,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<U64> {
         let txn = self.db.begin().await?;
-        Ok(U64::from(
-            crate::accessors::chain::block_body::read_without_senders(
-                &txn,
-                crate::accessors::chain::canonical_hash::read(
-                    &txn,
-                    BlockNumber(block_number.as_u64()),
-                )
+        let block_number = helpers::get_block_number(&txn, block_number).await?;
+        Ok(chain::block_body::read_without_senders(
+            &txn,
+            chain::canonical_hash::read(&txn, block_number)
                 .await?
                 .unwrap(),
-                BlockNumber(block_number.as_u64()),
-            )
-            .await?
-            .unwrap()
-            .transactions
-            .len(),
-        ))
+            block_number,
+        )
+        .await?
+        .unwrap()
+        .transactions
+        .len()
+        .into())
     }
 
     async fn get_code(
         &self,
         address: Address,
-        block_number: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::Code> {
+        block_number: types::BlockNumber,
+    ) -> RpcResult<types::Bytes> {
         let txn = self.db.begin().await?;
-        let account = crate::accessors::state::account::read(
-            &txn,
-            address,
-            Some(BlockNumber(block_number.as_u64())),
-        )
-        .await?
-        .unwrap();
+        let block_number = helpers::get_block_number(&txn, block_number).await?;
+        let account = state::account::read(&txn, address, Some(block_number))
+            .await?
+            .unwrap();
 
-        Ok(ethereum_jsonrpc::common::Code(
-            txn.get(tables::Code, account.code_hash).await?.unwrap(),
-        ))
+        Ok(txn
+            .get(tables::Code, account.code_hash)
+            .await?
+            .unwrap()
+            .into())
     }
 
     async fn get_storage_at(
         &self,
         address: Address,
         key: U256,
-        block_number: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::StorageData> {
-        Ok(crate::accessors::state::storage::read(
-            &self.db.begin().await?,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<types::Bytes> {
+        let txn = self.db.begin().await?;
+        Ok((state::storage::read(
+            &txn,
             address,
             key,
-            Some(BlockNumber(block_number.as_u64())),
+            Some(helpers::get_block_number(&txn, block_number).await?),
         )
         .await?)
+            .into())
     }
 
-    async fn get_tx_by_block_hash_and_index(
+    async fn get_transaction_by_block_hash_and_index(
         &self,
         block_hash: H256,
         index: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::Tx> {
-        let txn = self.db.begin().await?;
-        let block_number = crate::accessors::chain::header_number::read(&txn, block_hash)
-            .await?
-            .unwrap();
-        Ok(crate::accessors::chain::block_body::read_without_senders(
-            &txn,
-            block_hash,
-            block_number,
+    ) -> RpcResult<Option<types::Tx>> {
+        Ok(helpers::construct_block(
+            &self.db.begin().await?,
+            block_hash.into(),
+            None,
+            Some(index),
         )
         .await?
-        .unwrap()
         .transactions
         .into_iter()
-        .nth(index.as_usize())
-        .map(|tx| ethereum_jsonrpc::common::Tx {
-            block_hash: Some(block_hash),
-            block_number: Some(U64::from(block_number.0)),
-            from: Address::zero(),
-            gas: U64::from(tx.message.gas_limit()),
-            gas_price: match tx.message {
-                Message::Legacy { gas_price, .. } => gas_price,
-                Message::EIP2930 { gas_price, .. } => gas_price,
-                Message::EIP1559 {
-                    max_fee_per_gas, ..
-                } => max_fee_per_gas,
-            },
-            hash: tx.message.hash(),
-            input: tx.message.input().clone(),
-            nonce: U64::from(tx.message.nonce()),
-            to: match tx.message.action() {
-                TransactionAction::Call(to) => Some(to),
-                _ => None,
-            },
-            transaction_index: Some(index),
-            value: tx.message.value(),
-            v: U64::from(tx.v()),
-            r: tx.r(),
-            s: tx.s(),
-        })
-        .unwrap())
+        .nth(index.as_usize()))
     }
 
-    async fn get_tx_by_block_number_and_index(
+    async fn get_transaction_by_block_number_and_index(
         &self,
-        block_number: U64,
+        block_number: types::BlockNumber,
         index: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::Tx> {
-        let txn = self.db.begin().await?;
-        let block_hash =
-            crate::accessors::chain::canonical_hash::read(&txn, BlockNumber(block_number.as_u64()))
+    ) -> RpcResult<Option<types::Tx>> {
+        Ok(
+            helpers::construct_block(&self.db.begin().await?, block_number.into(), None, None)
                 .await?
-                .unwrap();
-        Ok(crate::accessors::chain::block_body::read_without_senders(
+                .transactions
+                .into_iter()
+                .nth(index.as_usize()),
+        )
+    }
+
+    async fn get_transaction_count(
+        &self,
+        address: Address,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<U64> {
+        let txn = self.db.begin().await?;
+        Ok(state::account::read(
             &txn,
-            block_hash,
-            BlockNumber(block_number.as_u64()),
+            address,
+            Some(helpers::get_block_number(&txn, block_number).await?),
         )
         .await?
         .unwrap()
-        .transactions
-        .into_iter()
-        .nth(index.as_usize())
-        .map(|tx| ethereum_jsonrpc::common::Tx {
-            block_hash: Some(block_hash),
-            block_number: Some(block_number),
-            from: Address::zero(),
-            gas: U64::from(tx.message.gas_limit()),
-            gas_price: match tx.message {
-                Message::Legacy { gas_price, .. } => gas_price,
-                Message::EIP2930 { gas_price, .. } => gas_price,
-                Message::EIP1559 {
-                    max_fee_per_gas, ..
-                } => max_fee_per_gas,
-            },
-            hash: tx.message.hash(),
-            input: tx.message.input().clone(),
-            nonce: U64::from(tx.message.nonce()),
-            to: match tx.message.action() {
-                TransactionAction::Call(to) => Some(to),
-                _ => None,
-            },
-            transaction_index: Some(index),
-            value: tx.message.value(),
-            v: U64::from(tx.v()),
-            r: tx.r(),
-            s: tx.s(),
-        })
-        .unwrap())
-    }
-
-    async fn get_transaction_count(&self, address: Address, block_number: U64) -> RpcResult<U64> {
-        Ok(U64::from(
-            crate::accessors::state::account::read(
-                &self.db.begin().await?,
-                address,
-                Some(BlockNumber(block_number.as_u64())),
-            )
-            .await?
-            .unwrap()
-            .nonce,
-        ))
+        .nonce
+        .into())
     }
 
     async fn get_transaction_receipt(
         &self,
         hash: H256,
-    ) -> RpcResult<ethereum_jsonrpc::common::TxReceipt> {
+    ) -> RpcResult<Option<types::TransactionReceipt>> {
         let txn = self.db.begin().await?;
-        let block_number = crate::accessors::chain::tl::read(&txn, hash)
-            .await?
-            .unwrap();
-        let block_hash = crate::accessors::chain::canonical_hash::read(&txn, block_number)
+        let block_number = chain::tl::read(&txn, hash).await?.unwrap();
+        let block_hash = chain::canonical_hash::read(&txn, block_number)
             .await?
             .unwrap();
         let header = PartialHeader::from(
-            crate::accessors::chain::header::read(&txn, block_hash, block_number)
+            chain::header::read(&txn, block_hash, block_number)
                 .await?
                 .unwrap(),
         );
-        let block_body =
-            crate::accessors::chain::block_body::read_with_senders(&txn, block_hash, block_number)
-                .await?
-                .unwrap();
+        let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)
+            .await?
+            .unwrap();
         let chain_config = txn
             .get(
                 tables::Config,
@@ -591,19 +425,19 @@ where
             .logs
             .iter()
             .enumerate()
-            .map(|(i, log)| ethereum_jsonrpc::common::TxLog {
+            .map(|(i, log)| types::TransactionLog {
                 log_index: Some(U64::from(i)),
                 transaction_index: Some(U64::from(transaction_index)),
                 transaction_hash: Some(transaction.message.hash()),
                 block_hash: Some(block_hash),
                 block_number: Some(U64::from(block_number.0)),
                 address: log.clone().address,
-                data: log.clone().data,
+                data: log.clone().data.into(),
                 topics: log.clone().topics,
             })
             .collect::<Vec<_>>();
 
-        Ok(ethereum_jsonrpc::common::TxReceipt {
+        Ok(Some(types::TransactionReceipt {
             transaction_hash: hash,
             transaction_index: U64::from(transaction_index),
             block_hash,
@@ -629,215 +463,48 @@ where
             } else {
                 U64::zero()
             },
-        })
+        }))
     }
 
     async fn get_uncle_by_block_hash_and_index(
         &self,
         block_hash: H256,
         index: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::Block> {
-        let txn = self.db.begin().await?;
-        let block_number = crate::accessors::chain::header_number::read(&txn, block_hash)
-            .await?
-            .unwrap();
-        let uncle_header = crate::accessors::chain::storage_body::read(
-            &txn,
-            crate::accessors::chain::canonical_hash::read(&txn, BlockNumber(block_number.0))
-                .await?
-                .unwrap(),
-            block_number,
-        )
-        .await?
-        .unwrap()
-        .uncles
-        .into_iter()
-        .nth(index.as_usize())
-        .unwrap();
-
-        let body = crate::accessors::chain::block_body::read_without_senders(
-            &txn,
-            uncle_header.hash(),
-            block_number,
-        )
-        .await?
-        .unwrap();
-        let senders =
-            crate::accessors::chain::tx_sender::read(&txn, uncle_header.hash(), block_number)
-                .await?;
-
-        let transactions = body
-            .transactions
-            .into_iter()
-            .zip(senders)
-            .enumerate()
-            .map(|(index, (tx, sender))| {
-                ethereum_jsonrpc::common::Transaction::Full(Box::new(
-                    ethereum_jsonrpc::common::Tx {
-                        block_number: Some(U64::from(block_number.0)),
-                        block_hash: Some(uncle_header.hash()),
-                        from: sender,
-                        gas: U64::from(tx.message.gas_limit()),
-                        gas_price: match tx.message {
-                            Message::Legacy { gas_price, .. } => gas_price,
-                            Message::EIP2930 { gas_price, .. } => gas_price,
-                            Message::EIP1559 {
-                                max_fee_per_gas, ..
-                            } => max_fee_per_gas,
-                        },
-                        hash: tx.message.hash(),
-                        input: tx.message.input().clone(),
-                        nonce: U64::from(tx.message.nonce()),
-                        to: match tx.message.action() {
-                            TransactionAction::Call(to) => Some(to),
-                            TransactionAction::Create => None,
-                        },
-                        transaction_index: Some(U64::from(index as u64)),
-                        value: tx.message.value(),
-                        v: U64::from(tx.v()),
-                        r: tx.r(),
-                        s: tx.s(),
-                    },
-                ))
-            })
-            .collect();
-
-        let td = crate::accessors::chain::td::read(&txn, uncle_header.hash(), block_number)
-            .await?
-            .unwrap();
-
-        Ok(ethereum_jsonrpc::common::Block {
-            number: Some(U64::from(block_number.0)),
-            hash: Some(uncle_header.hash()),
-            parent_hash: uncle_header.parent_hash,
-            nonce: Some(uncle_header.nonce),
-            sha3_uncles: uncle_header.ommers_hash,
-            logs_bloom: Some(uncle_header.logs_bloom),
-            transactions_root: uncle_header.transactions_root,
-            state_root: uncle_header.state_root,
-            receipts_root: uncle_header.receipts_root,
-            miner: uncle_header.beneficiary,
-            difficulty: uncle_header.difficulty,
-            total_difficulty: td,
-            extra_data: uncle_header.extra_data,
-            size: U64::zero(),
-            gas_limit: U64::from(uncle_header.gas_limit),
-            gas_used: U64::from(uncle_header.gas_used),
-            timestamp: U64::from(uncle_header.timestamp),
-            transactions,
-            uncles: body.ommers.into_iter().map(|uncle| uncle.hash()).collect(),
-        })
+    ) -> RpcResult<Option<types::Block>> {
+        Ok(Some(
+            helpers::construct_block(
+                &self.db.begin().await?,
+                block_hash.into(),
+                None,
+                Some(index),
+            )
+            .await?,
+        ))
     }
 
     async fn get_uncle_by_block_number_and_index(
         &self,
-        block_number: U64,
+        block_number: types::BlockNumber,
         index: U64,
-    ) -> RpcResult<ethereum_jsonrpc::common::Block> {
-        let txn = self.db.begin().await?;
-        let uncle_header = crate::accessors::chain::storage_body::read(
-            &txn,
-            crate::accessors::chain::canonical_hash::read(&txn, BlockNumber(block_number.as_u64()))
-                .await?
-                .unwrap(),
-            BlockNumber(block_number.as_u64()),
-        )
-        .await?
-        .unwrap()
-        .uncles
-        .into_iter()
-        .nth(index.as_usize())
-        .unwrap();
-
-        let body = crate::accessors::chain::block_body::read_without_senders(
-            &txn,
-            uncle_header.hash(),
-            BlockNumber(block_number.as_u64()),
-        )
-        .await?
-        .unwrap();
-        let senders = crate::accessors::chain::tx_sender::read(
-            &txn,
-            uncle_header.hash(),
-            BlockNumber(block_number.as_u64()),
-        )
-        .await?;
-
-        let transactions = body
-            .transactions
-            .into_iter()
-            .zip(senders)
-            .enumerate()
-            .map(|(index, (tx, sender))| {
-                ethereum_jsonrpc::common::Transaction::Full(Box::new(
-                    ethereum_jsonrpc::common::Tx {
-                        block_number: Some(block_number),
-                        block_hash: Some(uncle_header.hash()),
-                        from: sender,
-                        gas: U64::from(tx.message.gas_limit()),
-                        gas_price: match tx.message {
-                            Message::Legacy { gas_price, .. } => gas_price,
-                            Message::EIP2930 { gas_price, .. } => gas_price,
-                            Message::EIP1559 {
-                                max_fee_per_gas, ..
-                            } => max_fee_per_gas,
-                        },
-                        hash: tx.message.hash(),
-                        input: tx.message.input().clone(),
-                        nonce: U64::from(tx.message.nonce()),
-                        to: match tx.message.action() {
-                            TransactionAction::Call(to) => Some(to),
-                            TransactionAction::Create => None,
-                        },
-                        transaction_index: Some(U64::from(index as u64)),
-                        value: tx.message.value(),
-                        v: U64::from(tx.v()),
-                        r: tx.r(),
-                        s: tx.s(),
-                    },
-                ))
-            })
-            .collect();
-        let td = crate::accessors::chain::td::read(
-            &txn,
-            uncle_header.hash(),
-            BlockNumber(block_number.as_u64()),
-        )
-        .await?
-        .unwrap();
-
-        Ok(ethereum_jsonrpc::common::Block {
-            number: Some(block_number),
-            hash: Some(uncle_header.hash()),
-            parent_hash: uncle_header.parent_hash,
-            nonce: Some(uncle_header.nonce),
-            sha3_uncles: uncle_header.ommers_hash,
-            logs_bloom: Some(uncle_header.logs_bloom),
-            transactions_root: uncle_header.transactions_root,
-            state_root: uncle_header.state_root,
-            receipts_root: uncle_header.receipts_root,
-            miner: uncle_header.beneficiary,
-            difficulty: uncle_header.difficulty,
-            total_difficulty: td,
-            extra_data: uncle_header.extra_data,
-            size: U64::zero(),
-            gas_limit: U64::from(uncle_header.gas_limit),
-            gas_used: U64::from(uncle_header.gas_used),
-            timestamp: U64::from(uncle_header.timestamp),
-            transactions,
-            uncles: body.ommers.into_iter().map(|uncle| uncle.hash()).collect(),
-        })
+    ) -> RpcResult<Option<types::Block>> {
+        Ok(Some(
+            helpers::construct_block(
+                &self.db.begin().await?,
+                block_number.into(),
+                None,
+                Some(index),
+            )
+            .await?,
+        ))
     }
 
     async fn get_uncle_count_by_block_hash(&self, block_hash: H256) -> RpcResult<U64> {
         let txn = self.db.begin().await?;
         Ok(U64::from(
-            crate::accessors::chain::storage_body::read(
+            chain::storage_body::read(
                 &txn,
                 block_hash,
-                crate::accessors::chain::header_number::read(&txn, block_hash)
-                    .await?
-                    .unwrap(),
+                chain::header_number::read(&txn, block_hash).await?.unwrap(),
             )
             .await?
             .unwrap()
@@ -846,18 +513,19 @@ where
         ))
     }
 
-    async fn get_uncle_count_by_block_number(&self, block_number: U64) -> RpcResult<U64> {
+    async fn get_uncle_count_by_block_number(
+        &self,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<U64> {
         let txn = self.db.begin().await?;
+        let block_number = helpers::get_block_number(&txn, block_number).await?;
         Ok(U64::from(
-            crate::accessors::chain::storage_body::read(
+            chain::storage_body::read(
                 &txn,
-                crate::accessors::chain::canonical_hash::read(
-                    &txn,
-                    BlockNumber(block_number.as_u64()),
-                )
-                .await?
-                .unwrap(),
-                BlockNumber(block_number.as_u64()),
+                chain::canonical_hash::read(&txn, block_number)
+                    .await?
+                    .unwrap(),
+                block_number,
             )
             .await?
             .unwrap()
@@ -953,7 +621,10 @@ mod tests {
             .build(format!("http://localhost:{}", port))
             .unwrap();
         let block_number = client.block_number().await.unwrap();
-        let balance = client.get_balance(DEADBEEF, block_number).await.unwrap();
+        let balance = client
+            .get_balance(DEADBEEF, block_number.into())
+            .await
+            .unwrap();
         assert_eq!(balance, ETHER);
 
         let txn = db.begin_mutable().await.unwrap();
@@ -969,7 +640,10 @@ mod tests {
         .unwrap();
         txn.commit().await.unwrap();
 
-        let balance = client.get_balance(DEADBEEF, block_number).await.unwrap();
+        let balance = client
+            .get_balance(DEADBEEF, block_number.into())
+            .await
+            .unwrap();
         assert_eq!(balance, ETHER.as_u256() * 100);
     }
 }

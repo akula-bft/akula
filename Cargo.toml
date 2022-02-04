@@ -30,8 +30,8 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", branc
     "remotekv",
     "sentry",
 ] }
-ethereum-jsonrpc = { package = "ethereum-jsonrpc", git = "https://github.com/rust-ethereum/jsonrpc" }
 ethereum-types = { version = "0.12", features = ["codec"] }
+ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", features = [
     "llvm-intrinsics",
     "rlp",
