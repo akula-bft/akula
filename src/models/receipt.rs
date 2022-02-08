@@ -1,7 +1,8 @@
 use super::*;
 use crate::crypto::*;
 use bytes::{BufMut, Bytes, BytesMut};
-use rlp::{Encodable, RlpStream};
+use rlp::{DecoderError, Encodable, RlpStream};
+use rlp_derive::RlpDecodable;
 use serde::*;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -50,6 +51,20 @@ impl Receipt {
             }
         }
     }
+
+    fn decode_inner(rlp: &rlp::Rlp, is_legacy: bool) -> Result<Self, DecoderError> {
+        Ok(match is_legacy {
+            true => {
+                let inner = UntypedReceipt::decode(rlp)?;
+                inner.into_receipt(TxType::Legacy)
+            }
+            false => {
+                let tx_type = u8::decode(rlp)?;
+                let inner = UntypedReceipt::decode(rlp)?;
+                inner.into_receipt(tx_type.try_into()?)
+            }
+        })
+    }
 }
 
 impl TrieEncode for Receipt {
@@ -63,5 +78,33 @@ impl TrieEncode for Receipt {
 impl Encodable for Receipt {
     fn rlp_append(&self, s: &mut rlp::RlpStream) {
         self.encode_inner(s, false);
+    }
+}
+
+impl Decodable for Receipt {
+    fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
+        // FIXME: This check may be incorrect
+        let is_legacy = !rlp.is_data();
+        Self::decode_inner(rlp, is_legacy)
+    }
+}
+
+#[derive(RlpDecodable)]
+struct UntypedReceipt {
+    pub success: bool,
+    pub cumulative_gas_used: u64,
+    pub bloom: Bloom,
+    pub logs: Vec<Log>,
+}
+
+impl UntypedReceipt {
+    fn into_receipt(self, tx_type: TxType) -> Receipt {
+        Receipt {
+            tx_type,
+            success: self.success,
+            cumulative_gas_used: self.cumulative_gas_used,
+            bloom: self.bloom,
+            logs: self.logs,
+        }
     }
 }
