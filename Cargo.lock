@@ -577,15 +577,15 @@ dependencies = [
 
 [[package]]
 name = "crossterm"
-version = "0.22.1"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c85525306c4291d1b73ce93c8acf9c339f9b213aef6c1d85c3830cbf1c16325c"
+checksum = "77b75a27dc8d220f1f8521ea69cd55a34d720a200ebb3a624d9aa19193d3b432"
 dependencies = [
  "bitflags",
  "crossterm_winapi",
  "libc",
  "mio",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "signal-hook",
  "signal-hook-mio",
  "winapi",
@@ -774,7 +774,7 @@ dependencies = [
  "byteorder",
  "ethereum-types",
  "ethnum",
- "primitive-types 0.11.0",
+ "primitive-types",
  "rlp",
  "sha3",
 ]
@@ -796,13 +796,13 @@ dependencies = [
 
 [[package]]
 name = "ethereum-forkid"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec7f4f085019202b335af31f4ddaa8ee05eabc74dd24fce5310df4a5933025bb"
+checksum = "45c397979cd94737348e1b96ca7201e48386aaa0c13270e8b3dd30f986007d31"
 dependencies = [
  "crc",
  "maplit",
- "primitive-types 0.10.1",
+ "primitive-types",
  "rlp",
  "rlp-derive",
  "thiserror",
@@ -833,7 +833,7 @@ dependencies = [
  "impl-codec",
  "impl-rlp",
  "impl-serde",
- "primitive-types 0.11.0",
+ "primitive-types",
  "scale-info",
  "uint",
 ]
@@ -1917,16 +1917,6 @@ name = "ppv-lite86"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
-
-[[package]]
-name = "primitive-types"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05e4722c697a58a99d5d06a08c30821d7c082a4632198de1eaa5a6c22ef42373"
-dependencies = [
- "fixed-hash",
- "uint",
-]
 
 [[package]]
 name = "primitive-types"

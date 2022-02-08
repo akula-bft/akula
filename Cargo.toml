@@ -21,12 +21,12 @@ bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
 clap = { version = "3", features = ["derive"] }
 croaring = { git = "https://github.com/vorot93/croaring-rs", branch = "staging" }
-crossterm = { version = "0.22", optional = true }
+crossterm = { version = "0.23", optional = true }
 derive_more = "0.99"
 directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
-ethereum-forkid = "0.6.0"
+ethereum-forkid = "0.7.0"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", branch = "akula", features = [
     "remotekv",
     "sentry",
