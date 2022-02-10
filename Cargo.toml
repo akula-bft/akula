@@ -10,13 +10,13 @@ default-run = "akula"
 [dependencies]
 anyhow = "1"
 arrayref = "0.3"
-arrayvec = "0.7"
+arrayvec = { version = "0.7", features = ["serde"] }
 async-recursion = "1"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "0.5"
 byte-unit = "4"
-bytes = "1"
+bytes = { version = "1", features = ["serde"] }
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
 clap = { version = "3", features = ["derive"] }
@@ -25,6 +25,7 @@ crossterm = { version = "0.23", optional = true }
 derive_more = "0.99"
 directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
+enum-as-inner = "0.3"
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
 ethereum-forkid = "0.7.0"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", rev = "6ef398c", features = [
@@ -37,14 +38,15 @@ ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", fea
     "rlp",
     "scale",
 ] }
-evmodin = { git = "https://github.com/vorot93/evmodin", branch = "akula-staging" }
 futures-core = "0.3"
 futures-util = "0.3"
+getset = "0.1"
 hash-db = "0.15"
 hash256-std-hasher = "0.15"
 hex = "0.4"
 hex-literal = "0.3"
 http = "0.2"
+i256 = { git = "https://github.com/vorot93/rust-i256", branch = "ethnum" }
 itertools = "0.10"
 jsonrpsee = { git = "https://github.com/paritytech/jsonrpsee", features = [
     "server",
@@ -74,6 +76,7 @@ sha2 = "0.10"
 sha3 = "0.10"
 string = { git = "https://github.com/carllerche/string" }
 strum = { version = "0.23", features = ["derive"] }
+strum_macros = "0.23"
 substrate-bn = "0.6"
 tempfile = "3"
 thiserror = "1"

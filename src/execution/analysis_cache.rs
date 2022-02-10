@@ -1,5 +1,5 @@
+use super::evm::AnalyzedCode;
 use ethereum_types::H256;
-use evmodin::AnalyzedCode;
 use lru::LruCache;
 
 #[derive(Debug)]
