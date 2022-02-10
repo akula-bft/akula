@@ -811,7 +811,7 @@ dependencies = [
 [[package]]
 name = "ethereum-interfaces"
 version = "0.1.0"
-source = "git+https://github.com/ledgerwatch/interfaces?branch=akula#4144397fc9bf8f3241df46013cabc226a5d8b1c3"
+source = "git+https://github.com/ledgerwatch/interfaces?rev=6ef398c#6ef398c682810ec616d214bc68579478a1a573f3"
 dependencies = [
  "arrayref",
  "ethereum-types",
