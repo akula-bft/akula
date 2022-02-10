@@ -322,6 +322,7 @@ impl StartedInterrupt {
     }
 }
 
+#[allow(clippy::needless_borrow)]
 fn gen_interpreter<const TRACE: bool, const REVISION: Revision>(
     s: AnalyzedCode,
     mut state: ExecutionState,

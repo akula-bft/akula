@@ -1,5 +1,4 @@
 use crate::{crypto::*, models::*, util::*, State};
-use async_trait::async_trait;
 use bytes::Bytes;
 use std::{collections::HashMap, convert::TryInto};
 
@@ -141,7 +140,7 @@ impl InMemoryState {
                     .or_default()
             }
         } + difficulty;
-        self.difficulty[block_number].entry(hash).insert(d);
+        self.difficulty[block_number].entry(hash).insert_entry(d);
     }
 
     pub fn read_body_with_senders(
@@ -219,19 +218,18 @@ impl InMemoryState {
     }
 }
 
-#[async_trait]
 impl State for InMemoryState {
     // Readers
 
-    async fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
+    fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
         Ok(self.accounts.get(&address).cloned())
     }
 
-    async fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
+    fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
         Ok(self.code.get(&code_hash).cloned().unwrap_or_default())
     }
 
-    async fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256> {
+    fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256> {
         if let Some(storage) = self.storage.get(&address) {
             if let Some(value) = storage.get(&location) {
                 return Ok(*value);
@@ -241,7 +239,7 @@ impl State for InMemoryState {
         Ok(U256::ZERO)
     }
 
-    async fn erase_storage(&mut self, address: Address) -> anyhow::Result<()> {
+    fn erase_storage(&mut self, address: Address) -> anyhow::Result<()> {
         let address_storage = self.storage.remove(&address).unwrap_or_default();
 
         if !address_storage.is_empty() {
@@ -260,7 +258,7 @@ impl State for InMemoryState {
         Ok(())
     }
 
-    async fn read_header(
+    fn read_header(
         &self,
         block_number: BlockNumber,
         block_hash: H256,
@@ -272,7 +270,7 @@ impl State for InMemoryState {
         Ok(None)
     }
 
-    async fn read_body(
+    fn read_body(
         &self,
         block_number: BlockNumber,
         block_hash: H256,
@@ -284,7 +282,7 @@ impl State for InMemoryState {
         Ok(None)
     }
 
-    async fn total_difficulty(
+    fn total_difficulty(
         &self,
         block_number: BlockNumber,
         block_hash: H256,
@@ -323,13 +321,13 @@ impl State for InMemoryState {
         }
     }
 
-    async fn update_code(&mut self, code_hash: H256, code: Bytes) -> anyhow::Result<()> {
+    fn update_code(&mut self, code_hash: H256, code: Bytes) -> anyhow::Result<()> {
         self.code.insert(code_hash, code);
 
         Ok(())
     }
 
-    async fn update_storage(
+    fn update_storage(
         &mut self,
         address: Address,
         location: U256,
@@ -358,18 +356,16 @@ impl State for InMemoryState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::*;
     use hex_literal::hex;
     use maplit::*;
 
     #[test]
     fn state_root() {
-        run_test(async {
-            fn to_u256((a, b): (u128, u128)) -> (U256, U256) {
-                (U256::from(a), U256::from(b))
-            }
+        fn to_u256((a, b): (u128, u128)) -> (U256, U256) {
+            (U256::from(a), U256::from(b))
+        }
 
-            let fixtures = vec![
+        let fixtures = vec![
                 (
                     "gasLimit20m_London",
                     vec![
@@ -521,32 +517,30 @@ mod tests {
                 ),
             ];
 
-            for (test_name, fixture, state_root) in fixtures {
-                let mut state = InMemoryState::default();
+        for (test_name, fixture, state_root) in fixtures {
+            let mut state = InMemoryState::default();
 
-                println!("{}", test_name);
-                for (address, account) in fixture {
-                    let address = Address::from(address);
-                    state.update_account(
-                        address,
-                        None,
-                        Some(Account {
-                            nonce: account.nonce.as_u64(),
-                            balance: account.balance,
-                            code_hash: keccak256(account.code),
-                        }),
-                    );
+            println!("{}", test_name);
+            for (address, account) in fixture {
+                let address = Address::from(address);
+                state.update_account(
+                    address,
+                    None,
+                    Some(Account {
+                        nonce: account.nonce.as_u64(),
+                        balance: account.balance,
+                        code_hash: keccak256(account.code),
+                    }),
+                );
 
-                    for (location, value) in account.storage {
-                        state
-                            .update_storage(address, location, U256::ZERO, value)
-                            .await
-                            .unwrap();
-                    }
+                for (location, value) in account.storage {
+                    state
+                        .update_storage(address, location, U256::ZERO, value)
+                        .unwrap();
                 }
-
-                assert_eq!(state.state_root_hash(), H256(state_root))
             }
-        })
+
+            assert_eq!(state.state_root_hash(), H256(state_root))
+        }
     }
 }

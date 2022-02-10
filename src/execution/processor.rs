@@ -67,7 +67,7 @@ where
         self.state
     }
 
-    pub async fn validate_transaction(&mut self, tx: &MessageWithSender) -> anyhow::Result<()> {
+    pub fn validate_transaction(&mut self, tx: &MessageWithSender) -> anyhow::Result<()> {
         pre_validate_transaction(
             tx,
             self.block_spec.params.chain_id,
@@ -75,11 +75,11 @@ where
         )
         .expect("Tx must have been prevalidated");
 
-        if self.state.get_code_hash(tx.sender).await? != EMPTY_HASH {
+        if self.state.get_code_hash(tx.sender)? != EMPTY_HASH {
             return Err(ValidationError::SenderNoEOA { sender: tx.sender }.into());
         }
 
-        let expected_nonce = self.state.get_nonce(tx.sender).await?;
+        let expected_nonce = self.state.get_nonce(tx.sender)?;
         if expected_nonce != tx.nonce() {
             return Err(ValidationError::WrongNonce {
                 account: tx.sender,
@@ -97,8 +97,7 @@ where
         // See YP, Eq (57) in Section 6.2 "Execution"
         let v0 = max_gas_cost + U512::from(ethereum_types::U256::from(tx.value().to_be_bytes()));
         let available_balance =
-            ethereum_types::U256::from(self.state.get_balance(tx.sender).await?.to_be_bytes())
-                .into();
+            ethereum_types::U256::from(self.state.get_balance(tx.sender)?.to_be_bytes()).into();
         if available_balance < v0 {
             return Err(ValidationError::InsufficientFunds {
                 account: tx.sender,
@@ -123,7 +122,7 @@ where
         Ok(())
     }
 
-    async fn execute_transaction(&mut self, txn: &MessageWithSender) -> anyhow::Result<Receipt> {
+    fn execute_transaction(&mut self, txn: &MessageWithSender) -> anyhow::Result<Receipt> {
         let rev = self.block_spec.revision;
 
         self.state.clear_journal_and_substate();
@@ -132,17 +131,15 @@ where
 
         let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
         let effective_gas_price = txn.effective_gas_price(base_fee_per_gas);
-        self.state
-            .subtract_from_balance(
-                txn.sender,
-                U256::from(txn.gas_limit()) * effective_gas_price,
-            )
-            .await?;
+        self.state.subtract_from_balance(
+            txn.sender,
+            U256::from(txn.gas_limit()) * effective_gas_price,
+        )?;
 
         if let TransactionAction::Call(to) = txn.action() {
             self.state.access_account(to);
             // EVM itself increments the nonce for contract creation
-            self.state.set_nonce(txn.sender, txn.nonce() + 1).await?;
+            self.state.set_nonce(txn.sender, txn.nonce() + 1)?;
         }
 
         for entry in &*txn.access_list() {
@@ -169,23 +166,20 @@ where
             self.block_spec,
             txn,
             gas,
-        )
-        .await?;
+        )?;
 
-        let gas_used = txn.gas_limit() - self.refund_gas(txn, vm_res.gas_left as u64).await?;
+        let gas_used = txn.gas_limit() - self.refund_gas(txn, vm_res.gas_left as u64)?;
 
         // award the miner
         let priority_fee_per_gas = txn.priority_fee_per_gas(base_fee_per_gas);
-        self.state
-            .add_to_balance(
-                self.header.beneficiary,
-                U256::from(gas_used) * priority_fee_per_gas,
-            )
-            .await?;
+        self.state.add_to_balance(
+            self.header.beneficiary,
+            U256::from(gas_used) * priority_fee_per_gas,
+        )?;
 
-        self.state.destruct_selfdestructs().await?;
+        self.state.destruct_selfdestructs()?;
         if rev >= Revision::Spurious {
-            self.state.destruct_touched_dead().await?;
+            self.state.destruct_touched_dead()?;
         }
 
         self.state.finalize_transaction();
@@ -201,28 +195,26 @@ where
         })
     }
 
-    pub async fn execute_block_no_post_validation(&mut self) -> anyhow::Result<Vec<Receipt>> {
+    pub fn execute_block_no_post_validation(&mut self) -> anyhow::Result<Vec<Receipt>> {
         let mut receipts = Vec::with_capacity(self.block.transactions.len());
 
         for (&address, &balance) in &self.block_spec.balance_changes {
-            self.state.set_balance(address, balance).await?;
+            self.state.set_balance(address, balance)?;
         }
 
         for (i, txn) in self.block.transactions.iter().enumerate() {
             self.validate_transaction(txn)
-                .await
                 .with_context(|| format!("Failed to validate tx #{}", i))?;
-            receipts.push(self.execute_transaction(txn).await?);
+            receipts.push(self.execute_transaction(txn)?);
         }
 
-        for change in self
-            .engine
-            .finalize(self.header, &self.block.ommers, self.block_spec.revision)
-            .await?
+        for change in
+            self.engine
+                .finalize(self.header, &self.block.ommers, self.block_spec.revision)?
         {
             match change {
                 FinalizationChange::Reward { address, amount } => {
-                    self.state.add_to_balance(address, amount).await?;
+                    self.state.add_to_balance(address, amount)?;
                 }
             }
         }
@@ -230,8 +222,8 @@ where
         Ok(receipts)
     }
 
-    pub async fn execute_and_write_block(mut self) -> anyhow::Result<Vec<Receipt>> {
-        let receipts = self.execute_block_no_post_validation().await?;
+    pub fn execute_and_write_block(mut self) -> anyhow::Result<Vec<Receipt>> {
+        let receipts = self.execute_block_no_post_validation()?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
@@ -281,16 +273,12 @@ where
             .into());
         }
 
-        self.state.write_to_db(block_num).await?;
+        self.state.write_to_db(block_num)?;
 
         Ok(receipts)
     }
 
-    async fn refund_gas(
-        &mut self,
-        txn: &MessageWithSender,
-        mut gas_left: u64,
-    ) -> anyhow::Result<u64> {
+    fn refund_gas(&mut self, txn: &MessageWithSender, mut gas_left: u64) -> anyhow::Result<u64> {
         let mut refund = self.state.get_refund();
         if self.block_spec.revision < Revision::London {
             refund += fee::R_SELF_DESTRUCT * self.state.number_of_self_destructs() as u64;
@@ -307,8 +295,7 @@ where
         let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
         let effective_gas_price = txn.effective_gas_price(base_fee_per_gas);
         self.state
-            .add_to_balance(txn.sender, U256::from(gas_left) * effective_gas_price)
-            .await?;
+            .add_to_balance(txn.sender, U256::from(gas_left) * effective_gas_price)?;
 
         Ok(gas_left)
     }
@@ -317,383 +304,354 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        execution::address::create_address, res::chainspec::MAINNET, util::test_util::run_test,
-        InMemoryState,
-    };
+    use crate::{execution::address::create_address, res::chainspec::MAINNET, InMemoryState};
     use bytes::Bytes;
     use bytes_literal::bytes;
     use hex_literal::hex;
 
     #[test]
     fn zero_gas_price() {
-        run_test(async {
-            let header = PartialHeader {
-                number: 2_687_232.into(),
-                gas_limit: 3_303_221,
-                beneficiary: hex!("4bb96091ee9d802ed039c4d1a5f6216f90f81b01").into(),
-                ..PartialHeader::empty()
-            };
-            let block = Default::default();
+        let header = PartialHeader {
+            number: 2_687_232.into(),
+            gas_limit: 3_303_221,
+            beneficiary: hex!("4bb96091ee9d802ed039c4d1a5f6216f90f81b01").into(),
+            ..PartialHeader::empty()
+        };
+        let block = Default::default();
 
-            // The sender does not exist
-            let sender = hex!("004512399a230565b99be5c3b0030a56f3ace68c").into();
+        // The sender does not exist
+        let sender = hex!("004512399a230565b99be5c3b0030a56f3ace68c").into();
 
-            let txn = MessageWithSender {
-                message: Message::Legacy {
-                    chain_id: None,
-                    nonce: 0,
-                    gas_price: U256::ZERO,
-                    gas_limit: 764_017,
-                    action: TransactionAction::Create,
-                    value: U256::ZERO,
-                    input: hex!("606060").to_vec().into(),
-                },
-                sender,
-            };
+        let txn = MessageWithSender {
+            message: Message::Legacy {
+                chain_id: None,
+                nonce: 0,
+                gas_price: U256::ZERO,
+                gas_limit: 764_017,
+                action: TransactionAction::Create,
+                value: U256::ZERO,
+                input: hex!("606060").to_vec().into(),
+            },
+            sender,
+        };
 
-            let mut state = InMemoryState::default();
-            let mut analysis_cache = AnalysisCache::default();
-            let mut engine = engine_factory(MAINNET.clone()).unwrap();
-            let block_spec = MAINNET.collect_block_spec(header.number);
-            let mut processor = ExecutionProcessor::new(
-                &mut state,
-                None,
-                &mut analysis_cache,
-                &mut *engine,
-                &header,
-                &block,
-                &block_spec,
-            );
+        let mut state = InMemoryState::default();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block,
+            &block_spec,
+        );
 
-            let receipt = processor.execute_transaction(&txn).await.unwrap();
-            assert!(receipt.success);
-        })
+        let receipt = processor.execute_transaction(&txn).unwrap();
+        assert!(receipt.success);
     }
 
     #[test]
     fn eip3607_reject_transactions_from_senders_with_deployed_code() {
-        run_test(async {
-            let header = PartialHeader {
-                number: 1.into(),
-                gas_limit: 3_000_000,
-                ..PartialHeader::empty()
-            };
+        let header = PartialHeader {
+            number: 1.into(),
+            gas_limit: 3_000_000,
+            ..PartialHeader::empty()
+        };
 
-            let sender = hex!("71562b71999873DB5b286dF957af199Ec94617F7").into();
+        let sender = hex!("71562b71999873DB5b286dF957af199Ec94617F7").into();
 
-            let tx = MessageWithSender {
-                sender,
-                message: Message::Legacy {
-                    chain_id: None,
-                    nonce: 0,
-                    gas_price: 50.as_u256() * GIGA.as_u256(),
-                    gas_limit: 90_000,
-                    action: TransactionAction::Call(
-                        hex!("e5ef458d37212a06e3f59d40c454e76150ae7c32").into(),
-                    ),
-                    value: 1_027_501_080.as_u256() * GIGA.as_u256(),
-                    input: Bytes::new(),
-                },
-            };
+        let tx = MessageWithSender {
+            sender,
+            message: Message::Legacy {
+                chain_id: None,
+                nonce: 0,
+                gas_price: 50.as_u256() * GIGA.as_u256(),
+                gas_limit: 90_000,
+                action: TransactionAction::Call(
+                    hex!("e5ef458d37212a06e3f59d40c454e76150ae7c32").into(),
+                ),
+                value: 1_027_501_080.as_u256() * GIGA.as_u256(),
+                input: Bytes::new(),
+            },
+        };
 
-            let block = Default::default();
+        let block = Default::default();
 
-            let mut state = InMemoryState::default();
-            let mut analysis_cache = AnalysisCache::default();
-            let mut engine = engine_factory(MAINNET.clone()).unwrap();
-            let block_spec = MAINNET.collect_block_spec(header.number);
-            let mut processor = ExecutionProcessor::new(
-                &mut state,
-                None,
-                &mut analysis_cache,
-                &mut *engine,
-                &header,
-                &block,
-                &block_spec,
-            );
+        let mut state = InMemoryState::default();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block,
+            &block_spec,
+        );
 
-            processor
-                .state
-                .add_to_balance(sender, U256::from(10 * ETHER))
-                .await
-                .unwrap();
-            processor
-                .state
-                .set_code(sender, bytes!("B0B0FACE"))
-                .await
-                .unwrap();
+        processor
+            .state
+            .add_to_balance(sender, U256::from(10 * ETHER))
+            .unwrap();
+        processor
+            .state
+            .set_code(sender, bytes!("B0B0FACE"))
+            .unwrap();
 
-            processor.validate_transaction(&tx).await.unwrap_err();
-        })
+        processor.validate_transaction(&tx).unwrap_err();
     }
 
     #[test]
     fn no_refund_on_error() {
-        run_test(async {
-            let header = PartialHeader {
-                number: 10_050_107.into(),
-                gas_limit: 328_646,
-                beneficiary: hex!("5146556427ff689250ed1801a783d12138c3dd5e").into(),
-                ..PartialHeader::empty()
-            };
-            let block = Default::default();
-            let caller = hex!("834e9b529ac9fa63b39a06f8d8c9b0d6791fa5df").into();
-            let nonce = 3;
+        let header = PartialHeader {
+            number: 10_050_107.into(),
+            gas_limit: 328_646,
+            beneficiary: hex!("5146556427ff689250ed1801a783d12138c3dd5e").into(),
+            ..PartialHeader::empty()
+        };
+        let block = Default::default();
+        let caller = hex!("834e9b529ac9fa63b39a06f8d8c9b0d6791fa5df").into();
+        let nonce = 3;
 
-            // This contract initially sets its 0th storage to 0x2a.
-            // When called, it updates the 0th storage to the input provided.
-            let code = hex!("602a60005560098060106000396000f36000358060005531");
-            // https://github.com/CoinCulture/evm-tools
-            // 0      PUSH1  => 2a
-            // 2      PUSH1  => 00
-            // 4      SSTORE
-            // 5      PUSH1  => 09
-            // 7      DUP1
-            // 8      PUSH1  => 10
-            // 10     PUSH1  => 00
-            // 12     CODECOPY
-            // 13     PUSH1  => 00
-            // 15     RETURN
-            // ---------------------------
-            // 16     PUSH1  => 00
-            // 18     CALLDATALOAD
-            // 19     DUP1
-            // 20     PUSH1  => 00
-            // 22     SSTORE
-            // 23     BALANCE
+        // This contract initially sets its 0th storage to 0x2a.
+        // When called, it updates the 0th storage to the input provided.
+        let code = hex!("602a60005560098060106000396000f36000358060005531");
+        // https://github.com/CoinCulture/evm-tools
+        // 0      PUSH1  => 2a
+        // 2      PUSH1  => 00
+        // 4      SSTORE
+        // 5      PUSH1  => 09
+        // 7      DUP1
+        // 8      PUSH1  => 10
+        // 10     PUSH1  => 00
+        // 12     CODECOPY
+        // 13     PUSH1  => 00
+        // 15     RETURN
+        // ---------------------------
+        // 16     PUSH1  => 00
+        // 18     CALLDATALOAD
+        // 19     DUP1
+        // 20     PUSH1  => 00
+        // 22     SSTORE
+        // 23     BALANCE
 
-            let mut state = InMemoryState::default();
-            let mut analysis_cache = AnalysisCache::default();
-            let mut engine = engine_factory(MAINNET.clone()).unwrap();
-            let block_spec = MAINNET.collect_block_spec(header.number);
-            let mut processor = ExecutionProcessor::new(
-                &mut state,
-                None,
-                &mut analysis_cache,
-                &mut *engine,
-                &header,
-                &block,
-                &block_spec,
-            );
+        let mut state = InMemoryState::default();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block,
+            &block_spec,
+        );
 
-            let t = |action, input, nonce, gas_limit| MessageWithSender {
-                message: Message::EIP1559 {
-                    chain_id: MAINNET.params.chain_id,
-                    nonce,
-                    max_priority_fee_per_gas: U256::ZERO,
-                    max_fee_per_gas: U256::from(59 * GIGA),
-                    gas_limit,
-                    action,
-                    value: U256::ZERO,
-                    input,
-                    access_list: Default::default(),
-                },
-                sender: caller,
-            };
-
-            let txn = (t)(
-                TransactionAction::Create,
-                code.to_vec().into(),
+        let t = |action, input, nonce, gas_limit| MessageWithSender {
+            message: Message::EIP1559 {
+                chain_id: MAINNET.params.chain_id,
                 nonce,
-                103_858,
-            );
+                max_priority_fee_per_gas: U256::ZERO,
+                max_fee_per_gas: U256::from(59 * GIGA),
+                gas_limit,
+                action,
+                value: U256::ZERO,
+                input,
+                access_list: Default::default(),
+            },
+            sender: caller,
+        };
 
-            processor
-                .state()
-                .add_to_balance(caller, ETHER)
-                .await
-                .unwrap();
-            processor.state().set_nonce(caller, nonce).await.unwrap();
+        let txn = (t)(
+            TransactionAction::Create,
+            code.to_vec().into(),
+            nonce,
+            103_858,
+        );
 
-            let receipt1 = processor.execute_transaction(&txn).await.unwrap();
-            assert!(receipt1.success);
+        processor.state().add_to_balance(caller, ETHER).unwrap();
+        processor.state().set_nonce(caller, nonce).unwrap();
 
-            // Call the newly created contract
-            // It should run SSTORE(0,0) with a potential refund
-            // But then there's not enough gas for the BALANCE operation
-            let txn = (t)(
-                TransactionAction::Call(create_address(caller, nonce)),
-                vec![].into(),
-                nonce + 1,
-                fee::G_TRANSACTION + 5_020,
-            );
+        let receipt1 = processor.execute_transaction(&txn).unwrap();
+        assert!(receipt1.success);
 
-            let receipt2 = processor.execute_transaction(&txn).await.unwrap();
-            assert!(!receipt2.success);
-            assert_eq!(
-                receipt2.cumulative_gas_used - receipt1.cumulative_gas_used,
-                txn.gas_limit()
-            );
-        })
+        // Call the newly created contract
+        // It should run SSTORE(0,0) with a potential refund
+        // But then there's not enough gas for the BALANCE operation
+        let txn = (t)(
+            TransactionAction::Call(create_address(caller, nonce)),
+            vec![].into(),
+            nonce + 1,
+            fee::G_TRANSACTION + 5_020,
+        );
+
+        let receipt2 = processor.execute_transaction(&txn).unwrap();
+        assert!(!receipt2.success);
+        assert_eq!(
+            receipt2.cumulative_gas_used - receipt1.cumulative_gas_used,
+            txn.gas_limit()
+        );
     }
 
     #[test]
     fn selfdestruct() {
-        run_test(async {
-            let header = PartialHeader {
-                number: 1_487_375.into(),
-                gas_limit: 4_712_388,
-                beneficiary: hex!("61c808d82a3ac53231750dadc13c777b59310bd9").into(),
-                ..PartialHeader::empty()
-            };
-            let block = Default::default();
-            let suicidal_address = hex!("6d20c1c07e56b7098eb8c50ee03ba0f6f498a91d").into();
-            let caller_address = hex!("4bf2054ffae7a454a35fd8cf4be21b23b1f25a6f").into();
-            let originator = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
+        let header = PartialHeader {
+            number: 1_487_375.into(),
+            gas_limit: 4_712_388,
+            beneficiary: hex!("61c808d82a3ac53231750dadc13c777b59310bd9").into(),
+            ..PartialHeader::empty()
+        };
+        let block = Default::default();
+        let suicidal_address = hex!("6d20c1c07e56b7098eb8c50ee03ba0f6f498a91d").into();
+        let caller_address = hex!("4bf2054ffae7a454a35fd8cf4be21b23b1f25a6f").into();
+        let originator = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
 
-            // The contract self-destructs if called with zero value.
-            let suicidal_code = hex!("346007576000ff5b");
-            // https://github.com/CoinCulture/evm-tools
-            // 0      CALLVALUE
-            // 1      PUSH1  => 07
-            // 3      JUMPI
-            // 4      PUSH1  => 00
-            // 6      SUICIDE
-            // 7      JUMPDEST
+        // The contract self-destructs if called with zero value.
+        let suicidal_code = hex!("346007576000ff5b");
+        // https://github.com/CoinCulture/evm-tools
+        // 0      CALLVALUE
+        // 1      PUSH1  => 07
+        // 3      JUMPI
+        // 4      PUSH1  => 00
+        // 6      SUICIDE
+        // 7      JUMPDEST
 
-            // The caller calls the input contract three times:
-            // twice with zero value and once with non-zero value.
-            let caller_code = hex!(
-                "600080808080803561eeeef150600080808080803561eeeef15060008080806005813561eeeef1"
-            );
-            // https://github.com/CoinCulture/evm-tools
-            // 0      PUSH1  => 00
-            // 2      DUP1
-            // 3      DUP1
-            // 4      DUP1
-            // 5      DUP1
-            // 6      DUP1
-            // 7      CALLDATALOAD
-            // 8      PUSH2  => eeee
-            // 11     CALL
-            // 12     POP
-            // 13     PUSH1  => 00
-            // 15     DUP1
-            // 16     DUP1
-            // 17     DUP1
-            // 18     DUP1
-            // 19     DUP1
-            // 20     CALLDATALOAD
-            // 21     PUSH2  => eeee
-            // 24     CALL
-            // 25     POP
-            // 26     PUSH1  => 00
-            // 28     DUP1
-            // 29     DUP1
-            // 30     DUP1
-            // 31     PUSH1  => 05
-            // 33     DUP2
-            // 34     CALLDATALOAD
-            // 35     PUSH2  => eeee
-            // 38     CALL
+        // The caller calls the input contract three times:
+        // twice with zero value and once with non-zero value.
+        let caller_code =
+            hex!("600080808080803561eeeef150600080808080803561eeeef15060008080806005813561eeeef1");
+        // https://github.com/CoinCulture/evm-tools
+        // 0      PUSH1  => 00
+        // 2      DUP1
+        // 3      DUP1
+        // 4      DUP1
+        // 5      DUP1
+        // 6      DUP1
+        // 7      CALLDATALOAD
+        // 8      PUSH2  => eeee
+        // 11     CALL
+        // 12     POP
+        // 13     PUSH1  => 00
+        // 15     DUP1
+        // 16     DUP1
+        // 17     DUP1
+        // 18     DUP1
+        // 19     DUP1
+        // 20     CALLDATALOAD
+        // 21     PUSH2  => eeee
+        // 24     CALL
+        // 25     POP
+        // 26     PUSH1  => 00
+        // 28     DUP1
+        // 29     DUP1
+        // 30     DUP1
+        // 31     PUSH1  => 05
+        // 33     DUP2
+        // 34     CALLDATALOAD
+        // 35     PUSH2  => eeee
+        // 38     CALL
 
-            let mut state = InMemoryState::default();
-            let mut analysis_cache = AnalysisCache::default();
-            let mut engine = engine_factory(MAINNET.clone()).unwrap();
-            let block_spec = MAINNET.collect_block_spec(header.number);
-            let mut processor = ExecutionProcessor::new(
-                &mut state,
-                None,
-                &mut analysis_cache,
-                &mut *engine,
-                &header,
-                &block,
-                &block_spec,
-            );
+        let mut state = InMemoryState::default();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block,
+            &block_spec,
+        );
 
-            processor
-                .state()
-                .add_to_balance(originator, ETHER)
-                .await
-                .unwrap();
-            processor
-                .state()
-                .set_code(caller_address, caller_code.to_vec().into())
-                .await
-                .unwrap();
-            processor
-                .state()
-                .set_code(suicidal_address, suicidal_code.to_vec().into())
-                .await
-                .unwrap();
+        processor.state().add_to_balance(originator, ETHER).unwrap();
+        processor
+            .state()
+            .set_code(caller_address, caller_code.to_vec().into())
+            .unwrap();
+        processor
+            .state()
+            .set_code(suicidal_address, suicidal_code.to_vec().into())
+            .unwrap();
 
-            let t = |action, input, nonce| MessageWithSender {
-                message: Message::EIP1559 {
-                    chain_id: MAINNET.params.chain_id,
-                    nonce,
-                    max_priority_fee_per_gas: U256::from(20 * GIGA),
-                    max_fee_per_gas: U256::from(20 * GIGA),
-                    gas_limit: 100_000,
-                    action,
-                    value: U256::ZERO,
-                    input,
-                    access_list: Default::default(),
-                },
-                sender: originator,
-            };
+        let t = |action, input, nonce| MessageWithSender {
+            message: Message::EIP1559 {
+                chain_id: MAINNET.params.chain_id,
+                nonce,
+                max_priority_fee_per_gas: U256::from(20 * GIGA),
+                max_fee_per_gas: U256::from(20 * GIGA),
+                gas_limit: 100_000,
+                action,
+                value: U256::ZERO,
+                input,
+                access_list: Default::default(),
+            },
+            sender: originator,
+        };
 
-            let txn = (t)(
-                TransactionAction::Call(caller_address),
-                H256::from(suicidal_address).0.to_vec().into(),
-                0,
-            );
+        let txn = (t)(
+            TransactionAction::Call(caller_address),
+            H256::from(suicidal_address).0.to_vec().into(),
+            0,
+        );
 
-            let receipt1 = processor.execute_transaction(&txn).await.unwrap();
-            assert!(receipt1.success);
+        let receipt1 = processor.execute_transaction(&txn).unwrap();
+        assert!(receipt1.success);
 
-            assert!(!processor.state().exists(suicidal_address).await.unwrap());
+        assert!(!processor.state().exists(suicidal_address).unwrap());
 
-            // Now the contract is self-destructed, this is a simple value transfer
-            let txn = (t)(TransactionAction::Call(suicidal_address), vec![].into(), 1);
+        // Now the contract is self-destructed, this is a simple value transfer
+        let txn = (t)(TransactionAction::Call(suicidal_address), vec![].into(), 1);
 
-            let receipt2 = processor.execute_transaction(&txn).await.unwrap();
-            assert!(receipt2.success);
+        let receipt2 = processor.execute_transaction(&txn).unwrap();
+        assert!(receipt2.success);
 
-            assert!(processor.state().exists(suicidal_address).await.unwrap());
-            assert_eq!(
-                processor
-                    .state()
-                    .get_balance(suicidal_address)
-                    .await
-                    .unwrap(),
-                U256::ZERO
-            );
+        assert!(processor.state().exists(suicidal_address).unwrap());
+        assert_eq!(
+            processor.state().get_balance(suicidal_address).unwrap(),
+            U256::ZERO
+        );
 
-            assert_eq!(
-                receipt2.cumulative_gas_used,
-                receipt1.cumulative_gas_used + fee::G_TRANSACTION,
-            );
-        })
+        assert_eq!(
+            receipt2.cumulative_gas_used,
+            receipt1.cumulative_gas_used + fee::G_TRANSACTION,
+        );
     }
 
     #[test]
     fn out_of_gas_during_account_recreation() {
-        run_test(async {
-            let block_number = 2_081_788.into();
-            let header = PartialHeader {
-                number: block_number,
-                gas_limit: 4_712_388,
-                beneficiary: hex!("a42af2c70d316684e57aefcc6e393fecb1c7e84e").into(),
-                ..PartialHeader::empty()
-            };
-            let block = Default::default();
-            let caller = hex!("c789e5aba05051b1468ac980e30068e19fad8587").into();
+        let block_number = 2_081_788.into();
+        let header = PartialHeader {
+            number: block_number,
+            gas_limit: 4_712_388,
+            beneficiary: hex!("a42af2c70d316684e57aefcc6e393fecb1c7e84e").into(),
+            ..PartialHeader::empty()
+        };
+        let block = Default::default();
+        let caller = hex!("c789e5aba05051b1468ac980e30068e19fad8587").into();
 
-            let nonce = 0;
-            let address = create_address(caller, nonce);
+        let nonce = 0;
+        let address = create_address(caller, nonce);
 
-            let mut state = InMemoryState::default();
+        let mut state = InMemoryState::default();
 
-            // Some funds were previously transferred to the address:
-            // https://etherscan.io/address/0x78c65b078353a8c4ce58fb4b5acaac6042d591d5
-            let account = Account {
-                balance: U256::from(66_252_368 * GIGA),
-                ..Default::default()
-            };
-            state.update_account(address, None, Some(account));
+        // Some funds were previously transferred to the address:
+        // https://etherscan.io/address/0x78c65b078353a8c4ce58fb4b5acaac6042d591d5
+        let account = Account {
+            balance: U256::from(66_252_368 * GIGA),
+            ..Default::default()
+        };
+        state.update_account(address, None, Some(account));
 
-            let txn = MessageWithSender{
+        let txn = MessageWithSender{
                 message: Message::EIP1559 {
                     chain_id: MAINNET.params.chain_id,
                     nonce,
@@ -710,54 +668,44 @@ mod tests {
                 sender: caller,
             };
 
-            let mut analysis_cache = AnalysisCache::default();
-            let mut engine = engine_factory(MAINNET.clone()).unwrap();
-            let block_spec = MAINNET.collect_block_spec(header.number);
-            let mut processor = ExecutionProcessor::new(
-                &mut state,
-                None,
-                &mut analysis_cache,
-                &mut *engine,
-                &header,
-                &block,
-                &block_spec,
-            );
-            processor
-                .state()
-                .add_to_balance(caller, ETHER)
-                .await
-                .unwrap();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block,
+            &block_spec,
+        );
+        processor.state().add_to_balance(caller, ETHER).unwrap();
 
-            let receipt = processor.execute_transaction(&txn).await.unwrap();
-            // out of gas
-            assert!(!receipt.success);
+        let receipt = processor.execute_transaction(&txn).unwrap();
+        // out of gas
+        assert!(!receipt.success);
 
-            processor
-                .into_state()
-                .write_to_db(block_number)
-                .await
-                .unwrap();
+        processor.into_state().write_to_db(block_number).unwrap();
 
-            // only the caller and the miner should change
-            assert_eq!(state.read_account(address).await.unwrap(), Some(account));
-        })
+        // only the caller and the miner should change
+        assert_eq!(state.read_account(address).unwrap(), Some(account));
     }
 
     #[test]
     fn empty_suicide_beneficiary() {
-        run_test(async {
-            let block_number = 2_687_389.into();
-            let header = PartialHeader {
-                number: block_number,
-                gas_limit: 4_712_388,
-                beneficiary: hex!("2a65aca4d5fc5b5c859090a6c34d164135398226").into(),
-                ..PartialHeader::empty()
-            };
-            let block = Default::default();
-            let caller = hex!("5ed8cee6b63b1c6afce3ad7c92f4fd7e1b8fad9f").into();
-            let suicide_beneficiary = hex!("ee098e6c2a43d9e2c04f08f0c3a87b0ba59079d5").into();
+        let block_number = 2_687_389.into();
+        let header = PartialHeader {
+            number: block_number,
+            gas_limit: 4_712_388,
+            beneficiary: hex!("2a65aca4d5fc5b5c859090a6c34d164135398226").into(),
+            ..PartialHeader::empty()
+        };
+        let block = Default::default();
+        let caller = hex!("5ed8cee6b63b1c6afce3ad7c92f4fd7e1b8fad9f").into();
+        let suicide_beneficiary = hex!("ee098e6c2a43d9e2c04f08f0c3a87b0ba59079d5").into();
 
-            let txn = MessageWithSender {
+        let txn = MessageWithSender {
                 message: Message::EIP1559 {
                     chain_id: MAINNET.params.chain_id,
                     nonce: 0,
@@ -774,37 +722,28 @@ mod tests {
                 sender: caller,
             };
 
-            let mut state = InMemoryState::default();
-            let mut analysis_cache = AnalysisCache::default();
-            let mut engine = engine_factory(MAINNET.clone()).unwrap();
-            let block_spec = MAINNET.collect_block_spec(header.number);
-            let mut processor = ExecutionProcessor::new(
-                &mut state,
-                None,
-                &mut analysis_cache,
-                &mut *engine,
-                &header,
-                &block,
-                &block_spec,
-            );
+        let mut state = InMemoryState::default();
+        let mut analysis_cache = AnalysisCache::default();
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+        let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut processor = ExecutionProcessor::new(
+            &mut state,
+            None,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block,
+            &block_spec,
+        );
 
-            processor
-                .state()
-                .add_to_balance(caller, ETHER)
-                .await
-                .unwrap();
+        processor.state().add_to_balance(caller, ETHER).unwrap();
 
-            let receipt = processor.execute_transaction(&txn).await.unwrap();
-            assert!(receipt.success);
+        let receipt = processor.execute_transaction(&txn).unwrap();
+        assert!(receipt.success);
 
-            processor
-                .into_state()
-                .write_to_db(block_number)
-                .await
-                .unwrap();
+        processor.into_state().write_to_db(block_number).unwrap();
 
-            // suicide_beneficiary should've been touched and deleted
-            assert_eq!(state.read_account(suicide_beneficiary).await.unwrap(), None);
-        })
+        // suicide_beneficiary should've been touched and deleted
+        assert_eq!(state.read_account(suicide_beneficiary).unwrap(), None);
     }
 }

@@ -2,7 +2,6 @@ use self::difficulty::BlockDifficultyBombData;
 use super::{base::ConsensusEngineBase, *};
 use crate::{chain::protocol_param::param, h256_to_u256};
 use ::ethash::LightDAG;
-use async_trait::async_trait;
 use std::collections::BTreeMap;
 
 pub mod difficulty;
@@ -42,13 +41,12 @@ impl Ethash {
     }
 }
 
-#[async_trait]
 impl Consensus for Ethash {
-    async fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()> {
-        self.base.pre_validate_block(block, state).await
+    fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()> {
+        self.base.pre_validate_block(block, state)
     }
 
-    async fn validate_block_header(
+    fn validate_block_header(
         &self,
         header: &BlockHeader,
         state: &mut dyn State,
@@ -56,13 +54,11 @@ impl Consensus for Ethash {
     ) -> anyhow::Result<()> {
         let parent = self
             .base
-            .get_parent_header(state, header)
-            .await?
+            .get_parent_header(state, header)?
             .ok_or(ValidationError::UnknownParent)?;
 
         self.base
-            .validate_block_header(header, &parent, with_future_timestamp_check)
-            .await?;
+            .validate_block_header(header, &parent, with_future_timestamp_check)?;
 
         let parent_has_uncles = parent.ommers_hash != EMPTY_LIST_HASH;
         let difficulty = difficulty::canonical_difficulty(
@@ -85,7 +81,7 @@ impl Consensus for Ethash {
 
         Ok(())
     }
-    async fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()> {
+    fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()> {
         if !self.skip_pow_verification {
             type Dag = LightDAG;
             let light_dag = Dag::new(header.number.0.into());
@@ -101,7 +97,7 @@ impl Consensus for Ethash {
         }
         Ok(())
     }
-    async fn finalize(
+    fn finalize(
         &self,
         header: &PartialHeader,
         ommers: &[BlockHeader],
@@ -138,7 +134,7 @@ impl Consensus for Ethash {
         Ok(changes)
     }
 
-    async fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address> {
+    fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address> {
         Ok(header.beneficiary)
     }
 }

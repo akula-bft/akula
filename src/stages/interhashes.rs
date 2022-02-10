@@ -1,6 +1,5 @@
 use crate::{
-    accessors,
-    kv::{tables, traits::MutableTransaction},
+    kv::{mdbx::*, tables},
     models::*,
     stagedsync::{
         stage::{ExecOutput, Stage, StageInput, UnwindInput, UnwindOutput},
@@ -33,9 +32,9 @@ impl Interhashes {
 }
 
 #[async_trait]
-impl<'db, RwTx> Stage<'db, RwTx> for Interhashes
+impl<'db, E> Stage<'db, E> for Interhashes
 where
-    RwTx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
     fn id(&self) -> StageId {
         INTERMEDIATE_HASHES
@@ -43,7 +42,7 @@ where
 
     async fn execute<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
     ) -> anyhow::Result<ExecOutput>
     where
@@ -57,16 +56,18 @@ where
         let past_progress = input.stage_progress.unwrap_or(genesis);
 
         if max_block > past_progress {
-            let block_state_root = accessors::chain::header::read(
-                tx,
-                accessors::chain::canonical_hash::read(tx, max_block)
-                    .await?
-                    .ok_or_else(|| format_err!("No canonical hash for block {}", max_block))?,
-                max_block,
-            )
-            .await?
-            .ok_or_else(|| format_err!("No header for block {}", max_block))?
-            .state_root;
+            let block_state_root = tx
+                .get(
+                    tables::Header,
+                    (
+                        max_block,
+                        tx.get(tables::CanonicalHeader, max_block)?.ok_or_else(|| {
+                            format_err!("No canonical hash for block {}", max_block)
+                        })?,
+                    ),
+                )?
+                .ok_or_else(|| format_err!("No header for block {}", max_block))?
+                .state_root;
 
             let trie_root = if should_do_clean_promotion(
                 tx,
@@ -74,12 +75,9 @@ where
                 past_progress,
                 max_block,
                 self.clean_promotion_threshold,
-            )
-            .await?
-            {
+            )? {
                 debug!("Regenerating intermediate hashes");
                 regenerate_intermediate_hashes(tx, self.temp_dir.as_ref(), Some(block_state_root))
-                    .await
                     .with_context(|| "Failed to generate interhashes")?
             } else {
                 debug!("Incrementing intermediate hashes");
@@ -89,7 +87,6 @@ where
                     past_progress,
                     Some(block_state_root),
                 )
-                .await
                 .with_context(|| "Failed to update interhashes")?
             };
 
@@ -104,7 +101,7 @@ where
 
     async fn unwind<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
     where
@@ -112,8 +109,8 @@ where
     {
         let _ = input;
         // TODO: proper unwind
-        tx.clear_table(tables::TrieAccount).await?;
-        tx.clear_table(tables::TrieStorage).await?;
+        tx.clear_table(tables::TrieAccount)?;
+        tx.clear_table(tables::TrieStorage)?;
 
         Ok(UnwindOutput {
             stage_progress: BlockNumber(0),

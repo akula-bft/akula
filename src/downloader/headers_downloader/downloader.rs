@@ -4,7 +4,7 @@ use super::{
     ui::ui_system::UISystemShared, verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{
-    kv,
+    kv::mdbx::*,
     models::*,
     sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
@@ -98,9 +98,9 @@ impl Downloader {
         Ok(instance)
     }
 
-    pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
+    pub async fn run<'downloader, 'db: 'downloader, E: EnvironmentKind>(
         &'downloader self,
-        db_transaction: &'downloader RwTx,
+        db_transaction: &'downloader MdbxTransaction<'db, RW, E>,
         start_block_num: BlockNumber,
         max_blocks_count: usize,
         previous_run_state: Option<DownloaderRunState>,
@@ -110,7 +110,7 @@ impl Downloader {
 
         let preverified_report = self
             .downloader_preverified
-            .run::<RwTx>(
+            .run(
                 db_transaction,
                 start_block_num,
                 max_blocks_count,
@@ -128,7 +128,7 @@ impl Downloader {
 
         let linear_report = self
             .downloader_linear
-            .run::<RwTx>(
+            .run(
                 db_transaction,
                 preverified_report.final_block_num,
                 max_blocks_count,
@@ -140,7 +140,7 @@ impl Downloader {
 
         let forky_report = self
             .downloader_forky
-            .run::<RwTx>(
+            .run(
                 db_transaction,
                 linear_report.final_block_num,
                 max_blocks_count,
@@ -172,30 +172,22 @@ impl Downloader {
         Ok(report)
     }
 
-    pub async fn unwind<
-        'downloader,
-        'db: 'downloader,
-        RwTx: kv::traits::MutableTransaction<'db>,
-    >(
+    pub fn unwind<'downloader, 'db: 'downloader, E: EnvironmentKind>(
         &'downloader self,
-        db_transaction: &'downloader RwTx,
+        db_transaction: &'downloader MdbxTransaction<'db, RW, E>,
         unwind_to_block_num: BlockNumber,
     ) -> anyhow::Result<()> {
-        super::stages::SaveStage::unwind(unwind_to_block_num, db_transaction).await
+        super::stages::SaveStage::unwind(unwind_to_block_num, db_transaction)
     }
 
-    pub async fn unwind_finalize<
-        'downloader,
-        'db: 'downloader,
-        RwTx: kv::traits::MutableTransaction<'db>,
-    >(
+    pub fn unwind_finalize<'downloader, 'db: 'downloader, E: EnvironmentKind>(
         &'downloader self,
-        db_transaction: &'downloader RwTx,
+        db_transaction: &'downloader MdbxTransaction<'db, RW, E>,
         unwind_request: DownloaderUnwindRequest,
     ) -> anyhow::Result<()> {
         let Some(finalize) = unwind_request.finalize.lock().take() else {
             anyhow::bail!("unwind_finalize: finalize command expected in unwind_request");
         };
-        finalize.execute(db_transaction).await
+        finalize.execute(db_transaction)
     }
 }

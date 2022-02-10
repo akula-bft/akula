@@ -40,6 +40,7 @@ ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", fea
 ] }
 futures-core = "0.3"
 futures-util = "0.3"
+gen-iter = "0.2"
 getset = "0.1"
 hash-db = "0.15"
 hash256-std-hasher = "0.15"

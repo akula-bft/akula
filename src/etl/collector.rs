@@ -1,5 +1,5 @@
 use super::data_provider::*;
-use crate::kv::{tables::ErasedTable, traits::*};
+use crate::kv::{mdbx::*, tables::ErasedTable, traits::*};
 use derive_more::*;
 use std::{
     cmp::Reverse,
@@ -170,14 +170,14 @@ where
     }
 
     #[allow(clippy::type_complexity)]
-    pub async fn load<'tx, C>(&mut self, cursor: &mut C) -> anyhow::Result<()>
-    where
-        C: MutableCursor<'tx, ErasedTable<T>>,
-    {
+    pub fn load<'tx>(
+        &mut self,
+        cursor: &mut MdbxCursor<'tx, RW, ErasedTable<T>>,
+    ) -> anyhow::Result<()> {
         for res in self.iter() {
             let (k, v) = res?;
 
-            cursor.put(k, v).await?;
+            cursor.put(k, v)?;
         }
 
         Ok(())
@@ -192,14 +192,14 @@ mod tests {
         models::BlockNumber,
     };
 
-    #[tokio::test]
-    async fn collect_all_at_once() {
+    #[test]
+    fn collect_all_at_once() {
         // generate random entries
         let mut entries: Vec<(_, _)> = (0..10000)
             .map(|_| (rand::random(), BlockNumber(rand::random())))
             .collect();
         let db = new_mem_database().unwrap();
-        let tx = db.begin_mutable().await.unwrap();
+        let tx = db.begin_mutable().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let mut collector = TableCollector::new(&temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
@@ -207,31 +207,28 @@ mod tests {
             collector.push(key, value);
         }
         // Any cursor is fine
-        let mut cursor = tx
-            .mutable_cursor(tables::HeaderNumber.erased())
-            .await
-            .unwrap();
-        collector.load(&mut cursor).await.unwrap();
+        let mut cursor = tx.cursor(tables::HeaderNumber.erased()).unwrap();
+        collector.load(&mut cursor).unwrap();
 
         // We sort the entries and compare them to what is in db
         entries.sort_unstable();
 
         for (key, value) in entries {
-            if let Some(expected_value) = tx.get(tables::HeaderNumber, key).await.unwrap() {
+            if let Some(expected_value) = tx.get(tables::HeaderNumber, key).unwrap() {
                 assert_eq!(value, expected_value);
             }
         }
     }
 
-    #[tokio::test]
-    async fn collect_chunks() {
+    #[test]
+    fn collect_chunks() {
         fdlimit::raise_fd_limit();
         // generate random entries
         let mut entries: Vec<(_, _)> = (0..10000)
             .map(|_| (rand::random(), BlockNumber(rand::random())))
             .collect();
         let db = new_mem_database().unwrap();
-        let tx = db.begin_mutable().await.unwrap();
+        let tx = db.begin_mutable().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let mut collector = TableCollector::new(&temp_dir, 1000);
 
@@ -239,17 +236,14 @@ mod tests {
             collector.push(key, value);
         }
         // Any cursor is fine
-        let mut cursor = tx
-            .mutable_cursor(tables::HeaderNumber.erased())
-            .await
-            .unwrap();
-        collector.load(&mut cursor).await.unwrap();
+        let mut cursor = tx.cursor(tables::HeaderNumber.erased()).unwrap();
+        collector.load(&mut cursor).unwrap();
 
         // We sort the entries and compare them to what is in db
         entries.sort_unstable();
 
         for (key, value) in entries {
-            if let Some(expected_value) = tx.get(tables::HeaderNumber, key).await.unwrap() {
+            if let Some(expected_value) = tx.get(tables::HeaderNumber, key).unwrap() {
                 assert_eq!(value, expected_value);
             }
         }

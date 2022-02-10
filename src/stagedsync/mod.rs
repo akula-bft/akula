@@ -2,7 +2,7 @@ pub mod stage;
 pub mod stages;
 
 use self::stage::{Stage, StageInput, UnwindInput};
-use crate::{kv::traits::*, models::BlockNumber, stagedsync::stage::*};
+use crate::{kv::mdbx::*, models::*, stagedsync::stage::*};
 use std::time::{Duration, Instant};
 use tracing::*;
 
@@ -18,21 +18,30 @@ use tracing::*;
 /// That means, that in the ideal scenario (no network interruptions, the app isn't restarted, etc), for the full initial sync, each stage will be executed exactly once.
 /// After the last stage is finished, the process starts from the beginning, by looking for the new headers to download.
 /// If the app is restarted in between stages, it restarts from the first stage. Absent new blocks, already completed stages are skipped.
-pub struct StagedSync<'db, DB: MutableKV> {
-    stages: Vec<Box<dyn Stage<'db, DB::MutableTx<'db>>>>,
+pub struct StagedSync<'db, E>
+where
+    E: EnvironmentKind,
+{
+    stages: Vec<Box<dyn Stage<'db, E>>>,
     min_progress_to_commit_after_stage: u64,
     max_block: Option<BlockNumber>,
     exit_after_sync: bool,
     delay_after_sync: Option<Duration>,
 }
 
-impl<'db, DB: MutableKV> Default for StagedSync<'db, DB> {
+impl<'db, E> Default for StagedSync<'db, E>
+where
+    E: EnvironmentKind,
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'db, DB: MutableKV> StagedSync<'db, DB> {
+impl<'db, E> StagedSync<'db, E>
+where
+    E: EnvironmentKind,
+{
     pub fn new() -> Self {
         Self {
             stages: Vec::new(),
@@ -45,7 +54,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
     pub fn push<S>(&mut self, stage: S)
     where
-        S: Stage<'db, DB::MutableTx<'db>> + 'static,
+        S: Stage<'db, E> + 'static,
     {
         self.stages.push(Box::new(stage))
     }
@@ -74,12 +83,12 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
     /// Invokes each loaded stage, and does unwinds if necessary.
     ///
     /// NOTE: it should never return, except if the loop or any stage fails with error.
-    pub async fn run(&mut self, db: &'db DB) -> anyhow::Result<()> {
+    pub async fn run(&mut self, db: &'db MdbxEnvironment<E>) -> anyhow::Result<()> {
         let num_stages = self.stages.len();
 
         let mut unwind_to = None;
         'run_loop: loop {
-            let mut tx = db.begin_mutable().await?;
+            let mut tx = db.begin_mutable()?;
 
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
@@ -90,8 +99,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     // Unwind magic happens here.
                     // Encapsulated into a future for tracing instrumentation.
                     let res: anyhow::Result<()> = async {
-                        let mut stage_progress =
-                            stage_id.get_progress(&tx).await?.unwrap_or_default();
+                        let mut stage_progress = stage_id.get_progress(&tx)?.unwrap_or_default();
 
                         if stage_progress > to {
                             info!("UNWINDING from {}", stage_progress);
@@ -109,7 +117,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                                 stage_progress = unwind_output.stage_progress;
 
-                                stage_id.save_progress(&tx, stage_progress).await?;
+                                stage_id.save_progress(&tx, stage_progress)?;
                             }
 
                             info!("DONE @ {}", stage_progress);
@@ -136,7 +144,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     res?;
                 }
 
-                tx.commit().await?;
+                tx.commit()?;
             } else {
                 // Now that we're done with unwind, let's roll.
 
@@ -152,11 +160,11 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                     let stage_id = stage.id();
 
                     let start_time = Instant::now();
-                    let start_progress = stage_id.get_progress(&tx).await?;
+                    let start_progress = stage_id.get_progress(&tx)?;
 
                     // Re-invoke the stage until it reports `StageOutput::done`.
                     let done_progress = loop {
-                        let prev_progress = stage_id.get_progress(&tx).await?;
+                        let prev_progress = stage_id.get_progress(&tx)?;
 
                         let stage_id = stage.id();
 
@@ -245,7 +253,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                 stage_progress,
                                 done,
                             } => {
-                                stage_id.save_progress(&tx, stage_progress).await?;
+                                stage_id.save_progress(&tx, stage_progress)?;
 
                                 if let Some(m) = &mut minimum_progress {
                                     *m = std::cmp::min(*m, stage_progress);
@@ -260,9 +268,9 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
                                 {
                                     // Commit and restart transaction.
                                     debug!("Commit requested");
-                                    tx.commit().await?;
+                                    tx.commit()?;
                                     debug!("Commit complete");
-                                    tx = db.begin_mutable().await?;
+                                    tx = db.begin_mutable()?;
                                 }
 
                                 // Stage is "done", that is cannot make any more progress at this time.
@@ -286,7 +294,7 @@ impl<'db, DB: MutableKV> StagedSync<'db, DB> {
 
                     previous_stage = Some((stage_id, done_progress))
                 }
-                tx.commit().await?;
+                tx.commit()?;
 
                 let t = timings
                     .into_iter()

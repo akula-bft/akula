@@ -1,7 +1,7 @@
 use crate::{
     crypto::keccak256,
     etl::collector::*,
-    kv::{tables, traits::*},
+    kv::{mdbx::*, tables},
     models::*,
     stagedsync::{stage::*, stages::*},
     stages::stage_util::should_do_clean_promotion,
@@ -12,24 +12,26 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::pin;
-use tokio_stream::StreamExt;
 use tracing::*;
 
-pub async fn promote_clean_accounts<'db, Tx>(txn: &Tx, temp_dir: &TempDir) -> anyhow::Result<()>
+pub fn promote_clean_accounts<'db, E>(
+    txn: &MdbxTransaction<'db, RW, E>,
+    temp_dir: &TempDir,
+) -> anyhow::Result<()>
 where
-    Tx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
-    txn.clear_table(tables::HashedAccount).await?;
+    txn.clear_table(tables::HashedAccount)?;
 
     let mut collector_account =
         TableCollector::<tables::HashedAccount>::new(temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
-    let mut src = txn.cursor(tables::Account).await?;
-    src.first().await?;
+    let mut src = txn.cursor(tables::Account)?;
+    src.first()?;
     let mut i = 0;
-    let walker = walk(&mut src, None);
+    let walker = src.walk(None);
     pin!(walker);
-    while let Some((address, account)) = walker.try_next().await? {
+    while let Some((address, account)) = walker.next().transpose()? {
         collector_account.push(keccak256(address), account);
 
         i += 1;
@@ -39,27 +41,30 @@ where
     }
 
     debug!("Loading hashed entries");
-    let mut dst = txn.mutable_cursor(tables::HashedAccount.erased()).await?;
-    collector_account.load(&mut dst).await?;
+    let mut dst = txn.cursor(tables::HashedAccount.erased())?;
+    collector_account.load(&mut dst)?;
 
     Ok(())
 }
 
-pub async fn promote_clean_storage<'db, Tx>(txn: &Tx, path: &TempDir) -> anyhow::Result<()>
+pub fn promote_clean_storage<'db, E>(
+    txn: &MdbxTransaction<'db, RW, E>,
+    path: &TempDir,
+) -> anyhow::Result<()>
 where
-    Tx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
-    txn.clear_table(tables::HashedStorage).await?;
+    txn.clear_table(tables::HashedStorage)?;
 
     let mut collector_storage =
         TableCollector::<tables::HashedStorage>::new(path, OPTIMAL_BUFFER_CAPACITY);
 
-    let mut src = txn.cursor(tables::Storage).await?;
-    src.first().await?;
+    let mut src = txn.cursor(tables::Storage)?;
+    src.first()?;
     let mut i = 0;
-    let walker = walk(&mut src, None);
+    let walker = src.walk(None);
     pin!(walker);
-    while let Some((address, (location, value))) = walker.try_next().await? {
+    while let Some((address, (location, value))) = walker.next().transpose()? {
         collector_storage.push(keccak256(address), (keccak256(location), value));
 
         i += 1;
@@ -69,66 +74,69 @@ where
     }
 
     debug!("Loading hashed entries");
-    let mut dst = txn.mutable_cursor(tables::HashedStorage.erased()).await?;
-    collector_storage.load(&mut dst).await?;
+    let mut dst = txn.cursor(tables::HashedStorage.erased())?;
+    collector_storage.load(&mut dst)?;
 
     Ok(())
 }
 
-async fn promote_accounts<'db, Tx>(tx: &Tx, stage_progress: BlockNumber) -> anyhow::Result<()>
+fn promote_accounts<E>(
+    tx: &MdbxTransaction<'_, RW, E>,
+    stage_progress: BlockNumber,
+) -> anyhow::Result<()>
 where
-    Tx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
-    let mut changeset_table = tx.cursor(tables::AccountChangeSet).await?;
-    let mut account_table = tx.cursor(tables::Account).await?;
-    let mut target_table = tx.mutable_cursor(tables::HashedAccount).await?;
+    let changeset_table = tx.cursor(tables::AccountChangeSet)?;
+    let mut account_table = tx.cursor(tables::Account)?;
+    let mut target_table = tx.cursor(tables::HashedAccount)?;
 
     let starting_block = stage_progress + 1;
 
-    let walker = walk(&mut changeset_table, Some(starting_block));
+    let walker = changeset_table.walk(Some(starting_block));
     pin!(walker);
 
-    while let Some((_, tables::AccountChange { address, .. })) = walker.try_next().await? {
+    while let Some((_, tables::AccountChange { address, .. })) = walker.next().transpose()? {
         let hashed_address = || keccak256(address);
-        if let Some((_, account)) = account_table.seek_exact(address).await? {
-            target_table.upsert((hashed_address)(), account).await?;
-        } else if target_table.seek_exact((hashed_address)()).await?.is_some() {
-            target_table.delete_current().await?;
+        if let Some((_, account)) = account_table.seek_exact(address)? {
+            target_table.upsert((hashed_address)(), account)?;
+        } else if target_table.seek_exact((hashed_address)())?.is_some() {
+            target_table.delete_current()?;
         }
     }
 
     Ok(())
 }
 
-async fn promote_storage<'db, Tx>(tx: &Tx, stage_progress: BlockNumber) -> anyhow::Result<()>
+fn promote_storage<E>(
+    tx: &MdbxTransaction<'_, RW, E>,
+    stage_progress: BlockNumber,
+) -> anyhow::Result<()>
 where
-    Tx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
-    let mut changeset_table = tx.cursor(tables::StorageChangeSet).await?;
-    let mut storage_table = tx.cursor_dup_sort(tables::Storage).await?;
-    let mut target_table = tx.mutable_cursor_dupsort(tables::HashedStorage).await?;
+    let changeset_table = tx.cursor(tables::StorageChangeSet)?;
+    let mut storage_table = tx.cursor(tables::Storage)?;
+    let mut target_table = tx.cursor(tables::HashedStorage)?;
 
     let starting_block = stage_progress + 1;
 
-    let walker = walk(&mut changeset_table, Some(starting_block));
-    pin!(walker);
+    let mut walker = changeset_table.walk(Some(starting_block));
 
     while let Some((
         tables::StorageChangeKey { address, .. },
         tables::StorageChange { location, .. },
-    )) = walker.try_next().await?
+    )) = walker.next().transpose()?
     {
         let hashed_address = keccak256(address);
         let hashed_location = keccak256(location);
         let mut v = U256::ZERO;
-        if let Some((found_location, value)) =
-            storage_table.seek_both_range(address, location).await?
-        {
+        if let Some((found_location, value)) = storage_table.seek_both_range(address, location)? {
             if location == found_location {
                 v = value;
             }
         }
-        upsert_hashed_storage_value(&mut target_table, hashed_address, hashed_location, v).await?;
+        upsert_hashed_storage_value(&mut target_table, hashed_address, hashed_location, v)?;
     }
 
     Ok(())
@@ -151,9 +159,9 @@ impl HashState {
 }
 
 #[async_trait]
-impl<'db, RwTx> Stage<'db, RwTx> for HashState
+impl<'db, E> Stage<'db, E> for HashState
 where
-    RwTx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
     fn id(&self) -> StageId {
         HASH_STATE
@@ -161,7 +169,7 @@ where
 
     async fn execute<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
     ) -> anyhow::Result<ExecOutput>
     where
@@ -180,18 +188,16 @@ where
             past_progress,
             max_block,
             self.clean_promotion_threshold,
-        )
-        .await?
-        {
+        )? {
             info!("Generating hashed accounts");
-            promote_clean_accounts(tx, &*self.temp_dir).await?;
+            promote_clean_accounts(tx, &*self.temp_dir)?;
             info!("Generating hashed storage");
-            promote_clean_storage(tx, &*self.temp_dir).await?;
+            promote_clean_storage(tx, &*self.temp_dir)?;
         } else {
             info!("Incrementally hashing accounts");
-            promote_accounts(tx, past_progress).await?;
+            promote_accounts(tx, past_progress)?;
             info!("Incrementally hashing storage");
-            promote_storage(tx, past_progress).await?;
+            promote_storage(tx, past_progress)?;
         }
 
         Ok(ExecOutput::Progress {
@@ -202,27 +208,26 @@ where
 
     async fn unwind<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
         info!("Unwinding hashed accounts");
-        let mut hashed_account_cur = tx.mutable_cursor(tables::HashedAccount).await?;
-        let mut account_cs_cur = tx.cursor(tables::AccountChangeSet).await?;
-        let walker = walk_back(&mut account_cs_cur, None);
+        let mut hashed_account_cur = tx.cursor(tables::HashedAccount)?;
+        let walker = tx.cursor(tables::AccountChangeSet)?.walk_back(None);
         pin!(walker);
         while let Some((block_number, tables::AccountChange { address, account })) =
-            walker.try_next().await?
+            walker.next().transpose()?
         {
             if block_number > input.unwind_to {
                 let hashed_address = keccak256(address);
 
                 if let Some(account) = account {
-                    hashed_account_cur.put(hashed_address, account).await?
-                } else if hashed_account_cur.seek(hashed_address).await?.is_some() {
-                    hashed_account_cur.delete_current().await?
+                    hashed_account_cur.put(hashed_address, account)?
+                } else if hashed_account_cur.seek(hashed_address)?.is_some() {
+                    hashed_account_cur.delete_current()?
                 }
             } else {
                 break;
@@ -230,9 +235,8 @@ where
         }
 
         info!("Unwinding hashed storage");
-        let mut hashed_storage_cur = tx.mutable_cursor_dupsort(tables::HashedStorage).await?;
-        let mut storage_cs_cur = tx.cursor(tables::StorageChangeSet).await?;
-        let walker = walk_back(&mut storage_cs_cur, None);
+        let mut hashed_storage_cur = tx.cursor(tables::HashedStorage)?;
+        let walker = tx.cursor(tables::StorageChangeSet)?.walk_back(None);
         pin!(walker);
         while let Some((
             tables::StorageChangeKey {
@@ -240,7 +244,7 @@ where
                 address,
             },
             tables::StorageChange { location, value },
-        )) = walker.try_next().await?
+        )) = walker.next().transpose()?
         {
             if block_number > input.unwind_to {
                 let hashed_address = keccak256(address);
@@ -250,8 +254,7 @@ where
                     hashed_address,
                     hashed_location,
                     value,
-                )
-                .await?;
+                )?;
             } else {
                 break;
             }
@@ -278,10 +281,10 @@ mod tests {
     #[tokio::test]
     async fn stage_hashstate() {
         let db = new_mem_database().unwrap();
-        let mut tx = db.begin_mutable().await.unwrap();
+        let mut tx = db.begin_mutable().unwrap();
 
         let mut gas = 0;
-        tx.set(tables::TotalGas, 0.into(), gas).await.unwrap();
+        tx.set(tables::TotalGas, 0.into(), gas).unwrap();
 
         let block_number = BlockNumber(1);
         let miner = hex!("5a0b54d5dc17e0aadc383d2db43b0a0d3e029c4c").into();
@@ -338,12 +341,10 @@ mod tests {
         // ---------------------------------------
         // Execute first block
         // ---------------------------------------
-        execute_block(&mut buffer, &MAINNET, &header, &body)
-            .await
-            .unwrap();
+        execute_block(&mut buffer, &MAINNET, &header, &body).unwrap();
 
         gas += header.gas_used;
-        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
+        tx.set(tables::TotalGas, header.number, gas).unwrap();
 
         let contract_address = create_address(sender, 0);
 
@@ -365,12 +366,10 @@ mod tests {
             new_val.to_vec().into(),
         )];
 
-        execute_block(&mut buffer, &MAINNET.clone(), &header, &body)
-            .await
-            .unwrap();
+        execute_block(&mut buffer, &MAINNET.clone(), &header, &body).unwrap();
 
         gas += header.gas_used;
-        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
+        tx.set(tables::TotalGas, header.number, gas).unwrap();
 
         // ---------------------------------------
         // Execute third block
@@ -390,14 +389,12 @@ mod tests {
             u256_to_h256(new_val.as_u256()).0.to_vec().into(),
         )];
 
-        execute_block(&mut buffer, &MAINNET.clone(), &header, &body)
-            .await
-            .unwrap();
+        execute_block(&mut buffer, &MAINNET.clone(), &header, &body).unwrap();
 
-        buffer.write_to_db().await.unwrap();
+        buffer.write_to_db().unwrap();
 
         gas += header.gas_used;
-        tx.set(tables::TotalGas, header.number, gas).await.unwrap();
+        tx.set(tables::TotalGas, header.number, gas).unwrap();
 
         // ---------------------------------------
         // Execute stage forward
@@ -428,11 +425,10 @@ mod tests {
         // Check hashed account
         // ---------------------------------------
 
-        let mut hashed_address_table = tx.cursor(tables::HashedAccount).await.unwrap();
+        let mut hashed_address_table = tx.cursor(tables::HashedAccount).unwrap();
         let sender_keccak = keccak256(sender);
         let (_, account) = hashed_address_table
             .seek_exact(sender_keccak)
-            .await
             .unwrap()
             .unwrap();
         assert_eq!(account.nonce, 3);
@@ -442,19 +438,19 @@ mod tests {
         // Check hashed storage
         // ---------------------------------------
 
-        let mut hashed_storage_cursor = tx.cursor(tables::HashedStorage).await.unwrap();
+        let hashed_storage_cursor = tx.cursor(tables::HashedStorage).unwrap();
 
         let k = keccak256(contract_address);
-        let walker = walk(&mut hashed_storage_cursor, Some(k));
+        let walker = hashed_storage_cursor.walk(Some(k));
         pin!(walker);
 
         for (location, expected_value) in [(0, new_val), (1, 0x01c9)] {
-            let (wk, (hashed_location, value)) = walker.try_next().await.unwrap().unwrap();
+            let (wk, (hashed_location, value)) = walker.next().transpose().unwrap().unwrap();
             assert_eq!(k, wk);
             assert_eq!(hashed_location, keccak256(u256_to_h256(location.as_u256())));
             assert_eq!(value, expected_value.as_u256());
         }
 
-        assert!(walker.try_next().await.unwrap().is_none());
+        assert!(walker.next().transpose().unwrap().is_none());
     }
 }

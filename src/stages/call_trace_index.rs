@@ -2,6 +2,7 @@ use crate::{
     bitmapdb::{self, CHUNK_LIMIT},
     etl::collector::*,
     kv::{
+        mdbx::*,
         tables::{self, BitmapKey, CallTraceSetEntry},
         traits::*,
     },
@@ -18,7 +19,6 @@ use std::{
 };
 use tempfile::TempDir;
 use tokio::pin;
-use tokio_stream::StreamExt;
 
 /// Generate call trace index
 #[derive(Debug)]
@@ -28,9 +28,9 @@ pub struct CallTraceIndex {
 }
 
 #[async_trait]
-impl<'db, RwTx> Stage<'db, RwTx> for CallTraceIndex
+impl<'db, E> Stage<'db, E> for CallTraceIndex
 where
-    RwTx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
     fn id(&self) -> StageId {
         CALL_TRACES
@@ -38,7 +38,7 @@ where
 
     async fn execute<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
     ) -> anyhow::Result<ExecOutput>
     where
@@ -50,8 +50,8 @@ where
             .ok_or_else(|| format_err!("Call trace index generation cannot be the first stage"))?
             .1;
 
-        let mut call_trace_set_cursor = tx.cursor_dup_sort(tables::CallTraceSet).await?;
-        let walker = walk(&mut call_trace_set_cursor, Some(starting_block + 1));
+        let call_trace_set_cursor = tx.cursor(tables::CallTraceSet)?;
+        let walker = call_trace_set_cursor.walk(Some(starting_block + 1));
         pin!(walker);
 
         let mut froms = HashMap::<Address, croaring::Treemap>::new();
@@ -74,7 +74,7 @@ where
         let mut highest_block = starting_block;
         let mut last_flush = starting_block;
         while let Some((block_number, CallTraceSetEntry { address, from, to })) =
-            walker.try_next().await?
+            walker.next().transpose()?
         {
             if block_number > max_block {
                 break;
@@ -103,16 +103,8 @@ where
         flush(&mut froms_collector, &mut froms);
         flush(&mut tos_collector, &mut tos);
 
-        load_call_traces(
-            &mut tx.mutable_cursor(tables::CallFromIndex).await?,
-            froms_collector,
-        )
-        .await?;
-        load_call_traces(
-            &mut tx.mutable_cursor(tables::CallToIndex).await?,
-            tos_collector,
-        )
-        .await?;
+        load_call_traces(&mut tx.cursor(tables::CallFromIndex)?, froms_collector)?;
+        load_call_traces(&mut tx.cursor(tables::CallToIndex)?, tos_collector)?;
 
         Ok(ExecOutput::Progress {
             stage_progress: max_block,
@@ -122,20 +114,20 @@ where
 
     async fn unwind<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
-        let mut call_trace_set_cursor = tx.mutable_cursor_dupsort(tables::CallTraceSet).await?;
+        let call_trace_set_cursor = tx.cursor(tables::CallTraceSet)?;
 
         let mut to_addresses = BTreeSet::<Address>::new();
         let mut from_addresses = BTreeSet::<Address>::new();
 
-        let walker = walk(&mut call_trace_set_cursor, Some(input.unwind_to + 1));
+        let walker = call_trace_set_cursor.walk(Some(input.unwind_to + 1));
         pin!(walker);
-        while let Some((_, entry)) = walker.try_next().await? {
+        while let Some((_, entry)) = walker.next().transpose()? {
             if entry.to {
                 to_addresses.insert(entry.address);
             }
@@ -146,17 +138,15 @@ where
         }
 
         unwind_call_traces(
-            &mut tx.mutable_cursor(tables::CallFromIndex).await?,
+            &mut tx.cursor(tables::CallFromIndex)?,
             from_addresses,
             input.unwind_to,
-        )
-        .await?;
+        )?;
         unwind_call_traces(
-            &mut tx.mutable_cursor(tables::CallToIndex).await?,
+            &mut tx.cursor(tables::CallToIndex)?,
             to_addresses,
             input.unwind_to,
-        )
-        .await?;
+        )?;
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
@@ -164,12 +154,11 @@ where
     }
 }
 
-async fn load_call_traces<'tx, 'tmp, C, T>(
-    cursor: &mut C,
-    mut collector: Collector<'tmp, Address, croaring::Treemap>,
+fn load_call_traces<T>(
+    cursor: &mut MdbxCursor<'_, RW, T>,
+    mut collector: Collector<'_, Address, croaring::Treemap>,
 ) -> anyhow::Result<()>
 where
-    C: MutableCursor<'tx, T>,
     T: Table<Key = BitmapKey<Address>, Value = croaring::Treemap>,
 {
     for res in collector
@@ -199,28 +188,23 @@ where
         let (address, mut total_bitmap) = res?;
 
         if !total_bitmap.is_empty() {
-            if let Some((_, last_bitmap)) = cursor
-                .seek_exact(BitmapKey {
-                    inner: address,
-                    block_number: BlockNumber(u64::MAX),
-                })
-                .await?
-            {
+            if let Some((_, last_bitmap)) = cursor.seek_exact(BitmapKey {
+                inner: address,
+                block_number: BlockNumber(u64::MAX),
+            })? {
                 total_bitmap |= last_bitmap;
             }
 
             for (block_number, bitmap) in
                 bitmapdb::Chunks::new(total_bitmap, CHUNK_LIMIT).with_keys()
             {
-                cursor
-                    .put(
-                        BitmapKey {
-                            inner: address,
-                            block_number,
-                        },
-                        bitmap,
-                    )
-                    .await?;
+                cursor.put(
+                    BitmapKey {
+                        inner: address,
+                        block_number,
+                    },
+                    bitmap,
+                )?;
             }
         }
     }
@@ -228,13 +212,12 @@ where
     Ok(())
 }
 
-async fn unwind_call_traces<'tx, C, T>(
-    cursor: &mut C,
+fn unwind_call_traces<T>(
+    cursor: &mut MdbxCursor<'_, RW, T>,
     addresses: BTreeSet<Address>,
     unwind_to: BlockNumber,
 ) -> anyhow::Result<()>
 where
-    C: MutableCursor<'tx, T>,
     T: Table<Key = BitmapKey<Address>, Value = croaring::Treemap>,
 {
     for address in addresses {
@@ -242,12 +225,11 @@ where
             .seek_exact(BitmapKey {
                 inner: address,
                 block_number: BlockNumber(u64::MAX),
-            })
-            .await?
+            })?
             .map(|(_, bm)| bm);
 
         while let Some(b) = bm {
-            cursor.delete_current().await?;
+            cursor.delete_current()?;
 
             let new_bm = b
                 .iter()
@@ -255,18 +237,16 @@ where
                 .collect::<croaring::Treemap>();
 
             if new_bm.cardinality() > 0 {
-                cursor
-                    .upsert(
-                        BitmapKey {
-                            inner: address,
-                            block_number: BlockNumber(u64::MAX),
-                        },
-                        new_bm,
-                    )
-                    .await?;
+                cursor.upsert(
+                    BitmapKey {
+                        inner: address,
+                        block_number: BlockNumber(u64::MAX),
+                    },
+                    new_bm,
+                )?;
             }
 
-            bm = cursor.prev().await?.and_then(
+            bm = cursor.prev()?.and_then(
                 |(BitmapKey { inner, .. }, b)| if inner == address { Some(b) } else { None },
             );
         }
@@ -277,15 +257,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::*;
+    use std::time::Instant;
 
     #[tokio::test]
     async fn call_traces() {
         let db = crate::kv::new_mem_database().unwrap();
 
-        let mut tx = db.begin_mutable().await.unwrap();
+        let mut tx = db.begin_mutable().unwrap();
 
         for i in 0..30 {
             let mut address = [0; 20];
@@ -300,15 +279,14 @@ mod tests {
                     to: i % 2 == 1,
                 },
             )
-            .await
             .unwrap();
         }
 
         let mut address = Address::zero();
         address.0[19] = 1;
 
-        async fn froms<'db, Tx: MutableTransaction<'db>>(
-            tx: &Tx,
+        fn froms<K: TransactionKind, E: EnvironmentKind>(
+            tx: &MdbxTransaction<'_, K, E>,
             address: Address,
         ) -> croaring::Treemap {
             bitmapdb::get(
@@ -317,12 +295,11 @@ mod tests {
                 address,
                 BlockNumber(0)..=BlockNumber(30),
             )
-            .await
             .unwrap()
         }
 
-        async fn tos<'db, Tx: MutableTransaction<'db>>(
-            tx: &Tx,
+        fn tos<K: TransactionKind, E: EnvironmentKind>(
+            tx: &MdbxTransaction<'_, K, E>,
             address: Address,
         ) -> croaring::Treemap {
             bitmapdb::get(
@@ -331,7 +308,6 @@ mod tests {
                 address,
                 BlockNumber(0)..=BlockNumber(30),
             )
-            .await
             .unwrap()
         }
 
@@ -361,12 +337,9 @@ mod tests {
 
         assert_eq!(
             vec![6, 16],
-            (froms)(&tx, address).await.iter().collect::<Vec<_>>()
+            (froms)(&tx, address).iter().collect::<Vec<_>>()
         );
-        assert_eq!(
-            vec![1, 11],
-            (tos)(&tx, address).await.iter().collect::<Vec<_>>()
-        );
+        assert_eq!(vec![1, 11], (tos)(&tx, address).iter().collect::<Vec<_>>());
 
         (stage)()
             .unwind(
@@ -379,14 +352,8 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(
-            vec![6],
-            (froms)(&tx, address).await.iter().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            vec![1],
-            (tos)(&tx, address).await.iter().collect::<Vec<_>>()
-        );
+        assert_eq!(vec![6], (froms)(&tx, address).iter().collect::<Vec<_>>());
+        assert_eq!(vec![1], (tos)(&tx, address).iter().collect::<Vec<_>>());
 
         assert_eq!(
             (stage)()
@@ -409,11 +376,11 @@ mod tests {
 
         assert_eq!(
             vec![6, 16, 26],
-            (froms)(&tx, address).await.iter().collect::<Vec<_>>()
+            (froms)(&tx, address).iter().collect::<Vec<_>>()
         );
         assert_eq!(
             vec![1, 11, 21],
-            (tos)(&tx, address).await.iter().collect::<Vec<_>>()
+            (tos)(&tx, address).iter().collect::<Vec<_>>()
         );
     }
 }

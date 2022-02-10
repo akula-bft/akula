@@ -1,69 +1,14 @@
 use crate::{
-    kv::{tables, traits::*},
+    kv::{mdbx::*, tables},
     models::*,
 };
-use tokio_stream::StreamExt;
 use tracing::*;
-
-pub mod canonical_hash {
-    use super::*;
-
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
-        block_number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<H256>> {
-        tx.get(tables::CanonicalHeader, block_number.into()).await
-    }
-
-    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
-        tx: &RwTx,
-        block_number: impl Into<BlockNumber>,
-        hash: H256,
-    ) -> anyhow::Result<()> {
-        let block_number = block_number.into();
-
-        trace!("Writing canonical hash of {}", block_number);
-
-        let mut cursor = tx.mutable_cursor(tables::CanonicalHeader).await?;
-        cursor.put(block_number, hash).await.unwrap();
-
-        Ok(())
-    }
-}
-
-pub mod header_number {
-    use super::*;
-
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
-        hash: H256,
-    ) -> anyhow::Result<Option<BlockNumber>> {
-        trace!("Reading block number for hash {:?}", hash);
-
-        tx.get(tables::HeaderNumber, hash).await
-    }
-}
-
-pub mod header {
-    use super::*;
-
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
-        hash: H256,
-        number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<BlockHeader>> {
-        let number = number.into();
-        trace!("Reading header for block {}/{:?}", number, hash);
-
-        tx.get(tables::Header, (number, hash)).await
-    }
-}
 
 pub mod tx {
     use super::*;
 
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
         base_tx_id: impl Into<TxIndex>,
         amount: usize,
     ) -> anyhow::Result<Vec<MessageWithSignature>> {
@@ -75,21 +20,18 @@ pub mod tx {
         );
 
         if amount > 0 {
-            walk(
-                &mut tx.cursor(tables::BlockTransaction).await?,
-                Some(base_tx_id),
-            )
-            .take(amount)
-            .map(|res| res.map(|(_, v)| v))
-            .collect()
-            .await
+            tx.cursor(tables::BlockTransaction)?
+                .walk(Some(base_tx_id))
+                .take(amount)
+                .map(|res| res.map(|(_, v)| v))
+                .collect()
         } else {
             Ok(vec![])
         }
     }
 
-    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
-        tx: &RwTx,
+    pub fn write<'db, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'db, RW, E>,
         base_tx_id: impl Into<TxIndex>,
         txs: &[MessageWithSignature],
     ) -> anyhow::Result<()> {
@@ -100,13 +42,10 @@ pub mod tx {
             base_tx_id
         );
 
-        let mut cursor = tx.mutable_cursor(tables::BlockTransaction).await.unwrap();
+        let mut cursor = tx.cursor(tables::BlockTransaction).unwrap();
 
         for (i, eth_tx) in txs.iter().enumerate() {
-            cursor
-                .put(base_tx_id + i as u64, eth_tx.clone())
-                .await
-                .unwrap();
+            cursor.put(base_tx_id + i as u64, eth_tx.clone()).unwrap();
         }
 
         Ok(())
@@ -116,8 +55,8 @@ pub mod tx {
 pub mod tx_sender {
     use super::*;
 
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Vec<Address>> {
@@ -130,13 +69,12 @@ pub mod tx_sender {
         );
 
         Ok(tx
-            .get(tables::TxSender, (number, hash))
-            .await?
+            .get(tables::TxSender, (number, hash))?
             .unwrap_or_default())
     }
 
-    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
-        tx: &RwTx,
+    pub fn write<E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, RW, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
         senders: Vec<Address>,
@@ -149,9 +87,7 @@ pub mod tx_sender {
             hash
         );
 
-        tx.set(tables::TxSender, (number, hash), senders)
-            .await
-            .unwrap();
+        tx.set(tables::TxSender, (number, hash), senders).unwrap();
 
         Ok(())
     }
@@ -160,37 +96,46 @@ pub mod tx_sender {
 pub mod storage_body {
     use super::*;
 
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read<K, E>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<BodyForStorage>> {
+    ) -> anyhow::Result<Option<BodyForStorage>>
+    where
+        K: TransactionKind,
+        E: EnvironmentKind,
+    {
         let number = number.into();
         trace!("Reading storage body for block {}/{:?}", number, hash);
 
-        tx.get(tables::BlockBody, (number, hash)).await
+        tx.get(tables::BlockBody, (number, hash))
     }
 
-    pub async fn has<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn has<K, E>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<bool> {
-        Ok(read(tx, hash, number).await?.is_some())
+    ) -> anyhow::Result<bool>
+    where
+        K: TransactionKind,
+        E: EnvironmentKind,
+    {
+        Ok(read(tx, hash, number)?.is_some())
     }
 
-    pub async fn write<'db, RwTx: MutableTransaction<'db>>(
-        tx: &RwTx,
+    pub fn write<E>(
+        tx: &MdbxTransaction<'_, RW, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
         body: &BodyForStorage,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<()>
+    where
+        E: EnvironmentKind,
+    {
         let number = number.into();
         trace!("Writing storage body for block {}/{:?}", number, hash);
 
-        tx.set(tables::BlockBody, (number, hash), body.clone())
-            .await
-            .unwrap();
+        tx.set(tables::BlockBody, (number, hash), body.clone())?;
 
         Ok(())
     }
@@ -199,14 +144,17 @@ pub mod storage_body {
 pub mod block_body {
     use super::*;
 
-    async fn read_base<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    fn read_base<K, E>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<Option<(BlockBody, TxIndex)>> {
-        if let Some(body) = super::storage_body::read(tx, hash, number).await? {
-            let transactions =
-                super::tx::read(tx, body.base_tx_id, body.tx_amount.try_into()?).await?;
+    ) -> anyhow::Result<Option<(BlockBody, TxIndex)>>
+    where
+        K: TransactionKind,
+        E: EnvironmentKind,
+    {
+        if let Some(body) = super::storage_body::read(tx, hash, number)? {
+            let transactions = super::tx::read(tx, body.base_tx_id, body.tx_amount.try_into()?)?;
 
             return Ok(Some((
                 BlockBody {
@@ -220,22 +168,22 @@ pub mod block_body {
         Ok(None)
     }
 
-    pub async fn read_without_senders<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read_without_senders<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BlockBody>> {
-        Ok(read_base(tx, hash, number).await?.map(|(v, _)| v))
+        Ok(read_base(tx, hash, number)?.map(|(v, _)| v))
     }
 
-    pub async fn read_with_senders<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read_with_senders<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
         let number = number.into();
-        if let Some((body, _)) = read_base(tx, hash, number).await? {
-            let senders = super::tx_sender::read(tx, hash, number).await?;
+        if let Some((body, _)) = read_base(tx, hash, number)? {
+            let senders = super::tx_sender::read(tx, hash, number)?;
 
             return Ok(Some(BlockBodyWithSenders {
                 transactions: body
@@ -258,48 +206,44 @@ pub mod block_body {
 pub mod td {
     use super::*;
 
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<U256>> {
         let number = number.into();
         trace!("Reading total difficulty at block {}/{:?}", number, hash);
 
-        tx.get(tables::HeadersTotalDifficulty, (number, hash)).await
+        tx.get(tables::HeadersTotalDifficulty, (number, hash))
     }
 }
 
 pub mod tl {
     use super::*;
 
-    pub async fn read<'db, Tx: Transaction<'db>>(
-        tx: &Tx,
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
         tx_hash: H256,
     ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading Block number for a tx_hash {:?}", tx_hash);
 
         Ok(tx
-            .get(tables::BlockTransactionLookup, tx_hash)
-            .await?
+            .get(tables::BlockTransactionLookup, tx_hash)?
             .map(|b| b.0))
     }
 
-    pub async fn write<'db: 'tx, 'tx, RwTx: MutableTransaction<'db>>(
-        tx: &'tx RwTx,
+    pub fn write<'db: 'tx, 'tx, E: EnvironmentKind>(
+        tx: &'tx MdbxTransaction<'db, RW, E>,
         hashed_tx_data: H256,
         block_number: BlockNumber,
     ) -> anyhow::Result<()> {
         trace!("Writing tx_lookup for hash {}", hashed_tx_data);
 
-        let mut cursor = tx
-            .mutable_cursor(tables::BlockTransactionLookup)
-            .await
-            .unwrap();
-        cursor
-            .put(hashed_tx_data, block_number.into())
-            .await
-            .unwrap();
+        tx.set(
+            tables::BlockTransactionLookup,
+            hashed_tx_data,
+            block_number.into(),
+        )?;
 
         Ok(())
     }
@@ -308,11 +252,11 @@ pub mod tl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv::{new_mem_database, traits::MutableKV};
+    use crate::kv::new_mem_database;
     use bytes::Bytes;
 
-    #[tokio::test]
-    async fn accessors() {
+    #[test]
+    fn accessors() {
         let tx1 = MessageWithSignature {
             message: Message::Legacy {
                 chain_id: None,
@@ -353,28 +297,24 @@ mod tests {
         };
 
         let db = new_mem_database().unwrap();
-        let rwtx = db.begin_mutable().await.unwrap();
+        let rwtx = db.begin_mutable().unwrap();
         let rwtx = &rwtx;
 
-        storage_body::write(rwtx, block1_hash, 1, &body)
-            .await
+        storage_body::write(rwtx, block1_hash, 1, &body).unwrap();
+        rwtx.set(tables::CanonicalHeader, 1.into(), block1_hash)
             .unwrap();
-        canonical_hash::write(rwtx, 1, block1_hash).await.unwrap();
-        tx::write(rwtx, 1, &txs).await.unwrap();
-        tx_sender::write(rwtx, block1_hash, 1, senders.to_vec())
-            .await
-            .unwrap();
+        tx::write(rwtx, 1, &txs).unwrap();
+        tx_sender::write(rwtx, block1_hash, 1, senders.to_vec()).unwrap();
 
         let recovered_body = storage_body::read(rwtx, block1_hash, 1)
-            .await
             .unwrap()
             .expect("Could not recover storage body.");
-        let recovered_hash = canonical_hash::read(rwtx, 1)
-            .await
+        let recovered_hash = rwtx
+            .get(tables::CanonicalHeader, 1.into())
             .unwrap()
             .expect("Could not recover block hash");
-        let recovered_txs = tx::read(rwtx, 1, 2).await.unwrap();
-        let recovered_senders = tx_sender::read(rwtx, block1_hash, 1).await.unwrap();
+        let recovered_txs = tx::read(rwtx, 1, 2).unwrap();
+        let recovered_senders = tx_sender::read(rwtx, block1_hash, 1).unwrap();
 
         assert_eq!(body, recovered_body);
         assert_eq!(block1_hash, recovered_hash);

@@ -9,7 +9,7 @@ use super::{
     ui::ui_system::{UISystemShared, UISystemViewScope},
     verification::preverified_hashes_config::PreverifiedHashesConfig,
 };
-use crate::{kv, models::BlockNumber, sentry::sentry_client_reactor::*};
+use crate::{kv::mdbx::*, models::*, sentry::sentry_client_reactor::*};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -47,9 +47,9 @@ impl DownloaderPreverified {
         BlockNumber((self.preverified_hashes_config.hashes.len() as u64 - 1) * slice_size)
     }
 
-    pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
+    pub async fn run<'downloader, 'db: 'downloader, E: EnvironmentKind>(
         &'downloader self,
-        db_transaction: &'downloader RwTx,
+        db_transaction: &'downloader MdbxTransaction<'db, RW, E>,
         start_block_num: BlockNumber,
         max_blocks_count: usize,
         ui_system: UISystemShared,
@@ -97,7 +97,7 @@ impl DownloaderPreverified {
             self.preverified_hashes_config.clone(),
         );
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
-        let save_stage = SaveStage::<RwTx>::new(
+        let save_stage = SaveStage::new(
             header_slices.clone(),
             db_transaction,
             save_stage::SaveOrder::Monotonic,

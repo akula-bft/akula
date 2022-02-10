@@ -21,7 +21,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2021-10-14
+          toolchain: nightly-2022-02-17
           override: true
           components: rustfmt, clippy
 

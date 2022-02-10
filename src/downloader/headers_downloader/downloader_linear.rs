@@ -13,7 +13,7 @@ use super::{
     verification::header_slice_verifier::HeaderSliceVerifier,
 };
 use crate::{
-    kv,
+    kv::mdbx::*,
     models::BlockNumber,
     sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
@@ -67,9 +67,9 @@ impl DownloaderLinear {
         Ok(estimated_top_block_num)
     }
 
-    pub async fn run<'downloader, 'db: 'downloader, RwTx: kv::traits::MutableTransaction<'db>>(
+    pub async fn run<'downloader, 'db: 'downloader, E: EnvironmentKind>(
         &'downloader self,
-        db_transaction: &'downloader RwTx,
+        db_transaction: &'downloader MdbxTransaction<'db, RW, E>,
         start_block_num: BlockNumber,
         max_blocks_count: usize,
         estimated_top_block_num: Option<BlockNumber>,
@@ -118,7 +118,7 @@ impl DownloaderLinear {
             None
         };
         let start_block_parent_header = match start_block_parent_num {
-            Some(num) => SaveStage::load_canonical_header_by_num(num, db_transaction).await?,
+            Some(num) => SaveStage::load_canonical_header_by_num(num, db_transaction)?,
             None => None,
         };
         if start_block_parent_num.is_some() && start_block_parent_header.is_none() {
@@ -156,7 +156,7 @@ impl DownloaderLinear {
             HeaderSliceStatus::Invalid,
         );
         let penalize_stage = PenalizeStage::new(header_slices.clone(), sentry.clone());
-        let save_stage = SaveStage::<RwTx>::new(
+        let save_stage = SaveStage::new(
             header_slices.clone(),
             db_transaction,
             save_stage::SaveOrder::Monotonic,

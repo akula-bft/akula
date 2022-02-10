@@ -22,7 +22,6 @@ use std::{
     collections::{HashMap, HashSet},
     convert::TryInto,
     fmt::Debug,
-    future::Future,
     ops::AddAssign,
     path::{Path, PathBuf},
     str::FromStr,
@@ -517,7 +516,7 @@ enum Status {
 }
 
 #[instrument]
-async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &mut S) {
+fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &mut S) {
     for (address, j) in pre {
         let mut account = Account {
             balance: j.balance,
@@ -530,7 +529,6 @@ async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &
             account.code_hash = keccak256(&*j.code);
             state
                 .update_code(account.code_hash, j.code.clone())
-                .await
                 .unwrap();
         }
 
@@ -539,7 +537,6 @@ async fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &
         for (&key, &value) in &j.storage {
             state
                 .update_storage(*address, key, U256::ZERO, value)
-                .await
                 .unwrap();
         }
     }
@@ -557,7 +554,7 @@ struct BlockCommon {
 }
 
 #[instrument(skip(block_common, blockchain))]
-async fn run_block<'state>(
+fn run_block<'state>(
     block_common: &BlockCommon,
     blockchain: &mut Blockchain<'state>,
 ) -> anyhow::Result<()> {
@@ -567,13 +564,13 @@ async fn run_block<'state>(
 
     let check_state_root = true;
 
-    blockchain.insert_block(block, check_state_root).await?;
+    blockchain.insert_block(block, check_state_root)?;
 
     Ok(())
 }
 
 #[instrument]
-async fn post_check(
+fn post_check(
     state: &InMemoryState,
     expected: &HashMap<Address, AccountState>,
 ) -> anyhow::Result<()> {
@@ -590,7 +587,6 @@ async fn post_check(
     for (&address, expected_account_state) in expected {
         let account = state
             .read_account(address)
-            .await
             .unwrap()
             .ok_or_else(|| format_err!("Missing account {}", address))?;
 
@@ -610,7 +606,7 @@ async fn post_check(
             expected_account_state.nonce
         );
 
-        let code = state.read_code(account.code_hash).await.unwrap();
+        let code = state.read_code(account.code_hash).unwrap();
         ensure!(
             code == expected_account_state.code,
             "Code mismatch for {}:\n{} != {}",
@@ -631,7 +627,7 @@ async fn post_check(
         );
 
         for (&key, &expected_value) in &expected_account_state.storage {
-            let actual_value = state.read_storage(address, key).await.unwrap();
+            let actual_value = state.read_storage(address, key).unwrap();
             ensure!(
                 actual_value == expected_value,
                 "Storage mismatch for {} at {}:\n{} != {}",
@@ -659,23 +655,21 @@ fn result_is_expected(
 
 /// https://ethereum-tests.readthedocs.io/en/latest/test_types/blockchain_tests.html
 #[instrument(skip(testdata))]
-async fn blockchain_test(testdata: BlockchainTest) -> anyhow::Result<()> {
+fn blockchain_test(testdata: BlockchainTest) -> anyhow::Result<()> {
     let genesis_block = rlp::decode::<Block>(&*testdata.genesis_rlp).unwrap();
 
     let mut state = InMemoryState::default();
     let config = NETWORK_CONFIG[&testdata.network].clone();
 
-    init_pre_state(&testdata.pre, &mut state).await;
+    init_pre_state(&testdata.pre, &mut state);
 
-    let mut blockchain = Blockchain::new(&mut state, config, genesis_block)
-        .await
-        .unwrap();
+    let mut blockchain = Blockchain::new(&mut state, config, genesis_block).unwrap();
 
     for block in &testdata.blocks {
         let block_common =
             serde_json::from_value::<BlockCommon>(Value::Object(block.clone())).unwrap();
         result_is_expected(
-            run_block(&block_common, &mut blockchain).await,
+            run_block(&block_common, &mut blockchain),
             block_common.expect_exception,
         )?;
     }
@@ -694,7 +688,7 @@ async fn blockchain_test(testdata: BlockchainTest) -> anyhow::Result<()> {
     }
 
     if let Some(expected_state) = &testdata.post_state {
-        post_check(&state, expected_state).await?;
+        post_check(&state, expected_state)?;
 
         trace!("PostState verification OK");
     }
@@ -718,7 +712,7 @@ pub struct TransactionTest {
 
 // https://ethereum-tests.readthedocs.io/en/latest/test_types/transaction_tests.html
 #[instrument(skip(testdata))]
-async fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
+fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
     let txn = rlp::decode::<akula::models::MessageWithSignature>(&testdata.txbytes);
 
     for (key, t) in testdata.result {
@@ -781,7 +775,7 @@ async fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
 type NetworkDifficultyTests = HashMap<String, DifficultyTest>;
 
 #[instrument(skip(testdata))]
-async fn difficulty_test(testdata: HashMap<String, Value>) -> anyhow::Result<()> {
+fn difficulty_test(testdata: HashMap<String, Value>) -> anyhow::Result<()> {
     for (network, testdata) in testdata {
         if network == "_info" {
             continue;
@@ -830,13 +824,12 @@ async fn difficulty_test(testdata: HashMap<String, Value>) -> anyhow::Result<()>
 }
 
 #[instrument(skip(f))]
-async fn run_test_file<Test, Fut>(
+fn run_test_file<Test>(
     path: &Path,
     test_names: &HashSet<String>,
-    f: fn(Test) -> Fut,
+    f: fn(Test) -> anyhow::Result<()>,
 ) -> RunResults
 where
-    Fut: Future<Output = anyhow::Result<()>>,
     for<'de> Test: Deserialize<'de>,
 {
     let j: HashMap<String, Test> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -849,7 +842,7 @@ where
 
         debug!("Running test {}", test_name);
         out.push({
-            if let Err(e) = (f)(test).await {
+            if let Err(e) = (f)(test) {
                 error!("{}: {}: {}", path.to_string_lossy(), test_name, e);
                 Status::Failed
             } else {
@@ -951,7 +944,7 @@ async fn run() {
             let p = e.into_path();
             let test_names = Arc::clone(&test_names);
             tasks.push(tokio::spawn(async move {
-                run_test_file(p.as_path(), &test_names, difficulty_test).await
+                run_test_file(p.as_path(), &test_names, difficulty_test)
             }));
         }
     }
@@ -973,7 +966,7 @@ async fn run() {
             let p = e.into_path();
             let test_names = Arc::clone(&test_names);
             tasks.push(tokio::spawn(async move {
-                run_test_file(p.as_path(), &test_names, blockchain_test).await
+                run_test_file(p.as_path(), &test_names, blockchain_test)
             }));
         }
     }
@@ -995,7 +988,7 @@ async fn run() {
             let p = e.into_path();
             let test_names = Arc::clone(&test_names);
             tasks.push(tokio::spawn(async move {
-                run_test_file(p.as_path(), &test_names, transaction_test).await
+                run_test_file(p.as_path(), &test_names, transaction_test)
             }));
         }
     }

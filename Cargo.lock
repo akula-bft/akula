@@ -52,6 +52,7 @@ dependencies = [
  "fdlimit",
  "futures-core",
  "futures-util",
+ "gen-iter",
  "getset",
  "hash-db",
  "hash256-std-hasher",
@@ -1002,6 +1003,12 @@ dependencies = [
  "pin-utils",
  "slab",
 ]
+
+[[package]]
+name = "gen-iter"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1668ac3c7b8cc5f1e31565ed509d8d70aa1a81bd7f508b620725b78c6e1d7049"
 
 [[package]]
 name = "generic-array"

@@ -11,7 +11,6 @@ use super::{
 };
 use crate::{
     kv,
-    kv::traits::*,
     models::*,
     sentry::{
         chain_config, sentry_client_connector,
@@ -52,7 +51,7 @@ async fn run_downloader(
     }
 
     let db = kv::new_mem_database()?;
-    let db_transaction = db.begin_mutable().await?;
+    let db_transaction = db.begin_mutable()?;
 
     let ui_system = Arc::new(AsyncMutex::new(UISystem::new()));
 
@@ -67,12 +66,10 @@ async fn run_downloader(
         .await?;
 
     if let Some(unwind_request) = report.run_state.unwind_request.take() {
-        downloader
-            .unwind_finalize(&db_transaction, unwind_request)
-            .await?;
+        downloader.unwind_finalize(&db_transaction, unwind_request)?;
     }
 
-    db_transaction.commit().await?;
+    db_transaction.commit()?;
 
     {
         sentry.write().await.stop().await?;

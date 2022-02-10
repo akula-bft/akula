@@ -1,5 +1,6 @@
 use crate::{
     kv::{
+        mdbx::*,
         tables::{self, ErasedTable},
         traits::*,
     },
@@ -11,7 +12,6 @@ use async_trait::async_trait;
 use rayon::prelude::*;
 use std::time::{Duration, Instant};
 use tokio::pin;
-use tokio_stream::StreamExt as _;
 use tracing::*;
 
 /// Recovery of senders of transactions from signatures
@@ -21,9 +21,9 @@ pub struct SenderRecovery {
 }
 
 #[async_trait]
-impl<'db, RwTx> Stage<'db, RwTx> for SenderRecovery
+impl<'db, E> Stage<'db, E> for SenderRecovery
 where
-    RwTx: MutableTransaction<'db>,
+    E: EnvironmentKind,
 {
     fn id(&self) -> StageId {
         SENDERS
@@ -31,7 +31,7 @@ where
 
     async fn execute<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
     ) -> anyhow::Result<ExecOutput>
     where
@@ -40,31 +40,30 @@ where
         let original_highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let mut highest_block = original_highest_block;
 
-        let mut body_cur = tx.cursor(tables::BlockBody).await?;
-        let mut tx_cur = tx.cursor(tables::BlockTransaction.erased()).await?;
-        let mut senders_cur = tx.mutable_cursor(tables::TxSender.erased()).await?;
-        senders_cur.last().await?;
+        let mut senders_cur = tx.cursor(tables::TxSender.erased())?;
+        senders_cur.last()?;
 
-        let walker = walk(&mut body_cur, Some(BlockNumber(highest_block.0 + 1)));
+        let walker = tx
+            .cursor(tables::BlockBody)?
+            .walk(Some(BlockNumber(highest_block.0 + 1)));
         pin!(walker);
         let mut batch = Vec::with_capacity(self.batch_size);
         let started_at = Instant::now();
-        let started_at_txnum = tx
-            .get(
-                tables::TotalTx,
-                input.first_started_at.1.unwrap_or(BlockNumber(0)),
-            )
-            .await?;
+        let started_at_txnum = tx.get(
+            tables::TotalTx,
+            input.first_started_at.1.unwrap_or(BlockNumber(0)),
+        )?;
         let done = loop {
             let mut read_again = false;
             let mut batch_txs = 0;
             debug!("Reading bodies");
-            while let Some(((block_number, hash), body)) = walker.try_next().await? {
-                let txs = walk(&mut tx_cur, Some(body.base_tx_id.encode().to_vec()))
+            while let Some(((block_number, hash), body)) = walker.next().transpose()? {
+                let txs = tx
+                    .cursor(tables::BlockTransaction.erased())?
+                    .walk(Some(body.base_tx_id.encode().to_vec()))
                     .take(body.tx_amount.try_into()?)
                     .map(|res| res.map(|(_, tx)| tx))
-                    .collect::<anyhow::Result<Vec<_>>>()
-                    .await?;
+                    .collect::<anyhow::Result<Vec<_>>>()?;
                 batch_txs += txs.len();
                 batch.push((block_number, hash, txs));
 
@@ -107,7 +106,7 @@ where
 
             debug!("Inserting recovered senders");
             for (db_key, db_value) in recovered_senders.drain(..) {
-                senders_cur.append(db_key, db_value).await?;
+                senders_cur.append(db_key, db_value)?;
             }
 
             if !read_again {
@@ -120,13 +119,8 @@ where
                 let mut format_string = format!("Extracted senders from block {}", highest_block);
 
                 if let Some(started_at_txnum) = started_at_txnum {
-                    let current_txnum = tx.get(tables::TotalTx, highest_block).await?;
-                    let total_txnum = tx
-                        .cursor(tables::TotalTx)
-                        .await?
-                        .last()
-                        .await?
-                        .map(|(_, v)| v);
+                    let current_txnum = tx.get(tables::TotalTx, highest_block)?;
+                    let total_txnum = tx.cursor(tables::TotalTx)?.last()?.map(|(_, v)| v);
 
                     if let Some(current_txnum) = current_txnum {
                         if let Some(total_txnum) = total_txnum {
@@ -170,17 +164,17 @@ where
 
     async fn unwind<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
-        let mut senders_cur = tx.mutable_cursor(tables::TxSender).await?;
+        let mut senders_cur = tx.cursor(tables::TxSender)?;
 
-        while let Some(((block_number, _), _)) = senders_cur.last().await? {
+        while let Some(((block_number, _), _)) = senders_cur.last()? {
             if block_number > input.unwind_to {
-                senders_cur.delete_current().await?;
+                senders_cur.delete_current()?;
             } else {
                 break;
             }
@@ -204,7 +198,7 @@ mod tests {
     #[tokio::test]
     async fn recover_senders() {
         let db = new_mem_database().unwrap();
-        let mut tx = db.begin_mutable().await.unwrap();
+        let mut tx = db.begin_mutable().unwrap();
 
         let sender1 = Address::from(hex!("de1ef574fd619979b16fd043ea97c4f4536af2e6"));
         let sender2 = Address::from(hex!("c93c9f9cac833846a66bce3bd9dc7c85e36463af"));
@@ -344,26 +338,16 @@ mod tests {
         let hash2 = H256::random();
         let hash3 = H256::random();
 
-        chain::storage_body::write(&tx, hash1, 1, &block1)
-            .await
-            .unwrap();
-        chain::storage_body::write(&tx, hash2, 2, &block2)
-            .await
-            .unwrap();
-        chain::storage_body::write(&tx, hash3, 3, &block3)
-            .await
-            .unwrap();
+        chain::storage_body::write(&tx, hash1, 1, &block1).unwrap();
+        chain::storage_body::write(&tx, hash2, 2, &block2).unwrap();
+        chain::storage_body::write(&tx, hash3, 3, &block3).unwrap();
 
-        chain::canonical_hash::write(&tx, 1, hash1).await.unwrap();
-        chain::canonical_hash::write(&tx, 2, hash2).await.unwrap();
-        chain::canonical_hash::write(&tx, 3, hash3).await.unwrap();
+        tx.set(tables::CanonicalHeader, 1.into(), hash1).unwrap();
+        tx.set(tables::CanonicalHeader, 2.into(), hash2).unwrap();
+        tx.set(tables::CanonicalHeader, 3.into(), hash3).unwrap();
 
-        chain::tx::write(&tx, block1.base_tx_id, &[tx1_1, tx1_2])
-            .await
-            .unwrap();
-        chain::tx::write(&tx, block2.base_tx_id, &[tx2_1, tx2_2, tx2_3])
-            .await
-            .unwrap();
+        chain::tx::write(&tx, block1.base_tx_id, &[tx1_1, tx1_2]).unwrap();
+        chain::tx::write(&tx, block2.base_tx_id, &[tx2_1, tx2_2, tx2_3]).unwrap();
 
         let mut stage = SenderRecovery {
             batch_size: 500_000,
@@ -387,12 +371,12 @@ mod tests {
         );
 
         let senders1 = chain::tx_sender::read(&tx, hash1, 1);
-        assert_eq!(senders1.await.unwrap(), [sender1, sender1]);
+        assert_eq!(senders1.unwrap(), [sender1, sender1]);
 
         let senders2 = chain::tx_sender::read(&tx, hash2, 2);
-        assert_eq!(senders2.await.unwrap(), [sender1, sender2, sender2]);
+        assert_eq!(senders2.unwrap(), [sender1, sender2, sender2]);
 
         let senders3 = chain::tx_sender::read(&tx, hash3, 3);
-        assert!(senders3.await.unwrap().is_empty());
+        assert!(senders3.unwrap().is_empty());
     }
 }

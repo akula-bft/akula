@@ -5,7 +5,6 @@ mod ethash;
 pub use self::{blockchain::*, ethash::*};
 use crate::{models::*, State};
 use anyhow::bail;
-use async_trait::async_trait;
 use std::fmt::{Debug, Display};
 
 #[derive(Debug)]
@@ -13,18 +12,17 @@ pub enum FinalizationChange {
     Reward { address: Address, amount: U256 },
 }
 
-#[async_trait]
 pub trait Consensus: Debug + Send + Sync + 'static {
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
     /// See [YP] Sections 4.3.2 "Holistic Validity", 4.3.4 "Block Header Validity", and 11.1 "Ommer Validation".
     ///
     /// NOTE: Shouldn't be used for genesis block.
-    async fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()>;
+    fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()>;
 
     /// See [YP] Section 4.3.4 "Block Header Validity".
     ///
     /// NOTE: Shouldn't be used for genesis block.
-    async fn validate_block_header(
+    fn validate_block_header(
         &self,
         header: &BlockHeader,
         state: &mut dyn State,
@@ -32,12 +30,12 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     ) -> anyhow::Result<()>;
 
     /// Validates the seal of the header
-    async fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()>;
+    fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()>;
 
     /// Finalizes block execution by applying changes in the state of accounts or of the consensus itself
     ///
     /// NOTE: For Ethash See [YP] Section 11.3 "Reward Application".
-    async fn finalize(
+    fn finalize(
         &self,
         block: &PartialHeader,
         ommers: &[BlockHeader],
@@ -45,7 +43,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See [YP] Section 11.3 "Reward Application".
-    async fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address>;
+    fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address>;
 }
 
 #[allow(clippy::large_enum_variant)]

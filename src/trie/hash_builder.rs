@@ -1,7 +1,7 @@
 #![allow(clippy::manual_memcpy, clippy::needless_range_loop)]
 use crate::{
     crypto::keccak256,
-    models::{EMPTY_ROOT, KECCAK_LENGTH},
+    models::*,
     trie::{
         node::Node,
         util::{assert_subset, prefix_length},

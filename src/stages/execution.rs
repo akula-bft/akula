@@ -8,8 +8,8 @@ use crate::{
     },
     h256_to_u256,
     kv::{
+        mdbx::*,
         tables::{self, CallTraceSetEntry},
-        traits::*,
     },
     models::*,
     stagedsync::{format_duration, stage::*, stages::EXECUTION},
@@ -32,8 +32,8 @@ pub struct Execution {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
-    tx: &Tx,
+fn execute_batch_of_blocks<E: EnvironmentKind>(
+    tx: &MdbxTransaction<'_, RW, E>,
     chain_config: ChainSpec,
     max_block: BlockNumber,
     batch_size: u64,
@@ -57,21 +57,19 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         .get(
             tables::TotalGas,
             first_started_at.1.unwrap_or(BlockNumber(0)),
-        )
-        .await?
+        )?
         .unwrap();
     let mut last_message = Instant::now();
     let mut printed_at_least_once = false;
     loop {
-        let block_hash = accessors::chain::canonical_hash::read(tx, block_number)
-            .await?
+        let block_hash = tx
+            .get(tables::CanonicalHeader, block_number)?
             .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
-        let header = accessors::chain::header::read(tx, block_hash, block_number)
-            .await?
+        let header = tx
+            .get(tables::Header, (block_number, block_hash))?
             .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?
             .into();
-        let block = accessors::chain::block_body::read_with_senders(tx, block_hash, block_number)
-            .await?
+        let block = accessors::chain::block_body::read_with_senders(tx, block_hash, block_number)?
             .ok_or_else(|| {
                 format_err!("Block body not found: {}/{:?}", block_number, block_hash)
             })?;
@@ -89,7 +87,6 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
             &block_spec,
         )
         .execute_and_write_block()
-        .await
         .with_context(|| {
             format!(
                 "Failed to execute block #{} ({:?})",
@@ -100,10 +97,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         buffer.insert_receipts(block_number, receipts);
 
         {
-            let mut c = tx.mutable_cursor_dupsort(tables::CallTraceSet).await?;
+            let mut c = tx.cursor(tables::CallTraceSet)?;
             for (address, CallTracerFlags { from, to }) in call_tracer.into_sorted_iter() {
-                c.append_dup(header.number, CallTraceSetEntry { address, from, to })
-                    .await?;
+                c.append_dup(header.number, CallTraceSetEntry { address, from, to })?;
             }
         }
 
@@ -112,7 +108,7 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         gas_since_history_commit += header.gas_used;
 
         if gas_since_history_commit >= history_batch_size {
-            buffer.write_history().await?;
+            buffer.write_history()?;
             gas_since_history_commit = 0;
         }
 
@@ -129,9 +125,9 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
 
         let elapsed = now - last_message;
         if elapsed > Duration::from_secs(30) || (end_of_batch && !printed_at_least_once) {
-            let current_total_gas = tx.get(tables::TotalGas, block_number).await?.unwrap();
+            let current_total_gas = tx.get(tables::TotalGas, block_number)?.unwrap();
 
-            let total_gas = tx.cursor(tables::TotalGas).await?.last().await?.unwrap().1;
+            let total_gas = tx.cursor(tables::TotalGas)?.last()?.unwrap().1;
             let mgas_sec = gas_since_last_message as f64
                 / (elapsed.as_secs() as f64 + (elapsed.subsec_millis() as f64 / 1000_f64))
                 / 1_000_000f64;
@@ -177,20 +173,23 @@ async fn execute_batch_of_blocks<'db, Tx: MutableTransaction<'db>>(
         block_number.0 += 1;
     }
 
-    buffer.write_to_db().await?;
+    buffer.write_to_db()?;
 
     Ok(block_number)
 }
 
 #[async_trait]
-impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
+impl<'db, E> Stage<'db, E> for Execution
+where
+    E: EnvironmentKind,
+{
     fn id(&self) -> crate::StageId {
         EXECUTION
     }
 
     async fn execute<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
     ) -> anyhow::Result<ExecOutput>
     where
@@ -199,12 +198,10 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
         let _ = tx;
 
         let genesis_hash = tx
-            .get(tables::CanonicalHeader, BlockNumber(0))
-            .await?
+            .get(tables::CanonicalHeader, BlockNumber(0))?
             .ok_or_else(|| format_err!("Genesis block absent"))?;
         let chain_config = tx
-            .get(tables::Config, genesis_hash)
-            .await?
+            .get(tables::Config, genesis_hash)?
             .ok_or_else(|| format_err!("No chain config for genesis block {:?}", genesis_hash))?;
 
         let prev_progress = input.stage_progress.unwrap_or_default();
@@ -224,8 +221,7 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 starting_block,
                 input.first_started_at,
                 self.prune_from,
-            )
-            .await?;
+            )?;
 
             let done = executed_to == max_block || self.exit_after_batch;
 
@@ -243,37 +239,37 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
 
     async fn unwind<'tx>(
         &mut self,
-        tx: &'tx mut RwTx,
-        input: crate::stagedsync::stage::UnwindInput,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
+        input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx,
     {
         info!("Unwinding accounts");
-        let mut account_cursor = tx.mutable_cursor(tables::Account).await?;
+        let mut account_cursor = tx.cursor(tables::Account)?;
 
-        let mut account_cs_cursor = tx.mutable_cursor(tables::AccountChangeSet).await?;
+        let mut account_cs_cursor = tx.cursor(tables::AccountChangeSet)?;
 
         while let Some((block_number, tables::AccountChange { address, account })) =
-            account_cs_cursor.last().await?
+            account_cs_cursor.last()?
         {
             if block_number <= input.unwind_to {
                 break;
             }
 
             if let Some(account) = account {
-                account_cursor.put(address, account).await?;
-            } else if account_cursor.seek(address).await?.is_some() {
-                account_cursor.delete_current().await?;
+                account_cursor.put(address, account)?;
+            } else if account_cursor.seek(address)?.is_some() {
+                account_cursor.delete_current()?;
             }
 
-            account_cs_cursor.delete_current().await?;
+            account_cs_cursor.delete_current()?;
         }
 
         info!("Unwinding storage");
-        let mut storage_cursor = tx.mutable_cursor_dupsort(tables::Storage).await?;
+        let mut storage_cursor = tx.cursor(tables::Storage)?;
 
-        let mut storage_cs_cursor = tx.mutable_cursor_dupsort(tables::StorageChangeSet).await?;
+        let mut storage_cs_cursor = tx.cursor(tables::StorageChangeSet)?;
 
         while let Some((
             tables::StorageChangeKey {
@@ -281,36 +277,35 @@ impl<'db, RwTx: MutableTransaction<'db>> Stage<'db, RwTx> for Execution {
                 address,
             },
             tables::StorageChange { location, value },
-        )) = storage_cs_cursor.last().await?
+        )) = storage_cs_cursor.last()?
         {
             if block_number <= input.unwind_to {
                 break;
             }
 
-            upsert_storage_value(&mut storage_cursor, address, h256_to_u256(location), value)
-                .await?;
+            upsert_storage_value(&mut storage_cursor, address, h256_to_u256(location), value)?;
 
-            storage_cs_cursor.delete_current().await?;
+            storage_cs_cursor.delete_current()?;
         }
 
         info!("Unwinding logs");
-        let mut log_cursor = tx.mutable_cursor(tables::Log).await?;
-        while let Some(((block_number, _), _)) = log_cursor.last().await? {
+        let mut log_cursor = tx.cursor(tables::Log)?;
+        while let Some(((block_number, _), _)) = log_cursor.last()? {
             if block_number <= input.unwind_to {
                 break;
             }
 
-            log_cursor.delete_current().await?;
+            log_cursor.delete_current()?;
         }
 
         info!("Unwinding call trace sets");
-        let mut call_trace_set_cursor = tx.mutable_cursor_dupsort(tables::CallTraceSet).await?;
-        while let Some((block_number, _)) = call_trace_set_cursor.last().await? {
+        let mut call_trace_set_cursor = tx.cursor(tables::CallTraceSet)?;
+        while let Some((block_number, _)) = call_trace_set_cursor.last()? {
             if block_number <= input.unwind_to {
                 break;
             }
 
-            call_trace_set_cursor.delete_current_duplicates().await?;
+            call_trace_set_cursor.delete_current_duplicates()?;
         }
 
         Ok(UnwindOutput {
