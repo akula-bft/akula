@@ -20,7 +20,7 @@ where
     S: State,
 {
     state: IntraBlockState<'r, S>,
-    tracer: Option<&'tracer mut dyn Tracer>,
+    tracer: &'tracer mut dyn Tracer,
     analysis_cache: &'analysis mut AnalysisCache,
     engine: &'e mut dyn Consensus,
     header: &'h PartialHeader,
@@ -36,7 +36,7 @@ where
 {
     pub fn new(
         state: &'r mut S,
-        tracer: Option<&'tracer mut dyn Tracer>,
+        tracer: &'tracer mut dyn Tracer,
         analysis_cache: &'analysis mut AnalysisCache,
         engine: &'e mut dyn Consensus,
         header: &'h PartialHeader,
@@ -160,7 +160,7 @@ where
             &mut self.state,
             // https://github.com/rust-lang/rust-clippy/issues/7846
             #[allow(clippy::needless_option_as_deref)]
-            self.tracer.as_deref_mut(),
+            self.tracer,
             self.analysis_cache,
             self.header,
             self.block_spec,
@@ -304,7 +304,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{execution::address::create_address, res::chainspec::MAINNET, InMemoryState};
+    use crate::{
+        execution::{address::create_address, tracer::NoopTracer},
+        res::chainspec::MAINNET,
+        InMemoryState,
+    };
     use bytes::Bytes;
     use bytes_literal::bytes;
     use hex_literal::hex;
@@ -339,9 +343,10 @@ mod tests {
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut state,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,
@@ -384,9 +389,10 @@ mod tests {
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut state,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,
@@ -444,9 +450,10 @@ mod tests {
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut state,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,
@@ -562,9 +569,10 @@ mod tests {
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut state,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,
@@ -671,9 +679,10 @@ mod tests {
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut state,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,
@@ -726,9 +735,10 @@ mod tests {
         let mut analysis_cache = AnalysisCache::default();
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut state,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,

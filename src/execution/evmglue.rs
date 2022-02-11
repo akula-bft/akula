@@ -6,10 +6,9 @@ use super::{
 };
 use crate::{
     chain::protocol_param::{fee, param},
+    crypto::keccak256,
     execution::evm::{
-        continuation::{interrupt::*, interrupt_data::*, resume_data::*},
-        host::*,
-        AnalyzedCode, CallKind, CreateMessage, InterpreterMessage, Output, StatusCode,
+        host::*, AnalyzedCode, CallKind, CreateMessage, InterpreterMessage, Output, StatusCode,
     },
     h256_to_u256,
     models::*,
@@ -17,7 +16,6 @@ use crate::{
 };
 use anyhow::Context;
 use bytes::Bytes;
-use sha3::{Digest, Keccak256};
 use std::{cmp::min, convert::TryFrom};
 
 pub struct CallResult {
@@ -34,7 +32,7 @@ where
     B: State,
 {
     state: &'state mut IntraBlockState<'r, B>,
-    tracer: Option<&'tracer mut dyn Tracer>,
+    tracer: &'tracer mut dyn Tracer,
     analysis_cache: &'analysis mut AnalysisCache,
     header: &'h PartialHeader,
     block_spec: &'c BlockExecutionSpec,
@@ -42,10 +40,10 @@ where
     beneficiary: Address,
 }
 
-pub fn execute<B: State>(
-    state: &mut IntraBlockState<'_, B>,
-    tracer: Option<&mut dyn Tracer>,
-    analysis_cache: &mut AnalysisCache,
+pub fn execute<'db, 'tracer, 'analysis, B: State>(
+    state: &mut IntraBlockState<'db, B>,
+    tracer: &'tracer mut dyn Tracer,
+    analysis_cache: &'analysis mut AnalysisCache,
     header: &PartialHeader,
     block_spec: &BlockExecutionSpec,
     txn: &MessageWithSender,
@@ -62,7 +60,7 @@ pub fn execute<B: State>(
     };
 
     let res = if let TransactionAction::Call(to) = txn.action() {
-        evm.call(InterpreterMessage {
+        evm.call(&InterpreterMessage {
             kind: CallKind::Call,
             is_static: false,
             depth: 0,
@@ -74,7 +72,7 @@ pub fn execute<B: State>(
             code_address: to,
         })?
     } else {
-        evm.create(CreateMessage {
+        evm.create(&CreateMessage {
             depth: 0,
             gas: gas as i64,
             sender: txn.sender,
@@ -96,7 +94,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
     B: State,
 {
-    fn create(&mut self, message: CreateMessage) -> anyhow::Result<Output> {
+    fn create(&mut self, message: &CreateMessage) -> anyhow::Result<Output> {
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
@@ -115,11 +113,7 @@ where
 
         let contract_addr = {
             if let Some(salt) = message.salt {
-                create2_address(
-                    message.sender,
-                    salt,
-                    H256::from_slice(&Keccak256::digest(&message.initcode[..])[..]),
-                )
+                create2_address(message.sender, salt, keccak256(&message.initcode[..]))
             } else {
                 create_address(message.sender, nonce)
             }
@@ -127,17 +121,15 @@ where
 
         self.state.access_account(contract_addr);
 
-        if let Some(tracer) = self.tracer.as_mut() {
-            tracer.capture_start(
-                message.depth.try_into().unwrap(),
-                message.sender,
-                contract_addr,
-                MessageKind::Create,
-                message.initcode.clone(),
-                message.gas.try_into().unwrap(),
-                message.endowment,
-            );
-        };
+        self.tracer.capture_start(
+            message.depth.try_into().unwrap(),
+            message.sender,
+            contract_addr,
+            MessageKind::Create,
+            message.initcode.clone(),
+            message.gas.try_into().unwrap(),
+            message.endowment,
+        );
 
         if self.state.get_nonce(contract_addr)? != 0
             || self.state.get_code_hash(contract_addr)? != EMPTY_HASH
@@ -171,7 +163,7 @@ where
             value: message.endowment,
         };
 
-        res = self.execute(deploy_message, message.initcode, None)?;
+        res = self.execute(&deploy_message, &message.initcode, None)?;
 
         if res.status_code == StatusCode::Success {
             let code_len = res.output_data.len();
@@ -209,64 +201,55 @@ where
         Ok(res)
     }
 
-    fn call(&mut self, message: InterpreterMessage) -> anyhow::Result<Output> {
-        let mut res = Output {
-            status_code: StatusCode::Success,
-            gas_left: message.gas,
-            output_data: Bytes::new(),
-            create_address: None,
-        };
-
-        let value = message.value;
-        if message.kind != CallKind::DelegateCall && self.state.get_balance(message.sender)? < value
+    fn call(&mut self, message: &InterpreterMessage) -> anyhow::Result<Output> {
+        if message.kind != CallKind::DelegateCall
+            && self.state.get_balance(message.sender)? < message.value
         {
-            res.status_code = StatusCode::InsufficientBalance;
-            return Ok(res);
+            return Ok(Output {
+                status_code: StatusCode::InsufficientBalance,
+                gas_left: message.gas,
+                output_data: Bytes::new(),
+                create_address: None,
+            });
         }
 
-        let precompiled = self.is_precompiled(message.code_address);
-
-        let code = if !precompiled {
-            self.state.get_code(message.code_address)?
+        let code_kind = if self.is_precompiled(message.code_address) {
+            CodeKind::Precompile
         } else {
-            None
+            CodeKind::Bytecode(self.state.get_code(message.code_address)?)
         };
 
-        if let Some(tracer) = &mut self.tracer {
-            let call_kind = {
-                match (message.kind, message.is_static) {
+        self.tracer.capture_start(
+            message.depth as u16,
+            message.sender,
+            message.recipient,
+            MessageKind::Call {
+                call_kind: match (message.kind, message.is_static) {
                     (CallKind::Call, true) => super::tracer::CallKind::StaticCall,
                     (CallKind::Call, false) => super::tracer::CallKind::Call,
                     (CallKind::CallCode, _) => super::tracer::CallKind::CallCode,
                     (CallKind::DelegateCall, _) => super::tracer::CallKind::DelegateCall,
                     _ => unreachable!(),
-                }
-            };
-            tracer.capture_start(
-                message.depth.try_into().unwrap(),
-                message.sender,
-                message.recipient,
-                MessageKind::Call {
-                    call_kind,
-                    code_kind: if precompiled {
-                        CodeKind::Precompile
-                    } else {
-                        CodeKind::Bytecode(None)
-                    },
                 },
-                message.input_data.clone(),
-                message.gas.try_into().unwrap(),
-                value,
-            )
-        }
+                code_kind: code_kind.clone(),
+            },
+            message.input_data.clone(),
+            message.gas as u64,
+            message.value,
+        );
 
         // https://eips.ethereum.org/EIPS/eip-161
-        if value == 0
+        if message.value == 0
             && self.block_spec.revision >= Revision::Spurious
-            && !precompiled
+            && matches!(code_kind, CodeKind::Bytecode(_))
             && !self.state.exists(message.code_address)?
         {
-            return Ok(res);
+            return Ok(Output {
+                status_code: StatusCode::Success,
+                gas_left: message.gas,
+                output_data: Bytes::new(),
+                create_address: None,
+            });
         }
 
         let snapshot = self.state.take_snapshot();
@@ -277,40 +260,57 @@ where
                 // https://github.com/ethereum/go-ethereum/blob/v1.9.25/core/vm/evm.go#L391
                 self.state.touch(message.recipient);
             } else {
-                self.state.subtract_from_balance(message.sender, value)?;
-                self.state.add_to_balance(message.recipient, value)?;
+                self.state
+                    .subtract_from_balance(message.sender, message.value)?;
+                self.state
+                    .add_to_balance(message.recipient, message.value)?;
             }
         }
 
-        if precompiled {
-            let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
-            let contract = &precompiled::CONTRACTS[num - 1];
-            let input = message.input_data;
-            if let Some(gas) = (contract.gas)(input.clone(), self.block_spec.revision)
-                .and_then(|g| i64::try_from(g).ok())
-            {
-                if gas > message.gas {
-                    res.status_code = StatusCode::OutOfGas;
-                } else if let Some(output) = (contract.run)(input) {
-                    res.status_code = StatusCode::Success;
-                    res.gas_left = message.gas - gas;
-                    res.output_data = output;
-                } else {
-                    res.status_code = StatusCode::PrecompileFailure;
+        let mut res = match &code_kind {
+            CodeKind::Bytecode(code) => {
+                let code = code.as_ref().map(|v| v as &[u8]).unwrap_or(&[]);
+                if code.is_empty() {
+                    return Ok(Output {
+                        status_code: StatusCode::Success,
+                        gas_left: message.gas,
+                        output_data: Bytes::new(),
+                        create_address: None,
+                    });
                 }
-            } else {
-                res.status_code = StatusCode::OutOfGas;
-            }
-        } else {
-            let code = code.unwrap_or_default();
-            if code.is_empty() {
-                return Ok(res);
-            }
 
-            let code_hash = self.state.get_code_hash(message.code_address)?;
+                let code_hash = self.state.get_code_hash(message.code_address)?;
 
-            res = self.execute(message, code, Some(code_hash))?;
-        }
+                self.execute(message, code, Some(&code_hash))?
+            }
+            CodeKind::Precompile => {
+                let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
+                let contract = &precompiled::CONTRACTS[num - 1];
+                let input = message.input_data.clone();
+                let mut res = Output {
+                    status_code: StatusCode::Success,
+                    gas_left: message.gas,
+                    output_data: Bytes::new(),
+                    create_address: None,
+                };
+                if let Some(gas) = (contract.gas)(input.clone(), self.block_spec.revision)
+                    .and_then(|g| i64::try_from(g).ok())
+                {
+                    if gas > message.gas {
+                        res.status_code = StatusCode::OutOfGas;
+                    } else if let Some(output) = (contract.run)(input) {
+                        res.status_code = StatusCode::Success;
+                        res.gas_left = message.gas - gas;
+                        res.output_data = output;
+                    } else {
+                        res.status_code = StatusCode::PrecompileFailure;
+                    }
+                } else {
+                    res.status_code = StatusCode::OutOfGas;
+                }
+                res
+            }
+        };
 
         if res.status_code != StatusCode::Success {
             self.state.revert_to_snapshot(snapshot);
@@ -324,307 +324,29 @@ where
 
     fn execute(
         &mut self,
-        msg: InterpreterMessage,
-        code: Bytes,
-        code_hash: Option<H256>,
+        msg: &InterpreterMessage,
+        code: &[u8],
+        code_hash: Option<&H256>,
     ) -> anyhow::Result<Output> {
-        let a;
         let analysis = if let Some(code_hash) = code_hash {
-            if let Some(cache) = self.analysis_cache.get(code_hash) {
+            if let Some(cache) = self.analysis_cache.get(code_hash).cloned() {
                 cache
             } else {
-                let analysis = AnalyzedCode::analyze(&code);
-                self.analysis_cache.put(code_hash, analysis);
-                self.analysis_cache.get(code_hash).unwrap()
+                let analysis = AnalyzedCode::analyze(code);
+                self.analysis_cache.put(*code_hash, analysis.clone());
+                analysis
             }
         } else {
-            a = AnalyzedCode::analyze(&code);
-            &a
+            AnalyzedCode::analyze(code)
         };
 
-        let mut interrupt = analysis
-            .execute_resumable(false, msg, self.block_spec.revision)
-            .resume(());
+        let revision = self.block_spec.revision;
 
-        let output = loop {
-            interrupt = match interrupt {
-                Interrupt::InstructionStart { .. } => unreachable!("tracing is disabled"),
-                Interrupt::AccountExists { interrupt, address } => {
-                    let exists = if self.block_spec.revision >= Revision::Spurious {
-                        !self.state.is_dead(address)?
-                    } else {
-                        self.state.exists(address)?
-                    };
-                    interrupt.resume(AccountExistsStatus { exists })
-                }
-                Interrupt::GetBalance { interrupt, address } => {
-                    let balance = self.state.get_balance(address)?;
-                    interrupt.resume(Balance { balance })
-                }
-                Interrupt::GetCodeSize { interrupt, address } => {
-                    let code_size =
-                        u64::try_from(self.state.get_code(address)?.map(|c| c.len()).unwrap_or(0))?
-                            .into();
-                    interrupt.resume(CodeSize { code_size })
-                }
-                Interrupt::GetStorage {
-                    interrupt,
-                    address,
-                    location,
-                } => {
-                    let value = self.state.get_current_storage(address, location)?;
-                    interrupt.resume(StorageValue { value })
-                }
-                Interrupt::SetStorage {
-                    interrupt,
-                    address,
-                    location,
-                    value: new_val,
-                } => {
-                    let current_val = self.state.get_current_storage(address, location)?;
+        let mut host = EvmHost { inner: self };
 
-                    let status = if current_val == new_val {
-                        StorageStatus::Unchanged
-                    } else {
-                        self.state.set_storage(address, location, new_val)?;
+        let output = analysis.execute(&mut host, msg, revision);
 
-                        let eip1283 = self.block_spec.revision >= Revision::Istanbul
-                            || self.block_spec.revision == Revision::Constantinople;
-
-                        if !eip1283 {
-                            if current_val == 0 {
-                                StorageStatus::Added
-                            } else if new_val == 0 {
-                                self.state.add_refund(fee::R_SCLEAR);
-                                StorageStatus::Deleted
-                            } else {
-                                StorageStatus::Modified
-                            }
-                        } else {
-                            let sload_cost = {
-                                if self.block_spec.revision >= Revision::Berlin {
-                                    fee::WARM_STORAGE_READ_COST
-                                } else if self.block_spec.revision >= Revision::Istanbul {
-                                    fee::G_SLOAD_ISTANBUL
-                                } else {
-                                    fee::G_SLOAD_TANGERINE_WHISTLE
-                                }
-                            };
-
-                            let mut sstore_reset_gas = fee::G_SRESET;
-                            if self.block_spec.revision >= Revision::Berlin {
-                                sstore_reset_gas -= fee::COLD_SLOAD_COST;
-                            }
-
-                            // https://eips.ethereum.org/EIPS/eip-1283
-                            let original_val =
-                                self.state.get_original_storage(address, location)?;
-
-                            // https://eips.ethereum.org/EIPS/eip-3529
-                            let sstore_clears_refund =
-                                if self.block_spec.revision >= Revision::London {
-                                    sstore_reset_gas + fee::ACCESS_LIST_STORAGE_KEY_COST
-                                } else {
-                                    fee::R_SCLEAR
-                                };
-
-                            if original_val == current_val {
-                                if original_val == 0 {
-                                    StorageStatus::Added
-                                } else {
-                                    if new_val == 0 {
-                                        self.state.add_refund(sstore_clears_refund);
-                                    }
-                                    StorageStatus::Modified
-                                }
-                            } else {
-                                if original_val != 0 {
-                                    if current_val == 0 {
-                                        self.state.subtract_refund(sstore_clears_refund);
-                                    }
-                                    if new_val == 0 {
-                                        self.state.add_refund(sstore_clears_refund);
-                                    }
-                                }
-                                if original_val == new_val {
-                                    let refund = {
-                                        if original_val == 0 {
-                                            fee::G_SSET - sload_cost
-                                        } else {
-                                            sstore_reset_gas - sload_cost
-                                        }
-                                    };
-
-                                    self.state.add_refund(refund);
-                                }
-                                StorageStatus::ModifiedAgain
-                            }
-                        }
-                    };
-
-                    interrupt.resume(StorageStatusInfo { status })
-                }
-                Interrupt::GetCodeHash { interrupt, address } => {
-                    let hash = h256_to_u256({
-                        if self.state.is_dead(address)? {
-                            H256::zero()
-                        } else {
-                            self.state.get_code_hash(address)?
-                        }
-                    });
-                    interrupt.resume(CodeHash { hash })
-                }
-                Interrupt::CopyCode {
-                    interrupt,
-                    address,
-                    offset,
-                    max_size,
-                } => {
-                    let mut buffer = vec![0; max_size];
-
-                    let code = self.state.get_code(address)?.unwrap_or_default();
-
-                    let mut copied = 0;
-                    if offset < code.len() {
-                        copied = min(max_size, code.len() - offset);
-                        buffer[..copied].copy_from_slice(&code[offset..offset + copied]);
-                    }
-
-                    buffer.truncate(copied);
-                    let code = buffer.into();
-
-                    interrupt.resume(Code { code })
-                }
-                Interrupt::Selfdestruct {
-                    interrupt,
-                    address,
-                    beneficiary,
-                } => {
-                    self.state.record_selfdestruct(address);
-                    let balance = self.state.get_balance(address)?;
-                    self.state.add_to_balance(beneficiary, balance)?;
-                    self.state.set_balance(address, 0)?;
-
-                    if let Some(tracer) = &mut self.tracer {
-                        tracer.capture_self_destruct(address, beneficiary);
-                    }
-
-                    interrupt.resume(())
-                }
-                Interrupt::Call {
-                    interrupt,
-                    call_data,
-                } => {
-                    let output = match call_data {
-                        Call::Create(message) => {
-                            let mut res = self.create(message)?;
-
-                            // https://eips.ethereum.org/EIPS/eip-211
-                            if res.status_code != StatusCode::Revert {
-                                // geth returns CREATE output only in case of REVERT
-                                res.output_data = Default::default();
-                            }
-
-                            res
-                        }
-                        Call::Call(message) => self.call(message)?,
-                    };
-
-                    interrupt.resume(CallOutput { output })
-                }
-                Interrupt::GetTxContext { interrupt } => {
-                    let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
-                    let tx_gas_price = self.txn.effective_gas_price(base_fee_per_gas);
-                    let tx_origin = self.txn.sender;
-                    let block_coinbase = self.beneficiary;
-                    let block_number = self.header.number.0;
-                    let block_timestamp = self.header.timestamp;
-                    let block_gas_limit = self.header.gas_limit;
-                    let block_difficulty = self.header.difficulty;
-                    let chain_id = self.block_spec.params.chain_id.0.into();
-                    let block_base_fee = base_fee_per_gas;
-
-                    let context = TxContext {
-                        tx_gas_price,
-                        tx_origin,
-                        block_coinbase,
-                        block_number,
-                        block_timestamp,
-                        block_gas_limit,
-                        block_difficulty,
-                        chain_id,
-                        block_base_fee,
-                    };
-
-                    interrupt.resume(TxContextData { context })
-                }
-                Interrupt::GetBlockHash {
-                    interrupt,
-                    block_number,
-                } => {
-                    let base_number = self.header.number;
-                    let distance = base_number.0 - block_number;
-                    assert!(distance <= 256);
-
-                    let mut hash = self.header.parent_hash;
-
-                    for i in 1..distance {
-                        hash = self
-                            .state
-                            .db()
-                            .read_header(BlockNumber(base_number.0 - i), hash)?
-                            .context("no header")?
-                            .parent_hash;
-                    }
-
-                    let hash = h256_to_u256(hash);
-                    interrupt.resume(BlockHash { hash })
-                }
-                Interrupt::EmitLog {
-                    interrupt,
-                    address,
-                    topics,
-                    data,
-                } => {
-                    self.state.add_log(Log {
-                        address,
-                        topics: topics.into_iter().map(u256_to_h256).collect(),
-                        data,
-                    });
-
-                    interrupt.resume(())
-                }
-                Interrupt::AccessAccount { interrupt, address } => {
-                    let status = if self.is_precompiled(address) {
-                        AccessStatus::Warm
-                    } else {
-                        self.state.access_account(address)
-                    };
-                    interrupt.resume(AccessAccountStatus { status })
-                }
-                Interrupt::AccessStorage {
-                    interrupt,
-                    address,
-                    location,
-                } => {
-                    let status = self.state.access_storage(address, location);
-                    interrupt.resume(AccessStorageStatus { status })
-                }
-                Interrupt::Complete { result, .. } => {
-                    let output = match result {
-                        Ok(output) => output.into(),
-                        Err(status_code) => Output {
-                            status_code,
-                            gas_left: 0,
-                            output_data: bytes::Bytes::new(),
-                            create_address: None,
-                        },
-                    };
-
-                    break output;
-                }
-            };
-        };
+        self.tracer.capture_end(&output);
 
         Ok(output)
     }
@@ -654,10 +376,275 @@ where
     }
 }
 
+struct EvmHost<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B>
+where
+    B: State,
+{
+    inner: &'a mut Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>,
+}
+
+impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: State> Host
+    for EvmHost<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B>
+{
+    fn trace_instructions(&self) -> bool {
+        self.inner.tracer.trace_instructions()
+    }
+    fn tracer(&mut self, mut f: impl FnMut(&mut dyn Tracer)) {
+        (f)(self.inner.tracer)
+    }
+
+    fn account_exists(&mut self, address: Address) -> bool {
+        if self.inner.block_spec.revision >= Revision::Spurious {
+            !self.inner.state.is_dead(address).unwrap()
+        } else {
+            self.inner.state.exists(address).unwrap()
+        }
+    }
+
+    fn get_storage(&mut self, address: Address, location: U256) -> U256 {
+        self.inner
+            .state
+            .get_current_storage(address, location)
+            .unwrap()
+    }
+
+    fn set_storage(&mut self, address: Address, location: U256, new_val: U256) -> StorageStatus {
+        let current_val = self
+            .inner
+            .state
+            .get_current_storage(address, location)
+            .unwrap();
+
+        if current_val == new_val {
+            StorageStatus::Unchanged
+        } else {
+            self.inner
+                .state
+                .set_storage(address, location, new_val)
+                .unwrap();
+
+            let eip1283 = self.inner.block_spec.revision >= Revision::Istanbul
+                || self.inner.block_spec.revision == Revision::Constantinople;
+
+            if !eip1283 {
+                if current_val == 0 {
+                    StorageStatus::Added
+                } else if new_val == 0 {
+                    self.inner.state.add_refund(fee::R_SCLEAR);
+                    StorageStatus::Deleted
+                } else {
+                    StorageStatus::Modified
+                }
+            } else {
+                let sload_cost = {
+                    if self.inner.block_spec.revision >= Revision::Berlin {
+                        fee::WARM_STORAGE_READ_COST
+                    } else if self.inner.block_spec.revision >= Revision::Istanbul {
+                        fee::G_SLOAD_ISTANBUL
+                    } else {
+                        fee::G_SLOAD_TANGERINE_WHISTLE
+                    }
+                };
+
+                let mut sstore_reset_gas = fee::G_SRESET;
+                if self.inner.block_spec.revision >= Revision::Berlin {
+                    sstore_reset_gas -= fee::COLD_SLOAD_COST;
+                }
+
+                // https://eips.ethereum.org/EIPS/eip-1283
+                let original_val = self
+                    .inner
+                    .state
+                    .get_original_storage(address, location)
+                    .unwrap();
+
+                // https://eips.ethereum.org/EIPS/eip-3529
+                let sstore_clears_refund = if self.inner.block_spec.revision >= Revision::London {
+                    sstore_reset_gas + fee::ACCESS_LIST_STORAGE_KEY_COST
+                } else {
+                    fee::R_SCLEAR
+                };
+
+                if original_val == current_val {
+                    if original_val == 0 {
+                        StorageStatus::Added
+                    } else {
+                        if new_val == 0 {
+                            self.inner.state.add_refund(sstore_clears_refund);
+                        }
+                        StorageStatus::Modified
+                    }
+                } else {
+                    if original_val != 0 {
+                        if current_val == 0 {
+                            self.inner.state.subtract_refund(sstore_clears_refund);
+                        }
+                        if new_val == 0 {
+                            self.inner.state.add_refund(sstore_clears_refund);
+                        }
+                    }
+                    if original_val == new_val {
+                        let refund = {
+                            if original_val == 0 {
+                                fee::G_SSET - sload_cost
+                            } else {
+                                sstore_reset_gas - sload_cost
+                            }
+                        };
+
+                        self.inner.state.add_refund(refund);
+                    }
+                    StorageStatus::ModifiedAgain
+                }
+            }
+        }
+    }
+
+    fn get_balance(&mut self, address: Address) -> U256 {
+        self.inner.state.get_balance(address).unwrap()
+    }
+
+    fn get_code_size(&mut self, address: Address) -> U256 {
+        u64::try_from(
+            self.inner
+                .state
+                .get_code(address)
+                .unwrap()
+                .map(|c| c.len())
+                .unwrap_or(0),
+        )
+        .unwrap()
+        .into()
+    }
+
+    fn get_code_hash(&mut self, address: Address) -> U256 {
+        h256_to_u256({
+            if self.inner.state.is_dead(address).unwrap() {
+                H256::zero()
+            } else {
+                self.inner.state.get_code_hash(address).unwrap()
+            }
+        })
+    }
+
+    fn copy_code(&mut self, address: Address, offset: usize, buffer: &mut [u8]) -> usize {
+        let code = self
+            .inner
+            .state
+            .get_code(address)
+            .unwrap()
+            .unwrap_or_default();
+
+        let mut copied = 0;
+        if offset < code.len() {
+            copied = min(buffer.len(), code.len() - offset);
+            buffer[..copied].copy_from_slice(&code[offset..offset + copied]);
+        }
+
+        copied
+    }
+
+    fn selfdestruct(&mut self, address: Address, beneficiary: Address) {
+        self.inner.state.record_selfdestruct(address);
+        let balance = self.inner.state.get_balance(address).unwrap();
+        self.inner
+            .state
+            .add_to_balance(beneficiary, balance)
+            .unwrap();
+        self.inner.state.set_balance(address, 0).unwrap();
+
+        self.tracer(|t| t.capture_self_destruct(address, beneficiary));
+    }
+
+    fn call(&mut self, msg: Call) -> Output {
+        match msg {
+            Call::Create(message) => {
+                let mut res = self.inner.create(message).unwrap();
+
+                // https://eips.ethereum.org/EIPS/eip-211
+                if res.status_code != StatusCode::Revert {
+                    // geth returns CREATE output only in case of REVERT
+                    res.output_data = Default::default();
+                }
+
+                res
+            }
+            Call::Call(message) => self.inner.call(message).unwrap(),
+        }
+    }
+
+    fn get_tx_context(&mut self) -> TxContext {
+        let base_fee_per_gas = self.inner.header.base_fee_per_gas.unwrap_or(U256::ZERO);
+        let tx_gas_price = self.inner.txn.effective_gas_price(base_fee_per_gas);
+        let tx_origin = self.inner.txn.sender;
+        let block_coinbase = self.inner.beneficiary;
+        let block_number = self.inner.header.number.0;
+        let block_timestamp = self.inner.header.timestamp;
+        let block_gas_limit = self.inner.header.gas_limit;
+        let block_difficulty = self.inner.header.difficulty;
+        let chain_id = self.inner.block_spec.params.chain_id.0.into();
+        let block_base_fee = base_fee_per_gas;
+
+        TxContext {
+            tx_gas_price,
+            tx_origin,
+            block_coinbase,
+            block_number,
+            block_timestamp,
+            block_gas_limit,
+            block_difficulty,
+            chain_id,
+            block_base_fee,
+        }
+    }
+
+    fn get_block_hash(&mut self, block_number: u64) -> U256 {
+        let base_number = self.inner.header.number;
+        let distance = base_number.0 - block_number;
+        assert!(distance <= 256);
+
+        let mut hash = self.inner.header.parent_hash;
+
+        for i in 1..distance {
+            hash = self
+                .inner
+                .state
+                .db()
+                .read_header(BlockNumber(base_number.0 - i), hash)
+                .unwrap()
+                .context("no header")
+                .unwrap()
+                .parent_hash;
+        }
+
+        h256_to_u256(hash)
+    }
+
+    fn emit_log(&mut self, address: Address, data: Bytes, topics: &[U256]) {
+        self.inner.state.add_log(Log {
+            address,
+            topics: topics.iter().copied().map(u256_to_h256).collect(),
+            data,
+        });
+    }
+
+    fn access_account(&mut self, address: Address) -> AccessStatus {
+        if self.inner.is_precompiled(address) {
+            AccessStatus::Warm
+        } else {
+            self.inner.state.access_account(address)
+        }
+    }
+
+    fn access_storage(&mut self, address: Address, location: U256) -> AccessStatus {
+        self.inner.state.access_storage(address, location)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{res::chainspec::MAINNET, InMemoryState};
+    use crate::{execution::tracer::NoopTracer, res::chainspec::MAINNET, InMemoryState};
     use bytes_literal::bytes;
     use hex_literal::hex;
 
@@ -667,9 +654,10 @@ mod tests {
         txn: &MessageWithSender,
         gas: u64,
     ) -> CallResult {
+        let mut tracer = NoopTracer;
         super::execute(
             state,
-            None,
+            &mut tracer,
             &mut AnalysisCache::default(),
             header,
             &MAINNET.collect_block_spec(header.number),

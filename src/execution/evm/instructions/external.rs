@@ -1,442 +1,337 @@
-use crate::execution::evm::{common::address_to_u256, host::*, state::ExecutionState};
+use crate::{
+    execution::evm::{
+        common::address_to_u256, host::*, instructions::memory, state::ExecutionState, StatusCode,
+    },
+    models::Revision,
+};
 use ethnum::U256;
 
+#[inline]
 pub(crate) fn address(state: &mut ExecutionState) {
     state.stack.push(address_to_u256(state.message.recipient));
 }
 
+#[inline]
 pub(crate) fn caller(state: &mut ExecutionState) {
     state.stack.push(address_to_u256(state.message.sender));
 }
 
+#[inline]
 pub(crate) fn callvalue(state: &mut ExecutionState) {
     state.stack.push(state.message.value);
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! balance {
-    ($state:expr,$rev:expr) => {
-        use $crate::{
-            execution::evm::{
-                common::*,
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::properties::*,
-            },
-            models::*,
-        };
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn balance<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{common::*, host::*, instructions::properties::*},
+        models::*,
+    };
 
-        let address = u256_to_address($state.stack.pop());
+    let address = u256_to_address(state.stack.pop());
 
-        if $rev >= Revision::Berlin {
-            let access_status = ResumeData::into_access_account_status({
-                yield InterruptData::AccessAccount { address }
-            })
-            .unwrap()
-            .status;
-            if access_status == AccessStatus::Cold {
-                $state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
-                if $state.gas_left < 0 {
-                    return Err(StatusCode::OutOfGas);
-                }
+    if REVISION >= Revision::Berlin {
+        if host.access_account(address) == AccessStatus::Cold {
+            state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
+            if state.gas_left < 0 {
+                return Err(StatusCode::OutOfGas);
             }
         }
+    }
 
-        let balance = ResumeData::into_balance({ yield InterruptData::GetBalance { address } })
-            .unwrap()
-            .balance;
+    state.stack.push(host.get_balance(address));
 
-        $state.stack.push(balance);
-    };
+    Ok(())
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! extcodesize {
-    ($state:expr,$rev:expr) => {
-        use $crate::{
-            execution::evm::{
-                common::*,
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::properties::*,
-            },
-            models::*,
-        };
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn extcodesize<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{common::*, host::*, instructions::properties::*},
+        models::*,
+    };
 
-        let address = u256_to_address($state.stack.pop());
+    let address = u256_to_address(state.stack.pop());
 
-        if $rev >= Revision::Berlin {
-            let access_account = ResumeData::into_access_account_status({
-                yield InterruptData::AccessAccount { address }
-            })
-            .unwrap()
-            .status;
-            if access_account == AccessStatus::Cold {
-                $state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
-                if $state.gas_left < 0 {
-                    return Err(StatusCode::OutOfGas);
-                }
+    if REVISION >= Revision::Berlin {
+        if host.access_account(address) == AccessStatus::Cold {
+            state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
+            if state.gas_left < 0 {
+                return Err(StatusCode::OutOfGas);
             }
         }
+    }
 
-        let code_size =
-            ResumeData::into_code_size({ yield InterruptData::GetCodeSize { address } })
-                .unwrap()
-                .code_size;
-        $state.stack.push(code_size);
-    };
+    state.stack.push(host.get_code_size(address));
+
+    Ok(())
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! push_txcontext {
-    ($state:expr, $accessor:expr) => {
-        use $crate::execution::evm::continuation::{interrupt_data::*, resume_data::*};
-
-        let tx_context = ResumeData::into_tx_context_data({ yield InterruptData::GetTxContext })
-            .unwrap()
-            .context;
-
-        $state.stack.push($accessor(tx_context));
-    };
-}
-
+#[inline]
 pub(crate) fn origin_accessor(tx_context: TxContext) -> U256 {
     address_to_u256(tx_context.tx_origin)
 }
 
+#[inline]
 pub(crate) fn coinbase_accessor(tx_context: TxContext) -> U256 {
     address_to_u256(tx_context.block_coinbase)
 }
 
+#[inline]
 pub(crate) fn gasprice_accessor(tx_context: TxContext) -> U256 {
     tx_context.tx_gas_price
 }
 
+#[inline]
 pub(crate) fn timestamp_accessor(tx_context: TxContext) -> U256 {
     tx_context.block_timestamp.into()
 }
 
+#[inline]
 pub(crate) fn number_accessor(tx_context: TxContext) -> U256 {
     tx_context.block_number.into()
 }
 
+#[inline]
 pub(crate) fn gaslimit_accessor(tx_context: TxContext) -> U256 {
     tx_context.block_gas_limit.into()
 }
 
+#[inline]
 pub(crate) fn difficulty_accessor(tx_context: TxContext) -> U256 {
     tx_context.block_difficulty
 }
 
+#[inline]
 pub(crate) fn chainid_accessor(tx_context: TxContext) -> U256 {
     tx_context.chain_id
 }
 
+#[inline]
 pub(crate) fn basefee_accessor(tx_context: TxContext) -> U256 {
     tx_context.block_base_fee
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! selfbalance {
-    ($state:expr) => {{
-        use $crate::execution::evm::continuation::{interrupt_data::*, resume_data::*};
-
-        let balance = ResumeData::into_balance({
-            yield InterruptData::GetBalance {
-                address: $state.message.recipient,
-            }
-        })
-        .unwrap()
-        .balance;
-
-        $state.stack.push(balance);
-    }};
+#[inline]
+pub(crate) fn selfbalance<H: Host>(state: &mut ExecutionState, host: &mut H) {
+    state.stack.push(host.get_balance(state.message.recipient));
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! blockhash {
-    ($state:expr) => {
-        use $crate::execution::evm::continuation::{interrupt_data::*, resume_data::*};
+#[inline]
+pub(crate) fn blockhash<H: Host>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    let number = state.stack.pop();
 
-        let number = $state.stack.pop();
+    let upper_bound = host.get_tx_context().block_number;
+    let lower_bound = upper_bound.saturating_sub(256);
 
-        let upper_bound = ResumeData::into_tx_context_data({ yield InterruptData::GetTxContext })
-            .unwrap()
-            .context
-            .block_number;
-        let lower_bound = upper_bound.saturating_sub(256);
-
-        let mut header = U256::ZERO;
-        if number <= u128::from(u64::MAX) {
-            let n = number.as_u64();
-            if (lower_bound..upper_bound).contains(&n) {
-                header = ResumeData::into_block_hash({
-                    yield InterruptData::GetBlockHash { block_number: n }
-                })
-                .unwrap()
-                .hash;
-            }
+    let mut header = U256::ZERO;
+    if number <= u128::from(u64::MAX) {
+        let n = number.as_u64();
+        if (lower_bound..upper_bound).contains(&n) {
+            header = host.get_block_hash(n);
         }
+    }
 
-        $state.stack.push(header);
-    };
+    state.stack.push(header);
+
+    Ok(())
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! do_log {
-    ($state:expr, $num_topics:expr) => {{
-        use arrayvec::ArrayVec;
-        use $crate::execution::evm::continuation::{interrupt_data::*, resume_data::*};
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use arrayvec::ArrayVec;
 
-        if $state.message.is_static {
-            return Err(StatusCode::StaticModeViolation);
-        }
+    if state.message.is_static {
+        return Err(StatusCode::StaticModeViolation);
+    }
 
-        let offset = $state.stack.pop();
-        let size = $state.stack.pop();
+    let offset = state.stack.pop();
+    let size = state.stack.pop();
 
-        let region =
-            memory::get_memory_region($state, offset, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region =
+        memory::get_memory_region(state, offset, size).map_err(|_| StatusCode::OutOfGas)?;
 
-        if let Some(region) = &region {
-            let cost = region.size.get() as i64 * 8;
-            $state.gas_left -= cost;
-            if $state.gas_left < 0 {
-                return Err(StatusCode::OutOfGas);
-            }
-        }
-
-        let mut topics = ArrayVec::new();
-        for _ in 0..$num_topics {
-            topics.push($state.stack.pop());
-        }
-
-        let data = if let Some(region) = region {
-            &$state.memory[region.offset..region.offset + region.size.get()]
-        } else {
-            &[]
-        };
-
-        let data = data.to_vec().into();
-        let r = {
-            yield InterruptData::EmitLog {
-                address: $state.message.recipient,
-                data,
-                topics,
-            }
-        };
-
-        debug_assert!(matches!(r, ResumeData::Empty));
-    }};
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! sload {
-    ($state:expr,$rev:expr) => {{
-        use $crate::{
-            execution::evm::{
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::properties::{COLD_SLOAD_COST, WARM_STORAGE_READ_COST},
-            },
-            models::*,
-        };
-
-        let location = $state.stack.pop();
-
-        if $rev >= Revision::Berlin {
-            let access_status = ResumeData::into_access_storage_status({
-                yield InterruptData::AccessStorage {
-                    address: $state.message.recipient,
-                    location,
-                }
-            })
-            .unwrap()
-            .status;
-            if access_status == AccessStatus::Cold {
-                // The warm storage access cost is already applied (from the cost table).
-                // Here we need to apply additional cold storage access cost.
-                const ADDITIONAL_COLD_SLOAD_COST: u16 = COLD_SLOAD_COST - WARM_STORAGE_READ_COST;
-                $state.gas_left -= i64::from(ADDITIONAL_COLD_SLOAD_COST);
-                if $state.gas_left < 0 {
-                    return Err(StatusCode::OutOfGas);
-                }
-            }
-        }
-
-        let storage = ResumeData::into_storage_value({
-            yield InterruptData::GetStorage {
-                address: $state.message.recipient,
-                location,
-            }
-        })
-        .unwrap()
-        .value;
-
-        $state.stack.push(storage);
-    }};
-}
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! sstore {
-    ($state:expr,$rev:expr) => {{
-        use $crate::{
-            execution::evm::{
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::properties::{COLD_SLOAD_COST, WARM_STORAGE_READ_COST},
-            },
-            models::*,
-        };
-
-        if $state.message.is_static {
-            return Err(StatusCode::StaticModeViolation);
-        }
-
-        if $rev >= Revision::Istanbul {
-            if $state.gas_left <= 2300 {
-                return Err(StatusCode::OutOfGas);
-            }
-        }
-
-        let location = $state.stack.pop();
-        let value = $state.stack.pop();
-
-        let mut cost = 0;
-        if $rev >= Revision::Berlin {
-            let access_status = ResumeData::into_access_storage_status({
-                yield InterruptData::AccessStorage {
-                    address: $state.message.recipient,
-                    location,
-                }
-            })
-            .unwrap()
-            .status;
-
-            if access_status == AccessStatus::Cold {
-                cost = COLD_SLOAD_COST;
-            }
-        }
-
-        let status = ResumeData::into_storage_status_info({
-            yield InterruptData::SetStorage {
-                address: $state.message.recipient,
-                location,
-                value,
-            }
-        })
-        .unwrap()
-        .status;
-
-        cost = match status {
-            StorageStatus::Unchanged | StorageStatus::ModifiedAgain => {
-                if $rev >= Revision::Berlin {
-                    cost + WARM_STORAGE_READ_COST
-                } else if $rev == Revision::Istanbul {
-                    800
-                } else if $rev == Revision::Constantinople {
-                    200
-                } else {
-                    5000
-                }
-            }
-            StorageStatus::Modified | StorageStatus::Deleted => {
-                if $rev >= Revision::Berlin {
-                    cost + 5000 - COLD_SLOAD_COST
-                } else {
-                    5000
-                }
-            }
-            StorageStatus::Added => cost + 20000,
-        };
-        $state.gas_left -= i64::from(cost);
-        if $state.gas_left < 0 {
+    if let Some(region) = &region {
+        let cost = region.size.get() as i64 * 8;
+        state.gas_left -= cost;
+        if state.gas_left < 0 {
             return Err(StatusCode::OutOfGas);
         }
-    }};
+    }
+
+    let mut topics = ArrayVec::<U256, 4>::new();
+    for _ in 0..NUM_TOPICS {
+        topics.push(state.stack.pop());
+    }
+
+    let data = if let Some(region) = region {
+        &state.memory[region.offset..region.offset + region.size.get()]
+    } else {
+        &[]
+    }
+    .to_vec()
+    .into();
+
+    host.emit_log(state.message.recipient, data, &*topics);
+
+    Ok(())
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! selfdestruct {
-    ($state:expr,$rev:expr) => {{
-        use $crate::{
-            execution::evm::{
-                common::*,
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::properties::*,
-            },
-            models::*,
-        };
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn sload<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{
+            host::*,
+            instructions::properties::{COLD_SLOAD_COST, WARM_STORAGE_READ_COST},
+        },
+        models::*,
+    };
 
-        if $state.message.is_static {
-            return Err(StatusCode::StaticModeViolation);
+    let location = state.stack.pop();
+
+    if REVISION >= Revision::Berlin {
+        if host.access_storage(state.message.recipient, location) == AccessStatus::Cold {
+            // The warm storage access cost is already applied (from the cost table).
+            // Here we need to apply additional cold storage access cost.
+            const ADDITIONAL_COLD_SLOAD_COST: u16 = COLD_SLOAD_COST - WARM_STORAGE_READ_COST;
+            state.gas_left -= i64::from(ADDITIONAL_COLD_SLOAD_COST);
+            if state.gas_left < 0 {
+                return Err(StatusCode::OutOfGas);
+            }
         }
+    }
 
-        let beneficiary = u256_to_address($state.stack.pop());
+    state
+        .stack
+        .push(host.get_storage(state.message.recipient, location));
 
-        if $rev >= Revision::Berlin {
-            let access_status = ResumeData::into_access_account_status({
-                yield InterruptData::AccessAccount {
-                    address: beneficiary,
-                }
-            })
-            .unwrap()
-            .status;
-            if access_status == AccessStatus::Cold {
-                $state.gas_left -= i64::from(COLD_ACCOUNT_ACCESS_COST);
-                if $state.gas_left < 0 {
+    Ok(())
+}
+
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn sstore<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{
+            host::*,
+            instructions::properties::{COLD_SLOAD_COST, WARM_STORAGE_READ_COST},
+        },
+        models::*,
+    };
+
+    if state.message.is_static {
+        return Err(StatusCode::StaticModeViolation);
+    }
+
+    if REVISION >= Revision::Istanbul {
+        if state.gas_left <= 2300 {
+            return Err(StatusCode::OutOfGas);
+        }
+    }
+
+    let location = state.stack.pop();
+    let value = state.stack.pop();
+
+    let mut cost = 0;
+    if REVISION >= Revision::Berlin {
+        if host.access_storage(state.message.recipient, location) == AccessStatus::Cold {
+            cost = COLD_SLOAD_COST;
+        }
+    }
+
+    cost = match host.set_storage(state.message.recipient, location, value) {
+        StorageStatus::Unchanged | StorageStatus::ModifiedAgain => {
+            if REVISION >= Revision::Berlin {
+                cost + WARM_STORAGE_READ_COST
+            } else if REVISION == Revision::Istanbul {
+                800
+            } else if REVISION == Revision::Constantinople {
+                200
+            } else {
+                5000
+            }
+        }
+        StorageStatus::Modified | StorageStatus::Deleted => {
+            if REVISION >= Revision::Berlin {
+                cost + 5000 - COLD_SLOAD_COST
+            } else {
+                5000
+            }
+        }
+        StorageStatus::Added => cost + 20000,
+    };
+    state.gas_left -= i64::from(cost);
+    if state.gas_left < 0 {
+        return Err(StatusCode::OutOfGas);
+    }
+
+    Ok(())
+}
+
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn selfdestruct<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{common::*, host::*, instructions::properties::*},
+        models::*,
+    };
+
+    if state.message.is_static {
+        return Err(StatusCode::StaticModeViolation);
+    }
+
+    let beneficiary = u256_to_address(state.stack.pop());
+
+    if REVISION >= Revision::Berlin {
+        if host.access_account(beneficiary) == AccessStatus::Cold {
+            state.gas_left -= i64::from(COLD_ACCOUNT_ACCESS_COST);
+            if state.gas_left < 0 {
+                return Err(StatusCode::OutOfGas);
+            }
+        }
+    }
+
+    if REVISION >= Revision::Tangerine {
+        if REVISION == Revision::Tangerine || host.get_balance(state.message.recipient) != 0 {
+            // After TANGERINE_WHISTLE apply additional cost of
+            // sending value to a non-existing account.
+            if !host.account_exists(beneficiary) {
+                state.gas_left -= 25000;
+                if state.gas_left < 0 {
                     return Err(StatusCode::OutOfGas);
                 }
             }
         }
+    }
 
-        if $rev >= Revision::Tangerine {
-            if ($rev == Revision::Tangerine
-                || !{
-                    ResumeData::into_balance({
-                        yield InterruptData::GetBalance {
-                            address: $state.message.recipient,
-                        }
-                    })
-                    .unwrap()
-                    .balance
-                        == 0
-                })
-            {
-                // After TANGERINE_WHISTLE apply additional cost of
-                // sending value to a non-existing account.
-                if !ResumeData::into_account_exists_status({
-                    yield InterruptData::AccountExists {
-                        address: beneficiary,
-                    }
-                })
-                .unwrap()
-                .exists
-                {
-                    $state.gas_left -= 25000;
-                    if $state.gas_left < 0 {
-                        return Err(StatusCode::OutOfGas);
-                    }
-                }
-            }
-        }
+    host.selfdestruct(state.message.recipient, beneficiary);
 
-        let r = yield InterruptData::Selfdestruct {
-            address: $state.message.recipient,
-            beneficiary,
-        };
-        debug_assert!(matches!(r, ResumeData::Empty));
-    }};
+    Ok(())
 }
 
 #[cfg(test)]

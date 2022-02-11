@@ -1,4 +1,10 @@
-use super::common::{InterpreterMessage, Output};
+use crate::execution::tracer::{NoopTracer, Tracer};
+
+use super::{
+    common::{InterpreterMessage, Output},
+    CreateMessage,
+};
+use bytes::Bytes;
 use ethereum_types::Address;
 use ethnum::U256;
 
@@ -52,44 +58,56 @@ pub struct TxContext {
     pub block_base_fee: U256,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum Call<'a> {
+    Call(&'a InterpreterMessage),
+    Create(&'a CreateMessage),
+}
+
 /// Abstraction that exposes host context to EVM.
 pub trait Host {
+    fn trace_instructions(&self) -> bool {
+        false
+    }
+    fn tracer(&mut self, mut f: impl FnMut(&mut dyn Tracer)) {
+        (f)(&mut NoopTracer)
+    }
     /// Check if an account exists.
-    fn account_exists(&self, address: Address) -> bool;
+    fn account_exists(&mut self, address: Address) -> bool;
     /// Get value of a storage key.
     ///
     /// Returns `Ok(U256::zero())` if does not exist.
-    fn get_storage(&self, address: Address, key: U256) -> U256;
+    fn get_storage(&mut self, address: Address, key: U256) -> U256;
     /// Set value of a storage key.
     fn set_storage(&mut self, address: Address, key: U256, value: U256) -> StorageStatus;
     /// Get balance of an account.
     ///
     /// Returns `Ok(0)` if account does not exist.
-    fn get_balance(&self, address: Address) -> U256;
+    fn get_balance(&mut self, address: Address) -> U256;
     /// Get code size of an account.
     ///
     /// Returns `Ok(0)` if account does not exist.
-    fn get_code_size(&self, address: Address) -> U256;
+    fn get_code_size(&mut self, address: Address) -> U256;
     /// Get code hash of an account.
     ///
     /// Returns `Ok(0)` if account does not exist.
-    fn get_code_hash(&self, address: Address) -> U256;
+    fn get_code_hash(&mut self, address: Address) -> U256;
     /// Copy code of an account.
     ///
     /// Returns `Ok(0)` if offset is invalid.
-    fn copy_code(&self, address: Address, offset: usize, buffer: &mut [u8]) -> usize;
+    fn copy_code(&mut self, address: Address, offset: usize, buffer: &mut [u8]) -> usize;
     /// Self-destruct account.
     fn selfdestruct(&mut self, address: Address, beneficiary: Address);
     /// Call to another account.
-    fn call(&mut self, msg: &InterpreterMessage) -> Output;
+    fn call(&mut self, msg: Call) -> Output;
     /// Retrieve transaction context.
-    fn get_tx_context(&self) -> TxContext;
+    fn get_tx_context(&mut self) -> TxContext;
     /// Get block hash.
     ///
     /// Returns `Ok(U256::zero())` if block does not exist.
-    fn get_block_hash(&self, block_number: u64) -> U256;
+    fn get_block_hash(&mut self, block_number: u64) -> U256;
     /// Emit a log.
-    fn emit_log(&mut self, address: Address, data: &[u8], topics: &[U256]);
+    fn emit_log(&mut self, address: Address, data: Bytes, topics: &[U256]);
     /// Mark account as warm, return previous access status.
     ///
     /// Returns `Ok(AccessStatus::Cold)` if account does not exist.
@@ -104,11 +122,11 @@ pub trait Host {
 pub struct DummyHost;
 
 impl Host for DummyHost {
-    fn account_exists(&self, _: Address) -> bool {
+    fn account_exists(&mut self, _: Address) -> bool {
         todo!()
     }
 
-    fn get_storage(&self, _: Address, _: U256) -> U256 {
+    fn get_storage(&mut self, _: Address, _: U256) -> U256 {
         todo!()
     }
 
@@ -116,19 +134,19 @@ impl Host for DummyHost {
         todo!()
     }
 
-    fn get_balance(&self, _: Address) -> U256 {
+    fn get_balance(&mut self, _: Address) -> U256 {
         todo!()
     }
 
-    fn get_code_size(&self, _: Address) -> U256 {
+    fn get_code_size(&mut self, _: Address) -> U256 {
         todo!()
     }
 
-    fn get_code_hash(&self, _: Address) -> U256 {
+    fn get_code_hash(&mut self, _: Address) -> U256 {
         todo!()
     }
 
-    fn copy_code(&self, _: Address, _: usize, _: &mut [u8]) -> usize {
+    fn copy_code(&mut self, _: Address, _: usize, _: &mut [u8]) -> usize {
         todo!()
     }
 
@@ -136,19 +154,19 @@ impl Host for DummyHost {
         todo!()
     }
 
-    fn call(&mut self, _: &InterpreterMessage) -> Output {
+    fn call(&mut self, _: Call) -> Output {
         todo!()
     }
 
-    fn get_tx_context(&self) -> TxContext {
+    fn get_tx_context(&mut self) -> TxContext {
         todo!()
     }
 
-    fn get_block_hash(&self, _: u64) -> U256 {
+    fn get_block_hash(&mut self, _: u64) -> U256 {
         todo!()
     }
 
-    fn emit_log(&mut self, _: Address, _: &[u8], _: &[U256]) {
+    fn emit_log(&mut self, _: Address, _: Bytes, _: &[U256]) {
         todo!()
     }
 

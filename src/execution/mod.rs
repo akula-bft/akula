@@ -1,4 +1,4 @@
-use self::{analysis_cache::AnalysisCache, processor::ExecutionProcessor};
+use self::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer};
 use crate::{consensus, crypto::*, models::*, State};
 
 pub mod address;
@@ -17,10 +17,11 @@ pub fn execute_block<S: State>(
 ) -> anyhow::Result<Vec<Receipt>> {
     let mut analysis_cache = AnalysisCache::default();
     let mut engine = consensus::engine_factory(config.clone())?;
+    let mut tracer = NoopTracer;
     let config = config.collect_block_spec(header.number);
     ExecutionProcessor::new(
         state,
-        None,
+        &mut tracer,
         &mut analysis_cache,
         &mut *engine,
         header,

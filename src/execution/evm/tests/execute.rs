@@ -1374,7 +1374,7 @@ fn memory_access() {
     .map(MemoryAccessParams::from)
     .collect();
 
-    let metrics = &*crate::execution::evm::instructions::PROPERTIES;
+    let metrics = &crate::execution::evm::instructions::PROPERTIES;
 
     for p in memory_access_test_cases {
         let push_size = format!("64{:0>10x}", p.size);

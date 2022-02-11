@@ -4,52 +4,52 @@ use crate::{
 };
 use ethereum_types::U512;
 use ethnum::U256;
-use i256::I256;
+use i256::{i256_div, i256_mod};
 
-#[inline(always)]
+#[inline]
 pub(crate) fn add(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.pop();
     stack.push(a.overflowing_add(b).0);
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn mul(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.pop();
     stack.push(a.overflowing_mul(b).0);
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn sub(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.pop();
     stack.push(a.overflowing_sub(b).0);
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn div(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
     *b = if *b == 0 { U256::ZERO } else { a / *b };
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn sdiv(stack: &mut Stack) {
-    let a = I256::from(stack.pop());
-    let b = I256::from(stack.pop());
-    let v = a / b;
-    stack.push(v.into());
+    let a = stack.pop();
+    let b = stack.pop();
+    let v = i256_div(a, b);
+    stack.push(v);
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn modulo(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
     *b = if *b == 0 { U256::ZERO } else { a % *b };
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn smod(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
@@ -57,11 +57,11 @@ pub(crate) fn smod(stack: &mut Stack) {
     if *b == 0 {
         *b = U256::ZERO
     } else {
-        let v = I256::from(a) % I256::from(*b);
-        *b = v.into();
+        *b = i256_mod(a, *b);
     };
 }
 
+#[inline]
 pub(crate) fn addmod(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.pop();
@@ -83,6 +83,7 @@ pub(crate) fn addmod(stack: &mut Stack) {
     stack.push(v);
 }
 
+#[inline]
 pub(crate) fn mulmod(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.pop();
@@ -104,6 +105,7 @@ pub(crate) fn mulmod(stack: &mut Stack) {
     stack.push(v);
 }
 
+#[inline]
 fn log2floor(value: U256) -> u64 {
     debug_assert!(value != 0);
     let mut l: u64 = 256;
@@ -122,6 +124,7 @@ fn log2floor(value: U256) -> u64 {
     l
 }
 
+#[inline]
 pub(crate) fn exp<const REVISION: Revision>(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let mut base = state.stack.pop();
     let mut power = state.stack.pop();
@@ -156,6 +159,7 @@ pub(crate) fn exp<const REVISION: Revision>(state: &mut ExecutionState) -> Resul
     Ok(())
 }
 
+#[inline]
 pub(crate) fn signextend(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.get_mut(0);

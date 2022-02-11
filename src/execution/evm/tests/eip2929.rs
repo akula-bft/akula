@@ -18,7 +18,7 @@ fn eip2929_case1() {
         .output_data([])
         .inspect_host(|host, msg| {
             assert_eq!(
-                host.recorded.lock().account_accesses,
+                host.recorded.account_accesses,
                 [
                     msg.sender,
                     msg.recipient,
@@ -65,7 +65,7 @@ fn eip2929_case2() {
         .output_data([])
         .inspect_host(|host, msg| {
             assert_eq!(
-                host.recorded.lock().account_accesses,
+                host.recorded.account_accesses,
                 [
                     msg.sender,
                     msg.recipient,
@@ -355,7 +355,7 @@ fn eip2929_delegatecall_cold() {
         .gas_used(2618)
         .inspect_host(|host, msg| {
             assert_eq!(
-                host.recorded.lock().account_accesses,
+                host.recorded.account_accesses,
                 [
                     msg.sender,
                     msg.recipient,
@@ -371,7 +371,7 @@ fn eip2929_delegatecall_cold() {
         .gas_used(2617)
         .inspect_host(|host, msg| {
             assert_eq!(
-                host.recorded.lock().account_accesses,
+                host.recorded.account_accesses,
                 [
                     msg.sender,
                     msg.recipient,

@@ -47,7 +47,7 @@ hash256-std-hasher = "0.15"
 hex = "0.4"
 hex-literal = "0.3"
 http = "0.2"
-i256 = { git = "https://github.com/vorot93/rust-i256", branch = "ethnum" }
+i256 = { git = "https://github.com/vorot93/rust-i256", branch = "ethnum-2" }
 itertools = "0.10"
 jsonrpsee = { git = "https://github.com/paritytech/jsonrpsee", features = [
     "server",
@@ -83,7 +83,7 @@ tempfile = "3"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-toml = "0.5"
+toml = { version = "0.5", features = ["preserve_order"] }
 tonic = { version = "0.6", default-features = false, features = [
     "codegen",
     "prost",
@@ -101,13 +101,18 @@ vergen = "6"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
+criterion = { version = "0.3", default-features = false }
+include_dir = "0.7"
+pprof = { version = "0.6", features = ["flamegraph"] }
 proptest = "1.0.0"
+rand = { version = "0.8", features = ["std"] }
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4.2"
 fdlimit = "0.2"
 
 [patch.crates-io]
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging" }
+arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 
 [[bin]]
 path = "bin/akula.rs"
@@ -125,7 +130,17 @@ name = "akula-toolbox"
 path = "bin/consensus-tests.rs"
 name = "consensus-tests"
 
+[[bench]]
+name = "bench"
+path = "./src/execution/evm/benches/bench.rs"
+harness = false
+
 [profile.production]
 inherits = "release"
+panic = "abort"
+codegen-units = 1
+lto = true
+
+[profile.bench]
 codegen-units = 1
 lto = true

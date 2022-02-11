@@ -5,12 +5,12 @@ use std::{borrow::Cow, fmt::Display};
 pub struct OpCode(pub u8);
 
 impl OpCode {
-    #[inline(always)]
+    #[inline]
     pub const fn to_u8(self) -> u8 {
         self.0
     }
 
-    #[inline(always)]
+    #[inline]
     pub const fn to_usize(self) -> usize {
         self.to_u8() as usize
     }
@@ -322,7 +322,7 @@ impl OpCode {
     }
 
     #[cfg(feature = "util")]
-    #[inline(always)]
+    #[inline]
     pub fn push_size(self) -> Option<u8> {
         (self.to_u8() >= OpCode::PUSH1.to_u8() && self.to_u8() <= OpCode::PUSH32.to_u8())
             .then(|| self.to_u8() - OpCode::PUSH1.to_u8() + 1)

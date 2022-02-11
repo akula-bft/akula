@@ -32,10 +32,8 @@ fn delegatecall() {
         .inspect_host(move |host, _| {
             let gas_left = 1700 - 736;
 
-            let r = host.recorded.lock();
-
-            assert_eq!(r.calls.len(), 1);
-            let call_msg = r.calls.last().unwrap();
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = host.recorded.calls.last().unwrap();
             assert_eq!(call_msg.gas, gas_left - gas_left / 64);
             assert_eq!(call_msg.input_data.len(), 3);
             assert_eq!(call_msg.value.to_be_bytes()[17], 0xfe);
@@ -52,10 +50,8 @@ fn delegatecall_static() {
         .status(StatusCode::Success)
         .gas_used(719)
         .inspect_host(|host, _| {
-            let r = host.recorded.lock();
-
-            assert_eq!(r.calls.len(), 1);
-            let call_msg = r.calls.last().unwrap();
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = host.recorded.calls.last().unwrap();
             assert_eq!(call_msg.gas, 1);
             assert!(call_msg.is_static);
         })
@@ -108,9 +104,8 @@ fn create() {
                 0xcc
             );
 
-            let r = host.recorded.lock();
-            assert_eq!(r.calls.len(), 1);
-            assert_eq!(r.calls.last().unwrap().input_data.len(), 0x20);
+            assert_eq!(host.recorded.calls.len(), 1);
+            assert_eq!(host.recorded.calls.last().unwrap().input_data.len(), 0x20);
         })
         .check()
 }
@@ -129,10 +124,9 @@ fn create_gas() {
                 49719
             })
             .inspect_host(move |host, _| {
-                let r = host.recorded.lock();
-                assert_eq!(r.calls.len(), 1);
+                assert_eq!(host.recorded.calls.len(), 1);
                 assert_eq!(
-                    r.calls.last().unwrap().gas,
+                    host.recorded.calls.last().unwrap().gas,
                     if rev == Revision::Homestead {
                         17991
                     } else {
@@ -164,11 +158,9 @@ fn create2() {
         .gas_used(115817)
         .status(StatusCode::Success)
         .inspect_host(move |host, _| {
-            let r = host.recorded.lock();
+            assert_eq!(host.recorded.calls.len(), 1);
 
-            assert_eq!(r.calls.len(), 1);
-
-            let call_msg = r.calls.last().unwrap();
+            let call_msg = host.recorded.calls.last().unwrap();
             assert_eq!(
                 call_msg.kind,
                 CallKind::Create2 {
@@ -203,14 +195,12 @@ fn create2_salt_cost() {
         .status(StatusCode::Success)
         .gas_left(0)
         .inspect_host(|host, _| {
-            let r = host.recorded.lock();
-
-            assert_eq!(r.calls.len(), 1);
+            assert_eq!(host.recorded.calls.len(), 1);
             assert_eq!(
-                r.calls.last().unwrap().kind,
+                host.recorded.calls.last().unwrap().kind,
                 CallKind::Create2 { salt: U256::ZERO }
             );
-            assert_eq!(r.calls.last().unwrap().depth, 1);
+            assert_eq!(host.recorded.calls.last().unwrap().depth, 1);
         })
         .check();
 
@@ -219,7 +209,7 @@ fn create2_salt_cost() {
         .gas_left(0)
         .inspect_host(|host, _| {
             // No another CREATE2.
-            assert_eq!(host.recorded.lock().calls.len(), 0)
+            assert_eq!(host.recorded.calls.len(), 0)
         })
         .check()
 }
@@ -244,7 +234,7 @@ fn create_balance_too_low() {
             .status(StatusCode::Success)
             .output_value(0_u128)
             .inspect_host(|host, _| {
-                assert_eq!(host.recorded.lock().calls, []);
+                assert_eq!(host.recorded.calls, []);
             })
             .check()
     }
@@ -277,11 +267,9 @@ fn create_failure() {
             .status(StatusCode::Success)
             .output_data(H256::from(create_address).to_fixed_bytes())
             .inspect_host(move |host, _| {
-                let r = host.recorded.lock();
-
-                assert_eq!(r.calls.len(), 1);
+                assert_eq!(host.recorded.calls.len(), 1);
                 assert_eq!(
-                    r.calls.last().unwrap().kind,
+                    host.recorded.calls.last().unwrap().kind,
                     if op == OpCode::CREATE {
                         CallKind::Create
                     } else {
@@ -298,11 +286,9 @@ fn create_failure() {
             .status(StatusCode::Success)
             .output_value(0_u128)
             .inspect_host(move |host, _| {
-                let r = host.recorded.lock();
-
-                assert_eq!(r.calls.len(), 1);
+                assert_eq!(host.recorded.calls.len(), 1);
                 assert_eq!(
-                    r.calls.last().unwrap().kind,
+                    host.recorded.calls.last().unwrap().kind,
                     if op == OpCode::CREATE {
                         CallKind::Create
                     } else {
@@ -319,11 +305,9 @@ fn create_failure() {
             .status(StatusCode::Success)
             .output_value(0_u128)
             .inspect_host(move |host, _| {
-                let r = host.recorded.lock();
-
-                assert_eq!(r.calls.len(), 1);
+                assert_eq!(host.recorded.calls.len(), 1);
                 assert_eq!(
-                    r.calls.last().unwrap().kind,
+                    host.recorded.calls.last().unwrap().kind,
                     if op == OpCode::CREATE {
                         CallKind::Create
                     } else {
@@ -364,7 +348,7 @@ fn call_failing_with_value() {
             .gas_used(7447)
             .inspect_host(|host, _| {
                 // There was no call().
-                assert_eq!(host.recorded.lock().calls, []);
+                assert_eq!(host.recorded.calls, []);
             })
             .check();
 
@@ -374,7 +358,7 @@ fn call_failing_with_value() {
             .status(StatusCode::OutOfGas)
             .inspect_host(|host, _| {
                 // There was no call().
-                assert_eq!(host.recorded.lock().calls, []);
+                assert_eq!(host.recorded.calls, []);
             })
             .check();
 
@@ -384,7 +368,7 @@ fn call_failing_with_value() {
             .status(StatusCode::OutOfGas)
             .inspect_host(|host, _| {
                 // There was no call().
-                assert_eq!(host.recorded.lock().calls, []);
+                assert_eq!(host.recorded.calls, []);
             })
             .check();
     }
@@ -407,9 +391,8 @@ fn call_with_value() {
         .gas_used(7447 + 32082)
         .status(StatusCode::Success)
         .inspect_host(move |host, _| {
-            let r = host.recorded.lock();
-            assert_eq!(r.calls.len(), 1);
-            let call_msg = &r.calls[0];
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = &host.recorded.calls[0];
             assert_eq!(call_msg.kind, CallKind::Call);
             assert_eq!(call_msg.depth, 1);
             assert_eq!(call_msg.gas, 32083);
@@ -433,7 +416,7 @@ fn call_with_value_depth_limit() {
         .gas_used(7447)
         .status(StatusCode::Success)
         .inspect_host(|host, _| {
-            assert_eq!(host.recorded.lock().calls, []);
+            assert_eq!(host.recorded.calls, []);
         })
         .check()
 }
@@ -466,7 +449,7 @@ fn call_depth_limit() {
             )
             .status(StatusCode::Success)
             .inspect_host(|host, _| {
-                assert_eq!(host.recorded.lock().calls, []);
+                assert_eq!(host.recorded.calls, []);
             })
             .output_value(U256::ZERO)
             .check()
@@ -597,9 +580,8 @@ fn call_value_zero_to_nonexistent_account() {
         .gas_used(729 + (call_gas - gas_left))
         .status(StatusCode::Success)
         .inspect_host(|host, _| {
-            let recorded = host.recorded.lock();
-            assert_eq!(recorded.calls.len(), 1);
-            let call_msg = &recorded.calls[0];
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = &host.recorded.calls[0];
             assert_eq!(call_msg.kind, CallKind::Call);
             assert_eq!(call_msg.depth, 1);
             assert_eq!(call_msg.gas, 6000);
@@ -645,7 +627,7 @@ fn call_new_account_creation_cost() {
         .output_value(U256::ONE)
         .inspect_host(move |host, _| {
             assert_eq!(
-                host.recorded.lock().account_accesses,
+                host.recorded.account_accesses,
                 [
                     call_dst, // Account exist?
                     call_dst, // Call.
@@ -664,16 +646,15 @@ fn call_new_account_creation_cost() {
         .gas_used(25000 + 9000 + 739)
         .output_value(U256::ONE)
         .inspect_host(move |host, msg| {
-            let r = host.recorded.lock();
-            assert_eq!(r.calls.len(), 1);
-            let call_msg = &r.calls[0];
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = &host.recorded.calls[0];
             assert_eq!(call_msg.recipient, call_dst);
             assert_eq!(call_msg.gas, 2300);
             assert_eq!(call_msg.sender, destination);
             assert_eq!(call_msg.value, 1);
             assert_eq!(call_msg.input_data, Bytes::new());
             assert_eq!(
-                r.account_accesses,
+                host.recorded.account_accesses,
                 [
                     call_dst,      // Account exist?
                     msg.recipient, // Balance.
@@ -693,16 +674,15 @@ fn call_new_account_creation_cost() {
         .gas_used(739)
         .output_value(U256::ONE)
         .inspect_host(move |host, _| {
-            let r = host.recorded.lock();
-            assert_eq!(r.calls.len(), 1);
-            let call_msg = &r.calls[0];
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = &host.recorded.calls[0];
             assert_eq!(call_msg.recipient, call_dst);
             assert_eq!(call_msg.gas, 0);
             assert_eq!(call_msg.sender, destination);
             assert_eq!(call_msg.value, 0);
             assert_eq!(call_msg.input_data, Bytes::new());
             assert_eq!(
-                r.account_accesses,
+                host.recorded.account_accesses,
                 [
                 call_dst         // Call.
             ]
@@ -719,16 +699,15 @@ fn call_new_account_creation_cost() {
         .gas_used(25000 + 9000 + 739)
         .output_value(U256::ONE)
         .inspect_host(move |host, msg| {
-            let r = host.recorded.lock();
-            assert_eq!(r.calls.len(), 1);
-            let call_msg = &r.calls[0];
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = &host.recorded.calls[0];
             assert_eq!(call_msg.recipient, call_dst);
             assert_eq!(call_msg.gas, 2300);
             assert_eq!(call_msg.sender, destination);
             assert_eq!(call_msg.value, 1);
             assert_eq!(call_msg.input_data, Bytes::new());
             assert_eq!(
-                r.account_accesses,
+                host.recorded.account_accesses,
                 [
                     call_dst,      // Account exist?
                     msg.recipient, // Balance.
@@ -755,9 +734,8 @@ fn callcode_new_account_create() {
         .gas_used(59722)
         .status(StatusCode::Success)
         .inspect_host(move |host, _| {
-            let recorded = host.recorded.lock();
-            assert_eq!(recorded.calls.len(), 1);
-            let call_msg = &recorded.calls[0];
+            assert_eq!(host.recorded.calls.len(), 1);
+            let call_msg = &host.recorded.calls[0];
             assert_eq!(call_msg.kind, CallKind::CallCode);
             assert_eq!(call_msg.depth, 1);
             assert_eq!(call_msg.gas, 52_300);
@@ -801,8 +779,8 @@ fn call_then_oog() {
         .gas_left(0)
         .status(StatusCode::OutOfGas)
         .inspect_host(|host, _| {
-            assert_eq!(host.recorded.lock().calls.len(), 1);
-            assert_eq!(host.recorded.lock().calls[0].gas, 254);
+            assert_eq!(host.recorded.calls.len(), 1);
+            assert_eq!(host.recorded.calls[0].gas, 254);
         })
         .check()
 }
@@ -839,8 +817,8 @@ fn callcode_then_oog() {
         .gas(825)
         .status(StatusCode::OutOfGas)
         .inspect_host(|host, _| {
-            assert_eq!(host.recorded.lock().calls.len(), 1);
-            assert_eq!(host.recorded.lock().calls[0].gas, 100);
+            assert_eq!(host.recorded.calls.len(), 1);
+            assert_eq!(host.recorded.calls[0].gas, 100);
         })
         .check()
 }
@@ -878,8 +856,8 @@ fn delegatecall_then_oog() {
         .gas_left(0)
         .status(StatusCode::OutOfGas)
         .inspect_host(|host, _| {
-            assert_eq!(host.recorded.lock().calls.len(), 1);
-            assert_eq!(host.recorded.lock().calls[0].gas, 254);
+            assert_eq!(host.recorded.calls.len(), 1);
+            assert_eq!(host.recorded.calls[0].gas, 254);
         })
         .check()
 }
@@ -917,8 +895,8 @@ fn staticcall_then_oog() {
         .gas_used(1000)
         .gas_left(0)
         .inspect_host(|host, _| {
-            assert_eq!(host.recorded.lock().calls.len(), 1);
-            assert_eq!(host.recorded.lock().calls[0].gas, 254);
+            assert_eq!(host.recorded.calls.len(), 1);
+            assert_eq!(host.recorded.calls[0].gas, 254);
         })
         .check()
 }
@@ -932,11 +910,9 @@ fn staticcall_input() {
                 .append_bc(CallInstruction::staticcall(0_u128).gas(0xee).input(32, 3)),
         )
         .inspect_host(|host, _| {
-            let r = host.recorded.lock();
-
-            assert_eq!(r.calls.len(), 1);
-            assert_eq!(r.calls[0].gas, 0xee);
-            assert_eq!(r.calls[0].input_data[..], hex!("010203"));
+            assert_eq!(host.recorded.calls.len(), 1);
+            assert_eq!(host.recorded.calls[0].gas, 0xee);
+            assert_eq!(host.recorded.calls[0].input_data[..], hex!("010203"));
         })
         .check()
 }
@@ -1113,7 +1089,7 @@ fn returndatasize() {
 
     t.apply_host_fn(|host, _| {
         host.call_result.output_data = Bytes::new();
-        host.call_result.status_code = StatusCode::InternalError(String::new());
+        host.call_result.status_code = StatusCode::InternalError("");
     })
     .gas_used(735)
     .output_data([0])

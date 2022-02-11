@@ -29,7 +29,7 @@ const IV: [u64; 8] = [
     0x5be0cd19137e2179,
 ];
 
-#[inline(always)]
+#[inline]
 /// The G mixing function. See https://tools.ietf.org/html/rfc7693#section-3.1
 fn g(v: &mut [u64], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) {
     v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);

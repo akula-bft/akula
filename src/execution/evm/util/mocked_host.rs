@@ -3,7 +3,6 @@ use bytes::Bytes;
 use ethereum_types::*;
 use ethnum::U256;
 use hex_literal::hex;
-use parking_lot::Mutex;
 use std::{cmp::min, collections::HashMap};
 
 /// LOG record.
@@ -64,25 +63,13 @@ pub struct Records {
     pub selfdestructs: Vec<SelfdestructRecord>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MockedHost {
     pub accounts: HashMap<Address, Account>,
     pub tx_context: TxContext,
     pub block_hash: U256,
     pub call_result: Output,
-    pub recorded: Mutex<Records>,
-}
-
-impl Clone for MockedHost {
-    fn clone(&self) -> Self {
-        Self {
-            accounts: self.accounts.clone(),
-            tx_context: self.tx_context.clone(),
-            block_hash: self.block_hash,
-            call_result: self.call_result.clone(),
-            recorded: Mutex::new(self.recorded.lock().clone()),
-        }
-    }
+    pub recorded: Records,
 }
 
 impl Default for MockedHost {
@@ -121,13 +108,13 @@ impl Records {
 }
 
 impl Host for MockedHost {
-    fn account_exists(&self, address: ethereum_types::Address) -> bool {
-        self.recorded.lock().record_account_access(address);
+    fn account_exists(&mut self, address: ethereum_types::Address) -> bool {
+        self.recorded.record_account_access(address);
         self.accounts.contains_key(&address)
     }
 
-    fn get_storage(&self, address: ethereum_types::Address, key: U256) -> U256 {
-        self.recorded.lock().record_account_access(address);
+    fn get_storage(&mut self, address: ethereum_types::Address, key: U256) -> U256 {
+        self.recorded.record_account_access(address);
 
         self.accounts
             .get(&address)
@@ -141,7 +128,7 @@ impl Host for MockedHost {
         key: U256,
         value: U256,
     ) -> StorageStatus {
-        self.recorded.lock().record_account_access(address);
+        self.recorded.record_account_access(address);
 
         // Get the reference to the old value.
         // This will create the account in case it was not present.
@@ -180,8 +167,8 @@ impl Host for MockedHost {
         status
     }
 
-    fn get_balance(&self, address: ethereum_types::Address) -> ethnum::U256 {
-        self.recorded.lock().record_account_access(address);
+    fn get_balance(&mut self, address: ethereum_types::Address) -> ethnum::U256 {
+        self.recorded.record_account_access(address);
 
         self.accounts
             .get(&address)
@@ -189,8 +176,8 @@ impl Host for MockedHost {
             .unwrap_or(U256::ZERO)
     }
 
-    fn get_code_size(&self, address: ethereum_types::Address) -> ethnum::U256 {
-        self.recorded.lock().record_account_access(address);
+    fn get_code_size(&mut self, address: ethereum_types::Address) -> ethnum::U256 {
+        self.recorded.record_account_access(address);
 
         self.accounts
             .get(&address)
@@ -198,8 +185,8 @@ impl Host for MockedHost {
             .unwrap_or(U256::ZERO)
     }
 
-    fn get_code_hash(&self, address: ethereum_types::Address) -> U256 {
-        self.recorded.lock().record_account_access(address);
+    fn get_code_hash(&mut self, address: ethereum_types::Address) -> U256 {
+        self.recorded.record_account_access(address);
 
         self.accounts
             .get(&address)
@@ -207,8 +194,8 @@ impl Host for MockedHost {
             .unwrap_or(U256::ZERO)
     }
 
-    fn copy_code(&self, address: Address, code_offset: usize, buffer: &mut [u8]) -> usize {
-        self.recorded.lock().record_account_access(address);
+    fn copy_code(&mut self, address: Address, code_offset: usize, buffer: &mut [u8]) -> usize {
+        self.recorded.record_account_access(address);
 
         self.accounts
             .get(&address)
@@ -233,54 +220,52 @@ impl Host for MockedHost {
         address: ethereum_types::Address,
         beneficiary: ethereum_types::Address,
     ) {
-        let mut r = self.recorded.lock();
-
-        r.record_account_access(address);
-        r.selfdestructs.push(SelfdestructRecord {
+        self.recorded.record_account_access(address);
+        self.recorded.selfdestructs.push(SelfdestructRecord {
             selfdestructed: address,
             beneficiary,
         });
     }
 
-    fn call(&mut self, msg: &InterpreterMessage) -> Output {
-        let mut r = self.recorded.lock();
+    fn call(&mut self, msg: Call) -> Output {
+        let msg = match msg {
+            Call::Call(message) => message.clone(),
+            Call::Create(message) => message.clone().into(),
+        };
+        self.recorded.record_account_access(msg.recipient);
 
-        r.record_account_access(msg.recipient);
-
-        if r.calls.len() < MAX_RECORDED_CALLS {
-            r.calls.push(msg.clone());
+        if self.recorded.calls.len() < MAX_RECORDED_CALLS {
+            self.recorded.calls.push(msg.clone());
             let call_msg = msg;
             if !call_msg.input_data.is_empty() {
-                r.call_inputs.push(call_msg.input_data.clone());
+                self.recorded.call_inputs.push(call_msg.input_data);
             }
         }
         self.call_result.clone()
     }
 
-    fn get_tx_context(&self) -> TxContext {
+    fn get_tx_context(&mut self) -> TxContext {
         self.tx_context.clone()
     }
 
-    fn get_block_hash(&self, block_number: u64) -> U256 {
-        self.recorded.lock().blockhashes.push(block_number);
+    fn get_block_hash(&mut self, block_number: u64) -> U256 {
+        self.recorded.blockhashes.push(block_number);
         self.block_hash
     }
 
-    fn emit_log(&mut self, address: ethereum_types::Address, data: &[u8], topics: &[U256]) {
-        self.recorded.lock().logs.push(LogRecord {
+    fn emit_log(&mut self, address: ethereum_types::Address, data: Bytes, topics: &[U256]) {
+        self.recorded.logs.push(LogRecord {
             creator: address,
-            data: data.to_vec().into(),
+            data,
             topics: topics.to_vec(),
         });
     }
 
     fn access_account(&mut self, address: ethereum_types::Address) -> AccessStatus {
-        let mut r = self.recorded.lock();
-
         // Check if the address have been already accessed.
-        let already_accessed = r.account_accesses.iter().any(|&a| a == address);
+        let already_accessed = self.recorded.account_accesses.iter().any(|&a| a == address);
 
-        r.record_account_access(address);
+        self.recorded.record_account_access(address);
 
         if address.0 >= hex!("0000000000000000000000000000000000000001")
             && address.0 <= hex!("0000000000000000000000000000000000000009")

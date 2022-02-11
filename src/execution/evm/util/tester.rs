@@ -1,6 +1,5 @@
 use crate::{
     execution::evm::{
-        tracing::*,
         util::{mocked_host::*, *},
         *,
     },
@@ -17,7 +16,6 @@ fn exec(
     revision: Revision,
     message: InterpreterMessage,
     code: Vec<u8>,
-    collect_traces: bool,
 ) -> Output {
     // Add EIP-2929 tweak.
     if revision >= Revision::Berlin {
@@ -26,11 +24,7 @@ fn exec(
     }
     let code = AnalyzedCode::analyze(&code);
 
-    if collect_traces {
-        code.execute(host, &mut StdoutTracer::default(), None, message, revision)
-    } else {
-        code.execute(host, &mut NoopTracer, None, message, revision)
-    }
+    code.execute(host, &message, revision)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -59,7 +53,6 @@ pub struct EvmTester {
     gas_check: Option<GasCheck>,
     expected_status_codes: Option<Vec<StatusCode>>,
     expected_output_data: Option<Vec<u8>>,
-    collect_traces: bool,
 }
 
 impl Default for EvmTester {
@@ -93,7 +86,6 @@ impl EvmTester {
             gas_check: None,
             expected_status_codes: None,
             expected_output_data: None,
-            collect_traces: false,
         }
     }
 
@@ -217,27 +209,13 @@ impl EvmTester {
         self
     }
 
-    pub fn collect_traces(mut self, doit: bool) -> Self {
-        self.collect_traces = doit;
-        self
-    }
-
     /// Execute provided code, run checks and return bytecode returned by EVM.
     pub fn check_and_get_result(self) -> Output {
-        if self.collect_traces {
-            println!("Executing code: {}", hex::encode(&self.code));
-        }
         let mut host = self.host;
         for f in self.apply_host_fns {
             (f)(&mut host, &self.message);
         }
-        let output = exec(
-            &mut host,
-            self.revision,
-            self.message.clone(),
-            self.code,
-            self.collect_traces,
-        );
+        let output = exec(&mut host, self.revision, self.message.clone(), self.code);
 
         if let Some(status_codes) = self.expected_status_codes {
             assert!(

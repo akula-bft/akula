@@ -79,7 +79,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
         let mut call_tracer = CallTracer::default();
         let receipts = ExecutionProcessor::new(
             &mut buffer,
-            Some(&mut call_tracer),
+            &mut call_tracer,
             &mut analysis_cache,
             &mut *consensus_engine,
             &header,

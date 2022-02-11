@@ -20,8 +20,8 @@ impl AnalysisCache {
         }
     }
 
-    pub fn get(&mut self, code_hash: H256) -> Option<&AnalyzedCode> {
-        self.inner.get(&code_hash)
+    pub fn get(&mut self, code_hash: &H256) -> Option<&AnalyzedCode> {
+        self.inner.get(code_hash)
     }
 
     pub fn put(&mut self, code_hash: H256, code: AnalyzedCode) {

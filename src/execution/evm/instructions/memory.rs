@@ -1,4 +1,7 @@
-use crate::execution::evm::{common::*, state::*};
+use crate::{
+    execution::evm::{common::*, state::*, Host},
+    models::Revision,
+};
 use ethnum::U256;
 use sha3::{Digest, Keccak256};
 use std::{cmp::min, num::NonZeroUsize};
@@ -10,12 +13,12 @@ const WORD_SIZE: i64 = 32;
 
 /// Returns number of words what would fit to provided number of bytes,
 /// i.e. it rounds up the number bytes to number of words.
-#[inline(always)]
+#[inline]
 pub(crate) fn num_words(size_in_bytes: usize) -> i64 {
     ((size_in_bytes as i64) + (WORD_SIZE - 1)) / WORD_SIZE
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn mload(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
 
@@ -29,7 +32,7 @@ pub(crate) fn mload(state: &mut ExecutionState) -> Result<(), StatusCode> {
     Ok(())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn mstore(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
     let value = state.stack.pop();
@@ -42,7 +45,7 @@ pub(crate) fn mstore(state: &mut ExecutionState) -> Result<(), StatusCode> {
     Ok(())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn mstore8(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
     let value = state.stack.pop();
@@ -57,14 +60,14 @@ pub(crate) fn mstore8(state: &mut ExecutionState) -> Result<(), StatusCode> {
     Ok(())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn msize(state: &mut ExecutionState) {
     state
         .stack
         .push(u64::try_from(state.memory.len()).unwrap().into());
 }
 
-#[inline(never)]
+#[inline]
 fn grow_memory(state: &mut ExecutionState, new_size: usize) -> Result<(), ()> {
     let new_words = num_words(new_size);
     let current_words = (state.memory.len() / 32) as i64;
@@ -83,7 +86,7 @@ fn grow_memory(state: &mut ExecutionState, new_size: usize) -> Result<(), ()> {
     Ok(())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn get_memory_region_u64(
     state: &mut ExecutionState,
     offset: U256,
@@ -110,7 +113,7 @@ pub(crate) struct MemoryRegion {
     pub size: NonZeroUsize,
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn get_memory_region(
     state: &mut ExecutionState,
     offset: U256,
@@ -127,6 +130,7 @@ pub(crate) fn get_memory_region(
     get_memory_region_u64(state, offset, NonZeroUsize::new(size.as_usize()).unwrap()).map(Some)
 }
 
+#[inline]
 pub(crate) fn calldatacopy(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let mem_index = state.stack.pop();
     let input_index = state.stack.pop();
@@ -186,11 +190,12 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
     Ok(())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn codesize(stack: &mut Stack, code: &[u8]) {
     stack.push(u128::try_from(code.len()).unwrap().into())
 }
 
+#[inline]
 pub(crate) fn codecopy(state: &mut ExecutionState, code: &[u8]) -> Result<(), StatusCode> {
     // TODO: Similar to calldatacopy().
 
@@ -224,80 +229,70 @@ pub(crate) fn codecopy(state: &mut ExecutionState, code: &[u8]) -> Result<(), St
     Ok(())
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! extcodecopy {
-    ($state:expr,$rev:expr) => {
-        use core::cmp::min;
-        use $crate::{
-            execution::evm::{
-                common::*,
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::{memory::*, properties::*},
-            },
-            models::*,
-        };
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn extcodecopy<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{
+            common::*,
+            host::*,
+            instructions::{memory::*, properties::*},
+        },
+        models::*,
+    };
 
-        let addr = u256_to_address($state.stack.pop());
-        let mem_index = $state.stack.pop();
-        let input_index = $state.stack.pop();
-        let size = $state.stack.pop();
+    let addr = u256_to_address(state.stack.pop());
+    let mem_index = state.stack.pop();
+    let input_index = state.stack.pop();
+    let size = state.stack.pop();
 
-        let region =
-            get_memory_region(&mut $state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region(state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
 
-        if let Some(region) = &region {
-            let copy_cost = num_words(region.size.get()) * 3;
-            $state.gas_left -= copy_cost;
-            if $state.gas_left < 0 {
+    if let Some(region) = &region {
+        let copy_cost = num_words(region.size.get()) * 3;
+        state.gas_left -= copy_cost;
+        if state.gas_left < 0 {
+            return Err(StatusCode::OutOfGas);
+        }
+    }
+
+    if REVISION >= Revision::Berlin {
+        if host.access_account(addr) == AccessStatus::Cold {
+            state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
+            if state.gas_left < 0 {
                 return Err(StatusCode::OutOfGas);
             }
         }
+    }
 
-        if $rev >= Revision::Berlin {
-            if ResumeData::into_access_account_status({
-                yield InterruptData::AccessAccount { address: addr }
-            })
-            .unwrap()
-            .status
-                == AccessStatus::Cold
-            {
-                $state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
-                if $state.gas_left < 0 {
-                    return Err(StatusCode::OutOfGas);
-                }
-            }
+    if let Some(region) = region {
+        let src = min(U256::from(MAX_BUFFER_SIZE), input_index).as_usize();
+
+        let mut code = vec![0; region.size.get()];
+        let copied = host.copy_code(addr, src, &mut code[..]);
+        debug_assert!(copied <= code.len());
+        code.truncate(copied);
+
+        state.memory[region.offset..region.offset + code.len()].copy_from_slice(&code);
+        if region.size.get() > code.len() {
+            state.memory[region.offset + code.len()..region.offset + region.size.get()].fill(0);
         }
+    }
 
-        if let Some(region) = region {
-            let src = min(U256::from(MAX_BUFFER_SIZE), input_index).as_usize();
-
-            let code = ResumeData::into_code({
-                yield InterruptData::CopyCode {
-                    address: addr,
-                    offset: src,
-                    max_size: region.size.get(),
-                }
-            })
-            .unwrap()
-            .code;
-
-            $state.memory[region.offset..region.offset + code.len()].copy_from_slice(&code);
-            if region.size.get() > code.len() {
-                $state.memory[region.offset + code.len()..region.offset + region.size.get()]
-                    .fill(0);
-            }
-        }
-    };
+    Ok(())
 }
 
+#[inline]
 pub(crate) fn returndatasize(state: &mut ExecutionState) {
     state
         .stack
         .push(u128::try_from(state.return_data.len()).unwrap().into());
 }
 
+#[inline]
 pub(crate) fn returndatacopy(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let mem_index = state.stack.pop();
     let input_index = state.stack.pop();
@@ -305,7 +300,7 @@ pub(crate) fn returndatacopy(state: &mut ExecutionState) -> Result<(), StatusCod
 
     let region = get_memory_region(state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
 
-    if input_index > u128::try_from(state.return_data.len()).unwrap() {
+    if input_index > state.return_data.len() as u128 {
         return Err(StatusCode::InvalidMemoryAccess);
     }
     let src = input_index.as_usize();
@@ -328,41 +323,29 @@ pub(crate) fn returndatacopy(state: &mut ExecutionState) -> Result<(), StatusCod
     Ok(())
 }
 
-#[doc(hidden)]
-#[macro_export]
-macro_rules! extcodehash {
-    ($state:expr,$rev:expr) => {
-        use $crate::{
-            execution::evm::{
-                common::*,
-                continuation::{interrupt_data::*, resume_data::*},
-                host::*,
-                instructions::properties::*,
-            },
-            models::*,
-        };
+#[inline]
+#[allow(clippy::collapsible_if)]
+pub(crate) fn extcodehash<H: Host, const REVISION: Revision>(
+    state: &mut ExecutionState,
+    host: &mut H,
+) -> Result<(), StatusCode> {
+    use crate::{
+        execution::evm::{common::*, host::*, instructions::properties::*},
+        models::*,
+    };
 
-        let addr = u256_to_address($state.stack.pop());
+    let addr = u256_to_address(state.stack.pop());
 
-        if $rev >= Revision::Berlin {
-            if ResumeData::into_access_account_status({
-                yield InterruptData::AccessAccount { address: addr }
-            })
-            .unwrap()
-            .status
-                == AccessStatus::Cold
-            {
-                $state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
-                if $state.gas_left < 0 {
-                    return Err(StatusCode::OutOfGas);
-                }
+    if REVISION >= Revision::Berlin {
+        if host.access_account(addr) == AccessStatus::Cold {
+            state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
+            if state.gas_left < 0 {
+                return Err(StatusCode::OutOfGas);
             }
         }
+    }
 
-        let code_hash =
-            ResumeData::into_code_hash({ yield InterruptData::GetCodeHash { address: addr } })
-                .unwrap()
-                .hash;
-        $state.stack.push(code_hash);
-    };
+    state.stack.push(host.get_code_hash(addr));
+
+    Ok(())
 }

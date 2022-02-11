@@ -1,7 +1,7 @@
 use crate::execution::evm::{interpreter::JumpdestMap, state::ExecutionState, StatusCode};
 use ethnum::U256;
 
-#[inline(always)]
+#[inline]
 pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let offset = *state.stack.get(0);
     let size = *state.stack.get(1);
@@ -17,7 +17,7 @@ pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
     Ok(())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn op_jump(
     state: &mut ExecutionState,
     jumpdest_map: &JumpdestMap,
@@ -30,7 +30,7 @@ pub(crate) fn op_jump(
     Ok(dst.as_usize())
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn calldataload(state: &mut ExecutionState) {
     let index = state.stack.pop();
 
@@ -51,7 +51,7 @@ pub(crate) fn calldataload(state: &mut ExecutionState) {
     });
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn calldatasize(state: &mut ExecutionState) {
     state.stack.push(
         u128::try_from(state.message.input_data.len())

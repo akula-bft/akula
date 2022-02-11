@@ -1,7 +1,8 @@
 use crate::execution::evm::state::Stack;
 use ethnum::U256;
-use i256::{Sign, I256};
+use i256::{i256_sign, two_compl, Sign};
 
+#[inline]
 pub(crate) fn byte(stack: &mut Stack) {
     let a = stack.pop();
     let b = stack.pop();
@@ -21,7 +22,7 @@ pub(crate) fn byte(stack: &mut Stack) {
     stack.push(ret)
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn shl(stack: &mut Stack) {
     let shift = stack.pop();
     let value = stack.get_mut(0);
@@ -33,7 +34,7 @@ pub(crate) fn shl(stack: &mut Stack) {
     };
 }
 
-#[inline(always)]
+#[inline]
 pub(crate) fn shr(stack: &mut Stack) {
     let shift = stack.pop();
     let value = stack.get_mut(0);
@@ -45,30 +46,31 @@ pub(crate) fn shr(stack: &mut Stack) {
     };
 }
 
+#[inline]
 pub(crate) fn sar(stack: &mut Stack) {
     let shift = stack.pop();
-    let value = I256::from(stack.pop());
+    let mut value = stack.pop();
 
-    let ret = if value == I256::zero() || shift >= 256 {
-        match value.0 {
+    let value_sign = i256_sign::<true>(&mut value);
+
+    stack.push(if value == U256::ZERO || shift >= 256 {
+        match value_sign {
             // value is 0 or >=1, pushing 0
-            Sign::Plus | Sign::NoSign => U256::ZERO,
+            Sign::Plus | Sign::Zero => U256::ZERO,
             // value is <0, pushing -1
-            Sign::Minus => I256(Sign::Minus, U256::ONE).into(),
+            Sign::Minus => two_compl(U256::ONE),
         }
     } else {
-        let shift = shift.as_u8();
+        let shift = shift.as_u128();
 
-        match value.0 {
-            Sign::Plus | Sign::NoSign => value.1 >> shift,
+        match value_sign {
+            Sign::Plus | Sign::Zero => value >> shift,
             Sign::Minus => {
-                let shifted = ((value.1.overflowing_sub(U256::ONE).0) >> shift)
+                let shifted = ((value.overflowing_sub(U256::ONE).0) >> shift)
                     .overflowing_add(U256::ONE)
                     .0;
-                I256(Sign::Minus, shifted).into()
+                two_compl(shifted)
             }
         }
-    };
-
-    stack.push(ret)
+    });
 }
