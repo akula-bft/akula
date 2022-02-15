@@ -137,15 +137,17 @@ where
             }
         });
 
-        let storage_changes = self
-            .storage_changes
-            .entry(self.block_number)
-            .or_default()
-            .entry(address)
-            .or_default();
+        if !overlay_storage.slots.is_empty() {
+            let storage_changes = self
+                .storage_changes
+                .entry(self.block_number)
+                .or_default()
+                .entry(address)
+                .or_default();
 
-        for (slot, value) in overlay_storage.slots.drain() {
-            storage_changes.insert(slot, value);
+            for (slot, value) in overlay_storage.slots.drain() {
+                storage_changes.insert(slot, value);
+            }
         }
 
         if !overlay_storage.erased {
@@ -157,7 +159,7 @@ where
         if mark_database_as_discarded {
             let storage_table = self.txn.cursor(tables::Storage)?;
 
-            let walker = storage_table.walk(Some(address));
+            let walker = storage_table.walk_dup(address);
             pin!(walker);
 
             let storage_changes = self
@@ -167,11 +169,7 @@ where
                 .entry(address)
                 .or_default();
 
-            while let Some((a, (slot, initial))) = walker.next().transpose()? {
-                if a != address {
-                    break;
-                }
-
+            while let Some((slot, initial)) = walker.next().transpose()? {
                 // Only insert slot from db if it's not in storage buffer yet.
                 storage_changes.entry(h256_to_u256(slot)).or_insert(initial);
             }
