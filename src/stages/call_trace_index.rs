@@ -16,9 +16,11 @@ use itertools::Itertools;
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
+    time::{Duration, Instant},
 };
 use tempfile::TempDir;
 use tokio::pin;
+use tracing::info;
 
 /// Generate call trace index
 #[derive(Debug)]
@@ -73,6 +75,9 @@ where
 
         let mut highest_block = starting_block;
         let mut last_flush = starting_block;
+
+        let mut printed = false;
+        let mut last_log = Instant::now();
         while let Some((block_number, CallTraceSetEntry { address, from, to })) =
             walker.next().transpose()?
         {
@@ -98,12 +103,26 @@ where
                     last_flush = highest_block;
                 }
             }
+
+            let now = Instant::now();
+            if last_log - now > Duration::from_secs(30) {
+                info!("Current block: {}", block_number);
+                printed = true;
+                last_log = now;
+            }
         }
 
         flush(&mut froms_collector, &mut froms);
         flush(&mut tos_collector, &mut tos);
 
+        if printed {
+            info!("Flushing froms index");
+        }
         load_call_traces(&mut tx.cursor(tables::CallFromIndex)?, froms_collector)?;
+
+        if printed {
+            info!("Flushing tos index");
+        }
         load_call_traces(&mut tx.cursor(tables::CallToIndex)?, tos_collector)?;
 
         Ok(ExecOutput::Progress {
