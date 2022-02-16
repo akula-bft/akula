@@ -13,7 +13,7 @@ use anyhow::{bail, ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
 use itertools::Itertools;
-use std::{borrow::Cow, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::pin;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -419,7 +419,12 @@ fn read_storage(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> 
 
     let tx = env.begin()?;
 
-    println!("{:?}", tx.get(tables::Storage, address)?);
+    println!(
+        "{:?}",
+        tx.cursor(tables::Storage)?
+            .walk_dup(address)
+            .collect::<anyhow::Result<Vec<_>>>()?
+    );
 
     Ok(())
 }
@@ -435,7 +440,7 @@ fn read_storage_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
 
     pin!(walker);
 
-    let mut current_entry = None;
+    let mut changes = BTreeMap::<Address, BTreeMap<H256, U256>>::new();
     while let Some((
         tables::StorageChangeKey {
             block_number,
@@ -444,22 +449,15 @@ fn read_storage_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
         tables::StorageChange { location, value },
     )) = walker.next().transpose()?
     {
-        let finished = block_number >= block;
-
-        let (current_address, current_storage) =
-            current_entry.get_or_insert_with(|| (address, vec![]));
-
-        if address != *current_address || finished {
-            println!("{:?}: {:?}", current_address, current_storage);
-            *current_address = address;
-            *current_storage = vec![];
-        }
-
-        if finished {
+        if block_number > block {
             break;
         }
 
-        current_storage.push((location, value));
+        changes.entry(address).or_default().insert(location, value);
+    }
+
+    for (address, slots) in changes {
+        println!("{:?}: {:?}", address, slots);
     }
 
     Ok(())
