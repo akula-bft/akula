@@ -1,11 +1,15 @@
 use super::headers::{
     header::BlockHeader,
     header_slice_status_watch::HeaderSliceStatusWatch,
+    header_slices,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
 use crate::{
     kv,
-    kv::{tables::HeaderKey, traits::MutableTransaction},
+    kv::{
+        tables::HeaderKey,
+        traits::{MutableCursor, MutableTransaction},
+    },
     models::*,
 };
 use anyhow::format_err;
@@ -17,11 +21,21 @@ use std::{
         Arc,
     },
 };
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::*;
 
+#[derive(Copy, Clone)]
 pub enum SaveOrder {
     Monotonic,
     Random,
+}
+
+pub struct SaveMonotonicCursors<'tx> {
+    cursor_for_header_table: Box<dyn MutableCursor<'tx, kv::tables::Header> + 'tx>,
+    cursor_for_canonical_header_table:
+        Box<dyn MutableCursor<'tx, kv::tables::CanonicalHeader> + 'tx>,
+    cursor_for_total_difficulty_table:
+        Box<dyn MutableCursor<'tx, kv::tables::HeadersTotalDifficulty> + 'tx>,
 }
 
 /// Saves slices into the database, and sets Saved status.
@@ -30,6 +44,7 @@ pub struct SaveStage<'tx, RwTx> {
     db_transaction: &'tx RwTx,
     order: SaveOrder,
     is_canonical_chain: bool,
+    monotonic_save_cursors: Option<AsyncMutex<SaveMonotonicCursors<'tx>>>,
     pending_watch: HeaderSliceStatusWatch,
     remaining_count: Arc<AtomicUsize>,
 }
@@ -46,6 +61,7 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
             db_transaction,
             order,
             is_canonical_chain,
+            monotonic_save_cursors: None,
             pending_watch: HeaderSliceStatusWatch::new(
                 HeaderSliceStatus::Verified,
                 header_slices,
@@ -97,6 +113,11 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
     }
 
     async fn save_pending_monotonic(&mut self, pending_count: usize) -> anyhow::Result<usize> {
+        if self.monotonic_save_cursors.is_none() {
+            self.monotonic_save_cursors =
+                Some(AsyncMutex::new(self.make_monotonic_save_cursors().await?));
+        }
+
         let mut saved_count: usize = 0;
         for _ in 0..pending_count {
             let next_slice_lock = self.find_next_pending_monotonic();
@@ -148,12 +169,19 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
 
     async fn save_slice(&self, slice_lock: Arc<RwLock<HeaderSlice>>) -> anyhow::Result<()> {
         // take out the headers, and unlock the slice while save_slice is in progress
-        let headers = {
+        let mut headers = {
             let mut slice = slice_lock.write();
             slice.headers.take().ok_or_else(|| {
                 format_err!("SaveStage: inconsistent state - Verified slice has no headers")
             })?
         };
+
+        // Don't save more than HEADER_SLICE_SIZE headers.
+        // Preverified phase is downloading HEADER_SLICE_SIZE + 1 headers,
+        // because an extra header is needed for verification.
+        // The next slice starts from the same header: prev_slice[last] = next_slice[first]
+        // We don't want to re-save it twice and mess up the monotonic save.
+        headers.truncate(header_slices::HEADER_SLICE_SIZE);
 
         self.save_headers(&headers).await?;
 
@@ -172,7 +200,13 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         for header_ref in headers {
             // this clone happens mostly on the stack (except extra_data)
             let header = header_ref.clone();
-            Self::save_header(header, self.is_canonical_chain, tx).await?;
+            Self::save_header(
+                header,
+                self.is_canonical_chain,
+                self.monotonic_save_cursors.as_ref(),
+                tx,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -218,6 +252,7 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
     pub async fn save_header(
         header: BlockHeader,
         is_canonical_chain: bool,
+        monotonic_save_cursors: Option<&AsyncMutex<SaveMonotonicCursors<'tx>>>,
         tx: &'tx RwTx,
     ) -> anyhow::Result<()> {
         let block_num = header.number();
@@ -225,11 +260,18 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
         let header_key: HeaderKey = (block_num, header_hash);
 
         if is_canonical_chain {
-            Self::update_canonical_chain_header(&header, tx).await?;
+            Self::update_canonical_chain_header(&header, monotonic_save_cursors, tx).await?;
         }
 
-        tx.set(kv::tables::Header, header_key, header.header)
-            .await?;
+        if let Some(cursors_lock) = monotonic_save_cursors {
+            let mut cursors = cursors_lock.try_lock()?;
+            let cursor = &mut cursors.cursor_for_header_table;
+            cursor.append(header_key, header.header).await?
+        } else {
+            tx.set(kv::tables::Header, header_key, header.header)
+                .await?
+        }
+
         tx.set(kv::tables::HeaderNumber, header_hash, block_num)
             .await?;
 
@@ -238,28 +280,63 @@ impl<'tx, 'db: 'tx, RwTx: MutableTransaction<'db>> SaveStage<'tx, RwTx> {
 
     pub async fn update_canonical_chain_header(
         header: &BlockHeader,
+        monotonic_save_cursors: Option<&AsyncMutex<SaveMonotonicCursors<'tx>>>,
         tx: &'tx RwTx,
     ) -> anyhow::Result<()> {
         let block_num = header.number();
         let header_hash = header.hash();
         let header_key: HeaderKey = (block_num, header_hash);
 
-        tx.set(kv::tables::CanonicalHeader, block_num, header_hash)
-            .await?;
+        if let Some(cursors_lock) = monotonic_save_cursors {
+            let mut cursors = cursors_lock.try_lock()?;
+            let cursor = &mut cursors.cursor_for_canonical_header_table;
+            cursor.append(block_num, header_hash).await?
+        } else {
+            tx.set(kv::tables::CanonicalHeader, block_num, header_hash)
+                .await?
+        }
+
         tx.set(kv::tables::LastHeader, Default::default(), header_hash)
             .await?;
 
         let total_difficulty_opt = Self::header_total_difficulty(header, tx).await?;
         if let Some(total_difficulty) = total_difficulty_opt {
-            tx.set(
-                kv::tables::HeadersTotalDifficulty,
-                header_key,
-                total_difficulty,
-            )
-            .await?;
+            if let Some(cursors_lock) = monotonic_save_cursors {
+                let mut cursors = cursors_lock.try_lock()?;
+                let cursor = &mut cursors.cursor_for_total_difficulty_table;
+                cursor.append(header_key, total_difficulty).await?
+            } else {
+                tx.set(
+                    kv::tables::HeadersTotalDifficulty,
+                    header_key,
+                    total_difficulty,
+                )
+                .await?
+            }
         }
 
         Ok(())
+    }
+
+    async fn make_monotonic_save_cursors(&self) -> anyhow::Result<SaveMonotonicCursors<'tx>> {
+        let cursor_for_header_table = self
+            .db_transaction
+            .mutable_cursor(kv::tables::Header)
+            .await?;
+        let cursor_for_canonical_header_table = self
+            .db_transaction
+            .mutable_cursor(kv::tables::CanonicalHeader)
+            .await?;
+        let cursor_for_total_difficulty_table = self
+            .db_transaction
+            .mutable_cursor(kv::tables::HeadersTotalDifficulty)
+            .await?;
+        let cursors = SaveMonotonicCursors {
+            cursor_for_header_table: Box::new(cursor_for_header_table),
+            cursor_for_canonical_header_table: Box::new(cursor_for_canonical_header_table),
+            cursor_for_total_difficulty_table: Box::new(cursor_for_total_difficulty_table),
+        };
+        Ok(cursors)
     }
 
     pub async fn unwind(unwind_to_block_num: BlockNumber, tx: &'tx RwTx) -> anyhow::Result<()> {
