@@ -1,5 +1,6 @@
 #![allow(clippy::question_mark)]
 use crate::{
+    consensus::{DuoError, ValidationError},
     crypto::keccak256,
     etl::collector::{TableCollector, OPTIMAL_BUFFER_CAPACITY},
     kv::{mdbx::*, tables, traits::*},
@@ -11,7 +12,6 @@ use crate::{
         util::has_prefix,
     },
 };
-use anyhow::bail;
 use parking_lot::Mutex;
 use std::marker::PhantomData;
 use tempfile::TempDir;
@@ -444,7 +444,7 @@ fn do_increment_intermediate_hashes<'db, 'tx, E>(
     etl_dir: &TempDir,
     expected_root: Option<H256>,
     changed: &mut PrefixSet,
-) -> anyhow::Result<H256>
+) -> Result<H256, DuoError>
 where
     'db: 'tx,
     E: EnvironmentKind,
@@ -458,12 +458,15 @@ where
         loader.calculate_root(changed)?
     };
 
-    if expected_root.is_some() && expected_root.unwrap() != root {
-        bail!(
-            "Wrong state root: expected {}, got {}",
-            expected_root.unwrap(),
-            root
-        );
+    if let Some(expected_root) = expected_root {
+        if expected_root != root {
+            return Err(DuoError::Validation(Box::new(
+                ValidationError::WrongStateRoot {
+                    expected: expected_root,
+                    got: root,
+                },
+            )));
+        }
     }
 
     let mut target = txn.cursor(tables::TrieAccount.erased())?;
@@ -522,7 +525,7 @@ pub fn increment_intermediate_hashes<'db, 'tx, E>(
     etl_dir: &TempDir,
     from: BlockNumber,
     expected_root: Option<H256>,
-) -> anyhow::Result<H256>
+) -> Result<H256, DuoError>
 where
     'db: 'tx,
     E: EnvironmentKind,
@@ -535,7 +538,7 @@ pub fn regenerate_intermediate_hashes<'db, 'tx, E>(
     txn: &'tx MdbxTransaction<'db, RW, E>,
     etl_dir: &TempDir,
     expected_root: Option<H256>,
-) -> anyhow::Result<H256>
+) -> Result<H256, DuoError>
 where
     'db: 'tx,
     E: EnvironmentKind,
