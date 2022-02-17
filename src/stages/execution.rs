@@ -197,12 +197,9 @@ where
     {
         let _ = tx;
 
-        let genesis_hash = tx
-            .get(tables::CanonicalHeader, BlockNumber(0))?
-            .ok_or_else(|| format_err!("Genesis block absent"))?;
         let chain_config = tx
-            .get(tables::Config, genesis_hash)?
-            .ok_or_else(|| format_err!("No chain config for genesis block {:?}", genesis_hash))?;
+            .get(tables::Config, Default::default())?
+            .ok_or_else(|| format_err!("No chain specification set"))?;
 
         let prev_progress = input.stage_progress.unwrap_or_default();
         let starting_block = prev_progress + 1;

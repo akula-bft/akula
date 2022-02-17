@@ -139,7 +139,7 @@ where
 
     txn.set(tables::LastHeader, Default::default(), block_hash)?;
 
-    txn.set(tables::Config, block_hash, chainspec)?;
+    txn.set(tables::Config, Default::default(), chainspec)?;
 
     Ok(true)
 }

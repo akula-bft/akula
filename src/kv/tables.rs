@@ -773,7 +773,7 @@ decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
 decl_table!(CallFromIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(CallToIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
-decl_table!(Config => H256 => ChainSpec);
+decl_table!(Config => VariableVec<0> => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(TxSender => HeaderKey => Vec<Address>);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
