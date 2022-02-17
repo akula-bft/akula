@@ -1,4 +1,5 @@
 use crate::{
+    consensus::DuoError,
     kv::{mdbx::*, tables},
     models::*,
     stagedsync::{
@@ -81,13 +82,26 @@ where
                     .with_context(|| "Failed to generate interhashes")?
             } else {
                 debug!("Incrementing intermediate hashes");
-                increment_intermediate_hashes(
+                let res = increment_intermediate_hashes(
                     tx,
                     self.temp_dir.as_ref(),
                     past_progress,
                     Some(block_state_root),
-                )
-                .with_context(|| "Failed to update interhashes")?
+                );
+                if let Err(DuoError::Validation(_)) = &res {
+                    warn!(
+                        "Failed to increment intermediate hashes: {res:?}. Attempting regenerate."
+                    );
+
+                    regenerate_intermediate_hashes(
+                        tx,
+                        self.temp_dir.as_ref(),
+                        Some(block_state_root),
+                    )
+                    .with_context(|| "Failed to generate interhashes")?
+                } else {
+                    res.with_context(|| "Failed to increment interhashes")?
+                }
             };
 
             info!("Block #{} state root OK: {:?}", max_block, trie_root)
