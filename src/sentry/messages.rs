@@ -182,22 +182,22 @@ pub struct StatusMessage {
     pub fork_id: ForkId,
 }
 
-#[derive(Clone, PartialEq, Debug)]
 /// An Eth/66 protocol message
 ///
 /// A full description of the [Eth/66 protocol](https://github.com/ethereum/devp2p/blob/master/caps/eth.md)
 /// can be found on the Ethereum foundation's Github.
 /// Eth/66 is an update to Eth/65. The changes from 65 to 66 are detailed in [EIP-2481](https://eips.ethereum.org/EIPS/eip-2481)
+#[derive(Clone, PartialEq, Debug)]
 pub enum Message {
     Status(StatusMessage),
     NewBlockHashes(NewBlockHashesMessage),
+    Transactions(TransactionsMessage),
     GetBlockHeaders(GetBlockHeadersMessage),
     BlockHeaders(BlockHeadersMessage),
-    NewBlock(NewBlockMessage),
-    NewPooledTransactionHashes(NewPooledTransactionHashesMessage),
-    Transactions(TransactionsMessage),
     GetBlockBodies(GetBlockBodiesMessage),
     BlockBodies(BlockBodiesMessage),
+    NewBlock(NewBlockMessage),
+    NewPooledTransactionHashes(NewPooledTransactionHashesMessage),
     GetPooledTransactions(GetPooledTransactionsMessage),
     PooledTransactions(PooledTransactionsMessage),
     GetNodeData(GetNodeDataMessage),
@@ -211,13 +211,13 @@ impl Message {
         match self {
             Message::Status(_) => EthMessageId::Status,
             Message::NewBlockHashes(_) => EthMessageId::NewBlockHashes,
+            Message::Transactions(_) => EthMessageId::Transactions,
             Message::GetBlockHeaders(_) => EthMessageId::GetBlockHeaders,
             Message::BlockHeaders(_) => EthMessageId::BlockHeaders,
-            Message::NewBlock(_) => EthMessageId::NewBlock,
-            Message::NewPooledTransactionHashes(_) => EthMessageId::NewPooledTransactionHashes,
-            Message::Transactions(_) => EthMessageId::Transactions,
             Message::GetBlockBodies(_) => EthMessageId::GetBlockBodies,
             Message::BlockBodies(_) => EthMessageId::BlockBodies,
+            Message::NewBlock(_) => EthMessageId::NewBlock,
+            Message::NewPooledTransactionHashes(_) => EthMessageId::NewPooledTransactionHashes,
             Message::GetPooledTransactions(_) => EthMessageId::GetPooledTransactions,
             Message::PooledTransactions(_) => EthMessageId::PooledTransactions,
             Message::GetNodeData(_) => EthMessageId::GetNodeData,

@@ -3,8 +3,12 @@ use crate::sentry::messages::Message;
 
 pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Result<Message> {
     let message: Message = match id {
+        EthMessageId::Status => Message::Status(rlp::decode::<StatusMessage>(message_bytes)?),
         EthMessageId::NewBlockHashes => {
             Message::NewBlockHashes(rlp::decode::<NewBlockHashesMessage>(message_bytes)?)
+        }
+        EthMessageId::Transactions => {
+            Message::Transactions(rlp::decode::<TransactionsMessage>(message_bytes)?)
         }
         EthMessageId::GetBlockHeaders => {
             Message::GetBlockHeaders(rlp::decode::<GetBlockHeadersMessage>(message_bytes)?)
@@ -12,15 +16,23 @@ pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Res
         EthMessageId::BlockHeaders => {
             Message::BlockHeaders(rlp::decode::<BlockHeadersMessage>(message_bytes)?)
         }
-        EthMessageId::NewBlock => Message::NewBlock(rlp::decode::<NewBlockMessage>(message_bytes)?),
-        EthMessageId::NewPooledTransactionHashes => Message::NewPooledTransactionHashes(
-            rlp::decode::<NewPooledTransactionHashesMessage>(message_bytes)?,
-        ),
         EthMessageId::GetBlockBodies => {
             Message::GetBlockBodies(rlp::decode::<GetBlockBodiesMessage>(message_bytes)?)
         }
         EthMessageId::BlockBodies => {
             Message::BlockBodies(rlp::decode::<BlockBodiesMessage>(message_bytes)?)
+        }
+        EthMessageId::NewBlock => Message::NewBlock(rlp::decode::<NewBlockMessage>(message_bytes)?),
+        EthMessageId::NewPooledTransactionHashes => Message::NewPooledTransactionHashes(
+            rlp::decode::<NewPooledTransactionHashesMessage>(message_bytes)?,
+        ),
+        EthMessageId::GetPooledTransactions => {
+            Message::GetPooledTransactions(rlp::decode::<GetPooledTransactionsMessage>(
+                message_bytes,
+            )?)
+        }
+        EthMessageId::PooledTransactions => {
+            Message::PooledTransactions(rlp::decode::<PooledTransactionsMessage>(message_bytes)?)
         }
         EthMessageId::GetNodeData => {
             Message::GetNodeData(rlp::decode::<GetNodeDataMessage>(message_bytes)?)
@@ -30,16 +42,6 @@ pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Res
             Message::GetReceipts(rlp::decode::<GetReceiptsMessage>(message_bytes)?)
         }
         EthMessageId::Receipts => Message::Receipts(rlp::decode::<ReceiptsMessage>(message_bytes)?),
-        EthMessageId::GetPooledTransactions => {
-            Message::GetPooledTransactions(rlp::decode::<GetPooledTransactionsMessage>(
-                message_bytes,
-            )?)
-        }
-        EthMessageId::PooledTransactions => {
-            Message::PooledTransactions(rlp::decode::<PooledTransactionsMessage>(message_bytes)?)
-        }
-
-        _ => anyhow::bail!("decode_rlp_message: unsupported message {:?}", id),
     };
     Ok(message)
 }
