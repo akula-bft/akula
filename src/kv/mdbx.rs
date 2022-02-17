@@ -435,6 +435,13 @@ where
         map_res_inner::<T, _>(self.inner.prev_dup())
     }
 
+    pub fn prev_no_dup(&mut self) -> anyhow::Result<Option<(T::Key, T::Value)>>
+    where
+        T::Key: TableDecode,
+    {
+        map_res_inner::<T, _>(self.inner.prev_nodup())
+    }
+
     /// Walk over duplicates for some specific key.
     pub fn walk_dup(mut self, start_key: T::Key) -> impl Iterator<Item = anyhow::Result<T::Value>>
     where
