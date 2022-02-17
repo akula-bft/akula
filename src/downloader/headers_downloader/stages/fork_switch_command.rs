@@ -131,7 +131,7 @@ impl ForkSwitchCommand {
                     if header.number() <= self.connection_block_num {
                         continue;
                     }
-                    SaveStage::update_canonical_chain_header(&header, tx).await?;
+                    SaveStage::update_canonical_chain_header(&header, None, tx).await?;
                 }
             }
 

@@ -248,7 +248,7 @@ impl DownloaderForky {
         let save_stage = SaveStage::<RwTx>::new(
             header_slices.clone(),
             db_transaction,
-            save_stage::SaveOrder::Monotonic,
+            save_stage::SaveOrder::Random,
             true,
         );
 
