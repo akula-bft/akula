@@ -467,7 +467,7 @@ where
             let mut deleted = 0;
             while deleted < body.tx_amount {
                 let to_delete = body.base_tx_id + deleted;
-                if block_tx_cur.seek(to_delete)?.is_some() {
+                if block_tx_cur.seek_exact(to_delete)?.is_some() {
                     block_tx_cur.delete_current()?;
                 }
 
