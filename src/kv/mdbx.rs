@@ -325,22 +325,15 @@ where
         T::Key: TableDecode,
     {
         TryGenIter::from(move |_| {
-            let start = if let Some(start_key) = start_key {
+            let mut fv = if let Some(start_key) = start_key {
                 self.seek(start_key)?
             } else {
                 self.first()?
             };
-            if let Some(mut fv) = start {
-                loop {
-                    yield fv;
+            while let Some(fv1) = fv {
+                yield fv1;
 
-                    match self.next()? {
-                        Some(fv1) => {
-                            fv = fv1;
-                        }
-                        None => break,
-                    }
-                }
+                fv = self.next()?;
             }
 
             Ok(())
@@ -356,22 +349,15 @@ where
         T::Key: TableDecode,
     {
         TryGenIter::from(move |_| {
-            let start = if let Some(start_key) = start_key {
+            let mut fv = if let Some(start_key) = start_key {
                 self.seek(start_key)?
             } else {
                 self.last()?
             };
-            if let Some(mut fv) = start {
-                loop {
-                    yield fv;
+            while let Some(fv1) = fv {
+                yield fv1;
 
-                    match self.prev()? {
-                        Some(fv1) => {
-                            fv = fv1;
-                        }
-                        None => break,
-                    }
-                }
+                fv = self.prev()?;
             }
 
             Ok(())
@@ -448,18 +434,11 @@ where
         T::Key: TableDecode,
     {
         TryGenIter::from(move |_| {
-            let start = self.seek_exact(start_key)?.map(|(_, v)| v);
-            if let Some(mut value) = start {
-                loop {
-                    yield value;
+            let mut v = self.seek_exact(start_key)?;
+            while let Some((_, value)) = v {
+                yield value;
 
-                    match self.next_dup()? {
-                        Some((_, v)) => {
-                            value = v;
-                        }
-                        None => break,
-                    }
-                }
+                v = self.next_dup()?;
             }
 
             Ok(())
@@ -476,17 +455,11 @@ where
     {
         TryGenIter::from(move |_| {
             if self.seek_exact(start_key)?.is_some() {
-                if let Some(mut value) = self.last_dup()? {
-                    loop {
-                        yield value;
+                let mut v = self.last_dup()?;
+                while let Some(value) = v {
+                    yield value;
 
-                        match self.prev_dup()? {
-                            Some((_, v)) => {
-                                value = v;
-                            }
-                            None => break,
-                        }
-                    }
+                    v = self.prev_dup()?.map(|(_, v)| v);
                 }
             }
 
