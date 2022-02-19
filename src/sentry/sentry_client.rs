@@ -15,7 +15,7 @@ pub struct Status {
     pub max_block: BlockNumber,
 }
 
-pub type PeerId = H256;
+pub type PeerId = H512;
 
 #[derive(Clone, Debug)]
 pub enum PeerFilter {

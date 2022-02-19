@@ -4,6 +4,7 @@ use super::{
     sentry_address::SentryAddress,
     sentry_client::*,
 };
+use crate::models::*;
 use async_trait::async_trait;
 use ethereum_interfaces::{sentry as grpc_sentry, types as grpc_types};
 use futures_core::Stream;
@@ -55,7 +56,7 @@ impl SentryClient for SentryClientImpl {
 
     async fn penalize_peer(&mut self, peer_id: PeerId) -> anyhow::Result<()> {
         let penalize_peer_request = grpc_sentry::PenalizePeerRequest {
-            peer_id: Some(peer_id.into()),
+            peer_id: Some(grpc_types::H512::from(peer_id)),
             penalty: grpc_sentry::PenaltyKind::Kick as i32,
         };
         let request = tonic::Request::new(penalize_peer_request);
@@ -87,7 +88,7 @@ impl SentryClient for SentryClientImpl {
             PeerFilter::PeerId(peer_id) => {
                 let request = grpc_sentry::SendMessageByIdRequest {
                     data: Some(message_data),
-                    peer_id: Some(peer_id.into()),
+                    peer_id: Some(grpc_types::H512::from(peer_id)),
                 };
                 self.client
                     .send_message_by_id(tonic::Request::new(request))
@@ -141,8 +142,8 @@ impl SentryClient for SentryClientImpl {
                     let grpc_message_id = grpc_sentry::MessageId::from_i32(inbound_message.id)
                         .ok_or_else(|| anyhow::format_err!("SentryClient receive_messages stream got an invalid MessageId {}", inbound_message.id))?;
                     let message_id = EthMessageId::try_from(grpc_message_id)?;
-                    let grpc_peer_id: Option<grpc_types::H256> = inbound_message.peer_id;
-                    let peer_id: Option<PeerId> = grpc_peer_id.map(PeerId::from);
+                    let grpc_peer_id: Option<grpc_types::H512> = inbound_message.peer_id;
+                    let peer_id: Option<PeerId> = grpc_peer_id.map(H512::from);
                     let message_bytes: bytes::Bytes = inbound_message.data;
                     let message = message_decoder::decode_rlp_message(message_id, message_bytes.as_ref())?;
                     let message_from_peer = MessageFromPeer {

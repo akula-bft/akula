@@ -28,7 +28,7 @@ educe = { version = "0.4", features = ["Debug", "Default"] }
 enum-as-inner = "0.3"
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
 ethereum-forkid = "0.7.0"
-ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", rev = "6ef398c", features = [
+ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",
     "sentry",
 ] }
