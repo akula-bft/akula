@@ -618,7 +618,7 @@ impl Node {
             let this = Arc::downgrade(&this);
             async move {
                 while let Some(this) = this.upgrade() {
-                    this.lookup(rand::random()).await;
+                    this.lookup_self().await;
                     drop(this);
 
                     sleep(REFRESH_TIMEOUT).await;

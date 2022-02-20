@@ -64,7 +64,7 @@ impl Discv4 {
                     let node = node.clone();
                     let tx = tx.clone();
                     loop {
-                        for record in node.lookup_self().await {
+                        for record in node.lookup(rand::random()).await {
                             let _ = tx
                                 .send(crate::sentry::devp2p::types::NodeRecord {
                                     addr: record.tcp_addr(),
