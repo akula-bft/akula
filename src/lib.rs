@@ -7,6 +7,7 @@
     let_else,
     map_first_last,
     never_type,
+    poll_ready,
     step_trait,
     type_alias_impl_trait,
     adt_const_params
@@ -33,6 +34,7 @@ pub mod execution;
 pub mod kv;
 pub mod models;
 pub mod res;
+pub mod sentry;
 pub mod sentry_connector;
 pub mod stagedsync;
 pub mod stages;
