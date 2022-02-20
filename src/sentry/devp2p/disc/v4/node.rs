@@ -618,7 +618,7 @@ impl Node {
             let this = Arc::downgrade(&this);
             async move {
                 while let Some(this) = this.upgrade() {
-                    this.lookup_self().await;
+                    this.lookup(rand::random()).await;
                     drop(this);
 
                     sleep(REFRESH_TIMEOUT).await;
@@ -734,6 +734,8 @@ impl Node {
                 debug!("No picked nodes, ending lookup");
                 break;
             }
+
+            debug!("Picked alpha ({ALPHA}) closest nodes that are not queried");
 
             let fut = picked_nodes.into_iter().map(|(distance, node)| {
                 // ...send find node request...
@@ -859,6 +861,7 @@ impl Node {
                         if let btree_map::Entry::Vacant(vacant) =
                             nearest_nodes.entry(distance(target, record.id))
                         {
+                            debug!("Adding unseen node to query: {:?}", record);
                             // ...add to the set and continue the query
                             vacant.insert(QueryNode {
                                 record,

@@ -159,7 +159,7 @@ impl DownloaderLinear {
         let save_stage = SaveStage::new(
             header_slices.clone(),
             db_transaction,
-            save_stage::SaveOrder::Monotonic,
+            save_stage::SaveOrder::Random,
             true,
         );
         let refill_stage = RefillStage::new(header_slices.clone());

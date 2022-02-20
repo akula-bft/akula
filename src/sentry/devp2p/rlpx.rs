@@ -10,7 +10,8 @@ use super::{
 use anyhow::{anyhow, bail, Context};
 use cidr::IpCidr;
 use educe::Educe;
-use futures_util::sink::SinkExt;
+use futures_util::{sink::SinkExt, stream::FuturesUnordered};
+use lru::LruCache;
 use parking_lot::Mutex;
 use secp256k1::SecretKey;
 use std::{
@@ -23,7 +24,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Weak,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use task_group::TaskGroup;
 use tokio::{
@@ -622,6 +623,7 @@ impl<C: CapabilityServer> Swarm<C> {
             tasks.spawn_with_name("dialer", {
                 let server = Arc::downgrade(&server);
                 async move {
+                    let mut banlist = LruCache::new(10_000);
                     loop {
                         if let Some(server) = server.upgrade() {
                             let streams_len = server.streams.lock().mapping.len();
@@ -629,28 +631,66 @@ impl<C: CapabilityServer> Swarm<C> {
 
                             if !options.no_new_peers.load(Ordering::SeqCst) && streams_len < max_peers {
                                 trace!("Discovering peers as our peer count is too low: {} < {}", streams_len, max_peers);
-                                match tokio::time::timeout(
-                                    Duration::from_secs(DISCOVERY_TIMEOUT_SECS),
-                                    options.discovery_tasks.next(),
-                                )
-                                .await {
-                                    Err(_) => {
-                                        debug!("Failed to get new peer: timed out");
-                                    }
-                                    Ok(None) => {
-                                        debug!("Discoveries ended, dialer quitting");
-                                        return;
-                                    }
-                                    Ok(Some((disc_id, Ok(NodeRecord { addr, id: remote_id })))) => {
-                                        debug!("Discovered peer: {:?} ({})", remote_id, disc_id);
-                                        tokio::select! {
-                                            _ = server.add_peer_inner(addr, remote_id, true) => {},
-                                            _ = sleep(Duration::from_secs(DISCOVERY_CONNECT_TIMEOUT_SECS)) => {
-                                                debug!("Timed out adding peer {}", remote_id);
+                                match async {
+                                    let batch_started_at = Instant::now();
+                                    let mut discovered = Vec::new();
+                                    let mut stats = HashMap::<String, usize>::new();
+                                    while discovered.len() < max_peers-streams_len {
+                                        if batch_started_at.elapsed() > Duration::from_secs(DISCOVERY_TIMEOUT_SECS) {
+                                            break;
+                                        }
+                                        match tokio::time::timeout(Duration::from_secs(10), async {
+                                            options.discovery_tasks.next().await
+                                        }).await {
+                                            Err(_) => break,
+                                            Ok(None)=> return None,
+                                            Ok(Some((disc_id, Err(e)))) => warn!("Failed to get new peer: {} ({})", e, disc_id),
+                                            Ok(Some((disc_id, Ok(v)))) => {
+                                                let now = Instant::now();
+                                                if let Some(banned_timestamp) = banlist.get_mut(&v.id) {
+                                                    let time_since_ban: Duration = now - *banned_timestamp;
+                                                    if time_since_ban <= Duration::from_secs(120) {
+                                                        debug!("Skipping dial of failed peer ({}, failed {}s ago)", v.id, time_since_ban.as_secs());
+                                                        continue
+                                                    }
+                                                }
+                                                debug!("Discovered {} peer for dial batch: {:?}", disc_id, v.id);
+                                                discovered.push(v);
+                                                *stats.entry(disc_id).or_default() += 1;
                                             }
                                         }
                                     }
-                                    Ok(Some((disc_id, Err(e)))) => warn!("Failed to get new peer: {} ({})", e, disc_id)
+                                    debug!("Discovered {} peers from following sources: {:?}", discovered.len(), stats);
+                                    Some(discovered)
+                                }
+                                .await {
+                                    None => {
+                                        debug!("Discoveries ended, dialer quitting");
+                                        return;
+                                    }
+                                    Some(discovered) => {
+                                        let mut f = FuturesUnordered::new();
+                                        for &NodeRecord { id, addr } in &discovered {
+                                            let server = server.clone();
+                                            f.push(async move { server.add_peer_inner(addr, id, true).await.map_err(|_| id) });
+                                        }
+                                        loop {
+                                        tokio::select! {
+                                            res = f.next() => {
+                                                if let Some(res) = res {
+                                                    if let Err(id) = res {
+                                                        banlist.put(id, Instant::now());
+                                                    }
+                                                } else {
+                                                    break;
+                                                }
+                                            },
+                                            _ = sleep(Duration::from_secs(DISCOVERY_CONNECT_TIMEOUT_SECS)) => {
+                                                debug!("Timed out adding peers {:?}", discovered);
+                                                break;
+                                            }
+                                        }}
+                                    }
                                 }
                             } else {
                                 trace!("Skipping discovery as current number of peers is too high: {} >= {}", streams_len, max_peers);
@@ -715,7 +755,7 @@ impl<C: CapabilityServer> Swarm<C> {
                         }
                     }
                 }
-                currently_connecting.fetch_sub(1, Ordering::Relaxed);
+                currently_connecting.fetch_sub(1, Ordering::SeqCst);
             }
         });
 
@@ -723,7 +763,7 @@ impl<C: CapabilityServer> Swarm<C> {
             trace!("Received request to add peer {}", remote_id);
             let mut inserted = false;
 
-            currently_connecting.fetch_add(1, Ordering::Relaxed);
+            currently_connecting.fetch_add(1, Ordering::SeqCst);
 
             {
                 let mut streams = streams.lock();
@@ -798,7 +838,7 @@ impl<C: CapabilityServer> Swarm<C> {
                             return Ok(true);
                         }
                         Err(e) => {
-                            debug!("peer disconnected with error {}", e);
+                            debug!("Peer {:?} disconnected with error: {}", remote_id, e);
                             peer_state.remove();
                             return Err(e);
                         }
@@ -813,7 +853,7 @@ impl<C: CapabilityServer> Swarm<C> {
 
     /// Returns the number of peers we're currently dialing
     pub fn dialing(&self) -> usize {
-        self.currently_connecting.load(Ordering::Relaxed)
+        self.currently_connecting.load(Ordering::SeqCst)
     }
 }
 
