@@ -186,7 +186,7 @@ where
             )?;
 
             if block_number.0 % 500_000 == 0 {
-                info!("Extracted block {}", block_number);
+                info!("Extracted block #{block_number}");
             }
         }
 

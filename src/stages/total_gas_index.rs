@@ -42,13 +42,17 @@ where
 
             for block_num in starting_block..=max_block {
                 if block_num.0 % 500_000 == 0 {
-                    info!("Building total gas index for block {}", block_num);
+                    info!("Building total gas index for block {block_num}");
                 }
 
-                let canonical_hash = tx.get(tables::CanonicalHeader, block_num)?.unwrap();
+                let canonical_hash = tx
+                    .get(tables::CanonicalHeader, block_num)?
+                    .ok_or_else(|| format_err!("No canonical hash for block {block_num}"))?;
                 let header = tx
                     .get(tables::Header, (block_num, canonical_hash))?
-                    .unwrap();
+                    .ok_or_else(|| {
+                        format_err!("No header for block #{block_num}/{canonical_hash:?}")
+                    })?;
 
                 gas += header.gas_used;
 
