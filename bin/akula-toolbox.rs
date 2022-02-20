@@ -110,7 +110,7 @@ pub struct HeaderDownloadOpts {
         help = "Sentry GRPC service URL as 'http://host:port'",
         default_value = "http://localhost:8000"
     )]
-    pub sentry_api_addr: akula::sentry::sentry_address::SentryAddress,
+    pub sentry_api_addr: akula::sentry_connector::sentry_address::SentryAddress,
 
     #[clap(flatten)]
     pub downloader_opts: akula::downloader::opts::Opts,
@@ -141,19 +141,22 @@ async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
 
 #[allow(unreachable_code)]
 async fn header_download(data_dir: AkulaDataDir, opts: HeaderDownloadOpts) -> anyhow::Result<()> {
-    let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
+    let chains_config = akula::sentry_connector::chain_config::ChainsConfig::new()?;
     let chain_config = chains_config.get(&opts.chain_name)?;
 
     let sentry_api_addr = opts.sentry_api_addr.clone();
     let sentry_connector =
-        akula::sentry::sentry_client_connector::SentryClientConnectorImpl::new(sentry_api_addr);
+        akula::sentry_connector::sentry_client_connector::SentryClientConnectorImpl::new(
+            sentry_api_addr,
+        );
 
     let sentry_status_provider =
         akula::downloader::sentry_status_provider::SentryStatusProvider::new(chain_config.clone());
-    let mut sentry_reactor = akula::sentry::sentry_client_reactor::SentryClientReactor::new(
-        Box::new(sentry_connector),
-        sentry_status_provider.current_status_stream(),
-    );
+    let mut sentry_reactor =
+        akula::sentry_connector::sentry_client_reactor::SentryClientReactor::new(
+            Box::new(sentry_connector),
+            sentry_status_provider.current_status_stream(),
+        );
     sentry_reactor.start()?;
     let sentry = sentry_reactor.into_shared();
 

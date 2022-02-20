@@ -1,5 +1,5 @@
 use super::messages::*;
-use crate::sentry::messages::Message;
+use crate::sentry_connector::messages::Message;
 
 pub fn decode_rlp_message(id: EthMessageId, message_bytes: &[u8]) -> anyhow::Result<Message> {
     let message: Message = match id {
@@ -76,7 +76,7 @@ mod tests {
             BlockHeader, BlockNumber, ChainId, Message as TxMessage, MessageSignature,
             MessageWithSignature, Receipt, TransactionAction,
         },
-        sentry::messages::Message,
+        sentry_connector::messages::Message,
     };
 
     use bytes::Bytes;

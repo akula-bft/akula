@@ -5,7 +5,9 @@ use crate::{
     },
     kv::mdbx::*,
     models::*,
-    sentry::{chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared},
+    sentry_connector::{
+        chain_config::ChainConfig, sentry_client_reactor::SentryClientReactorShared,
+    },
     stagedsync::{stage::*, stages::HEADERS},
     StageId,
 };

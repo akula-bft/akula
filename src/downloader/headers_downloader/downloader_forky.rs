@@ -15,7 +15,7 @@ use super::{
 use crate::{
     kv::{self, mdbx::*, tables::HeaderKey},
     models::BlockNumber,
-    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
+    sentry_connector::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use std::{ops::ControlFlow, sync::Arc, time::Duration};
 

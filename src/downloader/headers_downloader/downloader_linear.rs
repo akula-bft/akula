@@ -15,7 +15,7 @@ use super::{
 use crate::{
     kv::mdbx::*,
     models::BlockNumber,
-    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
+    sentry_connector::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use std::sync::Arc;
 use tracing::*;

@@ -6,7 +6,7 @@ use super::{
     },
     verification::header_slice_verifier::HeaderSliceVerifier,
 };
-use crate::{models::*, sentry::chain_config::ChainConfig};
+use crate::{models::*, sentry_connector::chain_config::ChainConfig};
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     ops::{ControlFlow, DerefMut, Range},

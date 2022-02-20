@@ -4,7 +4,7 @@ use crate::{
         tables::{self, HeaderKey},
     },
     models::*,
-    sentry::{chain_config::ChainConfig, sentry_client::Status, sentry_client_connector},
+    sentry_connector::{chain_config::ChainConfig, sentry_client::Status, sentry_client_connector},
 };
 use std::fmt;
 use tokio::sync::watch;

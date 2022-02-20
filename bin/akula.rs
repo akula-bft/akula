@@ -7,7 +7,7 @@ use akula::{
         traits::*,
     },
     models::*,
-    sentry::{
+    sentry_connector::{
         sentry_client_connector::SentryClientConnectorImpl,
         sentry_client_reactor::SentryClientReactor,
     },
@@ -54,7 +54,7 @@ pub struct Opt {
         help = "Sentry GRPC service URL as 'http://host:port'",
         default_value = "http://localhost:8000"
     )]
-    pub sentry_api_addr: akula::sentry::sentry_address::SentryAddress,
+    pub sentry_api_addr: akula::sentry_connector::sentry_address::SentryAddress,
 
     /// Last block where to sync to.
     #[clap(long)]
@@ -561,7 +561,7 @@ fn main() -> anyhow::Result<()> {
             rt.block_on(async move {
                 info!("Starting Akula ({})", version_string());
 
-                let chains_config = akula::sentry::chain_config::ChainsConfig::new()?;
+                let chains_config = akula::sentry_connector::chain_config::ChainsConfig::new()?;
                 let chain_config = chains_config.get(&opt.chain_name)?;
 
                 // database setup

@@ -1,6 +1,6 @@
 use crate::{
     models::BlockNumber,
-    sentry::{
+    sentry_connector::{
         messages::{EthMessageId, Message, NewBlockHashesMessage},
         sentry_client::PeerId,
         sentry_client_reactor::*,

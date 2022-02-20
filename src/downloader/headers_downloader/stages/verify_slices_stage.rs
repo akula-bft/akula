@@ -5,7 +5,7 @@ use super::{
     },
     verification::{header_slice_verifier::HeaderSliceVerifier, parallel::map_parallel},
 };
-use crate::sentry::chain_config::ChainConfig;
+use crate::sentry_connector::chain_config::ChainConfig;
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc, time::SystemTime};
 use tracing::*;

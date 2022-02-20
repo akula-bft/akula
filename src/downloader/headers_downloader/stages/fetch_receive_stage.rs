@@ -2,7 +2,7 @@ use super::headers::{
     header::BlockHeader,
     header_slices::{HeaderSlice, HeaderSliceStatus, HeaderSlices},
 };
-use crate::sentry::{
+use crate::sentry_connector::{
     messages::{BlockHeadersMessage, EthMessageId, Message},
     sentry_client::PeerId,
     sentry_client_reactor::*,

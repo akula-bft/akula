@@ -6,7 +6,7 @@ use super::{
 use crate::{
     kv::mdbx::*,
     models::*,
-    sentry::{chain_config::ChainConfig, sentry_client_reactor::*},
+    sentry_connector::{chain_config::ChainConfig, sentry_client_reactor::*},
 };
 use parking_lot::Mutex;
 use std::{

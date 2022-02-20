@@ -12,7 +12,7 @@ use super::{
 use crate::{
     kv,
     models::*,
-    sentry::{
+    sentry_connector::{
         chain_config, sentry_client_connector,
         sentry_client_connector::SentryClientConnectorTest,
         sentry_client_mock::SentryClientMock,

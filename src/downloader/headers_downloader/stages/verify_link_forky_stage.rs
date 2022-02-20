@@ -8,7 +8,7 @@ use super::{
     verification::header_slice_verifier::HeaderSliceVerifier,
     verify_link_linear_stage::VerifyLinkLinearStage,
 };
-use crate::{models::*, sentry::chain_config::ChainConfig};
+use crate::{models::*, sentry_connector::chain_config::ChainConfig};
 use parking_lot::RwLock;
 use std::{ops::DerefMut, sync::Arc};
 use tracing::*;

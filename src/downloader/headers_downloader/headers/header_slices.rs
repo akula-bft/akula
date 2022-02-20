@@ -1,5 +1,5 @@
 use super::header::BlockHeader;
-use crate::{models::BlockNumber, sentry::sentry_client::PeerId};
+use crate::{models::BlockNumber, sentry_connector::sentry_client::PeerId};
 use parking_lot::RwLock;
 use std::{
     collections::{HashMap, VecDeque},

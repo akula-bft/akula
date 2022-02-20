@@ -2,7 +2,7 @@ use super::headers::{
     header_slice_status_watch::HeaderSliceStatusWatch,
     header_slices::{HeaderSliceStatus, HeaderSlices},
 };
-use crate::sentry::{sentry_client::PeerId, sentry_client_reactor::*};
+use crate::sentry_connector::{sentry_client::PeerId, sentry_client_reactor::*};
 use parking_lot::RwLockUpgradableReadGuard;
 use std::{collections::HashSet, ops::DerefMut, sync::Arc};
 use tracing::*;

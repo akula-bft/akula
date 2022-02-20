@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     models::{BlockHeader, BlockNumber},
-    sentry::{block_id::BlockId, messages::BlockHeadersMessage, sentry_client::PeerId},
+    sentry_connector::{block_id::BlockId, messages::BlockHeadersMessage, sentry_client::PeerId},
 };
 use std::collections::{HashMap, HashSet};
 use tokio::sync::broadcast;

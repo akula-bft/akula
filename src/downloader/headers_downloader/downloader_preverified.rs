@@ -9,7 +9,7 @@ use super::{
     ui::ui_system::{UISystemShared, UISystemViewScope},
     verification::preverified_hashes_config::PreverifiedHashesConfig,
 };
-use crate::{kv::mdbx::*, models::*, sentry::sentry_client_reactor::*};
+use crate::{kv::mdbx::*, models::*, sentry_connector::sentry_client_reactor::*};
 use std::sync::Arc;
 
 #[derive(Debug)]
