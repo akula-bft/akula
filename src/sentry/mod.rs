@@ -190,11 +190,7 @@ impl CapabilityServerImpl {
     }
 
     #[instrument(name = "CapabilityServerImpl.handle_event", skip(self, event))]
-    fn handle_event(
-        &self,
-        peer: PeerId,
-        event: InboundEvent,
-    ) -> Result<Option<Message>, DisconnectReason> {
+    fn handle_event(&self, peer: PeerId, event: InboundEvent) -> Result<(), DisconnectReason> {
         match event {
             InboundEvent::Disconnect { reason } => {
                 debug!("Peer disconnect (reason: {:?}), tearing down peer.", reason);
@@ -264,7 +260,7 @@ impl CapabilityServerImpl {
             }
         }
 
-        Ok(None)
+        Ok(())
     }
 }
 
@@ -323,18 +319,10 @@ impl CapabilityServer for CapabilityServerImpl {
     async fn on_peer_event(&self, peer: PeerId, event: InboundEvent) {
         debug!("Received message");
 
-        if let Some(ev) = self.handle_event(peer, event).transpose() {
+        if let Err(reason) = self.handle_event(peer, event) {
             match self.sender(peer) {
                 Some(sender) => {
-                    let _ = sender
-                        .send(match ev {
-                            Ok(message) => OutboundEvent::Message {
-                                capability_name: capability_name(),
-                                message,
-                            },
-                            Err(reason) => OutboundEvent::Disconnect { reason },
-                        })
-                        .await;
+                    let _ = sender.send(OutboundEvent::Disconnect { reason }).await;
                 }
                 None => {
                     self.teardown_peer(peer);
