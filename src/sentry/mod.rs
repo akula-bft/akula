@@ -12,6 +12,7 @@ use parking_lot::RwLock;
 use std::{
     collections::{btree_map::Entry, hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
     fmt::Debug,
+    num::NonZeroUsize,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -111,15 +112,15 @@ pub struct CapabilityServerImpl {
 }
 
 impl CapabilityServerImpl {
-    pub fn new(protocol_version: EthProtocolVersion, max_peers: usize) -> Self {
+    pub fn new(protocol_version: EthProtocolVersion, max_peers: NonZeroUsize) -> Self {
         Self {
             peer_pipes: Default::default(),
             block_tracker: Default::default(),
             status_message: Default::default(),
             protocol_version,
             valid_peers: Default::default(),
-            data_sender: broadcast_channel(max_peers * BUFFERING_FACTOR).0,
-            peers_status_sender: broadcast_channel(max_peers).0,
+            data_sender: broadcast_channel(max_peers.get() * BUFFERING_FACTOR).0,
+            peers_status_sender: broadcast_channel(max_peers.get()).0,
             no_new_peers: Arc::new(AtomicBool::new(true)),
         }
     }
