@@ -1,4 +1,3 @@
-#![allow(clippy::manual_memcpy, clippy::needless_range_loop)]
 use crate::{
     crypto::keccak256,
     models::*,
@@ -7,6 +6,7 @@ use crate::{
         util::{assert_subset, prefix_length},
     },
 };
+use bytes::BytesMut;
 use ethereum_types::H256;
 use rlp::RlpStream;
 use std::{boxed::Box, cmp};
@@ -26,8 +26,8 @@ fn encode_path(nibbles: &[u8], terminating: bool) -> Vec<u8> {
         i = 1;
     }
 
-    for j in 1..res.len() {
-        res[j] = (nibbles[i] << 4) + nibbles[i + 1];
+    for byte in res.iter_mut().skip(1) {
+        *byte = (nibbles[i] << 4) + nibbles[i + 1];
         i += 2;
     }
 
@@ -35,20 +35,19 @@ fn encode_path(nibbles: &[u8], terminating: bool) -> Vec<u8> {
 }
 
 fn wrap_hash(hash: &H256) -> Vec<u8> {
-    let mut wrapped = vec![0u8; KECCAK_LENGTH + 1];
-    wrapped[0] = RLP_EMPTY_STRING_CODE + KECCAK_LENGTH as u8;
-    for i in 0..32 {
-        wrapped[i + 1] = hash.0[i];
-    }
-    wrapped
+    [
+        [RLP_EMPTY_STRING_CODE + KECCAK_LENGTH as u8].as_slice(),
+        hash.0.as_slice(),
+    ]
+    .concat()
 }
 
 fn node_ref(rlp: &[u8]) -> Vec<u8> {
     if rlp.len() < KECCAK_LENGTH {
-        return rlp.to_vec();
+        rlp.to_vec()
+    } else {
+        wrap_hash(&keccak256(rlp))
     }
-    let hash = keccak256(rlp);
-    wrap_hash(&hash)
 }
 
 type NodeCollector<'nc> = Box<dyn FnMut(&[u8], &Node) + Send + Sync + 'nc>;
@@ -57,6 +56,26 @@ type NodeCollector<'nc> = Box<dyn FnMut(&[u8], &Node) + Send + Sync + 'nc>;
 enum HashBuilderValue {
     Bytes(Vec<u8>),
     Hash(H256),
+}
+
+fn leaf_node_rlp(path: &[u8], value: &[u8]) -> BytesMut {
+    let encoded_path = encode_path(path, true);
+
+    let mut stream = RlpStream::new_list(2);
+    stream.append(&encoded_path);
+    stream.append(&value);
+
+    stream.out()
+}
+
+fn extension_node_rlp(path: &[u8], child_ref: &[u8]) -> BytesMut {
+    let encoded_path = encode_path(path, false);
+
+    let mut stream = RlpStream::new_list(2);
+    stream.append(&encoded_path);
+    stream.append_raw(child_ref, 1);
+
+    stream.out()
 }
 
 pub(crate) struct HashBuilder<'nc> {
@@ -68,13 +87,12 @@ pub(crate) struct HashBuilder<'nc> {
     tree_masks: Vec<u16>,
     hash_masks: Vec<u16>,
     stack: Vec<Vec<u8>>,
-    rlp_buffer: Vec<u8>,
 }
 
 impl<'nc> HashBuilder<'nc> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(node_collector: Option<NodeCollector<'nc>>) -> Self {
         Self {
-            node_collector: None,
+            node_collector,
             key: vec![],
             value: HashBuilderValue::Bytes(vec![]),
             is_in_db_trie: false,
@@ -82,15 +100,17 @@ impl<'nc> HashBuilder<'nc> {
             tree_masks: vec![],
             hash_masks: vec![],
             stack: vec![],
-            rlp_buffer: vec![],
         }
+    }
+
+    fn collects_nodes(&self) -> bool {
+        self.node_collector.is_some()
     }
 
     pub(crate) fn add_leaf(&mut self, key: Vec<u8>, value: &[u8]) {
         assert!(key > self.key);
         if !self.key.is_empty() {
-            let self_key = self.key.clone();
-            self.gen_struct_step(self_key.as_slice(), key.as_slice());
+            self.gen_struct_step(key.as_slice());
         }
         self.key = key;
         self.value = HashBuilderValue::Bytes(value.to_vec());
@@ -99,58 +119,49 @@ impl<'nc> HashBuilder<'nc> {
     pub(crate) fn add_branch_node(&mut self, key: Vec<u8>, value: &H256, is_in_db_trie: bool) {
         assert!(key > self.key || (self.key.is_empty() && key.is_empty()));
         if !self.key.is_empty() {
-            let self_key = self.key.clone();
-            self.gen_struct_step(self_key.as_slice(), key.as_slice());
+            self.gen_struct_step(key.as_slice());
         } else if key.is_empty() {
             self.stack.push(wrap_hash(value));
         }
         self.key = key;
         self.value = HashBuilderValue::Hash(*value);
+        self.value = HashBuilderValue::Hash(*value);
         self.is_in_db_trie = is_in_db_trie;
     }
 
-    pub(crate) fn root_hash(&mut self) -> H256 {
-        self.private_root_hash(true)
+    pub(crate) fn compute_root_hash(&mut self) -> H256 {
+        self.finalize();
+        self.get_root_hash()
     }
 
-    fn private_root_hash(&mut self, auto_finalize: bool) -> H256 {
-        if auto_finalize {
-            self.finalize();
-        }
-
-        if self.stack.is_empty() {
-            return EMPTY_ROOT;
-        }
-
-        let node_ref = self.stack.last().unwrap();
-        if node_ref.len() == KECCAK_LENGTH + 1 {
-            H256::from_slice(&node_ref[1..])
+    fn get_root_hash(&self) -> H256 {
+        if let Some(node_ref) = self.stack.last() {
+            if node_ref.len() == KECCAK_LENGTH + 1 {
+                H256::from_slice(&node_ref[1..])
+            } else {
+                keccak256(node_ref)
+            }
         } else {
-            keccak256(node_ref)
+            EMPTY_ROOT
         }
     }
 
     fn finalize(&mut self) {
         if !self.key.is_empty() {
-            let self_key = self.key.clone();
-            self.gen_struct_step(self_key.as_slice(), &[]);
+            self.gen_struct_step(&[]);
             self.key.clear();
             self.value = HashBuilderValue::Bytes(vec![]);
         }
     }
 
-    fn gen_struct_step(&mut self, current: &[u8], succeeding: &[u8]) {
+    fn gen_struct_step(&mut self, succeeding: &[u8]) {
         let mut build_extensions = false;
-        let mut current = current.to_vec();
+        let mut current = self.key.clone();
 
         loop {
             let preceding_exists = !self.groups.is_empty();
+            let preceding_len: usize = self.groups.len().saturating_sub(1);
 
-            let preceding_len = if self.groups.is_empty() {
-                0
-            } else {
-                self.groups.len() - 1
-            };
             let common_prefix_len = prefix_length(succeeding, current.as_slice());
             let len = cmp::max(preceding_len, common_prefix_len);
             assert!(len < current.len());
@@ -174,17 +185,15 @@ impl<'nc> HashBuilder<'nc> {
             let short_node_key = current[len_from..].to_vec();
             if !build_extensions {
                 let value = self.value.clone();
-                match value {
-                    HashBuilderValue::Bytes(ref leaf_value) => {
-                        let x = node_ref(
-                            self.leaf_node_rlp(short_node_key.as_slice(), leaf_value)
-                                .as_slice(),
-                        );
-                        self.stack.push(x);
+                match &value {
+                    HashBuilderValue::Bytes(leaf_value) => {
+                        let node_ref =
+                            node_ref(leaf_node_rlp(short_node_key.as_slice(), leaf_value).as_ref());
+                        self.stack.push(node_ref);
                     }
-                    HashBuilderValue::Hash(ref hash) => {
+                    HashBuilderValue::Hash(hash) => {
                         self.stack.push(wrap_hash(hash));
-                        if self.node_collector.is_some() {
+                        if self.collects_nodes() {
                             if self.is_in_db_trie {
                                 self.tree_masks[current.len() - 1] |=
                                     1u16 << current.last().unwrap();
@@ -197,7 +206,7 @@ impl<'nc> HashBuilder<'nc> {
             }
 
             if build_extensions && !short_node_key.is_empty() {
-                if self.node_collector.is_some() && len_from > 0 {
+                if self.collects_nodes() && len_from > 0 {
                     let flag = 1u16 << current[len_from - 1];
 
                     self.hash_masks[len_from - 1] &= !flag;
@@ -209,8 +218,7 @@ impl<'nc> HashBuilder<'nc> {
 
                 let stack_last = self.stack.pop().unwrap();
                 let new_stack_last = node_ref(
-                    self.extension_node_rlp(short_node_key.as_slice(), stack_last.as_slice())
-                        .as_slice(),
+                    extension_node_rlp(short_node_key.as_slice(), stack_last.as_slice()).as_ref(),
                 );
                 self.stack.push(new_stack_last);
 
@@ -225,8 +233,7 @@ impl<'nc> HashBuilder<'nc> {
             if !succeeding.is_empty() || preceding_exists {
                 let child_hashes = self.branch_ref(self.groups[len], self.hash_masks[len]);
 
-                let have_node_collector = self.node_collector.is_some();
-                if have_node_collector {
+                if self.collects_nodes() {
                     if len > 0 {
                         self.hash_masks[len - 1] |= 1u16 << current[len - 1];
                     }
@@ -236,11 +243,12 @@ impl<'nc> HashBuilder<'nc> {
                         if len > 0 {
                             self.tree_masks[len - 1] |= 1u16 << current[len - 1];
                         }
-                        let mut hashes = Vec::<H256>::with_capacity(child_hashes.len());
-                        for i in 0..child_hashes.len() {
-                            assert_eq!(child_hashes[i].len(), KECCAK_LENGTH + 1);
-                            hashes.push(H256::from_slice(&child_hashes[i][1..]))
-                        }
+
+                        let hashes = child_hashes
+                            .iter()
+                            .map(|hash| H256::from_slice(&hash[1..]))
+                            .collect();
+
                         let mut n = Node::new(
                             self.groups[len],
                             self.tree_masks[len],
@@ -248,8 +256,9 @@ impl<'nc> HashBuilder<'nc> {
                             hashes,
                             None,
                         );
+
                         if len == 0 {
-                            n.set_root_hash(Some(self.private_root_hash(false)));
+                            n.root_hash = Some(self.get_root_hash());
                         }
 
                         self.node_collector.as_mut().unwrap()(&current[0..len], &n);
@@ -294,33 +303,10 @@ impl<'nc> HashBuilder<'nc> {
         }
         stream.append_empty_data();
 
-        self.rlp_buffer = stream.out().to_vec();
         self.stack.truncate(first_child_idx);
-        self.stack.push(node_ref(self.rlp_buffer.as_slice()));
+        self.stack.push(node_ref(stream.out().as_ref()));
 
         child_hashes
-    }
-
-    fn leaf_node_rlp(&mut self, path: &[u8], value: &[u8]) -> Vec<u8> {
-        let encoded_path = encode_path(path, true);
-
-        let mut stream = RlpStream::new_list(2);
-        stream.append(&encoded_path);
-        stream.append(&value);
-
-        self.rlp_buffer = stream.out().to_vec();
-        self.rlp_buffer.clone()
-    }
-
-    fn extension_node_rlp(&mut self, path: &[u8], child_ref: &[u8]) -> Vec<u8> {
-        let encoded_path = encode_path(path, false);
-
-        let mut stream = RlpStream::new_list(2);
-        stream.append(&encoded_path);
-        stream.append_raw(child_ref, 1);
-
-        self.rlp_buffer = stream.out().to_vec();
-        self.rlp_buffer.clone()
     }
 }
 
@@ -365,8 +351,8 @@ mod tests {
 
     #[test]
     fn test_hash_builder_empty_trie() {
-        let mut hb = HashBuilder::new();
-        assert_eq!(hb.root_hash(), EMPTY_ROOT);
+        let mut hb = HashBuilder::new(None);
+        assert_eq!(hb.compute_root_hash(), EMPTY_ROOT);
     }
 
     #[test]
@@ -377,12 +363,12 @@ mod tests {
         let val1 = vec![1u8];
         let val2 = vec![2u8];
 
-        let mut hb = HashBuilder::new();
+        let mut hb = HashBuilder::new(None);
         hb.add_leaf(unpack_nibbles(key1.as_bytes()), val1.as_slice());
         hb.add_leaf(unpack_nibbles(key2.as_bytes()), val2.as_slice());
 
         let hash = trie_root(vec![(key1, val1), (key2, val2)]);
-        let root_hash = hb.root_hash();
+        let root_hash = hb.compute_root_hash();
         assert_eq!(hash, root_hash);
     }
 
@@ -391,16 +377,16 @@ mod tests {
         let key0 = hex!("646f").to_vec();
         let val0 = hex!("76657262").to_vec();
 
-        let mut hb0 = HashBuilder::new();
+        let mut hb0 = HashBuilder::new(None);
         hb0.add_leaf(unpack_nibbles(key0.as_slice()), val0.as_slice());
 
         let hash0 = trie_root(vec![(key0.clone(), val0.clone())]);
-        assert_eq!(hb0.root_hash(), hash0);
+        assert_eq!(hb0.compute_root_hash(), hash0);
 
         let key1 = hex!("676f6f64").to_vec();
         let val1 = hex!("7075707079").to_vec();
 
-        let mut hb1 = HashBuilder::new();
+        let mut hb1 = HashBuilder::new(None);
         hb1.add_leaf(unpack_nibbles(key0.as_slice()), val0.as_slice());
         hb1.add_leaf(unpack_nibbles(key1.as_slice()), val1.as_slice());
 
@@ -409,7 +395,7 @@ mod tests {
             (key1.clone(), val1.clone()),
         ]);
         let hash1b = hash1;
-        assert_eq!(hb1.root_hash(), hash1);
+        assert_eq!(hb1.compute_root_hash(), hash1);
 
         let mut stream0 = RlpStream::new_list(2);
         let path0 = encode_path(unpack_nibbles(&key0[1..]).as_slice(), true);
@@ -439,10 +425,10 @@ mod tests {
         let branch_node_rlp = stream.out();
         let branch_node_hash = keccak256(branch_node_rlp);
 
-        let mut hb2 = HashBuilder::new();
+        let mut hb2 = HashBuilder::new(None);
         hb2.add_branch_node(vec![0x6], &branch_node_hash, false);
 
-        assert_eq!(hb2.root_hash(), hash1b);
+        assert_eq!(hb2.compute_root_hash(), hash1b);
     }
 
     #[test]
@@ -450,9 +436,9 @@ mod tests {
         let root_hash = H256::from(hex!(
             "9fa752911d55c3a1246133fe280785afbdba41f357e9cae1131d5f5b0a078b9c"
         ));
-        let mut hb = HashBuilder::new();
+        let mut hb = HashBuilder::new(None);
         hb.add_branch_node(vec![], &root_hash, false);
-        assert_eq!(hb.root_hash(), root_hash);
+        assert_eq!(hb.compute_root_hash(), root_hash);
     }
 
     #[test]

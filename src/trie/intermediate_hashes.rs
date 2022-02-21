@@ -1,4 +1,3 @@
-#![allow(clippy::question_mark)]
 use crate::{
     consensus::{DuoError, ValidationError},
     crypto::keccak256,
@@ -12,6 +11,7 @@ use crate::{
         util::has_prefix,
     },
 };
+use anyhow::Result;
 use parking_lot::Mutex;
 use std::marker::PhantomData;
 use tempfile::TempDir;
@@ -32,40 +32,43 @@ impl CursorSubNode {
     }
 
     fn state_flag(&self) -> bool {
-        if self.nibble < 0 || self.node.is_none() {
-            return true;
+        if let Some(node) = &self.node {
+            if self.nibble >= 0 {
+                return node.state_mask & (1u16 << self.nibble) != 0;
+            }
         }
-        self.node.as_ref().unwrap().state_mask() & (1u16 << self.nibble) != 0
+        true
     }
 
     fn tree_flag(&self) -> bool {
-        if self.nibble < 0 || self.node.is_none() {
-            return true;
+        if let Some(node) = &self.node {
+            if self.nibble >= 0 {
+                return node.tree_mask & (1u16 << self.nibble) != 0;
+            }
         }
-        self.node.as_ref().unwrap().tree_mask() & (1u16 << self.nibble) != 0
+        true
     }
 
     fn hash_flag(&self) -> bool {
-        if self.node.is_none() {
-            return false;
-        } else if self.nibble < 0 {
-            return self.node.as_ref().unwrap().root_hash().is_some();
+        match &self.node {
+            Some(node) => match self.nibble {
+                -1 => node.root_hash.is_some(),
+                _ => node.hash_mask & (1u16 << self.nibble) != 0,
+            },
+            None => false,
         }
-        self.node.as_ref().unwrap().hash_mask() & (1u16 << self.nibble) != 0
     }
 
     fn hash(&self) -> Option<H256> {
-        if !self.hash_flag() {
-            return None;
+        if self.hash_flag() {
+            let node = self.node.as_ref().unwrap();
+            match self.nibble {
+                -1 => node.root_hash,
+                _ => Some(node.hash_for_nibble(self.nibble)),
+            }
+        } else {
+            None
         }
-
-        if self.nibble < 0 {
-            return self.node.as_ref().unwrap().root_hash();
-        }
-
-        let first_nibbles_mask = (1u16 << self.nibble) - 1;
-        let hash_idx = (self.node.as_ref().unwrap().hash_mask() & first_nibbles_mask).count_ones();
-        Some(self.node.as_ref().unwrap().hashes()[hash_idx as usize])
     }
 }
 
@@ -108,7 +111,7 @@ where
         cursor: &'cu mut MdbxCursor<'tx, RW, T>,
         changed: &'ps mut PrefixSet,
         prefix: &[u8],
-    ) -> anyhow::Result<Cursor<'cu, 'tx, 'ps, T>> {
+    ) -> Result<Cursor<'cu, 'tx, 'ps, T>> {
         let mut new_cursor = Self {
             cursor: Mutex::new(cursor),
             changed,
@@ -121,65 +124,48 @@ where
         Ok(new_cursor)
     }
 
-    fn next(&mut self) -> anyhow::Result<()> {
-        if self.stack.is_empty() {
-            return Ok(()); // end-of-tree
-        }
-
-        if !self.can_skip_state && self.children_are_in_trie() {
-            if self.stack.last().unwrap().nibble < 0 {
-                self.move_to_next_sibling(true)?;
+    fn next(&mut self) -> Result<()> {
+        if let Some(last) = self.stack.last() {
+            if !self.can_skip_state && self.children_are_in_trie() {
+                match last.nibble {
+                    -1 => self.move_to_next_sibling(true)?,
+                    _ => self.consume_node(&self.key().unwrap(), false)?,
+                }
             } else {
-                self.consume_node(&self.key().unwrap(), false)?;
+                self.move_to_next_sibling(false)?;
             }
-        } else {
-            self.move_to_next_sibling(false)?;
+            self.update_skip_state();
         }
 
-        self.update_skip_state();
         Ok(())
     }
 
     fn key(&self) -> Option<Vec<u8>> {
-        if self.stack.is_empty() {
-            None
-        } else {
-            Some(self.stack.last().unwrap().full_key())
-        }
+        self.stack.last().map(|n| n.full_key())
     }
 
     fn hash(&self) -> Option<H256> {
-        if self.stack.is_empty() {
-            return None;
-        }
-        self.stack.last().unwrap().hash()
+        self.stack.last().and_then(|n| n.hash())
     }
 
     fn children_are_in_trie(&self) -> bool {
-        if self.stack.is_empty() {
-            return false;
-        }
-        self.stack.last().unwrap().tree_flag()
-    }
-
-    fn can_skip_state(&self) -> bool {
-        self.can_skip_state
+        self.stack.last().map_or(false, |n| n.tree_flag())
     }
 
     fn first_uncovered_prefix(&self) -> Option<Vec<u8>> {
-        let mut k = self.key();
-
-        if self.can_skip_state && k.is_some() {
-            k = increment_key(&k.unwrap());
+        match &self.key() {
+            Some(key) => {
+                if self.can_skip_state {
+                    increment_key(key).map(|k| pack_nibbles(k.as_slice()))
+                } else {
+                    Some(pack_nibbles(key.as_slice()))
+                }
+            }
+            None => None,
         }
-        if k.is_none() {
-            return None;
-        }
-
-        Some(pack_nibbles(k.as_ref().unwrap()))
     }
 
-    fn consume_node(&mut self, to: &[u8], exact: bool) -> anyhow::Result<()> {
+    fn consume_node(&mut self, to: &[u8], exact: bool) -> Result<()> {
         let db_key = [self.prefix.as_slice(), to].concat().to_vec();
         let entry = if exact {
             self.cursor.lock().seek_exact(db_key)?
@@ -205,17 +191,15 @@ where
         let mut node: Option<Node> = None;
         if entry.is_some() {
             node = Some(unmarshal_node(entry.as_ref().unwrap().1.as_slice()).unwrap());
-            assert_ne!(node.as_ref().unwrap().state_mask(), 0);
+            assert_ne!(node.as_ref().unwrap().state_mask, 0);
         }
 
-        let mut nibble = 0i8;
-        if node.is_none() || node.as_ref().unwrap().root_hash().is_some() {
-            nibble = -1;
-        } else {
-            while node.as_ref().unwrap().state_mask() & (1u16 << nibble) == 0 {
-                nibble += 1;
+        let nibble = match &node {
+            Some(n) if n.root_hash.is_none() => {
+                (0i8..16).find(|i| n.state_mask & (1u16 << i) != 0).unwrap()
             }
-        }
+            _ => -1,
+        };
 
         if !key.is_empty() && !self.stack.is_empty() {
             self.stack[0].nibble = key[0] as i8;
@@ -234,52 +218,41 @@ where
     fn move_to_next_sibling(
         &mut self,
         allow_root_to_child_nibble_within_subnode: bool,
-    ) -> anyhow::Result<()> {
-        if self.stack.is_empty() {
-            return Ok(());
-        }
-
-        let sn = self.stack.last().unwrap();
-
-        if sn.nibble >= 15 || (sn.nibble < 0 && !allow_root_to_child_nibble_within_subnode) {
-            self.stack.pop();
-            self.move_to_next_sibling(false)?;
-            return Ok(());
-        }
-
-        let sn = self.stack.last_mut().unwrap();
-
-        sn.nibble += 1;
-
-        if sn.node.is_none() {
-            let key = self.key();
-            self.consume_node(key.as_ref().unwrap(), false)?;
-            return Ok(());
-        }
-
-        while sn.nibble < 16 {
-            if sn.state_flag() {
+    ) -> Result<()> {
+        if let Some(sn) = self.stack.last_mut() {
+            if sn.nibble >= 15 || (sn.nibble < 0 && !allow_root_to_child_nibble_within_subnode) {
+                self.stack.pop();
+                self.move_to_next_sibling(false)?;
                 return Ok(());
             }
-            sn.nibble += 1;
-        }
 
-        self.stack.pop();
-        self.move_to_next_sibling(false)?;
+            sn.nibble += 1;
+
+            if sn.node.is_none() {
+                let key = self.key();
+                self.consume_node(key.as_ref().unwrap(), false)?;
+                return Ok(());
+            }
+
+            while sn.nibble < 16 {
+                if sn.state_flag() {
+                    return Ok(());
+                }
+                sn.nibble += 1;
+            }
+
+            self.stack.pop();
+            self.move_to_next_sibling(false)?;
+        }
         Ok(())
     }
 
     fn update_skip_state(&mut self) {
-        if self.key().is_none()
-            || self.changed.contains(
-                [self.prefix.as_slice(), self.key().unwrap().as_slice()]
-                    .concat()
-                    .as_slice(),
-            )
-        {
-            self.can_skip_state = false;
+        self.can_skip_state = if let Some(key) = self.key() {
+            let s = [self.prefix.as_slice(), key.as_slice()].concat();
+            !self.changed.contains(s.as_slice()) && self.stack.last().unwrap().hash_flag()
         } else {
-            self.can_skip_state = self.stack.last().unwrap().hash_flag();
+            false
         }
     }
 
@@ -297,7 +270,7 @@ where
 {
     txn: &'tx MdbxTransaction<'db, RW, E>,
     hb: HashBuilder<'nc>,
-    storage_collector: Mutex<&'co mut TableCollector<'tmp, tables::TrieStorage>>,
+    storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
     rlp: Vec<u8>,
     _marker: PhantomData<&'db ()>,
 }
@@ -314,63 +287,58 @@ where
         account_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
         storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
     ) -> Self {
-        let mut instance = Self {
+        let node_collector = |unpacked_key: &[u8], node: &Node| {
+            if !unpacked_key.is_empty() {
+                account_collector.push(unpacked_key.to_vec(), marshal_node(node));
+            }
+        };
+
+        Self {
             txn,
-            hb: HashBuilder::new(),
-            storage_collector: Mutex::new(storage_collector),
+            hb: HashBuilder::new(Some(Box::new(node_collector))),
+            storage_collector,
             rlp: vec![],
             _marker: PhantomData,
-        };
-
-        let node_collector = |unpacked_key: &[u8], node: &Node| {
-            if unpacked_key.is_empty() {
-                return;
-            }
-
-            account_collector.push(unpacked_key.to_vec(), marshal_node(node));
-        };
-
-        instance.hb.node_collector = Some(Box::new(node_collector));
-
-        instance
+        }
     }
 
-    fn calculate_root(&mut self, changed: &mut PrefixSet) -> anyhow::Result<H256> {
+    fn calculate_root(&mut self, changed: &mut PrefixSet) -> Result<H256> {
         let mut state = self.txn.cursor(tables::HashedAccount)?;
         let mut trie_db_cursor = self.txn.cursor(tables::TrieAccount)?;
 
         let mut trie = Cursor::new(&mut trie_db_cursor, changed, &[])?;
-        while trie.key().is_some() {
-            if trie.can_skip_state() {
-                assert!(trie.hash().is_some());
+
+        while let Some(key) = trie.key() {
+            if trie.can_skip_state {
                 self.hb.add_branch_node(
-                    trie.key().unwrap(),
+                    key,
                     trie.hash().as_ref().unwrap(),
                     trie.children_are_in_trie(),
                 );
             }
 
-            let uncovered = trie.first_uncovered_prefix();
-            if uncovered.is_none() {
-                break;
-            }
+            let seek_key = match trie.first_uncovered_prefix() {
+                Some(mut uncovered) => {
+                    uncovered.resize(32, 0);
+                    uncovered
+                }
+                None => break,
+            };
 
             trie.next()?;
 
-            let mut seek_key = uncovered.unwrap().to_vec();
-            seek_key.resize(32, 0);
-
             let mut acc = state.seek(H256::from_slice(seek_key.as_slice()))?;
-            while acc.is_some() {
-                let unpacked_key = unpack_nibbles(acc.unwrap().0.as_bytes());
-                if trie.key().is_some() && trie.key().unwrap() < unpacked_key {
-                    break;
+            while let Some((address, account)) = acc {
+                let unpacked_key = unpack_nibbles(address.as_bytes());
+
+                if let Some(key) = trie.key() {
+                    if key < unpacked_key {
+                        break;
+                    }
                 }
 
-                let account = acc.unwrap().1;
-
                 let storage_root =
-                    self.calculate_storage_root(acc.unwrap().0.as_bytes(), trie.changed_mut())?;
+                    self.calculate_storage_root(address.as_bytes(), trie.changed_mut())?;
 
                 self.hb.add_leaf(
                     unpacked_key,
@@ -381,61 +349,61 @@ where
             }
         }
 
-        Ok(self.hb.root_hash())
+        Ok(self.hb.compute_root_hash())
     }
 
     fn calculate_storage_root(
-        &self,
+        &mut self,
         key_with_inc: &[u8],
         changed: &mut PrefixSet,
-    ) -> anyhow::Result<H256> {
+    ) -> Result<H256> {
         let mut state = self.txn.cursor(tables::HashedStorage)?;
         let mut trie_db_cursor = self.txn.cursor(tables::TrieStorage)?;
 
-        let mut hb = HashBuilder::new();
-        hb.node_collector = Some(Box::new(|unpacked_storage_key: &[u8], node: &Node| {
-            let key = [key_with_inc, unpacked_storage_key].concat();
-            self.storage_collector.lock().push(key, marshal_node(node));
-        }));
+        let mut hb = HashBuilder::new(Some(Box::new(
+            |unpacked_storage_key: &[u8], node: &Node| {
+                let key = [key_with_inc, unpacked_storage_key].concat();
+                self.storage_collector.push(key, marshal_node(node));
+            },
+        )));
 
         let mut trie = Cursor::new(&mut trie_db_cursor, changed, key_with_inc)?;
-        while trie.key().is_some() {
-            if trie.can_skip_state() {
-                assert!(trie.hash().is_some());
+        while let Some(key) = trie.key() {
+            if trie.can_skip_state {
                 hb.add_branch_node(
-                    trie.key().unwrap(),
+                    key,
                     trie.hash().as_ref().unwrap(),
                     trie.children_are_in_trie(),
                 );
             }
 
-            let uncovered = trie.first_uncovered_prefix();
-            if uncovered.is_none() {
-                break;
-            }
+            let seek_key = match trie.first_uncovered_prefix() {
+                Some(mut uncovered) => {
+                    uncovered.resize(32, 0);
+                    uncovered
+                }
+                None => break,
+            };
 
             trie.next()?;
-
-            let mut seek_key = uncovered.unwrap().to_vec();
-            seek_key.resize(32, 0);
 
             let mut storage = state.seek_both_range(
                 H256::from_slice(key_with_inc),
                 H256::from_slice(seek_key.as_slice()),
             )?;
-            while storage.is_some() {
-                let (storage_location, value) = storage.unwrap();
+            while let Some((storage_location, value)) = storage {
                 let unpacked_loc = unpack_nibbles(storage_location.as_bytes());
-                if trie.key().is_some() && trie.key().unwrap() < unpacked_loc {
-                    break;
+                if let Some(key) = trie.key() {
+                    if key < unpacked_loc {
+                        break;
+                    }
                 }
-                let rlp = rlp::encode(&value);
-                hb.add_leaf(unpacked_loc, rlp.as_ref());
+                hb.add_leaf(unpacked_loc, rlp::encode(&value).as_ref());
                 storage = state.next_dup()?.map(|(_, v)| v);
             }
         }
 
-        Ok(hb.root_hash())
+        Ok(hb.compute_root_hash())
     }
 }
 
@@ -444,7 +412,7 @@ fn do_increment_intermediate_hashes<'db, 'tx, E>(
     etl_dir: &TempDir,
     expected_root: Option<H256>,
     changed: &mut PrefixSet,
-) -> Result<H256, DuoError>
+) -> std::result::Result<H256, DuoError>
 where
     'db: 'tx,
     E: EnvironmentKind,
@@ -454,15 +422,14 @@ where
 
     let root = {
         let mut loader = DbTrieLoader::new(txn, &mut account_collector, &mut storage_collector);
-
         loader.calculate_root(changed)?
     };
 
-    if let Some(expected_root) = expected_root {
-        if expected_root != root {
+    if let Some(expected) = expected_root {
+        if expected != root {
             return Err(DuoError::Validation(Box::new(
                 ValidationError::WrongStateRoot {
-                    expected: expected_root,
+                    expected,
                     got: root,
                 },
             )));
@@ -481,7 +448,7 @@ where
 fn gather_changes<'db, 'tx, K, E>(
     txn: &'tx MdbxTransaction<'db, K, E>,
     from: BlockNumber,
-) -> anyhow::Result<PrefixSet>
+) -> Result<PrefixSet>
 where
     'db: 'tx,
     K: TransactionKind,
@@ -493,26 +460,24 @@ where
 
     let mut account_changes = txn.cursor(tables::AccountChangeSet)?;
     let mut data = account_changes.seek(starting_key)?;
-    while data.is_some() {
-        let address = data.unwrap().1.address;
-        let hashed_address = keccak256(address);
+    while let Some((_, account_change)) = data {
+        let hashed_address = keccak256(account_change.address);
         out.insert(unpack_nibbles(hashed_address.as_bytes()).as_slice());
         data = account_changes.next()?;
     }
 
     let mut storage_changes = txn.cursor(tables::StorageChangeSet)?;
     let mut data = storage_changes.seek(starting_key)?;
-    while data.is_some() {
-        let address = data.as_ref().unwrap().0.address;
-        let location = data.as_ref().unwrap().1.location;
-        let hashed_address = keccak256(address);
-        let hashed_location = keccak256(location);
+    while let Some((key, storage_change)) = data {
+        let hashed_address = keccak256(key.address);
+        let hashed_location = keccak256(storage_change.location);
 
         let hashed_key = [
             hashed_address.as_bytes(),
             unpack_nibbles(hashed_location.as_bytes()).as_slice(),
         ]
         .concat();
+
         out.insert(hashed_key.as_slice());
         data = storage_changes.next()?;
     }
@@ -525,7 +490,7 @@ pub fn increment_intermediate_hashes<'db, 'tx, E>(
     etl_dir: &TempDir,
     from: BlockNumber,
     expected_root: Option<H256>,
-) -> Result<H256, DuoError>
+) -> std::result::Result<H256, DuoError>
 where
     'db: 'tx,
     E: EnvironmentKind,
@@ -538,7 +503,7 @@ pub fn regenerate_intermediate_hashes<'db, 'tx, E>(
     txn: &'tx MdbxTransaction<'db, RW, E>,
     etl_dir: &TempDir,
     expected_root: Option<H256>,
-) -> Result<H256, DuoError>
+) -> std::result::Result<H256, DuoError>
 where
     'db: 'tx,
     E: EnvironmentKind,
@@ -726,7 +691,7 @@ mod tests {
         let mut cursor = Cursor::new(&mut trie, &mut changed, prefix_b.as_slice()).unwrap();
 
         assert!(cursor.key().unwrap().is_empty());
-        assert!(cursor.can_skip_state());
+        assert!(cursor.can_skip_state);
 
         cursor.next().unwrap();
         assert!(cursor.key().is_none());
@@ -737,7 +702,7 @@ mod tests {
         let mut cursor = Cursor::new(&mut trie, &mut changed, prefix_b.as_slice()).unwrap();
 
         assert!(cursor.key().unwrap().is_empty());
-        assert!(!cursor.can_skip_state());
+        assert!(!cursor.can_skip_state);
 
         cursor.next().unwrap();
         assert_eq!(cursor.key().unwrap(), [0x2]);
@@ -808,7 +773,7 @@ mod tests {
         let mut cursor = Cursor::new(&mut trie, &mut changed, &prefix_b).unwrap();
 
         assert_eq!(cursor.key(), Some(vec![])); // root
-        assert!(cursor.can_skip_state()); // due to root_hash
+        assert!(cursor.can_skip_state); // due to root_hash
         cursor.next().unwrap(); // skips to end of trie
         assert_eq!(cursor.key(), None);
 
@@ -819,7 +784,7 @@ mod tests {
         let mut cursor = Cursor::new(&mut trie, &mut changed, &prefix_b).unwrap();
 
         assert_eq!(cursor.key(), Some(vec![])); // root
-        assert!(!cursor.can_skip_state());
+        assert!(!cursor.can_skip_state);
         cursor.next().unwrap();
         assert_eq!(cursor.key(), Some(vec![0x2]));
         cursor.next().unwrap();
@@ -837,7 +802,7 @@ mod tests {
     {
         let mut hashed_storage = tx.cursor(tables::HashedStorage).unwrap();
 
-        let mut hb = HashBuilder::new();
+        let mut hb = HashBuilder::new(None);
 
         for (loc, val) in [
             (
@@ -865,7 +830,7 @@ mod tests {
             hb.add_leaf(unpack_nibbles(loc.as_bytes()), &rlp::encode(&val));
         }
 
-        hb.root_hash()
+        hb.compute_root_hash()
     }
 
     fn read_all_nodes<K, T>(cursor: MdbxCursor<'_, K, T>) -> HashMap<Vec<u8>, Node>
@@ -891,7 +856,7 @@ mod tests {
         let txn = db.begin_mutable().unwrap();
 
         let mut hashed_accounts = txn.cursor(tables::HashedAccount).unwrap();
-        let mut hb = HashBuilder::new();
+        let mut hb = HashBuilder::new(None);
 
         let key1 = hex!("B000000000000000000000000000000000000000000000000000000000000000").into();
         let a1 = Account {
@@ -981,7 +946,7 @@ mod tests {
         // Populate account & storage trie DB tables
         // ----------------------------------------------------------------
 
-        regenerate_intermediate_hashes(&txn, &temp_dir, Some(hb.root_hash())).unwrap();
+        regenerate_intermediate_hashes(&txn, &temp_dir, Some(hb.compute_root_hash())).unwrap();
 
         // ----------------------------------------------------------------
         // Check account trie
@@ -992,21 +957,21 @@ mod tests {
 
         let node1a = &node_map[&vec![0xB]];
 
-        assert_eq!(node1a.state_mask(), 0b1011);
-        assert_eq!(node1a.tree_mask(), 0b0001);
-        assert_eq!(node1a.hash_mask(), 0b1001);
+        assert_eq!(node1a.state_mask, 0b1011);
+        assert_eq!(node1a.tree_mask, 0b0001);
+        assert_eq!(node1a.hash_mask, 0b1001);
 
-        assert_eq!(node1a.root_hash(), None);
-        assert_eq!(node1a.hashes().len(), 2);
+        assert_eq!(node1a.root_hash, None);
+        assert_eq!(node1a.hashes.len(), 2);
 
         let node2a = &node_map[&vec![0xB, 0x0]];
 
-        assert_eq!(node2a.state_mask(), 0b10001);
-        assert_eq!(node2a.tree_mask(), 0b00000);
-        assert_eq!(node2a.hash_mask(), 0b10000);
+        assert_eq!(node2a.state_mask, 0b10001);
+        assert_eq!(node2a.tree_mask, 0b00000);
+        assert_eq!(node2a.hash_mask, 0b10000);
 
-        assert_eq!(node2a.root_hash(), None);
-        assert_eq!(node2a.hashes().len(), 1);
+        assert_eq!(node2a.root_hash, None);
+        assert_eq!(node2a.hashes.len(), 1);
 
         // ----------------------------------------------------------------
         // Check storage trie
@@ -1017,12 +982,12 @@ mod tests {
 
         let node3 = &node_map[&key3.0.to_vec()];
 
-        assert_eq!(node3.state_mask(), 0b1010);
-        assert_eq!(node3.tree_mask(), 0b0000);
-        assert_eq!(node3.hash_mask(), 0b0010);
+        assert_eq!(node3.state_mask, 0b1010);
+        assert_eq!(node3.tree_mask, 0b0000);
+        assert_eq!(node3.hash_mask, 0b0010);
 
-        assert_eq!(node3.root_hash(), Some(storage_root));
-        assert_eq!(node3.hashes().len(), 1);
+        assert_eq!(node3.root_hash, Some(storage_root));
+        assert_eq!(node3.hashes.len(), 1);
 
         // ----------------------------------------------------------------
         // Add an account
@@ -1061,15 +1026,15 @@ mod tests {
         assert_eq!(node_map.len(), 2);
 
         let node1b = &node_map[&vec![0xB]];
-        assert_eq!(node1b.state_mask(), 0b1011);
-        assert_eq!(node1b.tree_mask(), 0b0001);
-        assert_eq!(node1b.hash_mask(), 0b1011);
+        assert_eq!(node1b.state_mask, 0b1011);
+        assert_eq!(node1b.tree_mask, 0b0001);
+        assert_eq!(node1b.hash_mask, 0b1011);
 
-        assert_eq!(node1b.root_hash(), None);
+        assert_eq!(node1b.root_hash, None);
 
-        assert_eq!(node1b.hashes().len(), 3);
-        assert_eq!(node1a.hashes()[0], node1b.hashes()[0]);
-        assert_eq!(node1a.hashes()[1], node1b.hashes()[2]);
+        assert_eq!(node1b.hashes.len(), 3);
+        assert_eq!(node1a.hashes[0], node1b.hashes[0]);
+        assert_eq!(node1a.hashes[1], node1b.hashes[2]);
 
         let node2b = &node_map[&vec![0xB, 0x0]];
         assert_eq!(node2a, node2b);
@@ -1104,16 +1069,16 @@ mod tests {
             assert_eq!(node_map.len(), 1);
 
             let node1c = &node_map[&vec![0xB]];
-            assert_eq!(node1c.state_mask(), 0b1011);
-            assert_eq!(node1c.tree_mask(), 0b0000);
-            assert_eq!(node1c.hash_mask(), 0b1011);
+            assert_eq!(node1c.state_mask, 0b1011);
+            assert_eq!(node1c.tree_mask, 0b0000);
+            assert_eq!(node1c.hash_mask, 0b1011);
 
-            assert_eq!(node1c.root_hash(), None);
+            assert_eq!(node1c.root_hash, None);
 
-            assert_eq!(node1c.hashes().len(), 3);
-            assert_ne!(node1b.hashes()[0], node1c.hashes()[0]);
-            assert_eq!(node1b.hashes()[1], node1c.hashes()[1]);
-            assert_eq!(node1b.hashes()[2], node1c.hashes()[2]);
+            assert_eq!(node1c.hashes.len(), 3);
+            assert_ne!(node1b.hashes[0], node1c.hashes[0]);
+            assert_eq!(node1b.hashes[1], node1c.hashes[1]);
+            assert_eq!(node1b.hashes[2], node1c.hashes[2]);
         }
 
         // Delete several accounts
@@ -1141,7 +1106,7 @@ mod tests {
             assert_eq!(
                 read_all_nodes(account_trie),
                 hashmap! {
-                    vec![0xB] => Node::new(0b1011, 0b0000, 0b1010, vec![node1b.hashes()[1], node1b.hashes()[2]], None)
+                    vec![0xB] => Node::new(0b1011, 0b0000, 0b1010, vec![node1b.hashes[1], node1b.hashes[2]], None)
                 }
             );
         }
@@ -1160,7 +1125,7 @@ mod tests {
         };
 
         let mut hashed_accounts = txn.cursor(tables::HashedAccount).unwrap();
-        let mut hb = HashBuilder::new();
+        let mut hb = HashBuilder::new(None);
 
         for key in [
             hex!("30af561000000000000000000000000000000000000000000000000000000000"),
@@ -1177,7 +1142,7 @@ mod tests {
             );
         }
 
-        let expected_root = hb.root_hash();
+        let expected_root = hb.compute_root_hash();
         assert_eq!(
             regenerate_intermediate_hashes(&txn, &temp_dir, Some(expected_root)).unwrap(),
             expected_root
@@ -1193,12 +1158,12 @@ mod tests {
 
         let node2 = &node_map[&vec![0x3, 0x0, 0xA, 0xF]];
 
-        assert_eq!(node2.state_mask(), 0b101100000);
-        assert_eq!(node2.tree_mask(), 0b000000000);
-        assert_eq!(node2.hash_mask(), 0b001000000);
+        assert_eq!(node2.state_mask, 0b101100000);
+        assert_eq!(node2.tree_mask, 0b000000000);
+        assert_eq!(node2.hash_mask, 0b001000000);
 
-        assert_eq!(node2.root_hash(), None);
-        assert_eq!(node2.hashes().len(), 1);
+        assert_eq!(node2.root_hash, None);
+        assert_eq!(node2.hashes.len(), 1);
     }
 
     fn int_to_address(i: u128) -> Address {
