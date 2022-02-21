@@ -387,11 +387,10 @@ where
 
             trie.next()?;
 
-            let mut storage = state
-                .seek_both_range(
-                    H256::from_slice(key_with_inc),
-                    H256::from_slice(seek_key.as_slice()),
-                )?;
+            let mut storage = state.seek_both_range(
+                H256::from_slice(key_with_inc),
+                H256::from_slice(seek_key.as_slice()),
+            )?;
             while let Some((storage_location, value)) = storage {
                 let unpacked_loc = unpack_nibbles(storage_location.as_bytes());
                 if let Some(key) = trie.key() {
@@ -432,7 +431,7 @@ where
                 ValidationError::WrongStateRoot {
                     expected,
                     got: root,
-                }
+                },
             )));
         }
     }
@@ -947,8 +946,7 @@ mod tests {
         // Populate account & storage trie DB tables
         // ----------------------------------------------------------------
 
-        regenerate_intermediate_hashes(&txn, &temp_dir, Some(hb.compute_root_hash()))
-            .unwrap();
+        regenerate_intermediate_hashes(&txn, &temp_dir, Some(hb.compute_root_hash())).unwrap();
 
         // ----------------------------------------------------------------
         // Check account trie
