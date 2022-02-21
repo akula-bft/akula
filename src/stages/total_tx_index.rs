@@ -38,17 +38,27 @@ where
             .ok_or_else(|| format_err!("Cannot be the first stage"))?;
 
         if max_block >= starting_block {
-            let mut tx_num = cumulative_index_cur.seek_exact(prev_progress)?.unwrap().1;
+            let mut tx_num = cumulative_index_cur
+                .seek_exact(prev_progress)?
+                .ok_or_else(|| {
+                    format_err!("Cumulative index not found for block #{prev_progress}")
+                })?
+                .1;
 
             for block_num in starting_block..=max_block {
                 if block_num.0 % 500_000 == 0 {
-                    info!("Building total tx index for block {}", block_num);
+                    info!("Building total tx index for block {block_num}");
                 }
 
-                let canonical_hash = tx.get(tables::CanonicalHeader, block_num)?.unwrap();
+                let canonical_hash =
+                    tx.get(tables::CanonicalHeader, block_num)?.ok_or_else(|| {
+                        format_err!("Canonical hash not found for block #{block_num}")
+                    })?;
                 let body = tx
                     .get(tables::BlockBody, (block_num, canonical_hash))?
-                    .unwrap();
+                    .ok_or_else(|| {
+                        format_err!("Body not found for block #{block_num}/{canonical_hash:?}")
+                    })?;
 
                 tx_num += body.tx_amount as u64;
 
