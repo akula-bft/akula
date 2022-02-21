@@ -465,7 +465,7 @@ impl Node {
                                             let ping_data_result = Rlp::new(data).as_val::<PingMessage>();
                                             let ping_data = match ping_data_result {
                                                 Err(rlp::DecoderError::Custom("from:empty")) => {
-                                                    warn!("PING (ignore) due to an empty 'from' IP");
+                                                    trace!("PING (ignore) due to an empty 'from' IP");
                                                     return Ok(())
                                                 },
                                                 other => other.context("RLP decoding of incoming Ping message data")?,
@@ -516,7 +516,7 @@ impl Node {
                                                     let _ = cb.send(());
                                                 }
                                             } else {
-                                                warn!("PONG (ignore)")
+                                                trace!("PONG (unsolicited, ignoring)")
                                             }
                                         }
                                         Some(MessageId::FindNode) => {
@@ -535,7 +535,7 @@ impl Node {
                                                         .neighbours(message.id)
                                                         .map(Box::new);
                                                 } else {
-                                                    warn!("FINDNODE (ignore)");
+                                                    trace!("FINDNODE (unproofed, ignoring)");
                                                 }
                                             }
 
@@ -596,7 +596,7 @@ impl Node {
                             .instrument(span!(Level::TRACE, "IN", "addr={}", &*addr.to_string()))
                             .await
                             {
-                                warn!("Failed to handle message from {}: {}", addr, e);
+                                trace!("Failed to handle message from {}: {}", addr, e);
                             }
                         }
                     }
