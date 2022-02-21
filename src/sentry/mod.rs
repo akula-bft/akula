@@ -249,10 +249,8 @@ impl CapabilityServerImpl {
                             })
                             .is_err()
                         {
-                            warn!("no connected sentry, dropping status and peer");
+                            warn!("no connected sentry, dropping status");
                             *self.status_message.write() = None;
-
-                            return Err(DisconnectReason::ClientQuitting);
                         }
                     }
                     _ => {}
