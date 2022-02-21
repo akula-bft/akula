@@ -1,14 +1,13 @@
-#![allow(clippy::if_same_then_else)]
 use crate::{models::KECCAK_LENGTH, trie::util::assert_subset};
 use ethereum_types::H256;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Node {
-    state_mask: u16,
-    tree_mask: u16,
-    hash_mask: u16,
-    hashes: Vec<H256>,
-    root_hash: Option<H256>,
+    pub(crate) state_mask: u16,
+    pub(crate) tree_mask: u16,
+    pub(crate) hash_mask: u16,
+    pub(crate) hashes: Vec<H256>,
+    pub(crate) root_hash: Option<H256>,
 }
 
 impl Node {
@@ -31,57 +30,27 @@ impl Node {
         }
     }
 
-    fn assign(&mut self, other: &Node) {
-        self.state_mask = other.state_mask;
-        self.tree_mask = other.tree_mask;
-        self.hash_mask = other.hash_mask;
-        self.hashes = other.hashes.clone();
-        self.root_hash = other.root_hash;
-    }
-
-    pub(crate) fn state_mask(&self) -> u16 {
-        self.state_mask
-    }
-
-    pub(crate) fn tree_mask(&self) -> u16 {
-        self.tree_mask
-    }
-
-    pub(crate) fn hash_mask(&self) -> u16 {
-        self.hash_mask
-    }
-
-    pub(crate) fn hashes(&self) -> Vec<H256> {
-        self.hashes.clone()
-    }
-
-    pub(crate) fn root_hash(&self) -> Option<H256> {
-        self.root_hash
-    }
-
-    pub(crate) fn set_root_hash(&mut self, root_hash: Option<H256>) {
-        self.root_hash = root_hash;
+    pub(crate) fn hash_for_nibble(&self, nibble: i8) -> H256 {
+        let mask = (1u16 << nibble) - 1;
+        let index = (self.hash_mask & mask).count_ones();
+        self.hashes[index as usize]
     }
 }
 
 pub(crate) fn marshal_node(n: &Node) -> Vec<u8> {
-    let buf_size =
-        6 + if n.root_hash().is_some() {
-            KECCAK_LENGTH
-        } else {
-            0
-        } + n.hashes().len() * KECCAK_LENGTH;
+    let number_of_hashes = n.hashes.len() + if n.root_hash.is_some() { 1 } else { 0 };
+    let buf_size = number_of_hashes * KECCAK_LENGTH + 6;
     let mut buf = Vec::<u8>::with_capacity(buf_size);
 
-    buf.extend_from_slice(n.state_mask().to_be_bytes().as_slice());
-    buf.extend_from_slice(n.tree_mask().to_be_bytes().as_slice());
-    buf.extend_from_slice(n.hash_mask().to_be_bytes().as_slice());
+    buf.extend_from_slice(n.state_mask.to_be_bytes().as_slice());
+    buf.extend_from_slice(n.tree_mask.to_be_bytes().as_slice());
+    buf.extend_from_slice(n.hash_mask.to_be_bytes().as_slice());
 
-    if n.root_hash().is_some() {
-        buf.extend_from_slice(&*n.root_hash.unwrap().as_bytes());
+    if let Some(root_hash) = n.root_hash {
+        buf.extend_from_slice(root_hash.as_bytes());
     }
 
-    for hash in n.hashes() {
+    for hash in &n.hashes {
         buf.extend_from_slice(hash.as_bytes());
     }
 
@@ -89,9 +58,7 @@ pub(crate) fn marshal_node(n: &Node) -> Vec<u8> {
 }
 
 pub(crate) fn unmarshal_node(v: &[u8]) -> Option<Node> {
-    if v.len() < 6 {
-        return None;
-    } else if (v.len() - 6) % KECCAK_LENGTH != 0 {
+    if v.len() % KECCAK_LENGTH != 6 {
         return None;
     }
 
