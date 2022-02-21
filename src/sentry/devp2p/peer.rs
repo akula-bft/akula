@@ -216,7 +216,7 @@ where
             client_version,
             capabilities: {
                 let mut caps = Vec::new();
-                for cap in capabilities {
+                for cap in &capabilities {
                     caps.push(CapabilityMessage {
                         name: cap.name,
                         version: cap.version,
@@ -322,7 +322,11 @@ where
                 .send(PeerMessage::Disconnect(DisconnectReason::UselessPeer))
                 .await;
 
-            bail!("handshake failed - no shared capabilities");
+            bail!(
+                "Handshake failed - no shared capabilities (our: {:?}, their: {:?})",
+                capabilities,
+                val.capabilities
+            );
         }
 
         Ok(this)

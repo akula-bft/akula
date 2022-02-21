@@ -49,13 +49,14 @@ const PING_INTERVAL: Duration = Duration::from_secs(60);
 const DISCOVERY_TIMEOUT_SECS: u64 = 90;
 const DISCOVERY_CONNECT_TIMEOUT_SECS: u64 = 5;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum DisconnectInitiator {
     Local,
     LocalForceful,
     Remote,
 }
 
+#[derive(Debug)]
 struct DisconnectSignal {
     initiator: DisconnectInitiator,
     reason: DisconnectReason,
@@ -100,8 +101,6 @@ impl PeerStreams {
     }
 
     fn disconnect_peer(&mut self, remote_id: PeerId) -> bool {
-        debug!("disconnecting peer {}", remote_id);
-
         self.mapping.remove(&remote_id).is_some()
     }
 }
@@ -308,6 +307,7 @@ where
                 }
 
                 if let Some(DisconnectSignal { initiator, reason }) = disconnecting {
+                    debug!("Disconnecting, initiated by {initiator:?} for reason {reason:?}");
                     if let DisconnectInitiator::Local = initiator {
                         // We have sent disconnect message, wait for grace period.
                         sleep(Duration::from_secs(GRACE_PERIOD_SECS)).await;
@@ -676,6 +676,7 @@ impl<C: CapabilityServer> Swarm<C> {
                             async move {
                                 loop {
                                     if !no_new_peers.load(Ordering::SeqCst) {
+                                        trace!("Waiting for next peer from discovery");
                                         let next_peer = discovery_tasks.lock().await.next().await;
                                         match next_peer {
                                             None => break,
