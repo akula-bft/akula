@@ -41,7 +41,7 @@ enr = { version = "0.5", default-features = false, features = [
 enum-as-inner = "0.4"
 enum-primitive-derive = "0.2"
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
-ethereum-forkid = "0.7.0"
+ethereum-forkid = "0.8.0"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",
     "sentry",
@@ -51,6 +51,12 @@ ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", fea
     "llvm-intrinsics",
     "rlp",
     "scale",
+] }
+fastrlp = { version = "0.1", features = [
+    "derive",
+    "ethereum-types",
+    "ethnum",
+    "std",
 ] }
 fdlimit = "0.2"
 futures-core = "0.3"
@@ -93,8 +99,6 @@ primitive-types = { version = "0.11", default-features = false, features = [
 rand = "0.8"
 rayon = "1"
 ripemd = "0.1"
-rlp = "0.5"
-rlp-derive = "0.1"
 ron = "0.7"
 secp256k1 = { version = "0.22", features = [
     "global-context",
@@ -149,9 +153,9 @@ tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4.2"
 
 [patch.crates-io]
+arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 enr = { git = "https://github.com/rust-ethereum/enr", branch = "vorot93/update-deps" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging" }
-arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 
 [[bin]]
 path = "bin/akula.rs"

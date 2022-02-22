@@ -3,10 +3,10 @@ use anyhow::{anyhow, bail, Context as _};
 use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use enum_primitive_derive::Primitive;
+use fastrlp::*;
 use futures_sink::Sink;
 use futures_util::SinkExt;
 use num_traits::*;
-use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
 use secp256k1::{PublicKey, SecretKey, SECP256K1};
 use std::{
     fmt::Debug,
@@ -56,59 +56,19 @@ pub enum ProtocolVersion {
     V5 = 5,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct CapabilityMessage {
     pub name: CapabilityName,
     pub version: usize,
 }
 
-impl Encodable for CapabilityMessage {
-    fn rlp_append(&self, s: &mut RlpStream) {
-        s.begin_list(2);
-        s.append(&self.name);
-        s.append(&self.version);
-    }
-}
-
-impl Decodable for CapabilityMessage {
-    fn decode(rlp: &Rlp) -> Result<Self, DecoderError> {
-        Ok(Self {
-            name: rlp.val_at(0)?,
-            version: rlp.val_at(1)?,
-        })
-    }
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, RlpEncodable, RlpDecodable)]
 pub struct HelloMessage {
     pub protocol_version: usize,
     pub client_version: String,
     pub capabilities: Vec<CapabilityMessage>,
     pub port: u16,
     pub id: PeerId,
-}
-
-impl Encodable for HelloMessage {
-    fn rlp_append(&self, s: &mut RlpStream) {
-        s.begin_list(5);
-        s.append(&self.protocol_version);
-        s.append(&self.client_version);
-        s.append_list(&self.capabilities);
-        s.append(&self.port);
-        s.append(&self.id);
-    }
-}
-
-impl Decodable for HelloMessage {
-    fn decode(rlp: &Rlp) -> Result<Self, DecoderError> {
-        Ok(Self {
-            protocol_version: rlp.val_at(0)?,
-            client_version: rlp.val_at(1)?,
-            capabilities: rlp.list_at(2)?,
-            port: rlp.val_at(3)?,
-            id: rlp.val_at(4)?,
-        })
-    }
 }
 
 #[derive(Debug)]
@@ -226,18 +186,11 @@ where
             },
         };
         trace!("Sending hello message: {:?}", hello);
-        let mut outbound_hello = BytesMut::new();
-        outbound_hello = {
-            let mut s = RlpStream::new_with_buffer(outbound_hello);
-            s.append(&0_usize);
-            s.out()
-        };
 
-        outbound_hello = {
-            let mut s = RlpStream::new_with_buffer(outbound_hello);
-            s.append(&hello);
-            s.out()
-        };
+        let mut outbound_hello = BytesMut::new();
+        0_u8.encode(&mut outbound_hello);
+        hello.encode(&mut outbound_hello);
+
         trace!("Outbound hello: {}", hex::encode(&outbound_hello));
         transport.send(outbound_hello.freeze()).await?;
 
@@ -249,18 +202,12 @@ where
         })?;
         trace!("Receiving hello message: {:02x?}", hello);
 
-        let message_id_rlp = Rlp::new(&hello[0..1]);
-        let message_id = message_id_rlp
-            .as_val::<usize>()
-            .context("hello failed (message id)")?;
-        let payload = &hello[1..];
+        let message_id = u8::decode(&mut &hello[..1])?;
+        let payload = &mut &hello[1..];
         match message_id {
             0 => {}
             1 => {
-                let reason = Rlp::new(payload)
-                    .val_at::<u8>(0)
-                    .ok()
-                    .and_then(DisconnectReason::from_u8);
+                let reason = u8::decode(payload).map(DisconnectReason::from_u8)?;
                 bail!(
                     "explicit disconnect: {}",
                     reason
@@ -277,9 +224,7 @@ where
             }
         }
 
-        let val = Rlp::new(payload)
-            .as_val::<HelloMessage>()
-            .context("hello failed (rlp)")?;
+        let val = HelloMessage::decode(payload).context("hello failed (rlp)")?;
         debug!("hello message: {:?}", val);
         let mut shared_capabilities: Vec<CapabilityInfo> = Vec::new();
 
@@ -364,10 +309,8 @@ where
         match Pin::new(&mut s.stream).poll_next(cx).ready()? {
             Some(Ok(val)) => {
                 trace!("Received peer message: {}", hex::encode(&val));
-                let message_id_rlp = Rlp::new(&val[0..1]);
-                let message_id: Result<usize, rlp::DecoderError> = message_id_rlp.as_val();
 
-                let (cap, id, data) = match message_id {
+                let (cap, id, data) = match u8::decode(&mut &val[..1]) {
                     Ok(message_id) => {
                         let input = &val[1..];
                         let payload_len = snap::raw::decompress_len(input)?;
@@ -387,8 +330,7 @@ where
                             match message_id {
                                 0x01 => {
                                     s.disconnected = true;
-                                    if let Some(reason) = Rlp::new(&data)
-                                        .val_at::<u8>(0)
+                                    if let Some(reason) = u8::decode(&mut &*data)
                                         .ok()
                                         .and_then(DisconnectReason::from_u8)
                                     {
@@ -423,7 +365,7 @@ where
                             }
                         }
 
-                        let mut message_id = message_id - 0x10;
+                        let mut message_id = message_id as usize - 0x10;
                         let mut index = 0;
                         for cap in &s.shared_capabilities {
                             if message_id > cap.length {
@@ -488,15 +430,20 @@ where
         let (message_id, payload) = match message {
             PeerMessage::Disconnect(reason) => {
                 this.disconnected = true;
-                (0x01, rlp::encode(&reason.to_u8().unwrap()).into())
+                (
+                    0x01,
+                    fastrlp::encode_fixed_size(&reason.to_u8().unwrap())
+                        .to_vec()
+                        .into(),
+                )
             }
             PeerMessage::Ping => {
                 debug!("sending ping message");
-                (0x02, Bytes::from_static(&rlp::EMPTY_LIST_RLP))
+                (0x02, Bytes::from_static(&[EMPTY_LIST_CODE]))
             }
             PeerMessage::Pong => {
                 debug!("sending pong message");
-                (0x03, Bytes::from_static(&rlp::EMPTY_LIST_RLP))
+                (0x03, Bytes::from_static(&[EMPTY_LIST_CODE]))
             }
             PeerMessage::Subprotocol(SubprotocolMessage { cap_name, message }) => {
                 let Message { id, data } = message;
@@ -535,9 +482,8 @@ where
             }
         };
 
-        let mut s = RlpStream::new_with_buffer(BytesMut::with_capacity(2 + payload.len()));
-        s.append(&message_id);
-        let mut msg = s.out();
+        let mut msg = BytesMut::with_capacity(2 + payload.len());
+        message_id.encode(&mut msg);
 
         let mut buf = msg.split_off(msg.len());
         buf.resize(snap::raw::max_compress_len(payload.len()), 0);

@@ -3,8 +3,8 @@ use anyhow::bail;
 use arrayvec::ArrayVec;
 use bytes::{Buf, Bytes};
 use educe::*;
+use fastrlp::*;
 use modular_bitfield::prelude::*;
-use rlp_derive::*;
 use serde::*;
 use std::collections::HashMap;
 
@@ -15,7 +15,7 @@ pub struct Account {
     pub code_hash: H256, // hash of the bytecode
 }
 
-#[derive(Debug, RlpEncodable, RlpDecodable)]
+#[derive(Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]
 pub struct RlpAccount {
     pub nonce: u64,
     pub balance: U256,

@@ -18,6 +18,7 @@ use akula::{
 use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
 use clap::Parser;
+use fastrlp::*;
 use rayon::prelude::*;
 use std::{
     panic,
@@ -174,8 +175,8 @@ where
             canonical_cur.append(block_number, canonical_hash)?;
             header_cur.append(
                 (block_number, canonical_hash),
-                rlp::decode(
-                    &erigon_header_cur
+                <BlockHeader as Decodable>::decode(
+                    &mut &*erigon_header_cur
                         .seek_exact(TableEncode::encode((block_number, canonical_hash)).to_vec())?
                         .unwrap()
                         .1,
@@ -334,7 +335,7 @@ where
                             continue;
                         }
 
-                        let body = rlp::decode::<BodyForStorage>(&v)?;
+                        let body = <BodyForStorage as Decodable>::decode(&mut &*v)?;
 
                         let base_tx_id = body.base_tx_id;
 
@@ -390,9 +391,11 @@ where
                         body.uncles,
                         txs.into_iter()
                             .map(|v| {
-                                Ok(rlp::decode::<akula::models::MessageWithSignature>(&v)?
-                                    .encode()
-                                    .to_vec())
+                                Ok(<akula::models::MessageWithSignature as Decodable>::decode(
+                                    &mut &*v,
+                                )?
+                                .encode()
+                                .to_vec())
                             })
                             .collect::<anyhow::Result<Vec<_>>>()?,
                     ))

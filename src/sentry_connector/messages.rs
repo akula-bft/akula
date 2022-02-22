@@ -2,9 +2,9 @@ use super::block_id::BlockId;
 use crate::models::{
     Block as BlockType, BlockHeader as HeaderType, MessageWithSignature, Receipt as ReceiptType, *,
 };
+use bytes::Bytes;
 use ethereum_forkid::ForkId;
-use ethereum_types::{H256, U256};
-use rlp_derive::*;
+use fastrlp::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum EthMessageId {
@@ -31,49 +31,13 @@ pub struct BlockHashAndNumber {
     pub number: BlockNumber,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, rlp_derive::RlpEncodable, rlp_derive::RlpDecodable)]
-pub struct BlockIdType {
-    pub hash: H256,
-    pub block_number: u64,
-}
-
 #[derive(RlpEncodableWrapper, RlpDecodableWrapper, Clone, PartialEq, Debug)]
-pub struct NewBlockHashesMessage {
-    pub ids: Vec<BlockHashAndNumber>,
-}
+pub struct NewBlockHashesMessage(pub Vec<BlockHashAndNumber>);
 
 #[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct BlockBodyType {
     pub transactions: Vec<MessageWithSignature>,
     pub ommers: Vec<HeaderType>,
-}
-
-/// NodeDataType represents a node of the state trie
-/// returned in response to a `GetNodeData` message.
-///
-/// TODO: Validate this type representation. Maybe an enum like:
-/// enum NodeDataType {
-///     LeafNode(Vec<u8>),  
-///     InternalNode(H256),  
-///     ContractCode(Vec<u8>)  
-/// }
-/// would work better?
-#[derive(Clone, PartialEq, Debug)]
-pub struct NodeDataType {
-    pub blob: Vec<u8>,
-}
-
-impl rlp::Decodable for NodeDataType {
-    fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
-        let blob = rlp.decoder().decode_value(|bytes| Ok(bytes.to_vec()))?;
-        Ok(Self { blob })
-    }
-}
-
-impl rlp::Encodable for NodeDataType {
-    fn rlp_append(&self, s: &mut rlp::RlpStream) {
-        s.encoder().encode_value(&self.blob);
-    }
 }
 
 #[derive(RlpEncodable, RlpDecodable, Clone, Copy, PartialEq, Debug)]
@@ -83,9 +47,7 @@ pub struct GetBlockHeadersMessage {
 }
 
 #[derive(RlpEncodableWrapper, RlpDecodableWrapper, Clone, PartialEq, Debug)]
-pub struct BlockReceipts {
-    pub receipts: Vec<ReceiptType>,
-}
+pub struct BlockReceipts(pub Vec<ReceiptType>);
 
 #[derive(Clone, Copy, PartialEq, Debug, RlpEncodable, RlpDecodable)]
 pub struct GetBlockHeadersMessageParams {
@@ -108,71 +70,59 @@ pub struct NewBlockMessage {
 }
 
 #[derive(RlpEncodableWrapper, RlpDecodableWrapper, Clone, PartialEq, Debug)]
-pub struct NewPooledTransactionHashesMessage {
-    pub ids: Vec<H256>,
-}
+pub struct NewPooledTransactionHashesMessage(pub Vec<H256>);
 
-#[derive(
-    rlp_derive::RlpEncodableWrapper, rlp_derive::RlpDecodableWrapper, Clone, PartialEq, Debug,
-)]
-pub struct TransactionsMessage {
-    pub transactions: Vec<MessageWithSignature>,
-}
+#[derive(RlpEncodableWrapper, RlpDecodableWrapper, Clone, PartialEq, Debug)]
+pub struct TransactionsMessage(pub Vec<MessageWithSignature>);
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct GetBlockBodiesMessage {
     pub request_id: u64,
     pub block_hashes: Vec<H256>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct BlockBodiesMessage {
     pub request_id: u64,
     pub block_bodies: Vec<BlockBodyType>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct GetPooledTransactionsMessage {
     pub request_id: u64,
     pub tx_hashes: Vec<H256>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct PooledTransactionsMessage {
     pub request_id: u64,
     pub transactions: Vec<MessageWithSignature>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct GetNodeDataMessage {
     pub request_id: u64,
     pub hashes: Vec<H256>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct NodeDataMessage {
     pub request_id: u64,
-    pub data: Vec<NodeDataType>,
+    pub data: Vec<Bytes>,
 }
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct GetReceiptsMessage {
     pub request_id: u64,
     pub block_hashes: Vec<H256>,
 }
 
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct ReceiptsMessage {
     pub request_id: u64,
     pub receipts: Vec<BlockReceipts>,
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub struct ForkIdentifier {
-    pub fork_hash: Vec<u8>,
-    pub fork_next: u64,
-}
-
-#[derive(rlp_derive::RlpEncodable, rlp_derive::RlpDecodable, Clone, PartialEq, Debug)]
+#[derive(RlpEncodable, RlpDecodable, Clone, PartialEq, Debug)]
 pub struct StatusMessage {
     pub protocol_version: usize,
     pub network_id: u64,

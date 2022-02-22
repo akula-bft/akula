@@ -27,8 +27,8 @@ impl From<secp256k1::Error> for ECIESError {
     }
 }
 
-impl From<rlp::DecoderError> for ECIESError {
-    fn from(error: rlp::DecoderError) -> Self {
+impl From<fastrlp::DecodeError> for ECIESError {
+    fn from(error: fastrlp::DecodeError) -> Self {
         Self::Other(error.into())
     }
 }

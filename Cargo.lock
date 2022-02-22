@@ -88,6 +88,7 @@ dependencies = [
  "ethereum-interfaces",
  "ethereum-types",
  "ethnum",
+ "fastrlp",
  "fdlimit",
  "futures-core",
  "futures-intrusive",
@@ -123,8 +124,6 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "ripemd",
- "rlp",
- "rlp-derive",
  "ron",
  "secp256k1",
  "serde",
@@ -1062,15 +1061,14 @@ dependencies = [
 
 [[package]]
 name = "ethereum-forkid"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45c397979cd94737348e1b96ca7201e48386aaa0c13270e8b3dd30f986007d31"
+checksum = "e2da5755919000af31d27897dd81de082d544039d2953bab4ce42c908b3050a5"
 dependencies = [
  "crc",
+ "fastrlp",
  "maplit",
  "primitive-types",
- "rlp",
- "rlp-derive",
  "thiserror",
 ]
 
@@ -1132,6 +1130,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3fcf0cee53519c866c09b5de1f6c56ff9d647101f81c1964fa632e148896cdf"
 dependencies = [
  "instant",
+]
+
+[[package]]
+name = "fastrlp"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d6d351c969482a4f706cfb7dbebb2981746c3075c47acbfeb5a4a447440da5f"
+dependencies = [
+ "arrayvec 0.7.2",
+ "auto_impl",
+ "bytes",
+ "ethereum-types",
+ "ethnum",
+ "fastrlp-derive",
+]
+
+[[package]]
+name = "fastrlp-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c219fb93272aa8014bebb75cab54393e6d1eeb444d6a2058522d5fe27690d5be"
+dependencies = [
+ "bytes",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2870,17 +2894,6 @@ checksum = "999508abb0ae792aabed2460c45b89106d97fe4adac593bdaef433c2605847b5"
 dependencies = [
  "bytes",
  "rustc-hex",
-]
-
-[[package]]
-name = "rlp-derive"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e33d7b2abe0c340d8797fe2907d3f20d3b5ea5908683618bfe80df7f621f672a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

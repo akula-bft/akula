@@ -67,7 +67,7 @@ impl TopBlockEstimateStage {
 
     fn on_message(&self, message_from_peer: NewBlockHashesMessageFromPeer) {
         debug!("TopBlockEstimateStage: received new block hashes");
-        if message_from_peer.message.ids.is_empty() {
+        if message_from_peer.message.0.is_empty() {
             return;
         }
         if message_from_peer.from_peer_id.is_none() {
@@ -77,7 +77,7 @@ impl TopBlockEstimateStage {
 
         let mut block_nums = message_from_peer
             .message
-            .ids
+            .0
             .iter()
             .map(|id| id.number)
             .collect::<Vec<BlockNumber>>();

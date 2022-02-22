@@ -2,13 +2,13 @@ use super::{kad::*, message::*, proto::*, util::*, NodeId};
 use anyhow::{anyhow, bail, Context};
 use bytes::{BufMut, BytesMut};
 use chrono::Utc;
+use fastrlp::*;
 use futures_util::future::join_all;
 use igd::aio::search_gateway;
 use num_traits::FromPrimitive;
 use parking_lot::{Mutex, RwLock};
 use primitive_types::H256;
 use rand::{distributions::Standard, prelude::SliceRandom, thread_rng, Rng};
-use rlp::{Rlp, RlpStream};
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message, PublicKey, SecretKey, SECP256K1,
@@ -62,9 +62,9 @@ fn find_node_expiry() -> u64 {
 
 pub const ALPHA: usize = 3;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, RlpEncodable, RlpDecodable)]
 pub struct NodeRecord {
-    pub address: IpAddr,
+    pub address: Ip,
     pub tcp_port: u16,
     pub udp_port: u16,
     pub id: NodeId,
@@ -82,13 +82,13 @@ impl NodeRecord {
     /// The TCP socket address of this node
     #[must_use]
     pub fn tcp_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.address, self.tcp_port)
+        SocketAddr::new(self.address.0, self.tcp_port)
     }
 
     /// The UDP socket address of this node
     #[must_use]
     pub fn udp_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.address, self.udp_port)
+        SocketAddr::new(self.address.0, self.udp_port)
     }
 }
 
@@ -110,7 +110,8 @@ impl FromStr for NodeRecord {
                     other
                 )))
             }
-        };
+        }
+        .into();
         let port = url
             .port()
             .ok_or_else(|| NodeRecordParseError::InvalidUrl(anyhow!("no port specified")))?;
@@ -222,7 +223,7 @@ impl Node {
         tcp_port: u16,
     ) -> anyhow::Result<Arc<Self>> {
         let node_endpoint = Arc::new(RwLock::new(Endpoint {
-            address: public_address.unwrap_or_else(|| addr.ip()),
+            address: Ip(public_address.unwrap_or_else(|| addr.ip())),
             udp_port: addr.port(),
             tcp_port,
         }));
@@ -246,7 +247,7 @@ impl Node {
                         {
                             Ok(v) => {
                                 debug!("Discovered public IP: {}", v);
-                                node_endpoint.write().address = v;
+                                node_endpoint.write().address = Ip(v);
                             }
                             Err(e) => {
                                 debug!("Failed to get public IP: {}", e);
@@ -308,27 +309,19 @@ impl Node {
                                 pre_trigger = Some(PreTrigger::Ping(sender));
                                 post_trigger = Some(PostSendTrigger::Ping);
                                 payload.put_u8(1);
-                                let mut s = RlpStream::new_with_buffer(payload.split_off(1));
-                                s.append(&message);
-                                payload.unsplit(s.out());
+                                message.encode(&mut payload);
                             }
                             EgressMessage::Pong(message) => {
                                 payload.put_u8(2);
-                                let mut s = RlpStream::new_with_buffer(payload.split_off(1));
-                                s.append(&message);
-                                payload.unsplit(s.out());
+                                message.encode(&mut payload);
                             }
                             EgressMessage::FindNode(message) => {
                                 payload.put_u8(3);
-                                let mut s = RlpStream::new_with_buffer(payload.split_off(1));
-                                s.append(&message);
-                                payload.unsplit(s.out());
+                                message.encode(&mut payload);
                             }
                             EgressMessage::Neighbours(message) => {
                                 payload.put_u8(4);
-                                let mut s = RlpStream::new_with_buffer(payload.split_off(1));
-                                s.append(&message);
-                                payload.unsplit(s.out());
+                                message.encode(&mut payload);
                             }
                         }
 
@@ -457,14 +450,14 @@ impl Node {
                                 }
 
                                 let typ = buf[97];
-                                let data = &buf[98..];
+                                let mut data = &buf[98..];
 
                                 async {
                                     match MessageId::from_u8(typ) {
                                         Some(MessageId::Ping) => {
-                                            let ping_data_result = Rlp::new(data).as_val::<PingMessage>();
+                                            let ping_data_result = PingMessage::decode(&mut data);
                                             let ping_data = match ping_data_result {
-                                                Err(rlp::DecoderError::Custom("from:empty")) => {
+                                                Err(DecodeError::Custom("from:empty")) => {
                                                     trace!("PING (ignore) due to an empty 'from' IP");
                                                     return Ok(())
                                                 },
@@ -499,7 +492,7 @@ impl Node {
                                             }
                                         }
                                         Some(MessageId::Pong) => {
-                                            let message = Rlp::new(data).as_val::<PongMessage>()
+                                            let message = PongMessage::decode(&mut data)
                                                 .context("RLP decoding of incoming Pong message data")?;
 
                                             // Did we actually ask for this? Ignore message if not.
@@ -521,7 +514,7 @@ impl Node {
                                         }
                                         Some(MessageId::FindNode) => {
                                             let message =
-                                                Rlp::new(data).as_val::<FindNodeMessage>()
+                                                FindNodeMessage::decode(&mut data)
                                                     .context("RLP decoding of incoming FindNode message data")?;
 
                                             let mut neighbours = None;
@@ -564,7 +557,7 @@ impl Node {
 
                                                 // OK, so we did ask, let's handle the message.
                                                 let message =
-                                                    Rlp::new(data).as_val::<NeighboursMessage>()
+                                                    NeighboursMessage::decode(&mut data)
                                                         .context("RLP decoding of incoming Neighbours message data")?;
 
                                                 {
@@ -746,7 +739,7 @@ impl Node {
                 let inflight_find_node_requests = self.inflight_find_node_requests.clone();
                 let expected_ping_id = rand::random();
                 async move {
-                    let addr = SocketAddr::new(node.record.address, node.record.udp_port);
+                    let addr = SocketAddr::new(node.record.address.0, node.record.udp_port);
 
                     let res = timeout(FIND_NODE_TIMEOUT, async {
                         let (expected_ping_tx, expected_ping_rx) = oneshot();
