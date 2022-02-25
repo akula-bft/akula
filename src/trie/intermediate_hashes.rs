@@ -358,6 +358,11 @@ where
         changed: &mut PrefixSet,
     ) -> Result<H256> {
         let mut state = self.txn.cursor(tables::HashedStorage)?;
+
+        if state.seek_exact(H256::from_slice(key_with_inc))?.is_none() {
+            return Ok(EMPTY_ROOT);
+        }
+
         let mut trie_db_cursor = self.txn.cursor(tables::TrieStorage)?;
 
         let mut hb = HashBuilder::new(Some(Box::new(
