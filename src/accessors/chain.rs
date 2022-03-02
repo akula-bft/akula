@@ -4,6 +4,48 @@ use crate::{
 };
 use tracing::*;
 
+pub mod canonical_hash {
+    use super::*;
+
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        number: impl Into<BlockNumber>,
+    ) -> anyhow::Result<H256> {
+        let number = number.into();
+        trace!("Reading canonical hash for block number {}", number);
+
+        Ok(tx.get(tables::CanonicalHeader, number))
+    }
+}
+
+pub mod header_number {
+    use super::*;
+
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        hash: H256,
+    ) -> anyhow::Result<U64> {
+        trace!("Reading header number for hash {:?}", hash);
+
+        Ok(tx.get(tables::HeaderNumber, hash))
+    }
+}
+
+pub mod header {
+    use super::*;
+
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        hash: H256,
+        number: impl Into<BlockNumber>,
+    ) -> anyhow::Result<H256> {
+        let number = number.into();
+        trace!("Reading header for block number {}", number);
+
+        Ok(tx.get(tables::Header, (number, hash)))
+    }
+}
+
 pub mod tx {
     use super::*;
 
