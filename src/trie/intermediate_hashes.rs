@@ -358,6 +358,7 @@ where
         changed: &mut PrefixSet,
     ) -> Result<H256> {
         let mut state = self.txn.cursor(tables::HashedStorage)?;
+
         let mut trie_db_cursor = self.txn.cursor(tables::TrieStorage)?;
 
         let mut hb = HashBuilder::new(Some(Box::new(
@@ -370,6 +371,9 @@ where
         let mut trie = Cursor::new(&mut trie_db_cursor, changed, key_with_inc)?;
         while let Some(key) = trie.key() {
             if trie.can_skip_state {
+                if state.seek_exact(H256::from_slice(key_with_inc))?.is_none() {
+                    return Ok(EMPTY_ROOT);
+                }
                 hb.add_branch_node(
                     key,
                     trie.hash().as_ref().unwrap(),
