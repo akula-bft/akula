@@ -1,4 +1,4 @@
-/*use crate::{
+use crate::{
     accessors::{chain, state},
     consensus::engine_factory,
     execution::{analysis_cache::AnalysisCache, evm, processor::ExecutionProcessor},
@@ -647,4 +647,4 @@ mod tests {
             .unwrap();
         assert_eq!(balance, ETHER.as_u256() * 100);
     }
-}*/
+}

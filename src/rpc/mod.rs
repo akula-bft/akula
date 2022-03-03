@@ -1,5 +1,5 @@
 pub mod eth;
-/*
+
 mod helpers {
     use crate::{
         accessors::chain,
@@ -153,4 +153,4 @@ mod helpers {
             uncles: body.ommers.into_iter().map(|uncle| uncle.hash()).collect(),
         })
     }
-}*/
+}
