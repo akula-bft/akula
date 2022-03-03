@@ -14,7 +14,10 @@ pub mod canonical_hash {
         let number = number.into();
         trace!("Reading canonical hash for block number {}", number);
 
-        Ok(tx.get(tables::CanonicalHeader, number))
+        Ok(tx
+            .get(tables::CanonicalHeader, number)?
+            .unwrap_or_default()
+        )
     }
 }
 
@@ -24,10 +27,13 @@ pub mod header_number {
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
-    ) -> anyhow::Result<U64> {
+    ) -> anyhow::Result<BlockNumber> {
         trace!("Reading header number for hash {:?}", hash);
 
-        Ok(tx.get(tables::HeaderNumber, hash))
+        Ok(tx
+            .get(tables::HeaderNumber, hash)?
+            .unwrap_or_default()
+        )
     }
 }
 
@@ -38,11 +44,15 @@ pub mod header {
         tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<H256> {
+    ) -> anyhow::Result<BlockHeader> {
         let number = number.into();
         trace!("Reading header for block number {}", number);
 
-        Ok(tx.get(tables::Header, (number, hash)))
+        Ok(tx
+            .get(tables::Header, (number, hash))?
+            .unwrap()
+        )
+        
     }
 }
 
