@@ -1,11 +1,10 @@
 use crate::{
     accessors::{chain, state},
     consensus::engine_factory,
-    execution::{analysis_cache::AnalysisCache, evm, processor::ExecutionProcessor, tracer::NoopTracer},
+    execution::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer},
     kv::tables,
     execution::evmglue,
     kv::mdbx::{
-        MdbxTransaction,
         MdbxEnvironment,
         EnvironmentKind,
     },
@@ -51,7 +50,7 @@ where
     ) -> RpcResult<types::Bytes> {
         let txn = self.db.begin()?;
 
-        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
         let block_hash = chain::canonical_hash::read(&txn, block_number)?;
 
         let header = chain::header::read(&txn, block_hash, block_number)?;
@@ -100,7 +99,7 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
         let hash = txn
             .get(tables::CanonicalHeader, block_number)?
             .unwrap();
@@ -154,7 +153,7 @@ where
         Ok(state::account::read(
             &txn,
             address,
-            Some(helpers::get_block_number(&txn, block_number)?),
+            Some(helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?),
         )?
         .map(|acc| acc.balance)
         .unwrap_or(U256::ZERO))
@@ -241,7 +240,7 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
         Ok(chain::block_body::read_without_senders(
             &txn,
             chain::canonical_hash::read(&txn, block_number)?,
@@ -259,7 +258,7 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<types::Bytes> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
         let account = state::account::read(&txn, address, Some(block_number))?
             .unwrap();
 
@@ -274,13 +273,13 @@ where
         address: Address,
         key: U256,
         block_number: types::BlockNumber,
-    ) -> RpcResult<H256> {
+    ) -> RpcResult<U256> {
         let txn = self.db.begin()?;
         Ok(state::storage::read(
             &txn,
             address,
             key,
-            Some(helpers::get_block_number(&txn, block_number)?)
+            Some(helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?)
         )?)
     }
 
@@ -322,7 +321,7 @@ where
         Ok(state::account::read(
             &txn,
             address,
-            Some(helpers::get_block_number(&txn, block_number)?),
+            Some(helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?),
         )?
         .unwrap()
         .nonce
@@ -470,7 +469,7 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
         Ok(U64::from(
             chain::storage_body::read(
                 &txn,

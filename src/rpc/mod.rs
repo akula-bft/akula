@@ -13,13 +13,18 @@ mod helpers {
     use ethereum_jsonrpc::types;
     use ethereum_types::U64;
 
+    fn block_number_to_u64(block_number: types::BlockNumber) -> u64 {
+        match block_number {
+            types::BlockNumber::Number(n) => n.as_u64(),
+            _ => 0
+        }
+    }
     pub fn get_block_number<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
-        block_number: ethereum_jsonrpc::types::BlockNumberOrHash,
+        block_number: ethereum_jsonrpc::types::BlockId,
     ) -> anyhow::Result<BlockNumber> {
         let block_number = match block_number {
-            types::BlockId::Number(n) => BlockNumber(n.as_u64()),
-            types::BlockId::Hash(n) => txn.get(tables::CanonicalHeader, n)?.unwrap(),
+            types::BlockId::Number(n) => BlockNumber(block_number_to_u64(n)),
             _ => txn
                 .get(tables::SyncStage, stages::FINISH)?
                 .unwrap_or(BlockNumber(0)),
@@ -35,7 +40,7 @@ mod helpers {
     ) -> anyhow::Result<types::Block> {
         let (block_number, block_hash, header) = match block_id {
             types::BlockId::Number(n) => {
-                let block_number = get_block_number(txn, n)?;
+                let block_number = get_block_number(txn, ethereum_jsonrpc::types::BlockId::Number(n))?;
                 let block_hash = txn
                     .get(tables::CanonicalHeader, block_number)?
                     .unwrap();
@@ -86,7 +91,7 @@ mod helpers {
                     .zip(senders)
                     .enumerate()
                     .map(|(index, (tx, sender))| {
-                        types::Tx::Transaction(Box::new(types::Tx::Transaction {
+                        types::Tx::Transaction(Box::new(types::Transaction {
                             block_number: Some(U64::from(block_number.0)),
                             block_hash: Some(block_hash),
                             from: sender,
@@ -117,7 +122,7 @@ mod helpers {
             false => body
                 .transactions
                 .into_iter()
-                .map(|tx| tx.hash())
+                .map(|tx| types::Tx::Hash(tx.message.hash()))
                 .collect(),
         };
 
