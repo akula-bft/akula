@@ -10,70 +10,64 @@ mod helpers {
         models::{BlockNumber, Message, TransactionAction},
         stagedsync::stages,
     };
-    use ethereum_jsonrpc::common;
+    use ethereum_jsonrpc::types;
     use ethereum_types::U64;
 
-    pub async fn get_block_number<K: TransactionKind, E: EnvironmentKind>(
+    pub fn get_block_number<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
-        block_number: ethereum_jsonrpc::common::BlockId,
+        block_number: ethereum_jsonrpc::types::BlockNumberOrHash,
     ) -> anyhow::Result<BlockNumber> {
         let block_number = match block_number {
-            common::BlockId::Number(n) => BlockNumber(n.as_u64()),
-            common::BlockId::Earliest => BlockNumber(0),
+            types::BlockId::Number(n) => BlockNumber(n.as_u64()),
+            types::BlockId::Hash(n) => txn.get(tables::CanonicalHeader, n)?.unwrap(),
             _ => txn
-                .get(tables::SyncStage, stages::FINISH)
-                .await?
+                .get(tables::SyncStage, stages::FINISH)?
                 .unwrap_or(BlockNumber(0)),
         };
         Ok(block_number)
     }
 
-    pub async fn construct_block<K: TransactionKind, E: EnvironmentKind>(
+    pub fn construct_block<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
-        block_id: common::BlockId,
+        block_id: types::BlockId,
         include_txs: Option<bool>,
         uncle_index: Option<U64>,
-    ) -> anyhow::Result<common::Block> {
+    ) -> anyhow::Result<types::Block> {
         let (block_number, block_hash, header) = match block_id {
-            common::BlockId::Number(n) => {
-                let block_number = get_block_number(txn, n).await?;
+            types::BlockId::Number(n) => {
+                let block_number = get_block_number(txn, n)?;
                 let block_hash = txn
-                    .get(tables::CanonicalHeader, block_number)
-                    .await?
+                    .get(tables::CanonicalHeader, block_number)?
                     .unwrap();
                 match uncle_index {
                     Some(n) => {
                         let body = txn
-                            .get(tables::BlockBody, (block_number, block_hash))
-                            .await?
+                            .get(tables::BlockBody, (block_number, block_hash))?
                             .unwrap();
                         let uncle_header = body.uncles.into_iter().nth(n.as_usize()).unwrap();
                         (block_number, uncle_header.hash(), uncle_header)
                     }
                     None => {
                         let header = txn
-                            .get(tables::Header, (block_number, block_hash))
-                            .await?
+                            .get(tables::Header, (block_number, block_hash))?
                             .unwrap();
                         (block_number, block_hash, header)
                     }
                 }
             }
-            common::BlockId::Hash(block_hash) => {
-                let block_number = txn.get(tables::HeaderNumber, block_hash).await?.unwrap();
+            types::BlockId::Hash(block_hash) => {
+                let block_number = txn.get(tables::HeaderNumber, block_hash)?.unwrap();
                 match uncle_index {
                     Some(n) => {
                         let body = txn
-                            .get(tables::BlockBody, (block_number, block_hash))
-                            .await?
+                            .get(tables::BlockBody, (block_number, block_hash))?
                             .unwrap();
                         let uncle_header = body.uncles.into_iter().nth(n.as_usize()).unwrap();
                         (block_number, uncle_header.hash(), uncle_header)
                     }
                     None => {
                         let header = txn
-                            .get(tables::Header, (block_number, block_hash))
-                            .await?
+                            .get(tables::Header, (block_number, block_hash))?
                             .unwrap();
                         (block_number, block_hash, header)
                     }
@@ -81,19 +75,18 @@ mod helpers {
             }
         };
 
-        let body = chain::block_body::read_without_senders(txn, block_hash, block_number)
-            .await?
+        let body = chain::block_body::read_without_senders(txn, block_hash, block_number)?
             .unwrap();
 
-        let transactions: Vec<common::Tx> = match include_txs.unwrap_or(true) {
+        let transactions: Vec<types::Tx> = match include_txs.unwrap_or(true) {
             true => {
-                let senders = chain::tx_sender::read(txn, block_hash, block_number).await?;
+                let senders = chain::tx_sender::read(txn, block_hash, block_number)?;
                 body.transactions
                     .into_iter()
                     .zip(senders)
                     .enumerate()
                     .map(|(index, (tx, sender))| {
-                        common::Tx::Transaction(Box::new(common::Tx::Transaction {
+                        types::Tx::Transaction(Box::new(types::Tx::Transaction {
                             block_number: Some(U64::from(block_number.0)),
                             block_hash: Some(block_hash),
                             from: sender,
@@ -124,13 +117,13 @@ mod helpers {
             false => body
                 .transactions
                 .into_iter()
-                .map(|tx| common::Tx::Hash(tx.message.hash()))
+                .map(|tx| tx.hash())
                 .collect(),
         };
 
-        let td = chain::td::read(txn, block_hash, block_number).await?;
+        let td = chain::td::read(txn, block_hash, block_number)?;
 
-        Ok(common::Block {
+        Ok(types::Block {
             number: Some(U64::from(block_number.0)),
             hash: Some(block_hash),
             parent_hash: header.parent_hash,

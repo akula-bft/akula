@@ -34,6 +34,7 @@ pub mod execution;
 pub mod kv;
 pub mod models;
 pub mod res;
+pub mod rpc;
 pub mod sentry;
 pub mod sentry_connector;
 pub mod stagedsync;

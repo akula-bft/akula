@@ -1,7 +1,7 @@
 use crate::{
     accessors::{chain, state},
     consensus::engine_factory,
-    execution::{analysis_cache::AnalysisCache, evm, processor::ExecutionProcessor},
+    execution::{analysis_cache::AnalysisCache, evm, processor::ExecutionProcessor, tracer::NoopTracer},
     kv::tables,
     execution::evmglue,
     kv::mdbx::{
@@ -15,9 +15,8 @@ use crate::{
     Buffer, InMemoryState, IntraBlockState,
 };
 
-use bytes::Bytes;
 use async_trait::async_trait;
-use ethereum_jsonrpc::{common, EthApiServer};
+use ethereum_jsonrpc::{types, EthApiServer};
 use jsonrpsee::core::RpcResult;
 use std::sync::Arc;
 
@@ -35,11 +34,11 @@ impl<DB> EthApiServer for EthApiServerImpl<DB>
 where
     DB: EnvironmentKind,
 {
-    async fn block_number(&self) -> BlockNumber {
+    async fn block_number(&self) ->  RpcResult<U64> {
         Ok(U64::from(
             self.db
                 .begin()?
-                .get(tables::SyncStage, FINISH)
+                .get(tables::SyncStage, FINISH)?
                 .unwrap_or(BlockNumber(0))
                 .0,
         ))
@@ -47,19 +46,15 @@ where
 
     async fn call(
         &self,
-        call_data: common::CallData,
-        block_number: common::BlockNumber,
-    ) -> RpcResult<Bytes> {
-        let txn = self.db.begin().await?;
+        call_data: types::MessageCall,
+        block_number: types::BlockNumber,
+    ) -> RpcResult<types::Bytes> {
+        let txn = self.db.begin()?;
 
-        let block_number = helpers::get_block_number(&txn, block_number).await?;
-        let block_hash = chain::canonical_hash::read(&txn, block_number)
-            .await?
-            .unwrap();
+        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let block_hash = chain::canonical_hash::read(&txn, block_number)?;
 
-        let header = chain::header::read(&txn, block_hash, block_number)
-            .await?
-            .unwrap();
+        let header = chain::header::read(&txn, block_hash, block_number)?;
 
         let mut state = Buffer::new(&txn, BlockNumber(0), Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
@@ -83,35 +78,34 @@ where
         };
 
         let gas = call_data.gas.map(|v| v.as_u64()).unwrap_or(100_000_000);
+        let mut tracer = NoopTracer;
 
         Ok(evmglue::execute(
                 &mut IntraBlockState::new(&mut state),
-                None,
+                &mut tracer,
                 &mut analysis_cache,
                 &PartialHeader::from(header.clone()),
                 &block_spec,
                 &msg_with_sender,
                 gas,
-            )
-            .await?
-            .output_data,
+            )?
+            .output_data
+            .into()
         )
     }
 
     async fn estimate_gas(
         &self,
-        call_data: common::CallData,
-        block_number: common::BlockNumber,
+        call_data: types::MessageCall,
+        block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
-        let txn = self.db.begin().await?;
-        let block_number = helpers::get_block_number(&txn, block_number).await?;
+        let txn = self.db.begin()?;
+        let block_number = helpers::get_block_number(&txn, block_number)?;
         let hash = txn
-            .get(tables::CanonicalHeader, block_number)
-            .await?
+            .get(tables::CanonicalHeader, block_number)?
             .unwrap();
         let header = txn
-            .get(tables::Header, (block_number, hash))
-            .await?
+            .get(tables::Header, (block_number, hash))?
             .unwrap();
         let tx = MessageWithSender {
             message: Message::Legacy {
@@ -134,90 +128,74 @@ where
         let mut db = InMemoryState::default();
         let mut state = IntraBlockState::new(&mut db);
         let mut cache = AnalysisCache::default();
-        let spec = txn
-            .get(
-                tables::Config,
-                txn.get(tables::CanonicalHeader, BlockNumber(0))
-                    .await?
-                    .unwrap(),
-            )
-            .await?
-            .unwrap()
-            .collect_block_spec(block_number);
+        let block_spec = MAINNET.collect_block_spec(block_number);
+        let mut tracer = NoopTracer;
         Ok(U64::from(
             50_000_000
                 - evmglue::execute(
                     &mut state,
-                    None,
+                    &mut tracer,
                     &mut cache,
                     &PartialHeader::from(header),
-                    &spec,
+                    &block_spec,
                     &tx,
                     50_000_000,
-                )
-                .await?
-                .gas_left,
+                )?.gas_left,
         ))
     }
 
     async fn get_balance(
         &self,
         address: Address,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
     ) -> RpcResult<U256> {
-        let txn = self.db.begin().await?;
+        let txn = self.db.begin()?;
 
         Ok(state::account::read(
             &txn,
             address,
-            Some(helpers::get_block_number(&txn, block_number).await?),
-        )
-        .await?
+            Some(helpers::get_block_number(&txn, block_number)?),
+        )?
         .map(|acc| acc.balance)
         .unwrap_or(U256::ZERO))
     }
 
-    async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<common::Block> {
-        let txn = self.db.begin().await?;
-        Ok(helpers::construct_block(&txn, hash.into(), Some(include_txs), None).await?)
+    async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<types::Block> {
+        let txn = self.db.begin()?;
+        Ok(helpers::construct_block(&txn, hash.into(), Some(include_txs), None)?)
     }
     async fn get_block_by_number(
         &self,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
         include_txs: bool,
-    ) -> RpcResult<common::Block> {
+    ) -> RpcResult<types::Block> {
         Ok(helpers::construct_block(
-            &self.db.begin().await?,
+            &self.db.begin()?,
             block_number.into(),
             Some(include_txs),
             None,
-        )
-        .await?)
+        )?)
     }
-    async fn get_transaction(&self, hash: H256) -> RpcResult<Option<common::Transaction>> {
-        let txn = self.db.begin().await?;
-        let block_number = match chain::tl::read(&txn, hash).await? {
+    async fn get_transaction(&self, hash: H256) -> RpcResult<Option<types::Tx>> {
+        let txn = self.db.begin()?;
+        let block_number = match chain::tl::read(&txn, hash)? {
             Some(tl) => tl,
             None => return Ok(None),
         };
-        let block_hash = chain::canonical_hash::read(&txn, block_number)
-            .await?
-            .unwrap();
+        let block_hash = chain::canonical_hash::read(&txn, block_number)?;
         let (index, transaction) =
-            chain::block_body::read_without_senders(&txn, block_hash, block_number)
-                .await?
+            chain::block_body::read_without_senders(&txn, block_hash, block_number)?
                 .unwrap()
                 .transactions
                 .into_iter()
                 .enumerate()
                 .find(|(_, tx)| tx.hash() == hash)
                 .unwrap();
-        let sender = chain::tx_sender::read(&txn, block_hash, block_number)
-            .await?
+        let sender = chain::tx_sender::read(&txn, block_hash, block_number)?
             .into_iter()
             .nth(index)
             .unwrap();
-        Ok(Some(common::Tx {
+        Ok(Some(types::Tx::Transaction(Box::new(types::Transaction{
             hash,
             nonce: transaction.nonce().into(),
             block_hash: Some(block_hash),
@@ -241,38 +219,34 @@ where
             v: transaction.v().into(),
             r: transaction.r(),
             s: transaction.s(),
-        }))
+        }))))
     }
 
-    async fn get_block_tx_count_by_hash(&self, hash: H256) -> RpcResult<U64> {
-        let txn = self.db.begin().await?;
+    async fn get_block_transaction_count_by_hash(&self, hash: H256) -> RpcResult<U64> {
+        let txn = self.db.begin()?;
         Ok(U64::from(
             chain::block_body::read_without_senders(
                 &txn,
                 hash,
-                chain::header_number::read(&txn, hash).await?.unwrap(),
-            )
-            .await?
+                chain::header_number::read(&txn, hash)?,
+            )?
             .unwrap()
             .transactions
             .len(),
         ))
     }
 
-    async fn get_block_tx_count_by_number(
+    async fn get_block_transaction_count_by_number(
         &self,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
-        let txn = self.db.begin().await?;
-        let block_number = helpers::get_block_number(&txn, block_number).await?;
+        let txn = self.db.begin()?;
+        let block_number = helpers::get_block_number(&txn, block_number)?;
         Ok(chain::block_body::read_without_senders(
             &txn,
-            chain::canonical_hash::read(&txn, block_number)
-                .await?
-                .unwrap(),
-            block_number,
-        )
-        .await?
+            chain::canonical_hash::read(&txn, block_number)?,
+            block_number
+        )?
         .unwrap()
         .transactions
         .len()
@@ -282,17 +256,15 @@ where
     async fn get_code(
         &self,
         address: Address,
-        block_number: common::BlockNumber,
-    ) -> RpcResult<Bytes> {
-        let txn = self.db.begin().await?;
-        let block_number = helpers::get_block_number(&txn, block_number).await?;
-        let account = state::account::read(&txn, address, Some(block_number))
-            .await?
+        block_number: types::BlockNumber,
+    ) -> RpcResult<types::Bytes> {
+        let txn = self.db.begin()?;
+        let block_number = helpers::get_block_number(&txn, block_number)?;
+        let account = state::account::read(&txn, address, Some(block_number))?
             .unwrap();
 
         Ok(txn
-            .get(tables::Code, account.code_hash)
-            .await?
+            .get(tables::Code, account.code_hash)?
             .unwrap()
             .into())
     }
@@ -301,44 +273,40 @@ where
         &self,
         address: Address,
         key: U256,
-        block_number: common::BlockNumber,
-    ) -> RpcResult<Bytes> {
-        let txn = self.db.begin().await?;
-        Ok((state::storage::read(
+        block_number: types::BlockNumber,
+    ) -> RpcResult<H256> {
+        let txn = self.db.begin()?;
+        Ok(state::storage::read(
             &txn,
             address,
             key,
-            Some(helpers::get_block_number(&txn, block_number).await?),
-        )
-        .await?)
-            .into())
+            Some(helpers::get_block_number(&txn, block_number)?)
+        )?)
     }
 
-    async fn get_tx_by_block_hash_and_index(
+    async fn get_transaction_by_block_hash_and_index(
         &self,
         block_hash: H256,
         index: U64,
-    ) -> RpcResult<Option<common::Tx>> {
+    ) -> RpcResult<Option<types::Tx>> {
         Ok(helpers::construct_block(
-            &self.db.begin().await?,
+            &self.db.begin()?,
             block_hash.into(),
             None,
             Some(index),
-        )
-        .await?
+        )?
         .transactions
         .into_iter()
         .nth(index.as_usize()))
     }
 
-    async fn get_tx_by_block_number_and_index(
+    async fn get_transaction_by_block_number_and_index(
         &self,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
         index: U64,
-    ) -> RpcResult<Option<common::Tx>> {
+    ) -> RpcResult<Option<types::Tx>> {
         Ok(
-            helpers::construct_block(&self.db.begin().await?, block_number.into(), None, None)
-                .await?
+            helpers::construct_block(&self.db.begin()?, block_number.into(), None, None)?
                 .transactions
                 .into_iter()
                 .nth(index.as_usize()),
@@ -348,15 +316,14 @@ where
     async fn get_transaction_count(
         &self,
         address: Address,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
-        let txn = self.db.begin().await?;
+        let txn = self.db.begin()?;
         Ok(state::account::read(
             &txn,
             address,
-            Some(helpers::get_block_number(&txn, block_number).await?),
-        )
-        .await?
+            Some(helpers::get_block_number(&txn, block_number)?),
+        )?
         .unwrap()
         .nonce
         .into())
@@ -365,38 +332,25 @@ where
     async fn get_transaction_receipt(
         &self,
         hash: H256,
-    ) -> RpcResult<Option<common::TxReceipt>> {
-        let txn = self.db.begin().await?;
-        let block_number = chain::tl::read(&txn, hash).await?.unwrap();
-        let block_hash = chain::canonical_hash::read(&txn, block_number)
-            .await?
-            .unwrap();
+    ) -> RpcResult<Option<types::TransactionReceipt>> {
+        let txn = self.db.begin()?;
+        let block_number = chain::tl::read(&txn, hash)?.unwrap();
+        let block_hash = chain::canonical_hash::read(&txn, block_number)?;
         let header = PartialHeader::from(
-            chain::header::read(&txn, block_hash, block_number)
-                .await?
-                .unwrap(),
+            chain::header::read(&txn, block_hash, block_number)?
         );
-        let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)
-            .await?
+        let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)?
             .unwrap();
-        let chain_config = txn
-            .get(
-                tables::Config,
-                txn.get(tables::CanonicalHeader, BlockNumber(0))
-                    .await?
-                    .unwrap(),
-            )
-            .await?
-            .unwrap();
-        let block_spec = chain_config.collect_block_spec(block_number);
+        let block_spec = MAINNET.collect_block_spec(block_number);
 
         // Prepare the execution context.
         let mut buffer = Buffer::new(&txn, BlockNumber(0), Some(BlockNumber(block_number.0 - 1)));
-        let mut engine = engine_factory(chain_config.clone())?;
+        let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let mut analysis_cache = AnalysisCache::default();
+        let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
             &mut buffer,
-            None,
+            &mut tracer,
             &mut analysis_cache,
             &mut *engine,
             &header,
@@ -404,7 +358,7 @@ where
             &block_spec,
         );
 
-        let receipts = processor.execute_block_no_post_validation().await?;
+        let receipts = processor.execute_block_no_post_validation()?;
         let transaction_index = block_body
             .transactions
             .iter()
@@ -426,7 +380,7 @@ where
             .logs
             .iter()
             .enumerate()
-            .map(|(i, log)| common::TxLog {
+            .map(|(i, log)| types::TransactionLog {
                 log_index: Some(U64::from(i)),
                 transaction_index: Some(U64::from(transaction_index)),
                 transaction_hash: Some(transaction.message.hash()),
@@ -438,7 +392,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        Ok(Some(common::TxReceipt {
+        Ok(Some(types::TransactionReceipt {
             transaction_hash: hash,
             transaction_index: U64::from(transaction_index),
             block_hash,
@@ -460,7 +414,7 @@ where
             logs,
             logs_bloom: receipt.bloom,
             status: if receipt.success {
-                U64::from(1)
+                U64::from(1 as u16)
             } else {
                 U64::zero()
             },
@@ -471,43 +425,40 @@ where
         &self,
         block_hash: H256,
         index: U64,
-    ) -> RpcResult<Option<common::Block>> {
+    ) -> RpcResult<Option<types::Block>> {
         Ok(Some(
             helpers::construct_block(
-                &self.db.begin().await?,
+                &self.db.begin()?,
                 block_hash.into(),
                 None,
                 Some(index),
-            )
-            .await?,
+            )?,
         ))
     }
 
     async fn get_uncle_by_block_number_and_index(
         &self,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
         index: U64,
-    ) -> RpcResult<Option<common::Block>> {
+    ) -> RpcResult<Option<types::Block>> {
         Ok(Some(
             helpers::construct_block(
-                &self.db.begin().await?,
+                &self.db.begin()?,
                 block_number.into(),
                 None,
                 Some(index),
-            )
-            .await?,
+            )?,
         ))
     }
 
     async fn get_uncle_count_by_block_hash(&self, block_hash: H256) -> RpcResult<U64> {
-        let txn = self.db.begin().await?;
+        let txn = self.db.begin()?;
         Ok(U64::from(
             chain::storage_body::read(
                 &txn,
                 block_hash,
-                chain::header_number::read(&txn, block_hash).await?.unwrap(),
-            )
-            .await?
+                chain::header_number::read(&txn, block_hash)?,
+            )?
             .unwrap()
             .uncles
             .len(),
@@ -516,19 +467,17 @@ where
 
     async fn get_uncle_count_by_block_number(
         &self,
-        block_number: common::BlockNumber,
+        block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
-        let txn = self.db.begin().await?;
-        let block_number = helpers::get_block_number(&txn, block_number).await?;
+        let txn = self.db.begin()?;
+        let block_number = helpers::get_block_number(&txn, block_number)?;
         Ok(U64::from(
             chain::storage_body::read(
                 &txn,
                 chain::canonical_hash::read(&txn, block_number)
-                    .await?
                     .unwrap(),
                 block_number,
-            )
-            .await?
+            )?
             .unwrap()
             .uncles
             .len(),
@@ -536,6 +485,7 @@ where
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,4 +597,4 @@ mod tests {
             .unwrap();
         assert_eq!(balance, ETHER.as_u256() * 100);
     }
-}
+}*/
