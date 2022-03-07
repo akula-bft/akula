@@ -161,7 +161,7 @@ where
 
     async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<types::Block> {
         let txn = self.db.begin()?;
-        Ok(helpers::construct_block(&txn, hash.into(), Some(include_txs), None)?)
+        Ok(helpers::construct_block(&txn, hash.into(), include_txs, None)?)
     }
     async fn get_block_by_number(
         &self,
@@ -171,7 +171,7 @@ where
         Ok(helpers::construct_block(
             &self.db.begin()?,
             block_number.into(),
-            Some(include_txs),
+            include_txs,
             None,
         )?)
     }
@@ -291,7 +291,7 @@ where
         Ok(helpers::construct_block(
             &self.db.begin()?,
             block_hash.into(),
-            None,
+            true,
             Some(index),
         )?
         .transactions
@@ -305,7 +305,7 @@ where
         index: U64,
     ) -> RpcResult<Option<types::Tx>> {
         Ok(
-            helpers::construct_block(&self.db.begin()?, block_number.into(), None, None)?
+            helpers::construct_block(&self.db.begin()?, block_number.into(), true, None)?
                 .transactions
                 .into_iter()
                 .nth(index.as_usize()),
@@ -429,7 +429,7 @@ where
             helpers::construct_block(
                 &self.db.begin()?,
                 block_hash.into(),
-                None,
+                false,
                 Some(index),
             )?,
         ))
@@ -444,7 +444,7 @@ where
             helpers::construct_block(
                 &self.db.begin()?,
                 block_number.into(),
-                None,
+                false,
                 Some(index),
             )?,
         ))

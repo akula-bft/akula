@@ -35,7 +35,7 @@ mod helpers {
     pub fn construct_block<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
         block_id: types::BlockId,
-        include_txs: Option<bool>,
+        include_txs: bool,
         uncle_index: Option<U64>,
     ) -> anyhow::Result<types::Block> {
         let (block_number, block_hash, header) = match block_id {
@@ -83,7 +83,7 @@ mod helpers {
         let body = chain::block_body::read_without_senders(txn, block_hash, block_number)?
             .unwrap();
 
-        let transactions: Vec<types::Tx> = match include_txs.unwrap_or(true) {
+        let transactions: Vec<types::Tx> = match include_txs {
             true => {
                 let senders = chain::tx_sender::read(txn, block_hash, block_number)?;
                 body.transactions

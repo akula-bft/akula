@@ -14,7 +14,7 @@ use tracing::*;
 /// Generation of TransactionHash => BlockNumber mapping
 #[derive(Debug)]
 pub struct TxLookup {
-    temp_dir: Arc<TempDir>,
+    pub temp_dir: Arc<TempDir>,
 }
 
 #[async_trait]
@@ -37,16 +37,13 @@ where
         let mut tx_hash_cursor = tx.cursor(tables::BlockTransactionLookup.erased())?;
 
         let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
-
         let last_processed_block_number = tx
-            .cursor(tables::BlockTransactionLookup)?
-            .last()?
-            .map(|(_, v)| v.0)
-            .unwrap_or_else(|| 0.into());
-
+            .get(tables::SyncStage, TX_LOOKUP)?
+            .unwrap_or(BlockNumber(0))
+            .0;
         let start_block_number = last_processed_block_number + 1;
 
-        let walker_block_body = tx.cursor(tables::BlockBody)?.walk(Some(start_block_number));
+        let walker_block_body = tx.cursor(tables::BlockBody)?.walk(Some(BlockNumber(start_block_number)));
         pin!(walker_block_body);
 
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.next().transpose()? {
@@ -70,7 +67,7 @@ where
                 .previous_stage
                 .map(|(_, stage)| stage)
                 .unwrap_or_default(),
-            done: false,
+            done: true,
         })
     }
 

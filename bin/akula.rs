@@ -659,6 +659,9 @@ fn main() -> anyhow::Result<()> {
                     staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
                     staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
                 }
+                staged_sync.push(TxLookup {
+                    temp_dir: etl_temp_dir.clone(),
+                });
                 staged_sync.push(CallTraceIndex {
                     temp_dir: etl_temp_dir.clone(),
                     flush_interval: 50_000,
