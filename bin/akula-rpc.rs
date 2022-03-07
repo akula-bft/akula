@@ -1,10 +1,9 @@
-use akula::{binutil::AkulaDataDir, kv::mdbx::*, models::*, stagedsync::stages::*};
-use async_trait::async_trait;
+use akula::{binutil::AkulaDataDir, rpc::eth::EthApiServerImpl};
 use clap::Parser;
-use ethnum::U256;
-use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
+use jsonrpsee::http_server::HttpServerBuilder;
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
+use ethereum_jsonrpc::EthApiServer;
 
 #[derive(Parser)]
 #[clap(name = "Akula RPC", about = "RPC server for Akula")]
@@ -14,41 +13,6 @@ pub struct Opt {
 
     #[clap(long)]
     pub listen_address: SocketAddr,
-}
-
-#[rpc(server, namespace = "eth")]
-pub trait EthApi {
-    #[method(name = "blockNumber")]
-    async fn block_number(&self) -> RpcResult<BlockNumber>;
-    #[method(name = "getBalance")]
-    async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256>;
-}
-
-pub struct EthApiServerImpl<E>
-where
-    E: EnvironmentKind,
-{
-    db: Arc<MdbxEnvironment<E>>,
-}
-
-#[async_trait]
-impl<E> EthApiServer for EthApiServerImpl<E>
-where
-    E: EnvironmentKind,
-{
-    async fn block_number(&self) -> RpcResult<BlockNumber> {
-        Ok(FINISH
-            .get_progress(&self.db.begin()?)?
-            .unwrap_or(BlockNumber(0)))
-    }
-
-    async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
-        Ok(
-            akula::accessors::state::account::read(&self.db.begin()?, address, Some(block_number))?
-                .map(|acc| acc.balance)
-                .unwrap_or(U256::ZERO),
-        )
-    }
 }
 
 #[tokio::main]
