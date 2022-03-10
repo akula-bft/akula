@@ -3,7 +3,10 @@ pub mod eth;
 mod helpers {
     use crate::{
         accessors::chain,
-        kv::tables,
+        kv::{
+            tables,
+            mdbx::{EnvironmentKind, MdbxTransaction, TransactionKind},
+        },
         models::{BlockNumber, Message, TransactionAction},
         stagedsync::stages,
     };
