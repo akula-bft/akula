@@ -4,8 +4,8 @@ mod helpers {
     use crate::{
         accessors::chain,
         kv::{
-            tables,
             mdbx::{EnvironmentKind, MdbxTransaction, TransactionKind},
+            tables,
         },
         models::{BlockNumber, Message, TransactionAction},
         stagedsync::stages,
