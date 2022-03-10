@@ -159,21 +159,21 @@ where
         .unwrap_or(U256::ZERO))
     }
 
-    async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<types::Block> {
+    async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<Option<types::Block>> {
         let txn = self.db.begin()?;
-        Ok(helpers::construct_block(&txn, hash.into(), include_txs, None)?)
+        Ok(Some(helpers::construct_block(&txn, hash.into(), include_txs, None)?))
     }
     async fn get_block_by_number(
         &self,
         block_number: types::BlockNumber,
         include_txs: bool,
-    ) -> RpcResult<types::Block> {
-        Ok(helpers::construct_block(
+    ) -> RpcResult<Option<types::Block>> {
+        Ok(Some(helpers::construct_block(
             &self.db.begin()?,
             block_number.into(),
             include_txs,
             None,
-        )?)
+        )?))
     }
     async fn get_transaction(&self, hash: H256) -> RpcResult<Option<types::Tx>> {
         let txn = self.db.begin()?;
