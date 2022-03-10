@@ -1,12 +1,12 @@
 use crate::{
     accessors::{chain, state},
     consensus::engine_factory,
-    execution::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer},
-    kv::tables,
-    execution::evmglue,
-    kv::mdbx::{
-        MdbxEnvironment,
-        EnvironmentKind,
+    execution::{
+        analysis_cache::AnalysisCache, evmglue, processor::ExecutionProcessor, tracer::NoopTracer,
+    },
+    kv::{
+        mdbx::{EnvironmentKind, MdbxEnvironment},
+        tables,
     },
     models::*,
     res::chainspec::MAINNET,
@@ -33,7 +33,7 @@ impl<DB> EthApiServer for EthApiServerImpl<DB>
 where
     DB: EnvironmentKind,
 {
-    async fn block_number(&self) ->  RpcResult<U64> {
+    async fn block_number(&self) -> RpcResult<U64> {
         Ok(U64::from(
             self.db
                 .begin()?
@@ -50,7 +50,10 @@ where
     ) -> RpcResult<types::Bytes> {
         let txn = self.db.begin()?;
 
-        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
+        let block_number = helpers::get_block_number(
+            &txn,
+            ethereum_jsonrpc::types::BlockId::Number(block_number),
+        )?;
         let block_hash = chain::canonical_hash::read(&txn, block_number)?;
 
         let header = chain::header::read(&txn, block_hash, block_number)?;
@@ -80,17 +83,16 @@ where
         let mut tracer = NoopTracer;
 
         Ok(evmglue::execute(
-                &mut IntraBlockState::new(&mut state),
-                &mut tracer,
-                &mut analysis_cache,
-                &PartialHeader::from(header.clone()),
-                &block_spec,
-                &msg_with_sender,
-                gas,
-            )?
-            .output_data
-            .into()
-        )
+            &mut IntraBlockState::new(&mut state),
+            &mut tracer,
+            &mut analysis_cache,
+            &PartialHeader::from(header.clone()),
+            &block_spec,
+            &msg_with_sender,
+            gas,
+        )?
+        .output_data
+        .into())
     }
 
     async fn estimate_gas(
@@ -99,13 +101,12 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
-        let hash = txn
-            .get(tables::CanonicalHeader, block_number)?
-            .unwrap();
-        let header = txn
-            .get(tables::Header, (block_number, hash))?
-            .unwrap();
+        let block_number = helpers::get_block_number(
+            &txn,
+            ethereum_jsonrpc::types::BlockId::Number(block_number),
+        )?;
+        let hash = txn.get(tables::CanonicalHeader, block_number)?.unwrap();
+        let header = txn.get(tables::Header, (block_number, hash))?.unwrap();
         let tx = MessageWithSender {
             message: Message::Legacy {
                 chain_id: None,
@@ -139,7 +140,8 @@ where
                     &block_spec,
                     &tx,
                     50_000_000,
-                )?.gas_left,
+                )?
+                .gas_left,
         ))
     }
 
@@ -153,15 +155,27 @@ where
         Ok(state::account::read(
             &txn,
             address,
-            Some(helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?),
+            Some(helpers::get_block_number(
+                &txn,
+                ethereum_jsonrpc::types::BlockId::Number(block_number),
+            )?),
         )?
         .map(|acc| acc.balance)
         .unwrap_or(U256::ZERO))
     }
 
-    async fn get_block_by_hash(&self, hash: H256, include_txs: bool) -> RpcResult<Option<types::Block>> {
+    async fn get_block_by_hash(
+        &self,
+        hash: H256,
+        include_txs: bool,
+    ) -> RpcResult<Option<types::Block>> {
         let txn = self.db.begin()?;
-        Ok(Some(helpers::construct_block(&txn, hash.into(), include_txs, None)?))
+        Ok(Some(helpers::construct_block(
+            &txn,
+            hash.into(),
+            include_txs,
+            None,
+        )?))
     }
     async fn get_block_by_number(
         &self,
@@ -194,7 +208,7 @@ where
             .into_iter()
             .nth(index)
             .unwrap();
-        Ok(Some(types::Tx::Transaction(Box::new(types::Transaction{
+        Ok(Some(types::Tx::Transaction(Box::new(types::Transaction {
             hash,
             nonce: transaction.nonce().into(),
             block_hash: Some(block_hash),
@@ -240,11 +254,14 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
+        let block_number = helpers::get_block_number(
+            &txn,
+            ethereum_jsonrpc::types::BlockId::Number(block_number),
+        )?;
         Ok(chain::block_body::read_without_senders(
             &txn,
             chain::canonical_hash::read(&txn, block_number)?,
-            block_number
+            block_number,
         )?
         .unwrap()
         .transactions
@@ -258,14 +275,13 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<types::Bytes> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
-        let account = state::account::read(&txn, address, Some(block_number))?
-            .unwrap();
+        let block_number = helpers::get_block_number(
+            &txn,
+            ethereum_jsonrpc::types::BlockId::Number(block_number),
+        )?;
+        let account = state::account::read(&txn, address, Some(block_number))?.unwrap();
 
-        Ok(txn
-            .get(tables::Code, account.code_hash)?
-            .unwrap()
-            .into())
+        Ok(txn.get(tables::Code, account.code_hash)?.unwrap().into())
     }
 
     async fn get_storage_at(
@@ -279,7 +295,10 @@ where
             &txn,
             address,
             key,
-            Some(helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?)
+            Some(helpers::get_block_number(
+                &txn,
+                ethereum_jsonrpc::types::BlockId::Number(block_number),
+            )?),
         )?)
     }
 
@@ -288,15 +307,12 @@ where
         block_hash: H256,
         index: U64,
     ) -> RpcResult<Option<types::Tx>> {
-        Ok(helpers::construct_block(
-            &self.db.begin()?,
-            block_hash.into(),
-            true,
-            Some(index),
-        )?
-        .transactions
-        .into_iter()
-        .nth(index.as_usize()))
+        Ok(
+            helpers::construct_block(&self.db.begin()?, block_hash.into(), true, Some(index))?
+                .transactions
+                .into_iter()
+                .nth(index.as_usize()),
+        )
     }
 
     async fn get_transaction_by_block_number_and_index(
@@ -321,7 +337,10 @@ where
         Ok(state::account::read(
             &txn,
             address,
-            Some(helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?),
+            Some(helpers::get_block_number(
+                &txn,
+                ethereum_jsonrpc::types::BlockId::Number(block_number),
+            )?),
         )?
         .unwrap()
         .nonce
@@ -335,11 +354,9 @@ where
         let txn = self.db.begin()?;
         let block_number = chain::tl::read(&txn, hash)?.unwrap();
         let block_hash = chain::canonical_hash::read(&txn, block_number)?;
-        let header = PartialHeader::from(
-            chain::header::read(&txn, block_hash, block_number)?
-        );
-        let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)?
-            .unwrap();
+        let header = PartialHeader::from(chain::header::read(&txn, block_hash, block_number)?);
+        let block_body =
+            chain::block_body::read_with_senders(&txn, block_hash, block_number)?.unwrap();
         let block_spec = MAINNET.collect_block_spec(block_number);
 
         // Prepare the execution context.
@@ -425,14 +442,12 @@ where
         block_hash: H256,
         index: U64,
     ) -> RpcResult<Option<types::Block>> {
-        Ok(Some(
-            helpers::construct_block(
-                &self.db.begin()?,
-                block_hash.into(),
-                false,
-                Some(index),
-            )?,
-        ))
+        Ok(Some(helpers::construct_block(
+            &self.db.begin()?,
+            block_hash.into(),
+            false,
+            Some(index),
+        )?))
     }
 
     async fn get_uncle_by_block_number_and_index(
@@ -440,14 +455,12 @@ where
         block_number: types::BlockNumber,
         index: U64,
     ) -> RpcResult<Option<types::Block>> {
-        Ok(Some(
-            helpers::construct_block(
-                &self.db.begin()?,
-                block_number.into(),
-                false,
-                Some(index),
-            )?,
-        ))
+        Ok(Some(helpers::construct_block(
+            &self.db.begin()?,
+            block_number.into(),
+            false,
+            Some(index),
+        )?))
     }
 
     async fn get_uncle_count_by_block_hash(&self, block_hash: H256) -> RpcResult<U64> {
@@ -469,12 +482,14 @@ where
         block_number: types::BlockNumber,
     ) -> RpcResult<U64> {
         let txn = self.db.begin()?;
-        let block_number = helpers::get_block_number(&txn, ethereum_jsonrpc::types::BlockId::Number(block_number))?;
+        let block_number = helpers::get_block_number(
+            &txn,
+            ethereum_jsonrpc::types::BlockId::Number(block_number),
+        )?;
         Ok(U64::from(
             chain::storage_body::read(
                 &txn,
-                chain::canonical_hash::read(&txn, block_number)
-                    .unwrap(),
+                chain::canonical_hash::read(&txn, block_number).unwrap(),
                 block_number,
             )?
             .unwrap()

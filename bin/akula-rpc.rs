@@ -1,9 +1,9 @@
 use akula::{binutil::AkulaDataDir, rpc::eth::EthApiServerImpl};
 use clap::Parser;
+use ethereum_jsonrpc::EthApiServer;
 use jsonrpsee::http_server::HttpServerBuilder;
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
-use ethereum_jsonrpc::EthApiServer;
 
 #[derive(Parser)]
 #[clap(name = "Akula RPC", about = "RPC server for Akula")]

@@ -43,7 +43,9 @@ where
             .0;
         let start_block_number = last_processed_block_number + 1;
 
-        let walker_block_body = tx.cursor(tables::BlockBody)?.walk(Some(BlockNumber(start_block_number)));
+        let walker_block_body = tx
+            .cursor(tables::BlockBody)?
+            .walk(Some(BlockNumber(start_block_number)));
         pin!(walker_block_body);
 
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.next().transpose()? {

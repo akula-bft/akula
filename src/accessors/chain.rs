@@ -14,10 +14,7 @@ pub mod canonical_hash {
         let number = number.into();
         trace!("Reading canonical hash for block number {}", number);
 
-        Ok(tx
-            .get(tables::CanonicalHeader, number)?
-            .unwrap_or_default()
-        )
+        Ok(tx.get(tables::CanonicalHeader, number)?.unwrap_or_default())
     }
 }
 
@@ -30,10 +27,7 @@ pub mod header_number {
     ) -> anyhow::Result<BlockNumber> {
         trace!("Reading header number for hash {:?}", hash);
 
-        Ok(tx
-            .get(tables::HeaderNumber, hash)?
-            .unwrap_or_default()
-        )
+        Ok(tx.get(tables::HeaderNumber, hash)?.unwrap_or_default())
     }
 }
 
@@ -48,11 +42,7 @@ pub mod header {
         let number = number.into();
         trace!("Reading header for block number {}", number);
 
-        Ok(tx
-            .get(tables::Header, (number, hash))?
-            .unwrap()
-        )
-        
+        Ok(tx.get(tables::Header, (number, hash))?.unwrap())
     }
 }
 

@@ -3,10 +3,7 @@ pub mod eth;
 mod helpers {
     use crate::{
         accessors::chain,
-        kv::{
-            tables,
-            mdbx::{TransactionKind, EnvironmentKind, MdbxTransaction}
-        },
+        kv::tables,
         models::{BlockNumber, Message, TransactionAction},
         stagedsync::stages,
     };
@@ -16,7 +13,7 @@ mod helpers {
     fn block_number_to_u64(block_number: types::BlockNumber) -> u64 {
         match block_number {
             types::BlockNumber::Number(n) => n.as_u64(),
-            _ => 0
+            _ => 0,
         }
     }
     pub fn get_block_number<K: TransactionKind, E: EnvironmentKind>(
@@ -40,10 +37,10 @@ mod helpers {
     ) -> anyhow::Result<types::Block> {
         let (block_number, block_hash, header) = match block_id {
             types::BlockId::Number(n) => {
-                let block_number = get_block_number(txn, ethereum_jsonrpc::types::BlockId::Number(n))?;
-                let block_hash = txn
-                    .get(tables::CanonicalHeader, block_number)?
-                    .unwrap();
+                let block_number =
+                    get_block_number(txn, ethereum_jsonrpc::types::BlockId::Number(n))?;
+                let block_hash = txn.get(tables::CanonicalHeader, block_number)?.unwrap();
+
                 match uncle_index {
                     Some(n) => {
                         let body = txn
@@ -80,8 +77,7 @@ mod helpers {
             }
         };
 
-        let body = chain::block_body::read_without_senders(txn, block_hash, block_number)?
-            .unwrap();
+        let body = chain::block_body::read_without_senders(txn, block_hash, block_number)?.unwrap();
 
         let transactions: Vec<types::Tx> = match include_txs {
             true => {
