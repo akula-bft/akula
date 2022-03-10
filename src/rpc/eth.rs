@@ -86,7 +86,7 @@ where
             &mut IntraBlockState::new(&mut state),
             &mut tracer,
             &mut analysis_cache,
-            &PartialHeader::from(header.clone()),
+            &PartialHeader::from(header),
             &block_spec,
             &msg_with_sender,
             gas,
@@ -430,7 +430,7 @@ where
             logs,
             logs_bloom: receipt.bloom,
             status: if receipt.success {
-                U64::from(1 as u16)
+                U64::from(1_u16)
             } else {
                 U64::zero()
             },
