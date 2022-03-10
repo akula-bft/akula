@@ -307,7 +307,7 @@ mod tests {
             output,
             ExecOutput::Progress {
                 stage_progress: 3.into(),
-                done: false,
+                done: true,
             }
         );
 
@@ -346,7 +346,7 @@ mod tests {
             output,
             ExecOutput::Progress {
                 stage_progress: 3.into(),
-                done: false,
+                done: true,
             }
         );
     }
