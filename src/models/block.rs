@@ -1,11 +1,9 @@
 use super::*;
-use crate::crypto::*;
+use crate::{crypto::keccak256, trie::*};
 use bytes::BytesMut;
 use derive_more::Deref;
 use fastrlp::*;
 use parity_scale_codec::*;
-use sha3::*;
-use std::borrow::Borrow;
 
 #[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct Block {
@@ -22,7 +20,7 @@ impl Block {
         ommers: Vec<BlockHeader>,
     ) -> Self {
         let ommers_hash = Self::ommers_hash(&ommers);
-        let transactions_root = Self::transactions_root(&transactions);
+        let transactions_root = root_hash(&transactions);
 
         Self {
             header: BlockHeader::new(partial_header, ommers_hash, transactions_root),
@@ -34,13 +32,7 @@ impl Block {
     pub fn ommers_hash(ommers: &[BlockHeader]) -> H256 {
         let mut buffer = BytesMut::new();
         fastrlp::encode_list(ommers, &mut buffer);
-        H256::from_slice(Keccak256::digest(&buffer[..]).as_slice())
-    }
-
-    pub fn transactions_root<I: IntoIterator<Item = T>, T: Borrow<MessageWithSignature>>(
-        iter: I,
-    ) -> H256 {
-        ordered_trie_root(iter.into_iter().map(|r| r.borrow().trie_encode()))
+        keccak256(buffer)
     }
 }
 
@@ -243,34 +235,51 @@ mod tests {
         ];
 
         assert_eq!(
-            transactions
-                .iter()
-                .map(|tx| hex::encode(tx.hash().0))
-                .collect::<Vec<_>>(),
+            transactions.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
             vec![
-                "7a903d768be1c9b1399e792e189cb468a55002d654739f830e45782d4dfae690",
-                "25f3b3a81e87b5d3a745711f57c38216f5c82cc32c04f531cfe4db25fd074cef",
-                "2f7e1a1af4b7f3e13ddbcc333fec82e8b640b3a0815f3cb2fc52354cdb3e8762",
-                "93de2b0b54dcfef2285d7c116b7a14f9f986da6515ec5becdce7b521551caf9f",
-                "78cc131432f7224660f6ab9c3e9817e7e7213ea06002b53b26bacd0f92a83c0a",
-                "e6554f7d6419e3b6f70e956abeb02d524557b9f81cf883178fa2e5ef2d8b7139",
-                "d17aaa0f3bf37d0535fb4d0942e48a697eeb2bb5399aa300e1ef1f588c9dddc7"
+                H256(hex!(
+                    "7a903d768be1c9b1399e792e189cb468a55002d654739f830e45782d4dfae690"
+                )),
+                H256(hex!(
+                    "25f3b3a81e87b5d3a745711f57c38216f5c82cc32c04f531cfe4db25fd074cef"
+                )),
+                H256(hex!(
+                    "2f7e1a1af4b7f3e13ddbcc333fec82e8b640b3a0815f3cb2fc52354cdb3e8762"
+                )),
+                H256(hex!(
+                    "93de2b0b54dcfef2285d7c116b7a14f9f986da6515ec5becdce7b521551caf9f"
+                )),
+                H256(hex!(
+                    "78cc131432f7224660f6ab9c3e9817e7e7213ea06002b53b26bacd0f92a83c0a"
+                )),
+                H256(hex!(
+                    "e6554f7d6419e3b6f70e956abeb02d524557b9f81cf883178fa2e5ef2d8b7139"
+                )),
+                H256(hex!(
+                    "d17aaa0f3bf37d0535fb4d0942e48a697eeb2bb5399aa300e1ef1f588c9dddc7"
+                ))
             ]
         );
 
         let block = Block::new(partial_header, transactions, ommers);
 
         assert_eq!(
-            block.header.transactions_root.0,
-            hex!("6aaee4a301af3f721f01f886c50db6ff354487e0a3b713601797a439475ade0c")
+            block.header.transactions_root,
+            H256(hex!(
+                "6aaee4a301af3f721f01f886c50db6ff354487e0a3b713601797a439475ade0c"
+            ))
         );
         assert_eq!(
-            block.header.ommers_hash.0,
-            hex!("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
+            block.header.ommers_hash,
+            H256(hex!(
+                "1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+            ))
         );
         assert_eq!(
-            block.header.hash().0,
-            hex!("05c0d29761f97e4bf5c6b64e9fef4a7f8a884483de8c379ff00847d559ba361b")
+            block.header.hash(),
+            H256(hex!(
+                "05c0d29761f97e4bf5c6b64e9fef4a7f8a884483de8c379ff00847d559ba361b"
+            ))
         );
     }
 

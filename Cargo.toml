@@ -132,7 +132,6 @@ tonic-health = "0.5"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-triehash = "0.8"
 trust-dns-resolver = "0.21"
 url = "2"
 uuid = { version = "0.8", features = ["v4"] }
@@ -151,6 +150,7 @@ proptest = "1.0.0"
 rand = { version = "0.8", features = ["std"] }
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4.2"
+triehash = "0.8"
 
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }

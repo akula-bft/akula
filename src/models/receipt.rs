@@ -1,6 +1,6 @@
 use super::*;
-use crate::crypto::*;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use crate::trie::*;
+use bytes::{Buf, BufMut};
 use fastrlp::*;
 use serde::*;
 
@@ -83,10 +83,8 @@ impl Encodable for Receipt {
 }
 
 impl TrieEncode for Receipt {
-    fn trie_encode(&self) -> Bytes {
-        let mut s = BytesMut::new();
-        self.encode_inner(&mut s, self.rlp_header());
-        s.freeze()
+    fn trie_encode(&self, buf: &mut dyn BufMut) {
+        self.encode_inner(buf, self.rlp_header())
     }
 }
 

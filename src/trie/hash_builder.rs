@@ -90,7 +90,7 @@ fn extension_node_rlp(path: &[u8], child_ref: &[u8]) -> BytesMut {
     out
 }
 
-pub(crate) struct HashBuilder<'nc> {
+pub struct HashBuilder<'nc> {
     pub(crate) node_collector: Option<NodeCollector<'nc>>,
     key: Vec<u8>,
     value: HashBuilderValue,
@@ -102,7 +102,7 @@ pub(crate) struct HashBuilder<'nc> {
 }
 
 impl<'nc> HashBuilder<'nc> {
-    pub(crate) fn new(node_collector: Option<NodeCollector<'nc>>) -> Self {
+    pub fn new(node_collector: Option<NodeCollector<'nc>>) -> Self {
         Self {
             node_collector,
             key: vec![],
@@ -119,7 +119,7 @@ impl<'nc> HashBuilder<'nc> {
         self.node_collector.is_some()
     }
 
-    pub(crate) fn add_leaf(&mut self, key: Vec<u8>, value: &[u8]) {
+    pub fn add_leaf(&mut self, key: Vec<u8>, value: &[u8]) {
         assert!(key > self.key);
         if !self.key.is_empty() {
             self.gen_struct_step(key.as_slice());
@@ -128,7 +128,7 @@ impl<'nc> HashBuilder<'nc> {
         self.value = HashBuilderValue::Bytes(value.to_vec());
     }
 
-    pub(crate) fn add_branch_node(&mut self, key: Vec<u8>, value: &H256, is_in_db_trie: bool) {
+    pub fn add_branch_node(&mut self, key: Vec<u8>, value: &H256, is_in_db_trie: bool) {
         assert!(key > self.key || (self.key.is_empty() && key.is_empty()));
         if !self.key.is_empty() {
             self.gen_struct_step(key.as_slice());
@@ -141,7 +141,7 @@ impl<'nc> HashBuilder<'nc> {
         self.is_in_db_trie = is_in_db_trie;
     }
 
-    pub(crate) fn compute_root_hash(&mut self) -> H256 {
+    pub fn compute_root_hash(&mut self) -> H256 {
         self.finalize();
         self.get_root_hash()
     }
@@ -365,7 +365,7 @@ pub(crate) fn pack_nibbles(nibbles: &[u8]) -> Vec<u8> {
     out
 }
 
-pub(crate) fn unpack_nibbles(packed: &[u8]) -> Vec<u8> {
+pub fn unpack_nibbles(packed: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; packed.len() * 2];
     let mut i = 0;
     for b in packed {

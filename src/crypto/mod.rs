@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use ethereum_types::H256;
 use hash256_std_hasher::Hash256StdHasher;
 use hash_db::Hasher;
@@ -22,6 +21,7 @@ impl Hasher for KeccakHasher {
     }
 }
 
+#[cfg(test)]
 /// Generates a trie root hash for a vector of key-value tuples
 pub fn trie_root<I, K, V>(input: I) -> H256
 where
@@ -30,23 +30,6 @@ where
     V: AsRef<[u8]>,
 {
     triehash::trie_root::<KeccakHasher, _, _, _>(input)
-}
-
-/// Generates a trie root hash for a vector of values
-pub fn ordered_trie_root<I, V>(input: I) -> H256
-where
-    I: IntoIterator<Item = V>,
-    V: AsRef<[u8]>,
-{
-    triehash::ordered_trie_root::<KeccakHasher, I>(input)
-}
-
-pub trait TrieEncode {
-    fn trie_encode(&self) -> Bytes;
-}
-
-pub fn root_hash<T: TrieEncode>(values: &[T]) -> H256 {
-    ordered_trie_root(values.iter().map(TrieEncode::trie_encode))
 }
 
 pub fn is_valid_signature(r: H256, s: H256) -> bool {

@@ -1,6 +1,12 @@
-use crate::{crypto::*, models::*, util::*, State};
+use crate::{
+    crypto::*,
+    models::*,
+    trie::{unpack_nibbles, HashBuilder},
+    util::*,
+    State,
+};
 use bytes::{Bytes, BytesMut};
-use std::{collections::HashMap, convert::TryInto};
+use std::{collections::*, convert::TryInto};
 
 // address -> initial value
 type AccountChanges = HashMap<Address, Option<Account>>;
@@ -54,14 +60,25 @@ impl InMemoryState {
     fn account_storage_root(&self, address: Address) -> H256 {
         if let Some(storage) = self.storage.get(&address) {
             if !storage.is_empty() {
-                return trie_root(storage.iter().map(|(&location, &value)| {
-                    let value = u256_to_h256(value);
-                    let zv = zeroless_view(&value);
-                    let encoded_location = keccak256(u256_to_h256(location));
-                    let mut encoded_value = BytesMut::new();
-                    fastrlp::Encodable::encode(&zv, &mut encoded_value);
-                    (encoded_location, encoded_value)
-                }));
+                let sorted_storage = storage
+                    .iter()
+                    .map(|(&location, &value)| {
+                        let value = u256_to_h256(value);
+                        let zv = zeroless_view(&value);
+                        let encoded_location = keccak256(u256_to_h256(location));
+                        let mut encoded_value = BytesMut::new();
+                        fastrlp::Encodable::encode(&zv, &mut encoded_value);
+                        (encoded_location, encoded_value)
+                    })
+                    .collect::<BTreeMap<_, _>>();
+
+                let mut hb = HashBuilder::<'static>::new(None);
+
+                for (location, value) in sorted_storage {
+                    hb.add_leaf(unpack_nibbles(&location.0), &*value);
+                }
+
+                return hb.compute_root_hash();
             }
         }
 
@@ -85,11 +102,25 @@ impl InMemoryState {
             return EMPTY_ROOT;
         }
 
-        trie_root(self.accounts.iter().map(|(&address, account)| {
-            let storage_root = self.account_storage_root(address);
-            let account = account.to_rlp(storage_root);
-            (keccak256(address), fastrlp::encode_fixed_size(&account))
-        }))
+        let mut hb = HashBuilder::<'static>::new(None);
+        let sorted_accounts = self
+            .accounts
+            .iter()
+            .map(|(&address, account)| {
+                let storage_root = self.account_storage_root(address);
+                let account = account.to_rlp(storage_root);
+                (keccak256(address), account)
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        for (address, account) in sorted_accounts {
+            hb.add_leaf(
+                unpack_nibbles(&address.0),
+                &fastrlp::encode_fixed_size(&account),
+            );
+        }
+
+        hb.compute_root_hash()
     }
 
     pub fn current_canonical_block(&self) -> BlockNumber {

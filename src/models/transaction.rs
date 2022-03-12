@@ -1,6 +1,7 @@
 use crate::{
-    crypto::{is_valid_signature, keccak256, TrieEncode},
+    crypto::{is_valid_signature, keccak256},
     models::*,
+    trie::*,
     util::*,
 };
 use bytes::*;
@@ -594,10 +595,8 @@ impl MessageWithSignature {
 }
 
 impl TrieEncode for MessageWithSignature {
-    fn trie_encode(&self) -> Bytes {
-        let mut s = BytesMut::new();
-        self.encode_inner(&mut s, true);
-        s.freeze()
+    fn trie_encode(&self, buf: &mut dyn BufMut) {
+        self.encode_inner(buf, true)
     }
 }
 
@@ -865,7 +864,9 @@ impl Message {
 
 impl MessageWithSignature {
     pub fn hash(&self) -> H256 {
-        H256::from_slice(Keccak256::digest(&self.trie_encode()).as_slice())
+        let mut buf = BytesMut::new();
+        self.trie_encode(&mut buf);
+        keccak256(buf)
     }
 
     pub fn v(&self) -> u8 {
@@ -921,7 +922,9 @@ mod tests {
         assert!(encoded_view.is_empty());
 
         assert_eq!(decoded, *v);
-        assert_eq!(encoded[standalone_idx..], v.trie_encode());
+        let mut consensus_encoded = BytesMut::new();
+        v.trie_encode(&mut consensus_encoded);
+        assert_eq!(encoded[standalone_idx..], consensus_encoded);
     }
 
     #[test]
