@@ -58,7 +58,7 @@ where
 
         let header = chain::header::read(&txn, block_hash, block_number)?;
 
-        let mut state = Buffer::new(&txn, BlockNumber(0), Some(block_number));
+        let mut state = Buffer::new(&txn, Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
         let block_spec = MAINNET.collect_block_spec(block_number);
 
@@ -360,7 +360,7 @@ where
         let block_spec = MAINNET.collect_block_spec(block_number);
 
         // Prepare the execution context.
-        let mut buffer = Buffer::new(&txn, BlockNumber(0), Some(BlockNumber(block_number.0 - 1)));
+        let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
         let mut engine = engine_factory(MAINNET.clone()).unwrap();
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
