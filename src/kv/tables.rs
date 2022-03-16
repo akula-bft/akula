@@ -775,6 +775,7 @@ decl_table!(CallToIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => VariableVec<0> => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
+decl_table!(PruneProgress => StageId => BlockNumber);
 decl_table!(TxSender => HeaderKey => Vec<Address>);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
@@ -827,6 +828,7 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         BlockTransactionLookup::const_db_name() => TableInfo::default(),
         Config::const_db_name() => TableInfo::default(),
         SyncStage::const_db_name() => TableInfo::default(),
+        PruneProgress::const_db_name() => TableInfo::default(),
         TxSender::const_db_name() => TableInfo::default(),
         LastBlock::const_db_name() => TableInfo::default(),
         Migration::const_db_name() => TableInfo::default(),

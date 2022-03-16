@@ -171,6 +171,49 @@ where
             stage_progress: input.unwind_to,
         })
     }
+
+    async fn prune<'tx>(
+        &mut self,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
+        input: PruningInput,
+    ) -> anyhow::Result<()>
+    where
+        'db: 'tx,
+    {
+        let call_trace_set_cursor = tx.cursor(tables::CallTraceSet)?;
+
+        let mut to_addresses = BTreeSet::<Address>::new();
+        let mut from_addresses = BTreeSet::<Address>::new();
+
+        let walker = call_trace_set_cursor.walk(None);
+        pin!(walker);
+        while let Some((b, entry)) = walker.next().transpose()? {
+            if b >= input.prune_to {
+                break;
+            }
+
+            if entry.to {
+                to_addresses.insert(entry.address);
+            }
+
+            if entry.from {
+                from_addresses.insert(entry.address);
+            }
+        }
+
+        prune_call_traces(
+            &mut tx.cursor(tables::CallFromIndex)?,
+            from_addresses,
+            input.prune_to,
+        )?;
+        prune_call_traces(
+            &mut tx.cursor(tables::CallToIndex)?,
+            to_addresses,
+            input.prune_to,
+        )?;
+
+        Ok(())
+    }
 }
 
 fn load_call_traces<T>(
@@ -268,6 +311,60 @@ where
             bm = cursor.prev()?.and_then(
                 |(BitmapKey { inner, .. }, b)| if inner == address { Some(b) } else { None },
             );
+        }
+    }
+
+    Ok(())
+}
+
+fn prune_call_traces<T>(
+    cursor: &mut MdbxCursor<'_, RW, T>,
+    addresses: BTreeSet<Address>,
+    prune_to: BlockNumber,
+) -> anyhow::Result<()>
+where
+    T: Table<Key = BitmapKey<Address>, Value = croaring::Treemap, SeekKey = BitmapKey<Address>>,
+{
+    for address in addresses {
+        let mut bm = cursor.seek(BitmapKey {
+            inner: address,
+            block_number: BlockNumber(0),
+        })?;
+
+        while let Some((
+            BitmapKey {
+                inner,
+                block_number,
+            },
+            b,
+        )) = bm
+        {
+            if inner != address {
+                break;
+            }
+
+            cursor.delete_current()?;
+
+            if block_number >= prune_to {
+                let new_bm = b
+                    .iter()
+                    .skip_while(|&v| v < *prune_to)
+                    .collect::<croaring::Treemap>();
+
+                if new_bm.cardinality() > 0 {
+                    cursor.upsert(
+                        BitmapKey {
+                            inner: address,
+                            block_number,
+                        },
+                        new_bm,
+                    )?;
+                }
+
+                break;
+            }
+
+            bm = cursor.next()?;
         }
     }
 

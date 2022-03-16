@@ -11,7 +11,7 @@ use akula::{
         sentry_client_connector::SentryClientConnectorImpl,
         sentry_client_reactor::SentryClientReactor,
     },
-    stagedsync::{self, stage::*, stages::*},
+    stagedsync::{self, stage::*, stages::*, util::*},
     stages::*,
     version_string, StageId,
 };
@@ -59,6 +59,10 @@ pub struct Opt {
     /// Last block where to sync to.
     #[clap(long)]
     pub max_block: Option<BlockNumber>,
+
+    /// Turn on pruning.
+    #[clap(long)]
+    pub prune: bool,
 
     /// Use incremental staged sync.
     #[clap(long)]
@@ -204,37 +208,37 @@ where
     where
         'db: 'tx,
     {
-        let mut canonical_cur = tx.cursor(tables::CanonicalHeader)?;
-
-        while let Some((block_num, _)) = canonical_cur.last()? {
-            if block_num <= input.unwind_to {
-                break;
-            }
-
-            canonical_cur.delete_current()?;
-        }
-
-        let mut header_cur = tx.cursor(tables::Header)?;
-        while let Some(((block_num, _), _)) = header_cur.last()? {
-            if block_num <= input.unwind_to {
-                break;
-            }
-
-            header_cur.delete_current()?;
-        }
-
-        let mut td_cur = tx.cursor(tables::HeadersTotalDifficulty)?;
-        while let Some(((block_num, _), _)) = td_cur.last()? {
-            if block_num <= input.unwind_to {
-                break;
-            }
-
-            td_cur.delete_current()?;
-        }
+        unwind_by_block_key(tx, tables::CanonicalHeader, input, std::convert::identity)?;
+        unwind_by_block_key(tx, tables::Header, input, |(block_num, _)| block_num)?;
+        unwind_by_block_key(
+            tx,
+            tables::HeadersTotalDifficulty,
+            input,
+            |(block_num, _)| block_num,
+        )?;
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
         })
+    }
+    async fn prune<'tx>(
+        &mut self,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
+        input: PruningInput,
+    ) -> anyhow::Result<()>
+    where
+        'db: 'tx,
+    {
+        prune_by_block_key(tx, tables::CanonicalHeader, input, std::convert::identity)?;
+        prune_by_block_key(tx, tables::Header, input, |(block_number, _)| block_number)?;
+        prune_by_block_key(
+            tx,
+            tables::HeadersTotalDifficulty,
+            input,
+            |(block_number, _)| block_number,
+        )?;
+
+        Ok(())
     }
 }
 
@@ -479,6 +483,55 @@ where
             stage_progress: input.unwind_to,
         })
     }
+
+    async fn prune<'tx>(
+        &mut self,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
+        input: PruningInput,
+    ) -> anyhow::Result<()>
+    where
+        'db: 'tx,
+    {
+        let mut block_body_cur = tx.cursor(tables::BlockBody)?;
+        let mut block_tx_cur = tx.cursor(tables::BlockTransaction)?;
+
+        let mut e = block_body_cur.first()?;
+        while let Some(((block_num, _), body)) = e {
+            if block_num >= input.prune_to {
+                break;
+            }
+
+            if body.tx_amount > 0 {
+                for i in 0..body.tx_amount {
+                    if i == 0 {
+                        block_tx_cur.seek_exact(body.base_tx_id)?.ok_or_else(|| {
+                            format_err!(
+                                "tx with base id {} not found for block {}",
+                                body.base_tx_id,
+                                block_num
+                            )
+                        })?;
+                    } else {
+                        block_tx_cur.next()?.ok_or_else(|| {
+                            format_err!(
+                                "tx with id base {}+{} not found for block {}",
+                                body.base_tx_id,
+                                i,
+                                block_num
+                            )
+                        })?;
+                    }
+
+                    block_tx_cur.delete_current()?;
+                }
+            }
+
+            block_body_cur.delete_current()?;
+            e = block_body_cur.next()?
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -603,7 +656,14 @@ fn main() -> anyhow::Result<()> {
                 let sentry_status_provider = SentryStatusProvider::new(chain_config.clone());
                 // staged sync setup
                 let mut staged_sync = stagedsync::StagedSync::new();
-                staged_sync.set_min_progress_to_commit_after_stage(1024);
+                staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
+                    u64::MAX
+                } else {
+                    1024
+                });
+                if opt.prune {
+                    staged_sync.set_pruning_interval(90_000);
+                }
                 staged_sync.set_max_block(opt.max_block);
                 staged_sync.set_exit_after_sync(opt.exit_after_sync);
                 staged_sync.set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
@@ -611,7 +671,13 @@ fn main() -> anyhow::Result<()> {
                     staged_sync.push(ConvertHeaders {
                         db: erigon_db,
                         max_block: opt.max_block,
-                        exit_after_progress: opt.increment,
+                        exit_after_progress: opt.increment.or({
+                            if opt.prune {
+                                Some(90_000)
+                            } else {
+                                None
+                            }
+                        }),
                     });
                 } else {
                     // sentry setup
@@ -653,7 +719,6 @@ fn main() -> anyhow::Result<()> {
                     exit_after_batch: opt.execution_exit_after_batch,
                     batch_until: None,
                     commit_every: None,
-                    prune_from: BlockNumber(0),
                 });
                 if !opt.skip_commitment {
                     staged_sync.push(HashState::new(etl_temp_dir.clone(), None));

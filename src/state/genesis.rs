@@ -67,12 +67,12 @@ pub fn initialize_genesis<'db, E>(
 where
     E: EnvironmentKind,
 {
-    let genesis = chainspec.genesis.number;
-    if txn.get(tables::CanonicalHeader, genesis)?.is_some() {
+    if txn.get(tables::Config, Default::default())?.is_some() {
         return Ok(false);
     }
 
-    let mut state_buffer = Buffer::new(txn, genesis, None);
+    let genesis = chainspec.genesis.number;
+    let mut state_buffer = Buffer::new(txn, None);
     state_buffer.begin_block(genesis);
     // Allocate accounts
     if let Some(balances) = chainspec.balances.get(&genesis) {
