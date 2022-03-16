@@ -229,13 +229,6 @@ fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::Result
 
     println!("{:?}", value.as_ref().map(hex::encode));
 
-    if let Some(v) = value {
-        println!(
-            "{:?}",
-            rlp::decode::<akula::models::MessageWithSignature>(&v)?.hash()
-        );
-    }
-
     Ok(())
 }
 

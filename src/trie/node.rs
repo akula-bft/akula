@@ -2,16 +2,16 @@ use crate::{models::KECCAK_LENGTH, trie::util::assert_subset};
 use ethereum_types::H256;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Node {
-    pub(crate) state_mask: u16,
-    pub(crate) tree_mask: u16,
-    pub(crate) hash_mask: u16,
-    pub(crate) hashes: Vec<H256>,
-    pub(crate) root_hash: Option<H256>,
+pub struct Node {
+    pub state_mask: u16,
+    pub tree_mask: u16,
+    pub hash_mask: u16,
+    pub hashes: Vec<H256>,
+    pub root_hash: Option<H256>,
 }
 
 impl Node {
-    pub(crate) fn new(
+    pub fn new(
         state_mask: u16,
         tree_mask: u16,
         hash_mask: u16,
@@ -30,7 +30,7 @@ impl Node {
         }
     }
 
-    pub(crate) fn hash_for_nibble(&self, nibble: i8) -> H256 {
+    pub fn hash_for_nibble(&self, nibble: i8) -> H256 {
         let mask = (1u16 << nibble) - 1;
         let index = (self.hash_mask & mask).count_ones();
         self.hashes[index as usize]

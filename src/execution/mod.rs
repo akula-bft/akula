@@ -1,5 +1,5 @@
 use self::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer};
-use crate::{consensus, crypto::*, models::*, State};
+use crate::{consensus, models::*, State};
 
 pub mod address;
 pub mod analysis_cache;
@@ -35,7 +35,7 @@ pub fn execute_block<S: State>(
 mod tests {
     use super::{address::create_address, *};
     use crate::{
-        chain::protocol_param::param, crypto::root_hash, res::chainspec::MAINNET, InMemoryState,
+        chain::protocol_param::param, res::chainspec::MAINNET, trie::root_hash, InMemoryState,
     };
     use hex_literal::hex;
     use sha3::{Digest, Keccak256};

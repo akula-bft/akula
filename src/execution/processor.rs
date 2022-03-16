@@ -1,4 +1,4 @@
-use super::{analysis_cache::AnalysisCache, root_hash, tracer::Tracer};
+use super::{analysis_cache::AnalysisCache, tracer::Tracer};
 use crate::{
     chain::{
         intrinsic_gas::*,
@@ -9,6 +9,7 @@ use crate::{
     h256_to_u256,
     models::*,
     state::IntraBlockState,
+    trie::root_hash,
     State,
 };
 use anyhow::Context;

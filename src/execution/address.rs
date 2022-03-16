@@ -1,14 +1,13 @@
 use crate::{crypto::*, models::*, u256_to_h256};
-use rlp_derive::*;
 
 pub fn create_address(caller: Address, nonce: u64) -> Address {
-    #[derive(RlpEncodable)]
+    #[derive(fastrlp::RlpEncodable, fastrlp::RlpMaxEncodedLen)]
     struct V {
         caller: Address,
         nonce: u64,
     }
 
-    Address::from_slice(&keccak256(rlp::encode(&V { caller, nonce })).0[12..])
+    Address::from_slice(&keccak256(fastrlp::encode_fixed_size(&V { caller, nonce })).0[12..])
 }
 
 pub fn create2_address(caller: Address, salt: U256, code_hash: H256) -> Address {

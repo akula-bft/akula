@@ -34,7 +34,6 @@ where
 {
     txn: &'tx MdbxTransaction<'db, K, E>,
 
-    prune_from: BlockNumber,
     historical_block: Option<BlockNumber>,
 
     accounts: HashMap<Address, Option<Account>>,
@@ -61,12 +60,10 @@ where
 {
     pub fn new(
         txn: &'tx MdbxTransaction<'db, K, E>,
-        prune_from: BlockNumber,
         historical_block: Option<BlockNumber>,
     ) -> Self {
         Self {
             txn,
-            prune_from,
             historical_block,
             accounts: Default::default(),
             storage: Default::default(),
@@ -225,12 +222,10 @@ where
             return;
         }
 
-        if self.block_number >= self.prune_from {
-            self.account_changes
-                .entry(self.block_number)
-                .or_default()
-                .insert(address, initial);
-        }
+        self.account_changes
+            .entry(self.block_number)
+            .or_default()
+            .insert(address, initial);
 
         if equal {
             return;
@@ -256,15 +251,13 @@ where
             return Ok(());
         }
 
-        if self.block_number >= self.prune_from {
-            self.changed_storage.insert(address);
-            self.storage_changes
-                .entry(self.block_number)
-                .or_default()
-                .entry(address)
-                .or_default()
-                .insert(location, initial);
-        }
+        self.changed_storage.insert(address);
+        self.storage_changes
+            .entry(self.block_number)
+            .or_default()
+            .entry(address)
+            .or_default()
+            .insert(location, initial);
 
         self.storage
             .entry(address)
@@ -416,7 +409,7 @@ mod tests {
         txn.set(tables::Storage, address, (location_b, value_b))
             .unwrap();
 
-        let mut buffer = Buffer::new(&txn, 0.into(), None);
+        let mut buffer = Buffer::new(&txn, None);
 
         assert_eq!(
             buffer

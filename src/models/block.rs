@@ -1,10 +1,9 @@
 use super::*;
-use crate::crypto::*;
+use crate::{crypto::keccak256, trie::*};
+use bytes::BytesMut;
 use derive_more::Deref;
+use fastrlp::*;
 use parity_scale_codec::*;
-use rlp_derive::*;
-use sha3::*;
-use std::borrow::Borrow;
 
 #[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct Block {
@@ -21,7 +20,7 @@ impl Block {
         ommers: Vec<BlockHeader>,
     ) -> Self {
         let ommers_hash = Self::ommers_hash(&ommers);
-        let transactions_root = Self::transactions_root(&transactions);
+        let transactions_root = root_hash(&transactions);
 
         Self {
             header: BlockHeader::new(partial_header, ommers_hash, transactions_root),
@@ -31,13 +30,9 @@ impl Block {
     }
 
     pub fn ommers_hash(ommers: &[BlockHeader]) -> H256 {
-        H256::from_slice(Keccak256::digest(&rlp::encode_list(ommers)[..]).as_slice())
-    }
-
-    pub fn transactions_root<I: IntoIterator<Item = T>, T: Borrow<MessageWithSignature>>(
-        iter: I,
-    ) -> H256 {
-        ordered_trie_root(iter.into_iter().map(|r| r.borrow().trie_encode()))
+        let mut buffer = BytesMut::new();
+        fastrlp::encode_list(ommers, &mut buffer);
+        keccak256(buffer)
     }
 }
 
@@ -240,41 +235,58 @@ mod tests {
         ];
 
         assert_eq!(
-            transactions
-                .iter()
-                .map(|tx| hex::encode(tx.hash().0))
-                .collect::<Vec<_>>(),
+            transactions.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
             vec![
-                "7a903d768be1c9b1399e792e189cb468a55002d654739f830e45782d4dfae690",
-                "25f3b3a81e87b5d3a745711f57c38216f5c82cc32c04f531cfe4db25fd074cef",
-                "2f7e1a1af4b7f3e13ddbcc333fec82e8b640b3a0815f3cb2fc52354cdb3e8762",
-                "93de2b0b54dcfef2285d7c116b7a14f9f986da6515ec5becdce7b521551caf9f",
-                "78cc131432f7224660f6ab9c3e9817e7e7213ea06002b53b26bacd0f92a83c0a",
-                "e6554f7d6419e3b6f70e956abeb02d524557b9f81cf883178fa2e5ef2d8b7139",
-                "d17aaa0f3bf37d0535fb4d0942e48a697eeb2bb5399aa300e1ef1f588c9dddc7"
+                H256(hex!(
+                    "7a903d768be1c9b1399e792e189cb468a55002d654739f830e45782d4dfae690"
+                )),
+                H256(hex!(
+                    "25f3b3a81e87b5d3a745711f57c38216f5c82cc32c04f531cfe4db25fd074cef"
+                )),
+                H256(hex!(
+                    "2f7e1a1af4b7f3e13ddbcc333fec82e8b640b3a0815f3cb2fc52354cdb3e8762"
+                )),
+                H256(hex!(
+                    "93de2b0b54dcfef2285d7c116b7a14f9f986da6515ec5becdce7b521551caf9f"
+                )),
+                H256(hex!(
+                    "78cc131432f7224660f6ab9c3e9817e7e7213ea06002b53b26bacd0f92a83c0a"
+                )),
+                H256(hex!(
+                    "e6554f7d6419e3b6f70e956abeb02d524557b9f81cf883178fa2e5ef2d8b7139"
+                )),
+                H256(hex!(
+                    "d17aaa0f3bf37d0535fb4d0942e48a697eeb2bb5399aa300e1ef1f588c9dddc7"
+                ))
             ]
         );
 
         let block = Block::new(partial_header, transactions, ommers);
 
         assert_eq!(
-            block.header.transactions_root.0,
-            hex!("6aaee4a301af3f721f01f886c50db6ff354487e0a3b713601797a439475ade0c")
+            block.header.transactions_root,
+            H256(hex!(
+                "6aaee4a301af3f721f01f886c50db6ff354487e0a3b713601797a439475ade0c"
+            ))
         );
         assert_eq!(
-            block.header.ommers_hash.0,
-            hex!("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347")
+            block.header.ommers_hash,
+            H256(hex!(
+                "1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"
+            ))
         );
         assert_eq!(
-            block.header.hash().0,
-            hex!("05c0d29761f97e4bf5c6b64e9fef4a7f8a884483de8c379ff00847d559ba361b")
+            block.header.hash(),
+            H256(hex!(
+                "05c0d29761f97e4bf5c6b64e9fef4a7f8a884483de8c379ff00847d559ba361b"
+            ))
         );
     }
 
     #[test]
     fn block_body_rlp() {
         // https://etherscan.io/block/3
-        let rlp_hex = hex!(
+        let rlp_hex = &hex!(
             "f90219c0f90215f90212a0d4e56740f876aef8c010b86a40d5f56745a118d090"
             "6a34e69aec8c0db1cb8fa3a01dcc4de8dec75d7aab85b567b6ccd41ad312451b"
             "948a7413f0a142fd40d4934794c8ebccc5f5689fa8659d83713341e5ad193494"
@@ -292,10 +304,11 @@ mod tests {
             "000000000000008503ff80000001821388808455ba42429a5961746573205261"
             "6e64616c6c202d2045746865724e696e6a61a0f8c94dfe61cf26dcdf8cffeda3"
             "37cf6a903d65c449d7691a022837f6e2d994598868b769c5451a7aea"
-        )
-        .to_vec();
+        ) as &[u8];
 
-        let bb = rlp::decode::<BlockBody>(&rlp_hex).unwrap();
+        let buf = &mut &*rlp_hex;
+        let bb = BlockBody::decode(buf).unwrap();
+        assert!(buf.is_empty());
 
         assert_eq!(bb.transactions, []);
         assert_eq!(
@@ -327,7 +340,9 @@ mod tests {
             }]
         );
 
-        assert_eq!(rlp::encode(&bb), rlp_hex);
+        let mut out = BytesMut::new();
+        bb.encode(&mut out);
+        assert_eq!(hex::encode(out), hex::encode(rlp_hex));
     }
 
     #[test]
@@ -402,13 +417,20 @@ mod tests {
             }],
         };
 
-        assert_eq!(rlp::decode::<BlockBody>(&rlp::encode(&body)).unwrap(), body);
+        let mut out = BytesMut::new();
+        body.encode(&mut out);
+
+        let out = &mut &*out;
+        let decoded = <BlockBody as Decodable>::decode(out).unwrap();
+        assert!(out.is_empty());
+
+        assert_eq!(decoded, body);
     }
 
     #[test]
     fn invalid_block_rlp() {
         // Consensus test RLP_InputList_TooManyElements_HEADER_DECODEINTO_BLOCK_EXTBLOCK_HEADER
-        let rlp_hex = hex!(
+        let rlp_hex = &hex!(
             "f90260f90207a068a61c4a05db4913009de5666753258eb9306157680dc5da0d93656550c9257ea01dcc4de8dec75d7aab85b567b6cc"
             "d41ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c1"
             "65b75356e0314bf0706f279c729f51e017a0b6c9fd1447d0b414a1f05957927746f58ef5a2ebde17db631d460eaf6a93b18da0bc37d797"
@@ -420,14 +442,14 @@ mod tests {
             "0000000000000000000000008302000001832fefd8825208845509814280a00451dd53d9c09f3cfb627b51d9d80632ed801f6330ee584b"
             "ffc26caac9b9249f88c7bffe5ebd94cc2ff861f85f800a82c35094095e7baea6a6c7c4c2dfeb977efac326af552d870a801ba098c3a099"
             "885a281885f487fd37550de16436e8c47874cd213531b10fe751617fa044b6b81011ce57bffcaf610bf728fb8a7237ad261ea2d937423d"
-            "78eb9e137076c0").to_vec();
+            "78eb9e137076c0") as &[u8];
 
-        assert!(rlp::decode::<Block>(&rlp_hex).is_err())
+        assert!(Block::decode(&mut &*rlp_hex).is_err())
     }
 
     #[test]
     fn eip2718_block_rlp() {
-        let rlp_hex = hex!(
+        let rlp_hex = &hex!(
             "f90319f90211a00000000000000000000000000000000000000000000000000000000000000000a01dcc4de8dec75d7aab85b567b6ccd4"
             "1ad312451b948a7413f0a142fd40d49347948888f1f195afa192cfee860698584c030f4c9db1a0ef1552a40b7165c3cd773806b9e0c165"
             "b75356e0314bf0706f279c729f51e017a0e6e49996c7ec59f7a23d22b83239a60151512c65613bf84a0d7da336399ebc4aa0cafe75574d"
@@ -442,9 +464,12 @@ mod tests {
             "ae537ce25ed8cb5af9adac3f141af69bd515bd2ba031522df09b97dd72b1b89e01f89b01800a8301e24194095e7baea6a6c7c4c2dfeb97"
             "7efac326af552d878080f838f7940000000000000000000000000000000000000001e1a000000000000000000000000000000000000000"
             "0000000000000000000000000001a03dbacc8d0259f2508625e97fdfc57cd85fdd16e5821bc2c10bdd1a52649e8335a0476e10695b183a"
-            "87b0aa292a7f4b78ef0c3fbe62aa2c42c84e1d9c3da159ef14c0").to_vec();
+            "87b0aa292a7f4b78ef0c3fbe62aa2c42c84e1d9c3da159ef14c0")
+            as &[u8];
 
-        let block = rlp::decode::<Block>(&rlp_hex).unwrap();
+        let buf = &mut &*rlp_hex;
+        let block = Block::decode(buf).unwrap();
+        assert!(buf.is_empty());
 
         assert_eq!(block.transactions.len(), 2);
 
@@ -457,12 +482,19 @@ mod tests {
 
     #[test]
     fn eip1559_header_rlp() {
-        let h = BlockHeader {
+        let v = BlockHeader {
             number: 13_500_000.into(),
             base_fee_per_gas: Some(2_700_000_000_u64.into()),
             ..BlockHeader::empty()
         };
 
-        assert_eq!(rlp::decode::<BlockHeader>(&rlp::encode(&h)).unwrap(), h);
+        let mut out = BytesMut::new();
+        Encodable::encode(&v, &mut out);
+
+        let mut out = &*out;
+        let decoded = <BlockHeader as Decodable>::decode(&mut out).unwrap();
+        assert!(out.is_empty());
+
+        assert_eq!(decoded, v);
     }
 }

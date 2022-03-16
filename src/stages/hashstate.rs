@@ -329,7 +329,7 @@ mod tests {
             ommers: vec![],
         };
 
-        let mut buffer = Buffer::new(&tx, BlockNumber(0), None);
+        let mut buffer = Buffer::new(&tx, None);
 
         let sender_account = Account {
             balance: ETHER.into(),

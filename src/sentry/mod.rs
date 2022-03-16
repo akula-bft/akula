@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use devp2p::*;
 use educe::Educe;
 use ethereum_interfaces::sentry::{self, InboundMessage, PeersReply};
+use fastrlp::Decodable;
 use futures_core::stream::BoxStream;
 use num_traits::{FromPrimitive, ToPrimitive};
 use parking_lot::RwLock;
@@ -207,7 +208,7 @@ impl CapabilityServerImpl {
                         debug!("Unknown message");
                     }
                     Some(EthMessageId::Status) => {
-                        let v = rlp::decode::<StatusMessage>(&data).map_err(|e| {
+                        let v = StatusMessage::decode(&mut &*data).map_err(|e| {
                             debug!("Failed to decode status message: {}! Kicking peer.", e);
 
                             DisconnectReason::ProtocolBreach
@@ -286,7 +287,7 @@ impl CapabilityServer for CapabilityServerImpl {
                 capability_name: capability_name(),
                 message: Message {
                     id: EthMessageId::Status.to_usize().unwrap(),
-                    data: rlp::encode(&status_message).into(),
+                    data: fastrlp::encode_fixed_size(&status_message).to_vec().into(),
                 },
             }]
         } else {

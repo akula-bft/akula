@@ -1,5 +1,5 @@
 use super::*;
-use crate::{chain::protocol_param::param, models::*, state::*};
+use crate::{chain::protocol_param::param, models::*, state::*, trie::root_hash};
 use anyhow::Context;
 use std::time::SystemTime;
 
@@ -203,7 +203,7 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        let expected_transactions_root = Block::transactions_root(&block.transactions);
+        let expected_transactions_root = root_hash(&block.transactions);
         if block.header.transactions_root != expected_transactions_root {
             return Err(ValidationError::WrongTransactionsRoot {
                 expected: expected_transactions_root,

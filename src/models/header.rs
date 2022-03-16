@@ -1,8 +1,8 @@
 use super::*;
 use crate::crypto::*;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
+use fastrlp::*;
 use parity_scale_codec::*;
-use rlp::*;
 use serde::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
@@ -26,59 +26,93 @@ pub struct BlockHeader {
     pub base_fee_per_gas: Option<U256>,
 }
 
-impl Encodable for BlockHeader {
-    fn rlp_append(&self, s: &mut RlpStream) {
-        s.begin_list({
-            if self.base_fee_per_gas.is_some() {
-                16
-            } else {
-                15
-            }
-        });
-        s.append(&self.parent_hash);
-        s.append(&self.ommers_hash);
-        s.append(&self.beneficiary);
-        s.append(&self.state_root);
-        s.append(&self.transactions_root);
-        s.append(&self.receipts_root);
-        s.append(&self.logs_bloom);
-        s.append(&self.difficulty);
-        s.append(&self.number);
-        s.append(&self.gas_limit);
-        s.append(&self.gas_used);
-        s.append(&self.timestamp);
-        s.append(&self.extra_data.as_ref());
-        s.append(&self.mix_hash);
-        s.append(&self.nonce);
+impl BlockHeader {
+    fn rlp_header(&self) -> Header {
+        let mut rlp_head = Header {
+            list: true,
+            payload_length: 0,
+        };
+
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // parent_hash
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // ommers_hash
+        rlp_head.payload_length += ADDRESS_LENGTH + 1; // beneficiary
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // state_root
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // transactions_root
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // receipts_root
+        rlp_head.payload_length += BLOOM_BYTE_LENGTH + length_of_length(BLOOM_BYTE_LENGTH); // logs_bloom
+        rlp_head.payload_length += self.difficulty.length(); // difficulty
+        rlp_head.payload_length += self.number.length(); // block height
+        rlp_head.payload_length += self.gas_limit.length(); // gas_limit
+        rlp_head.payload_length += self.gas_used.length(); // gas_used
+        rlp_head.payload_length += self.timestamp.length(); // timestamp
+        rlp_head.payload_length += self.extra_data.length(); // extra_data
+
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // mix_hash
+        rlp_head.payload_length += 8 + 1; // nonce
+
         if let Some(base_fee_per_gas) = self.base_fee_per_gas {
-            s.append(&base_fee_per_gas);
+            rlp_head.payload_length += base_fee_per_gas.length();
         }
+
+        rlp_head
+    }
+}
+
+impl Encodable for BlockHeader {
+    fn encode(&self, out: &mut dyn BufMut) {
+        self.rlp_header().encode(out);
+        Encodable::encode(&self.parent_hash, out);
+        Encodable::encode(&self.ommers_hash, out);
+        Encodable::encode(&self.beneficiary, out);
+        Encodable::encode(&self.state_root, out);
+        Encodable::encode(&self.transactions_root, out);
+        Encodable::encode(&self.receipts_root, out);
+        Encodable::encode(&self.logs_bloom, out);
+        Encodable::encode(&self.difficulty, out);
+        Encodable::encode(&self.number, out);
+        Encodable::encode(&self.gas_limit, out);
+        Encodable::encode(&self.gas_used, out);
+        Encodable::encode(&self.timestamp, out);
+        Encodable::encode(&self.extra_data, out);
+        Encodable::encode(&self.mix_hash, out);
+        Encodable::encode(&self.nonce, out);
+        if let Some(base_fee_per_gas) = self.base_fee_per_gas {
+            Encodable::encode(&base_fee_per_gas, out);
+        }
+    }
+    fn length(&self) -> usize {
+        let rlp_head = self.rlp_header();
+        length_of_length(rlp_head.payload_length) + rlp_head.payload_length
     }
 }
 
 impl Decodable for BlockHeader {
-    fn decode(rlp: &Rlp) -> Result<Self, DecoderError> {
-        let mut rlp = rlp.iter();
-        let parent_hash = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let ommers_hash = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let beneficiary = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let state_root = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let transactions_root = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let receipts_root = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let logs_bloom = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let difficulty = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let number = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let gas_limit = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let gas_used = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let timestamp = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let extra_data = rlp
-            .next()
-            .ok_or(DecoderError::RlpInvalidLength)?
-            .as_val::<Vec<u8>>()?
-            .into();
-        let mix_hash = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let nonce = rlp.next().ok_or(DecoderError::RlpInvalidLength)?.as_val()?;
-        let base_fee_per_gas = rlp.next().map(|rlp| rlp.as_val()).transpose()?;
+    fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+        let rlp_head = Header::decode(buf)?;
+        if !rlp_head.list {
+            return Err(DecodeError::UnexpectedString);
+        }
+        let leftover = buf.len() - rlp_head.payload_length;
+        let parent_hash = Decodable::decode(buf)?;
+        let ommers_hash = Decodable::decode(buf)?;
+        let beneficiary = Decodable::decode(buf)?;
+        let state_root = Decodable::decode(buf)?;
+        let transactions_root = Decodable::decode(buf)?;
+        let receipts_root = Decodable::decode(buf)?;
+        let logs_bloom = Decodable::decode(buf)?;
+        let difficulty = Decodable::decode(buf)?;
+        let number = Decodable::decode(buf)?;
+        let gas_limit = Decodable::decode(buf)?;
+        let gas_used = Decodable::decode(buf)?;
+        let timestamp = Decodable::decode(buf)?;
+        let extra_data = Decodable::decode(buf)?;
+        let mix_hash = Decodable::decode(buf)?;
+        let nonce = Decodable::decode(buf)?;
+        let base_fee_per_gas = if buf.len() > leftover {
+            Some(Decodable::decode(buf)?)
+        } else {
+            None
+        };
 
         Ok(Self {
             parent_hash,
@@ -148,7 +182,9 @@ impl BlockHeader {
 
     #[must_use]
     pub fn hash(&self) -> H256 {
-        keccak256(&rlp::encode(self)[..])
+        let mut out = BytesMut::new();
+        Encodable::encode(self, &mut out);
+        keccak256(&out[..])
     }
 
     #[must_use]
@@ -170,52 +206,82 @@ impl BlockHeader {
             base_fee_per_gas: Option<U256>,
         }
 
-        impl Encodable for TruncatedHeader {
-            fn rlp_append(&self, s: &mut RlpStream) {
-                s.begin_list({
-                    if self.base_fee_per_gas.is_some() {
-                        14
-                    } else {
-                        13
-                    }
-                });
-                s.append(&self.parent_hash);
-                s.append(&self.ommers_hash);
-                s.append(&self.beneficiary);
-                s.append(&self.state_root);
-                s.append(&self.transactions_root);
-                s.append(&self.receipts_root);
-                s.append(&self.logs_bloom);
-                s.append(&self.difficulty);
-                s.append(&self.number);
-                s.append(&self.gas_limit);
-                s.append(&self.gas_used);
-                s.append(&self.timestamp);
-                s.append(&self.extra_data.as_ref());
+        impl TruncatedHeader {
+            fn rlp_header(&self) -> Header {
+                let mut rlp_head = Header {
+                    list: false,
+                    payload_length: 0,
+                };
+
+                rlp_head.payload_length += KECCAK_LENGTH + 1; // parent_hash
+                rlp_head.payload_length += KECCAK_LENGTH + 1; // ommers_hash
+                rlp_head.payload_length += ADDRESS_LENGTH + 1; // beneficiary
+                rlp_head.payload_length += KECCAK_LENGTH + 1; // state_root
+                rlp_head.payload_length += KECCAK_LENGTH + 1; // transactions_root
+                rlp_head.payload_length += KECCAK_LENGTH + 1; // receipts_root
+                rlp_head.payload_length += BLOOM_BYTE_LENGTH + length_of_length(BLOOM_BYTE_LENGTH); // logs_bloom
+                rlp_head.payload_length += self.difficulty.length(); // difficulty
+                rlp_head.payload_length += self.number.length(); // block height
+                rlp_head.payload_length += self.gas_limit.length(); // gas_limit
+                rlp_head.payload_length += self.gas_used.length(); // gas_used
+                rlp_head.payload_length += self.timestamp.length(); // timestamp
+                rlp_head.payload_length += self.extra_data.length(); // extra_data
+
                 if let Some(base_fee_per_gas) = self.base_fee_per_gas {
-                    s.append(&base_fee_per_gas);
+                    rlp_head.payload_length += base_fee_per_gas.length();
                 }
+
+                rlp_head
             }
         }
 
-        keccak256(
-            &rlp::encode(&TruncatedHeader {
-                parent_hash: self.parent_hash,
-                ommers_hash: self.ommers_hash,
-                beneficiary: self.beneficiary,
-                state_root: self.state_root,
-                transactions_root: self.transactions_root,
-                receipts_root: self.receipts_root,
-                logs_bloom: self.logs_bloom,
-                difficulty: self.difficulty,
-                number: self.number,
-                gas_limit: self.gas_limit,
-                gas_used: self.gas_used,
-                timestamp: self.timestamp,
-                extra_data: self.extra_data.clone(),
-                base_fee_per_gas: self.base_fee_per_gas,
-            })[..],
-        )
+        impl Encodable for TruncatedHeader {
+            fn encode(&self, out: &mut dyn BufMut) {
+                self.rlp_header().encode(out);
+                Encodable::encode(&self.parent_hash, out);
+                Encodable::encode(&self.ommers_hash, out);
+                Encodable::encode(&self.beneficiary, out);
+                Encodable::encode(&self.state_root, out);
+                Encodable::encode(&self.transactions_root, out);
+                Encodable::encode(&self.receipts_root, out);
+                Encodable::encode(&self.logs_bloom, out);
+                Encodable::encode(&self.difficulty, out);
+                Encodable::encode(&self.number, out);
+                Encodable::encode(&self.gas_limit, out);
+                Encodable::encode(&self.gas_used, out);
+                Encodable::encode(&self.timestamp, out);
+                Encodable::encode(&self.extra_data, out);
+                if let Some(base_fee_per_gas) = self.base_fee_per_gas {
+                    Encodable::encode(&base_fee_per_gas, out);
+                }
+            }
+            fn length(&self) -> usize {
+                let rlp_head = self.rlp_header();
+                length_of_length(rlp_head.payload_length) + rlp_head.payload_length
+            }
+        }
+
+        let mut buffer = BytesMut::new();
+
+        TruncatedHeader {
+            parent_hash: self.parent_hash,
+            ommers_hash: self.ommers_hash,
+            beneficiary: self.beneficiary,
+            state_root: self.state_root,
+            transactions_root: self.transactions_root,
+            receipts_root: self.receipts_root,
+            logs_bloom: self.logs_bloom,
+            difficulty: self.difficulty,
+            number: self.number,
+            gas_limit: self.gas_limit,
+            gas_used: self.gas_used,
+            timestamp: self.timestamp,
+            extra_data: self.extra_data.clone(),
+            base_fee_per_gas: self.base_fee_per_gas,
+        }
+        .encode(&mut buffer);
+
+        keccak256(&buffer[..])
     }
 }
 

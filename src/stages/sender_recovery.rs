@@ -5,7 +5,7 @@ use crate::{
         traits::*,
     },
     models::*,
-    stagedsync::{format_duration, stage::*, stages::*},
+    stagedsync::{format_duration, stage::*, stages::*, util::*},
     StageId,
 };
 use async_trait::async_trait;
@@ -170,19 +170,22 @@ where
     where
         'db: 'tx,
     {
-        let mut senders_cur = tx.cursor(tables::TxSender)?;
-
-        while let Some(((block_number, _), _)) = senders_cur.last()? {
-            if block_number > input.unwind_to {
-                senders_cur.delete_current()?;
-            } else {
-                break;
-            }
-        }
+        unwind_by_block_key(tx, tables::TxSender, input, |(block_num, _)| block_num)?;
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
         })
+    }
+
+    async fn prune<'tx>(
+        &mut self,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
+        input: PruningInput,
+    ) -> anyhow::Result<()>
+    where
+        'db: 'tx,
+    {
+        prune_by_block_key(tx, tables::TxSender, input, |(block_num, _)| block_num)
     }
 }
 

@@ -67,4 +67,28 @@ impl StageId {
     {
         tx.set(tables::SyncStage, *self, block)
     }
+
+    #[instrument]
+    pub fn get_prune_progress<'db, K, E>(
+        &self,
+        tx: &MdbxTransaction<'db, K, E>,
+    ) -> anyhow::Result<Option<BlockNumber>>
+    where
+        K: TransactionKind,
+        E: EnvironmentKind,
+    {
+        tx.get(tables::PruneProgress, *self)
+    }
+
+    #[instrument]
+    pub fn save_prune_progress<'db, E>(
+        &self,
+        tx: &MdbxTransaction<'db, RW, E>,
+        block: BlockNumber,
+    ) -> anyhow::Result<()>
+    where
+        E: EnvironmentKind,
+    {
+        tx.set(tables::PruneProgress, *self, block)
+    }
 }
