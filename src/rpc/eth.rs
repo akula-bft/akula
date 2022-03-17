@@ -9,7 +9,6 @@ use crate::{
         tables,
     },
     models::*,
-    res::chainspec::MAINNET,
     stagedsync::stages::FINISH,
     Buffer, InMemoryState, IntraBlockState,
 };
@@ -60,7 +59,9 @@ where
 
         let mut state = Buffer::new(&txn, Some(block_number));
         let mut analysis_cache = AnalysisCache::default();
-        let block_spec = MAINNET.collect_block_spec(block_number);
+        let genesis_hash = chain::canonical_hash::read(&txn, BlockNumber(0))?;
+        let block_spec =
+            chain::chain_config::read(&txn, genesis_hash)?.collect_block_spec(block_number);
 
         let input = call_data.data.unwrap_or_default().into();
         let sender = call_data.from.unwrap_or_else(Address::zero);
@@ -128,7 +129,9 @@ where
         let mut db = InMemoryState::default();
         let mut state = IntraBlockState::new(&mut db);
         let mut cache = AnalysisCache::default();
-        let block_spec = MAINNET.collect_block_spec(block_number);
+        let genesis_hash = chain::canonical_hash::read(&txn, BlockNumber(0))?;
+        let block_spec =
+            chain::chain_config::read(&txn, genesis_hash)?.collect_block_spec(block_number);
         let mut tracer = NoopTracer;
         Ok(U64::from(
             50_000_000
@@ -357,13 +360,17 @@ where
         let header = PartialHeader::from(chain::header::read(&txn, block_hash, block_number)?);
         let block_body =
             chain::block_body::read_with_senders(&txn, block_hash, block_number)?.unwrap();
-        let block_spec = MAINNET.collect_block_spec(block_number);
+        let genesis_hash = chain::canonical_hash::read(&txn, BlockNumber(0))?;
+        let block_spec = chain::chain_config::read(&txn, genesis_hash)?;
 
         // Prepare the execution context.
         let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
-        let mut engine = engine_factory(MAINNET.clone()).unwrap();
+
+        let mut engine = engine_factory(block_spec.clone()).unwrap();
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
+        let block_execution_spec = block_spec.collect_block_spec(block_number);
+
         let mut processor = ExecutionProcessor::new(
             &mut buffer,
             &mut tracer,
@@ -371,7 +378,7 @@ where
             &mut *engine,
             &header,
             &block_body,
-            &block_spec,
+            &block_execution_spec,
         );
 
         let receipts = processor.execute_block_no_post_validation()?;
