@@ -14,7 +14,7 @@ pub mod canonical_hash {
         let number = number.into();
         trace!("Reading canonical hash for block number {}", number);
 
-        Ok(tx.get(tables::CanonicalHeader, number)?.unwrap_or_default())
+        Ok(tx.get(tables::CanonicalHeader, number)?.unwrap())
     }
 }
 
@@ -27,7 +27,20 @@ pub mod header_number {
     ) -> anyhow::Result<BlockNumber> {
         trace!("Reading header number for hash {:?}", hash);
 
-        Ok(tx.get(tables::HeaderNumber, hash)?.unwrap_or_default())
+        Ok(tx.get(tables::HeaderNumber, hash)?.unwrap())
+    }
+}
+
+pub mod chain_config {
+    use super::*;
+
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        hash: H256,
+    ) -> anyhow::Result<ChainSpec> {
+        trace!("Reading ChainSpec for hash {:?}", hash);
+
+        Ok(tx.get(tables::Config, hash)?.unwrap())
     }
 }
 
