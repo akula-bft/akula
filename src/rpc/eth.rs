@@ -106,8 +106,8 @@ where
             &txn,
             ethereum_jsonrpc::types::BlockId::Number(block_number),
         )?;
-        let hash = txn.get(tables::CanonicalHeader, block_number)?.unwrap();
-        let header = txn.get(tables::Header, (block_number, hash))?.unwrap();
+        let hash = chain::canonical_hash::read(&txn, block_number)?;
+        let header = chain::header::read(&txn, hash, block_number)?;
         let tx = MessageWithSender {
             message: Message::Legacy {
                 chain_id: None,
@@ -133,8 +133,10 @@ where
         let block_spec =
             chain::chain_config::read(&txn, genesis_hash)?.collect_block_spec(block_number);
         let mut tracer = NoopTracer;
+        let gas_limit = header.gas_limit;
+
         Ok(U64::from(
-            50_000_000
+            gas_limit as i64
                 - evmglue::execute(
                     &mut state,
                     &mut tracer,
@@ -142,7 +144,7 @@ where
                     &PartialHeader::from(header),
                     &block_spec,
                     &tx,
-                    50_000_000,
+                    gas_limit,
                 )?
                 .gas_left,
         ))
