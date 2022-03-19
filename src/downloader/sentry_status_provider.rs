@@ -51,7 +51,7 @@ impl SentryStatusProvider {
         tx: &MdbxTransaction<'_, RW, E>,
     ) -> anyhow::Result<Status> {
         let header_hash = tx
-            .get(tables::LastHeader, Default::default())?
+            .get(tables::LastHeader, ())?
             .ok_or(SentryStatusProviderError::StatusDataNotFound)?;
 
         let block_num = tx

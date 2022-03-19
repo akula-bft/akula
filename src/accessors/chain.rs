@@ -10,11 +10,11 @@ pub mod canonical_hash {
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<H256> {
+    ) -> anyhow::Result<Option<H256>> {
         let number = number.into();
         trace!("Reading canonical hash for block number {}", number);
 
-        Ok(tx.get(tables::CanonicalHeader, number)?.unwrap())
+        tx.get(tables::CanonicalHeader, number)
     }
 }
 
@@ -24,10 +24,10 @@ pub mod header_number {
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
-    ) -> anyhow::Result<BlockNumber> {
+    ) -> anyhow::Result<Option<BlockNumber>> {
         trace!("Reading header number for hash {:?}", hash);
 
-        Ok(tx.get(tables::HeaderNumber, hash)?.unwrap())
+        tx.get(tables::HeaderNumber, hash)
     }
 }
 
@@ -36,11 +36,10 @@ pub mod chain_config {
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
-    ) -> anyhow::Result<ChainSpec> {
-        trace!("Reading ChainSpec for hash {:?}", hash);
+    ) -> anyhow::Result<Option<ChainSpec>> {
+        trace!("Reading chain specification");
 
-        Ok(tx.get(tables::Config, hash)?.unwrap())
+        tx.get(tables::Config, ())
     }
 }
 
@@ -51,11 +50,11 @@ pub mod header {
         tx: &MdbxTransaction<'_, K, E>,
         hash: H256,
         number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<BlockHeader> {
+    ) -> anyhow::Result<Option<BlockHeader>> {
         let number = number.into();
         trace!("Reading header for block number {}", number);
 
-        Ok(tx.get(tables::Header, (number, hash))?.unwrap())
+        tx.get(tables::Header, (number, hash))
     }
 }
 
@@ -97,10 +96,10 @@ pub mod tx {
             base_tx_id
         );
 
-        let mut cursor = tx.cursor(tables::BlockTransaction).unwrap();
+        let mut cursor = tx.cursor(tables::BlockTransaction)?;
 
         for (i, eth_tx) in txs.iter().enumerate() {
-            cursor.put(base_tx_id + i as u64, eth_tx.clone()).unwrap();
+            cursor.put(base_tx_id + i as u64, eth_tx.clone())?;
         }
 
         Ok(())
@@ -142,7 +141,7 @@ pub mod tx_sender {
             hash
         );
 
-        tx.set(tables::TxSender, (number, hash), senders).unwrap();
+        tx.set(tables::TxSender, (number, hash), senders)?;
 
         Ok(())
     }

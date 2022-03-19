@@ -41,7 +41,13 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let server = HttpServerBuilder::default().build(opt.listen_address)?;
-    let _server_handle = server.start(EthApiServerImpl { db }.into_rpc())?;
+    let _server_handle = server.start(
+        EthApiServerImpl {
+            db,
+            call_gas_limit: 100_000_000,
+        }
+        .into_rpc(),
+    )?;
 
     pending().await
 }

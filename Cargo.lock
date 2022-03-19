@@ -1133,10 +1133,19 @@ version = "1.0.4"
 source = "git+https://github.com/vorot93/ethnum-rs?branch=staging#4ee19fe9b9144f44e94bb32070b2b3aa992fe8a9"
 dependencies = [
  "derive_more",
+ "ethnum-intrinsics",
  "impl-serde",
  "parity-scale-codec",
  "rlp",
  "serde",
+]
+
+[[package]]
+name = "ethnum-intrinsics"
+version = "1.0.1"
+source = "git+https://github.com/vorot93/ethnum-rs?branch=staging#4ee19fe9b9144f44e94bb32070b2b3aa992fe8a9"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

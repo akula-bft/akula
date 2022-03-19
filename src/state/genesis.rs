@@ -67,7 +67,7 @@ pub fn initialize_genesis<'db, E>(
 where
     E: EnvironmentKind,
 {
-    if txn.get(tables::Config, Default::default())?.is_some() {
+    if txn.get(tables::Config, ())?.is_some() {
         return Ok(false);
     }
 
@@ -137,9 +137,9 @@ where
     txn.set(tables::TotalGas, genesis, 0)?;
     txn.set(tables::TotalTx, genesis, 0)?;
 
-    txn.set(tables::LastHeader, Default::default(), block_hash)?;
+    txn.set(tables::LastHeader, (), block_hash)?;
 
-    txn.set(tables::Config, Default::default(), chainspec)?;
+    txn.set(tables::Config, (), chainspec)?;
 
     Ok(true)
 }

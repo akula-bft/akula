@@ -196,7 +196,7 @@ where
         let _ = tx;
 
         let chain_config = tx
-            .get(tables::Config, Default::default())?
+            .get(tables::Config, ())?
             .ok_or_else(|| format_err!("No chain specification set"))?;
 
         let prev_progress = input.stage_progress.unwrap_or_default();
