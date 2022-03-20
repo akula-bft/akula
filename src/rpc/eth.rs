@@ -5,10 +5,7 @@ use crate::{
     execution::{
         analysis_cache::AnalysisCache, evmglue, processor::ExecutionProcessor, tracer::NoopTracer,
     },
-    kv::{
-        mdbx::{EnvironmentKind, MdbxEnvironment},
-        tables,
-    },
+    kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
     stagedsync::stages::FINISH,
     Buffer, InMemoryState, IntraBlockState,
@@ -23,7 +20,7 @@ pub struct EthApiServerImpl<SE>
 where
     SE: EnvironmentKind,
 {
-    pub db: Arc<MdbxEnvironment<SE>>,
+    pub db: Arc<MdbxWithDirHandle<SE>>,
     pub call_gas_limit: u64,
 }
 

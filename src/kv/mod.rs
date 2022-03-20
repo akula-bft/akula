@@ -3,8 +3,7 @@ pub mod tables;
 pub mod traits;
 
 use self::traits::*;
-use crate::kv::tables::CHAINDATA_TABLES;
-use ::mdbx::{Geometry, WriteMap};
+use crate::kv::{mdbx::*, tables::CHAINDATA_TABLES};
 use byte_unit::*;
 use bytes::Bytes;
 use derive_more::Deref;
@@ -34,13 +33,25 @@ impl DupSort for CustomTable {
 }
 
 #[derive(Debug, Deref)]
-pub struct MdbxWithDirHandle {
+pub struct MdbxWithDirHandle<E>
+where
+    E: EnvironmentKind,
+{
     #[deref]
-    inner: mdbx::MdbxEnvironment<WriteMap>,
+    inner: mdbx::MdbxEnvironment<E>,
     _tmpdir: Option<tempfile::TempDir>,
 }
 
-pub fn new_mem_database() -> anyhow::Result<MdbxWithDirHandle> {
+impl<E: EnvironmentKind> From<mdbx::MdbxEnvironment<E>> for MdbxWithDirHandle<E> {
+    fn from(inner: mdbx::MdbxEnvironment<E>) -> Self {
+        Self {
+            inner,
+            _tmpdir: None,
+        }
+    }
+}
+
+pub fn new_mem_database() -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
     let tmpdir = tempfile::tempdir()?;
     Ok(MdbxWithDirHandle {
         inner: new_environment(tmpdir.path(), n_mib_bytes!(64), None)?,
@@ -48,7 +59,7 @@ pub fn new_mem_database() -> anyhow::Result<MdbxWithDirHandle> {
     })
 }
 
-pub fn new_database(path: &std::path::Path) -> anyhow::Result<MdbxWithDirHandle> {
+pub fn new_database(path: &std::path::Path) -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
     Ok(MdbxWithDirHandle {
         inner: new_environment(path, n_tib_bytes!(4), Some(n_gib_bytes!(4) as usize))?,
         _tmpdir: None,

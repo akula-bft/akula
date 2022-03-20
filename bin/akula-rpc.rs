@@ -37,7 +37,8 @@ async fn main() -> anyhow::Result<()> {
             mdbx::Environment::new(),
             &opt.datadir,
             akula::kv::tables::CHAINDATA_TABLES.clone(),
-        )?,
+        )?
+        .into(),
     );
 
     let server = HttpServerBuilder::default().build(opt.listen_address)?;
