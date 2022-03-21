@@ -104,6 +104,25 @@ pub struct TableInfo {
     pub dup_sort: bool,
 }
 
+/// Table encoding impls
+impl traits::TableEncode for () {
+    type Encoded = [u8; 0];
+
+    fn encode(self) -> Self::Encoded {
+        []
+    }
+}
+
+impl traits::TableDecode for () {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if !b.is_empty() {
+            return Err(TooLong::<0> { got: b.len() }.into());
+        }
+
+        Ok(())
+    }
+}
+
 impl traits::TableEncode for Vec<u8> {
     type Encoded = Self;
 
@@ -773,14 +792,14 @@ decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
 decl_table!(CallFromIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(CallToIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
-decl_table!(Config => VariableVec<0> => ChainSpec);
+decl_table!(Config => () => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(PruneProgress => StageId => BlockNumber);
 decl_table!(TxSender => HeaderKey => Vec<Address>);
 decl_table!(LastBlock => Vec<u8> => Vec<u8>);
 decl_table!(Migration => Vec<u8> => Vec<u8>);
 decl_table!(Sequence => Vec<u8> => Vec<u8>);
-decl_table!(LastHeader => VariableVec<0> => H256);
+decl_table!(LastHeader => () => H256);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 
 pub type DatabaseChart = Arc<HashMap<&'static str, TableInfo>>;

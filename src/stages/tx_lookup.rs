@@ -14,7 +14,7 @@ use tracing::*;
 /// Generation of TransactionHash => BlockNumber mapping
 #[derive(Debug)]
 pub struct TxLookup {
-    temp_dir: Arc<TempDir>,
+    pub temp_dir: Arc<TempDir>,
 }
 
 #[async_trait]
@@ -37,16 +37,15 @@ where
         let mut tx_hash_cursor = tx.cursor(tables::BlockTransactionLookup.erased())?;
 
         let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
-
         let last_processed_block_number = tx
-            .cursor(tables::BlockTransactionLookup)?
-            .last()?
-            .map(|(_, v)| v.0)
-            .unwrap_or_else(|| 0.into());
-
+            .get(tables::SyncStage, TX_LOOKUP)?
+            .unwrap_or(BlockNumber(0))
+            .0;
         let start_block_number = last_processed_block_number + 1;
 
-        let walker_block_body = tx.cursor(tables::BlockBody)?.walk(Some(start_block_number));
+        let walker_block_body = tx
+            .cursor(tables::BlockBody)?
+            .walk(Some(BlockNumber(start_block_number)));
         pin!(walker_block_body);
 
         while let Some(((block_number, _), ref body_rpl)) = walker_block_body.next().transpose()? {
@@ -70,7 +69,7 @@ where
                 .previous_stage
                 .map(|(_, stage)| stage)
                 .unwrap_or_default(),
-            done: false,
+            done: true,
         })
     }
 
@@ -123,6 +122,52 @@ where
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
         })
+    }
+
+    async fn prune<'tx>(
+        &mut self,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
+        input: PruningInput,
+    ) -> anyhow::Result<()>
+    where
+        'db: 'tx,
+    {
+        let bodies_cursor = tx.cursor(tables::BlockBody)?;
+        let mut tx_hash_cursor = tx.cursor(tables::BlockTransactionLookup)?;
+
+        let walker_block_body = bodies_cursor.walk(None);
+        pin!(walker_block_body);
+
+        while let Some((
+            (block_number, _),
+            BodyForStorage {
+                base_tx_id,
+                tx_amount,
+                ..
+            },
+        )) = walker_block_body.next().transpose()?
+        {
+            if block_number >= input.prune_to {
+                break;
+            }
+
+            let walker_block_txs = tx.cursor(tables::BlockTransaction)?.walk(Some(base_tx_id));
+            pin!(walker_block_txs);
+
+            let mut num_txs = 1;
+
+            while let Some((_, tx_value)) = walker_block_txs.next().transpose()? {
+                if num_txs > tx_amount {
+                    break;
+                }
+
+                if tx_hash_cursor.seek(tx_value.hash())?.is_some() {
+                    tx_hash_cursor.delete_current()?;
+                }
+                num_txs += 1;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -308,7 +353,7 @@ mod tests {
             output,
             ExecOutput::Progress {
                 stage_progress: 3.into(),
-                done: false,
+                done: true,
             }
         );
 
@@ -347,7 +392,7 @@ mod tests {
             output,
             ExecOutput::Progress {
                 stage_progress: 3.into(),
-                done: false,
+                done: true,
             }
         );
     }

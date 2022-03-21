@@ -43,6 +43,15 @@ pub enum TransactionAction {
     Create,
 }
 
+impl TransactionAction {
+    pub fn into_address(self) -> Option<Address> {
+        match self {
+            TransactionAction::Call(address) => Some(address),
+            TransactionAction::Create => None,
+        }
+    }
+}
+
 impl Encodable for TransactionAction {
     fn length(&self) -> usize {
         match self {

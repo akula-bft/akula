@@ -1,6 +1,6 @@
 use crate::kv::{traits::*, *};
 use ::mdbx::{DatabaseFlags, WriteFlags};
-pub use ::mdbx::{EnvironmentKind, TransactionKind, RO, RW};
+pub use ::mdbx::{EnvironmentKind, Geometry, NoWriteMap, TransactionKind, WriteMap, RO, RW};
 use anyhow::Context;
 use std::{collections::HashMap, marker::PhantomData, ops::Deref, path::Path};
 use tables::*;

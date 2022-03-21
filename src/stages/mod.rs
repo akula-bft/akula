@@ -19,3 +19,4 @@ pub use interhashes::Interhashes;
 pub use sender_recovery::SenderRecovery;
 pub use total_gas_index::TotalGasIndex;
 pub use total_tx_index::TotalTxIndex;
+pub use tx_lookup::TxLookup;

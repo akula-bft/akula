@@ -1,8 +1,7 @@
-use akula::{binutil::AkulaDataDir, kv::mdbx::*, models::*, stagedsync::stages::*};
-use async_trait::async_trait;
+use akula::{binutil::AkulaDataDir, rpc::eth::EthApiServerImpl};
 use clap::Parser;
-use ethnum::U256;
-use jsonrpsee::{core::RpcResult, http_server::HttpServerBuilder, proc_macros::rpc};
+use ethereum_jsonrpc::EthApiServer;
+use jsonrpsee::http_server::HttpServerBuilder;
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -14,41 +13,6 @@ pub struct Opt {
 
     #[clap(long)]
     pub listen_address: SocketAddr,
-}
-
-#[rpc(server, namespace = "eth")]
-pub trait EthApi {
-    #[method(name = "blockNumber")]
-    async fn block_number(&self) -> RpcResult<BlockNumber>;
-    #[method(name = "getBalance")]
-    async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256>;
-}
-
-pub struct EthApiServerImpl<E>
-where
-    E: EnvironmentKind,
-{
-    db: Arc<MdbxEnvironment<E>>,
-}
-
-#[async_trait]
-impl<E> EthApiServer for EthApiServerImpl<E>
-where
-    E: EnvironmentKind,
-{
-    async fn block_number(&self) -> RpcResult<BlockNumber> {
-        Ok(FINISH
-            .get_progress(&self.db.begin()?)?
-            .unwrap_or(BlockNumber(0)))
-    }
-
-    async fn get_balance(&self, address: Address, block_number: BlockNumber) -> RpcResult<U256> {
-        Ok(
-            akula::accessors::state::account::read(&self.db.begin()?, address, Some(block_number))?
-                .map(|acc| acc.balance)
-                .unwrap_or(U256::ZERO),
-        )
-    }
 }
 
 #[tokio::main]
@@ -73,11 +37,18 @@ async fn main() -> anyhow::Result<()> {
             mdbx::Environment::new(),
             &opt.datadir,
             akula::kv::tables::CHAINDATA_TABLES.clone(),
-        )?,
+        )?
+        .into(),
     );
 
     let server = HttpServerBuilder::default().build(opt.listen_address)?;
-    let _server_handle = server.start(EthApiServerImpl { db }.into_rpc())?;
+    let _server_handle = server.start(
+        EthApiServerImpl {
+            db,
+            call_gas_limit: 100_000_000,
+        }
+        .into_rpc(),
+    )?;
 
     pending().await
 }

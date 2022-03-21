@@ -75,7 +75,6 @@ where
             self.header.base_fee_per_gas,
         )
         .expect("Tx must have been prevalidated");
-
         if self.state.get_code_hash(tx.sender)? != EMPTY_HASH {
             return Err(ValidationError::SenderNoEOA { sender: tx.sender }.into());
         }
