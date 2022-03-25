@@ -1568,9 +1568,9 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "hyper"
-version = "0.14.17"
+version = "0.14.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "043f0e083e9901b6cc658a77d1eb86f4fc650bbb977a4337dd63192826aa85dd"
+checksum = "b26ae0a80afebe130861d90abf98e3814a4f28a4c6ffeb5ab8ebb2be311e0ef2"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -1824,7 +1824,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
@@ -1839,7 +1839,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-client-transport"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "futures",
  "http",
@@ -1859,7 +1859,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-core"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "anyhow",
  "arrayvec 0.7.2",
@@ -1883,7 +1883,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-http-client"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "async-trait",
  "hyper",
@@ -1901,7 +1901,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-http-server"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -1920,7 +1920,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-proc-macros"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -1931,7 +1931,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-types"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "anyhow",
  "beef",
@@ -1944,7 +1944,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-ws-client"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "jsonrpsee-client-transport",
  "jsonrpsee-core",
@@ -1954,7 +1954,7 @@ dependencies = [
 [[package]]
 name = "jsonrpsee-ws-server"
 version = "0.9.0"
-source = "git+https://github.com/paritytech/jsonrpsee#7c46458e4c5568c2c7a0352dd36ca89377f53d32"
+source = "git+https://github.com/paritytech/jsonrpsee#78055feb19dc95f53f6145aba606a253efe9f82a"
 dependencies = [
  "futures-channel",
  "futures-util",
@@ -2018,9 +2018,9 @@ dependencies = [
 
 [[package]]
 name = "libmdbx"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7aad903a1d068eb7f13818475367f6d3825c55499ceb4b28fda49ceaf2a37a8c"
+checksum = "3265f0f9e378bfbbd98596a3288b5909f26f3169e4f6d4a05fda8c734ce2cdd8"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -2061,9 +2061,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.14"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
+checksum = "6389c490849ff5bc16be905ae24bc913a9c8892e19b2341dbc175e14c341c2b8"
 dependencies = [
  "cfg-if",
 ]
@@ -2115,9 +2115,9 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "mdbx-sys"
-version = "0.11.5"
+version = "0.11.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "742a7272aa65031b4c1d9f66faedbc5a4f97d29b7a38abbc82b82716492c9874"
+checksum = "cb471ee10f93c8c276083d59cae56365cca92d5bb2e27959da89ced5a8adf13e"
 dependencies = [
  "bindgen",
  "cc",
@@ -2904,9 +2904,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8380fe0152551244f0747b1bf41737e0f8a74f97a14ccefd1148187271634f3c"
+checksum = "8ae183fc1b06c149f0c1793e1eb447c8b04bfe46d48e9e48bfb8d2d7ed64ecf0"
 dependencies = [
  "bitflags",
 ]
@@ -3643,9 +3643,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.7"
+version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "004cbc98f30fa233c61a38bc77e96a9106e65c88f2d3bef182ae952027e5753d"
+checksum = "c2702e08a7a860f005826c6815dcac101b19b5eb330c27fe4a5928fec1d20ddd"
 dependencies = [
  "itoa 1.0.1",
  "libc",
@@ -4146,7 +4146,7 @@ dependencies = [
  "rustversion",
  "sysinfo",
  "thiserror",
- "time 0.3.7",
+ "time 0.3.9",
 ]
 
 [[package]]
