@@ -237,9 +237,9 @@ dependencies = [
 
 [[package]]
 name = "async-trait"
-version = "0.1.52"
+version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "061a7acccaa286c011ddc30970520b98fa40e00c9d644633fb26b5fc63a265e3"
+checksum = "ed6aa3524a2dfcf9fe180c51eae2b58738348d819517ceadf95789c51fff7600"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2018,9 +2018,9 @@ dependencies = [
 
 [[package]]
 name = "libmdbx"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3265f0f9e378bfbbd98596a3288b5909f26f3169e4f6d4a05fda8c734ce2cdd8"
+checksum = "002d7890ec770d222903165b6ba279b0fa3dba8e82610820833184066b006ce0"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -2115,9 +2115,9 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
 name = "mdbx-sys"
-version = "0.11.6"
+version = "0.11.6-4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb471ee10f93c8c276083d59cae56365cca92d5bb2e27959da89ced5a8adf13e"
+checksum = "9dde320ea35df4678486346065386943ed6c5920f2ab445dff8dd5d9c8cd04ad"
 dependencies = [
  "bindgen",
  "cc",
@@ -2710,9 +2710,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.16"
+version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4af2ec4714533fcdf07e886f17025ace8b997b9ce51204ee69b6da831c3da57"
+checksum = "632d02bff7f874a36f33ea8bb416cd484b90cc66c1194b1a1110d067a7013f58"
 dependencies = [
  "proc-macro2",
 ]
