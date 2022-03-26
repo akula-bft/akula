@@ -13,7 +13,7 @@ pub struct ChainConfig {
 }
 
 impl ChainConfig {
-    fn new(chain_spec: ChainSpec) -> Self {
+    pub fn new(chain_spec: ChainSpec) -> Self {
         let genesis = GenesisState::new(chain_spec.clone());
         let genesis_header = genesis.header(&genesis.initial_state());
         let genesis_block_hash = genesis_header.hash();
