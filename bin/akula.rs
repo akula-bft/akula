@@ -668,7 +668,10 @@ fn main() -> anyhow::Result<()> {
                 if let Some(listen_address) = opt.rpc_listen_address {
                     let db = db.clone();
                     tokio::spawn(async move {
-                        let server = HttpServerBuilder::default().build(listen_address).unwrap();
+                        let server = HttpServerBuilder::default()
+                            .build(listen_address)
+                            .await
+                            .unwrap();
                         let _server_handle = server
                             .start(
                                 EthApiServerImpl {

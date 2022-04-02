@@ -47,7 +47,7 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", featu
     "sentry",
 ] }
 ethereum-types = { version = "0.13", features = ["codec"] }
-ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc"}
+ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", features = [
     "llvm-intrinsics",
     "rlp",
@@ -124,12 +124,12 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 toml = { version = "0.5", features = ["preserve_order"] }
-tonic = { version = "0.6", default-features = false, features = [
+tonic = { version = "0.7", default-features = false, features = [
     "codegen",
     "prost",
     "transport",
 ] }
-tonic-health = "0.5"
+tonic-health = "0.6"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

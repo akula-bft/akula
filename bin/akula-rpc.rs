@@ -41,7 +41,9 @@ async fn main() -> anyhow::Result<()> {
         .into(),
     );
 
-    let server = HttpServerBuilder::default().build(opt.listen_address)?;
+    let server = HttpServerBuilder::default()
+        .build(opt.listen_address)
+        .await?;
     let _server_handle = server.start(
         EthApiServerImpl {
             db,
