@@ -767,6 +767,14 @@ fn main() -> anyhow::Result<()> {
                     staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
                     staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
                 }
+                staged_sync.push(AccountHistoryIndex {
+                    temp_dir: etl_temp_dir.clone(),
+                    flush_interval: 50_000,
+                });
+                staged_sync.push(StorageHistoryIndex {
+                    temp_dir: etl_temp_dir.clone(),
+                    flush_interval: 50_000,
+                });
                 staged_sync.push(TxLookup {
                     temp_dir: etl_temp_dir.clone(),
                 });
