@@ -79,10 +79,7 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
     "tokio1",
 ] }
 itertools = "0.10"
-jsonrpsee = { git = "https://github.com/paritytech/jsonrpsee", features = [
-    "server",
-    "macros",
-] }
+jsonrpsee = { version = "0.10", features = ["server", "macros"] }
 lru = "0.7"
 maplit = "1"
 mdbx = { package = "libmdbx", version = "0.1" }
