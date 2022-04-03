@@ -81,6 +81,7 @@ pub enum OptCommand {
 
     ReadAccount {
         address: Address,
+        block_number: Option<BlockNumber>,
     },
 
     ReadAccountChanges {
@@ -382,12 +383,16 @@ fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::Result<
     Ok(())
 }
 
-fn read_account(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> {
+fn read_account(
+    data_dir: AkulaDataDir,
+    address: Address,
+    block_number: Option<BlockNumber>,
+) -> anyhow::Result<()> {
     let env = open_db(data_dir)?;
 
     let tx = env.begin()?;
 
-    let account = akula::accessors::state::account::read(&tx, address, None)?;
+    let account = akula::accessors::state::account::read(&tx, address, block_number)?;
 
     println!("{:?}", account);
 
@@ -488,7 +493,10 @@ async fn main() -> anyhow::Result<()> {
         OptCommand::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table)?,
         OptCommand::HeaderDownload { opts } => header_download(opt.data_dir, opts).await?,
         OptCommand::ReadBlock { block_number } => read_block(opt.data_dir, block_number)?,
-        OptCommand::ReadAccount { address } => read_account(opt.data_dir, address)?,
+        OptCommand::ReadAccount {
+            address,
+            block_number,
+        } => read_account(opt.data_dir, address, block_number)?,
         OptCommand::ReadAccountChanges { block } => read_account_changes(opt.data_dir, block)?,
         OptCommand::ReadStorage { address } => read_storage(opt.data_dir, address)?,
         OptCommand::ReadStorageChanges { block } => read_storage_changes(opt.data_dir, block)?,
