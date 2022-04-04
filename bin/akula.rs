@@ -779,7 +779,11 @@ fn main() -> anyhow::Result<()> {
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;
 
-                Ok(())
+                if opt.exit_after_sync {
+                    Ok(())
+                } else {
+                    pending().await
+                }
             })
         })?
         .join()
