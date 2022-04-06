@@ -109,7 +109,7 @@ serde_with = "1"
 sha2 = "0.10"
 sha3 = "0.10"
 snap = "1"
-string = { git = "https://github.com/carllerche/string" }
+string = "0.3"
 strum = { version = "0.24", features = ["derive"] }
 strum_macros = "0.24"
 stubborn-io = "0.3"
