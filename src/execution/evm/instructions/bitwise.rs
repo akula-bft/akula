@@ -4,22 +4,17 @@ use i256::{i256_sign, two_compl, Sign};
 
 #[inline]
 pub(crate) fn byte(stack: &mut Stack) {
-    let a = stack.pop();
-    let b = stack.pop();
+    let mut i = *stack.pop().low();
+    let x = stack.get_mut(0);
 
-    let mut ret = U256::ZERO;
+    let x_word = if i >= 16 {
+        i -= 16;
+        x.low()
+    } else {
+        x.high()
+    };
 
-    for i in 0..=255 {
-        if i < 8 && a < 32 {
-            let o = a.as_u8();
-            let t = 255 - (7 - i + 8 * o);
-            let bit_mask = U256::ONE << t;
-            let value = (b & bit_mask) >> t;
-            ret = ret.overflowing_add(value << i).0;
-        }
-    }
-
-    stack.push(ret)
+    *x = U256::from((x_word >> (120 - i * 8)) & 0xFF);
 }
 
 #[inline]
