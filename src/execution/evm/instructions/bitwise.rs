@@ -69,3 +69,27 @@ pub(crate) fn sar(stack: &mut Stack) {
         }
     });
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_instruction_byte() {
+        let value = U256::from_be_bytes(
+            (1u8..=32u8).map(|x| 5 * x).collect::<Vec<u8>>().try_into().unwrap()
+        );
+
+        for i in 0u16..32 {
+            let mut stack = Stack::new();
+            stack.push(value.clone());
+            stack.push(U256::from(i));
+
+            byte(&mut stack);
+            let result = stack.pop();
+
+            assert_eq!(result, U256::from(5 * (i + 1)));
+        }
+    }
+}
