@@ -77,7 +77,6 @@ pub(crate) fn sar(stack: &mut Stack) {
     });
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,7 +84,11 @@ mod tests {
     #[test]
     fn test_instruction_byte() {
         let value = U256::from_be_bytes(
-            (1u8..=32u8).map(|x| 5 * x).collect::<Vec<u8>>().try_into().unwrap()
+            (1u8..=32u8)
+                .map(|x| 5 * x)
+                .collect::<Vec<u8>>()
+                .try_into()
+                .unwrap(),
         );
 
         for i in 0u16..32 {
