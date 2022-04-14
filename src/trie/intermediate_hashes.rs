@@ -328,11 +328,13 @@ where
             trie.next()?;
 
             let mut acc = state.seek(H256::from_slice(seek_key.as_slice()))?;
+            let trie_key = trie.key();
+
             while let Some((address, account)) = acc {
                 let unpacked_key = unpack_nibbles(address.as_bytes());
 
-                if let Some(key) = trie.key() {
-                    if key < unpacked_key {
+                if let Some(ref key) = trie_key {
+                    if key < &unpacked_key {
                         break;
                     }
                 }
@@ -395,10 +397,12 @@ where
                 H256::from_slice(key_with_inc),
                 H256::from_slice(seek_key.as_slice()),
             )?;
+            let trie_key = trie.key();
+
             while let Some((storage_location, value)) = storage {
                 let unpacked_loc = unpack_nibbles(storage_location.as_bytes());
-                if let Some(key) = trie.key() {
-                    if key < unpacked_loc {
+                if let Some(ref key) = trie_key {
+                    if key < &unpacked_loc {
                         break;
                     }
                 }
