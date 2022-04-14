@@ -356,7 +356,7 @@ where
 
     fn calculate_storage_root(
         &mut self,
-        key_with_inc: &[u8],
+        account_key: &[u8],
         changed: &mut PrefixSet,
     ) -> Result<H256> {
         let mut state = self.txn.cursor(tables::HashedStorage)?;
@@ -365,15 +365,15 @@ where
 
         let mut hb = HashBuilder::new(Some(Box::new(
             |unpacked_storage_key: &[u8], node: &Node| {
-                let key = [key_with_inc, unpacked_storage_key].concat();
+                let key = [account_key, unpacked_storage_key].concat();
                 self.storage_collector.push(key, marshal_node(node));
             },
         )));
 
-        let mut trie = Cursor::new(&mut trie_db_cursor, changed, key_with_inc)?;
+        let mut trie = Cursor::new(&mut trie_db_cursor, changed, account_key)?;
         while let Some(key) = trie.key() {
             if trie.can_skip_state {
-                if state.seek_exact(H256::from_slice(key_with_inc))?.is_none() {
+                if state.seek_exact(H256::from_slice(account_key))?.is_none() {
                     return Ok(EMPTY_ROOT);
                 }
                 hb.add_branch_node(
@@ -394,7 +394,7 @@ where
             trie.next()?;
 
             let mut storage = state.seek_both_range(
-                H256::from_slice(key_with_inc),
+                H256::from_slice(account_key),
                 H256::from_slice(seek_key.as_slice()),
             )?;
             let trie_key = trie.key();
