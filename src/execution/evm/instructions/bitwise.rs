@@ -4,22 +4,24 @@ use i256::{i256_sign, two_compl, Sign};
 
 #[inline]
 pub(crate) fn byte(stack: &mut Stack) {
-    let a = stack.pop();
-    let b = stack.pop();
+    let i = stack.pop();
+    let x = stack.get_mut(0);
 
-    let mut ret = U256::ZERO;
-
-    for i in 0..=255 {
-        if i < 8 && a < 32 {
-            let o = a.as_u8();
-            let t = 255 - (7 - i + 8 * o);
-            let bit_mask = U256::ONE << t;
-            let value = (b & bit_mask) >> t;
-            ret = ret.overflowing_add(value << i).0;
-        }
+    if i >= 32 {
+        *x = U256::ZERO;
+        return;
     }
 
-    stack.push(ret)
+    let mut i = *i.low();
+
+    let x_word = if i >= 16 {
+        i -= 16;
+        x.low()
+    } else {
+        x.high()
+    };
+
+    *x = U256::from((x_word >> (120 - i * 8)) & 0xFF);
 }
 
 #[inline]
@@ -73,4 +75,47 @@ pub(crate) fn sar(stack: &mut Stack) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_instruction_byte() {
+        let value = U256::from_be_bytes(
+            (1u8..=32u8)
+                .map(|x| 5 * x)
+                .collect::<Vec<u8>>()
+                .try_into()
+                .unwrap(),
+        );
+
+        for i in 0u16..32 {
+            let mut stack = Stack::new();
+            stack.push(value);
+            stack.push(U256::from(i));
+
+            byte(&mut stack);
+            let result = stack.pop();
+
+            assert_eq!(result, U256::from(5 * (i + 1)));
+        }
+
+        let mut stack = Stack::new();
+        stack.push(value);
+        stack.push(U256::from(100u128));
+
+        byte(&mut stack);
+        let result = stack.pop();
+        assert_eq!(result, U256::ZERO);
+
+        let mut stack = Stack::new();
+        stack.push(value);
+        stack.push(U256::from_words(1, 0));
+
+        byte(&mut stack);
+        let result = stack.pop();
+        assert_eq!(result, U256::ZERO);
+    }
 }
