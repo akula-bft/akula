@@ -93,7 +93,7 @@ mod tests {
 
         for i in 0u16..32 {
             let mut stack = Stack::new();
-            stack.push(value.clone());
+            stack.push(value);
             stack.push(U256::from(i));
 
             byte(&mut stack);
@@ -103,7 +103,7 @@ mod tests {
         }
 
         let mut stack = Stack::new();
-        stack.push(value.clone());
+        stack.push(value);
         stack.push(U256::from(100u128));
 
         byte(&mut stack);
@@ -111,7 +111,7 @@ mod tests {
         assert_eq!(result, U256::ZERO);
 
         let mut stack = Stack::new();
-        stack.push(value.clone());
+        stack.push(value);
         stack.push(U256::from_words(1, 0));
 
         byte(&mut stack);
