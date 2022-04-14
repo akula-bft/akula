@@ -4,8 +4,15 @@ use i256::{i256_sign, two_compl, Sign};
 
 #[inline]
 pub(crate) fn byte(stack: &mut Stack) {
-    let mut i = *stack.pop().low();
+    let i = stack.pop();
     let x = stack.get_mut(0);
+
+    if i >= 32 {
+        *x = U256::ZERO;
+        return;
+    }
+
+    let mut i = *i.low();
 
     let x_word = if i >= 16 {
         i -= 16;
@@ -91,5 +98,21 @@ mod tests {
 
             assert_eq!(result, U256::from(5 * (i + 1)));
         }
+
+        let mut stack = Stack::new();
+        stack.push(value.clone());
+        stack.push(U256::from(100u128));
+
+        byte(&mut stack);
+        let result = stack.pop();
+        assert_eq!(result, U256::ZERO);
+
+        let mut stack = Stack::new();
+        stack.push(value.clone());
+        stack.push(U256::from_words(1, 0));
+
+        byte(&mut stack);
+        let result = stack.pop();
+        assert_eq!(result, U256::ZERO);
     }
 }
