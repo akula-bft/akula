@@ -4,6 +4,7 @@ use crate::{
     etl::collector::{TableCollector, OPTIMAL_BUFFER_CAPACITY},
     kv::{mdbx::*, tables, traits::*},
     models::*,
+    stagedsync::format_duration,
     trie::{
         hash_builder::{pack_nibbles, unpack_nibbles, HashBuilder},
         node::{marshal_node, unmarshal_node, Node},
@@ -13,8 +14,9 @@ use crate::{
 };
 use anyhow::Result;
 use parking_lot::Mutex;
-use std::marker::PhantomData;
+use std::{marker::PhantomData, time::{Duration, Instant}};
 use tempfile::TempDir;
+use tracing::info;
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -308,6 +310,9 @@ where
 
         let mut trie = Cursor::new(&mut trie_db_cursor, changed, &[])?;
 
+        let first_started_at = Instant::now();
+        let mut last_message_at = Instant::now();
+
         while let Some(key) = trie.key() {
             if trie.can_skip_state {
                 self.hb.add_branch_node(
@@ -331,7 +336,8 @@ where
             let trie_key = trie.key();
 
             while let Some((address, account)) = acc {
-                let unpacked_key = unpack_nibbles(address.as_bytes());
+                let packed_key  = address.as_bytes();
+                let unpacked_key = unpack_nibbles(packed_key);
 
                 if let Some(ref key) = trie_key {
                     if key < &unpacked_key {
@@ -347,7 +353,28 @@ where
                     &fastrlp::encode_fixed_size(&account.to_rlp(storage_root)),
                 );
 
-                acc = state.next()?
+                acc = state.next()?;
+
+                let now = Instant::now();
+                let elapsed = now - last_message_at;
+                if elapsed >= Duration::from_secs(30) {
+                    let total_elapsed = now - first_started_at;
+
+                    let prefix = (packed_key[0] as u32) * 0x100 + packed_key[1] as u32;
+                    let progress = prefix as f32 / 65536.0;
+
+                    let total_time = total_elapsed.mul_f32(1.0 / progress);
+                    let total_remaining = total_time.saturating_sub(total_elapsed);
+
+                    info!(
+                        "At prefix 0x{:04x}..., progress {:0>2.2}%. {} remaining",
+                        prefix,
+                        100.0 * progress,
+                        format_duration(total_remaining, false),
+                    );
+
+                    last_message_at = Instant::now();
+                }
             }
         }
 
@@ -472,6 +499,9 @@ where
         data = account_changes.next()?;
     }
 
+    let n_account_changes = out.len();
+    info!("Gathered {} account changes.", n_account_changes);
+
     let mut storage_changes = txn.cursor(tables::StorageChangeSet)?;
     let mut data = storage_changes.seek(starting_key)?;
     while let Some((key, storage_change)) = data {
@@ -487,6 +517,8 @@ where
         out.insert(hashed_key.as_slice());
         data = storage_changes.next()?;
     }
+
+    info!("Gathered {} storage changes.", out.len() - n_account_changes);
 
     Ok(out)
 }
