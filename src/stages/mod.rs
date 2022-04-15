@@ -1,8 +1,10 @@
 mod block_hashes;
+mod bodies;
 mod call_trace_index;
-mod downloader;
 mod execution;
+mod finish;
 mod hashstate;
+mod headers;
 mod history_index;
 mod interhashes;
 mod sender_recovery;
@@ -12,10 +14,12 @@ mod total_tx_index;
 mod tx_lookup;
 
 pub use block_hashes::BlockHashes;
+pub use bodies::BodyDownload;
 pub use call_trace_index::CallTraceIndex;
-pub use downloader::HeaderDownload;
 pub use execution::Execution;
+pub use finish::Finish;
 pub use hashstate::{promote_clean_accounts, promote_clean_storage, HashState};
+pub use headers::HeaderDownload;
 pub use history_index::{AccountHistoryIndex, StorageHistoryIndex};
 pub use interhashes::Interhashes;
 pub use sender_recovery::SenderRecovery;

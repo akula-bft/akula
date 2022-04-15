@@ -4,8 +4,7 @@ use bytes::{Bytes, BytesMut};
 use derive_more::Display;
 use enum_primitive_derive::Primitive;
 use fastrlp::*;
-use futures_sink::Sink;
-use futures_util::SinkExt;
+use futures::{Sink, SinkExt};
 use num_traits::*;
 use secp256k1::{PublicKey, SecretKey, SECP256K1};
 use std::{

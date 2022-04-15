@@ -10,7 +10,7 @@ use super::{
 use anyhow::{anyhow, bail, Context};
 use cidr::IpCidr;
 use educe::Educe;
-use futures_util::sink::SinkExt;
+use futures::sink::SinkExt;
 use lru::LruCache;
 use parking_lot::Mutex;
 use rand::prelude::*;
@@ -169,7 +169,7 @@ where
         .copied()
         .map(|cap_info| (cap_info.name, cap_info.version))
         .collect::<HashMap<_, _>>();
-    let (mut sink, mut stream) = futures_util::StreamExt::split(peer);
+    let (mut sink, mut stream) = futures::StreamExt::split(peer);
     let (peer_disconnect_tx, mut peer_disconnect_rx) = unbounded_channel();
     let tasks = TaskGroup::default();
 
@@ -181,7 +181,7 @@ where
 
     // This will handle incoming packets from peer.
     tasks.spawn_with_name(format!("peer {} ingress router", remote_id), {
-        let peer_disconnect_tx = peer_disconnect_tx.clone();
+        let peer_disconnect_tx = peer_disconnect_tx;
         let capability_server = capability_server.clone();
         let pinged = pinged.clone();
         async move {
@@ -347,22 +347,8 @@ where
             let (cb_tx, cb_rx) = oneshot();
 
             // Pipes went down, pinger must exit
-            if pings_tx.send(cb_tx).await.is_err() || cb_rx.await.is_err() {
-                return;
-            }
-
-            sleep(PING_TIMEOUT).await;
-
-            // Timeout has passed, let's check for that pong
-            if pinged.load(Ordering::SeqCst) {
-                // No pong? Disconnect.
-                let _ = peer_disconnect_tx.send(DisconnectSignal {
-                    initiator: DisconnectInitiator::Local,
-                    reason: DisconnectReason::PingTimeout,
-                });
-
-                return;
-            }
+            let _ = pings_tx.send(cb_tx).await;
+            let _ = cb_rx.await;
 
             sleep(PING_INTERVAL).await;
         }
@@ -600,6 +586,7 @@ impl<C: CapabilityServer> Swarm<C> {
             .await
     }
 
+    #[allow(unreachable_code)]
     async fn new_inner(
         secret_key: SecretKey,
         client_version: String,
@@ -679,7 +666,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                         trace!("Waiting for next peer from discovery");
                                         let next_peer = discovery_tasks.lock().await.next().await;
                                         match next_peer {
-                                            None => break,
+                                            None => (),
                                             Some((disc_id, Err(e))) => {
                                                 warn!("Failed to get new peer: {e} ({disc_id})")
                                             }
@@ -690,7 +677,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                                 {
                                                     let time_since_ban: Duration =
                                                         now - banned_timestamp;
-                                                    if time_since_ban <= Duration::from_secs(120) {
+                                                    if time_since_ban <= Duration::from_secs(20) {
                                                         let secs_since_ban = time_since_ban.as_secs();
                                                         debug!(
                                                             "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",

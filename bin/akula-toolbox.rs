@@ -1,11 +1,14 @@
+#![feature(never_type)]
 use akula::{
     binutil::AkulaDataDir,
+    consensus::engine_factory,
     hex_to_bytes,
     kv::{
         tables::{self, CHAINDATA_TABLES},
         traits::*,
     },
     models::*,
+    p2p::peer::SentryClient,
     stagedsync,
     stages::*,
 };
@@ -15,6 +18,7 @@ use clap::Parser;
 use itertools::Itertools;
 use std::{borrow::Cow, collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::pin;
+use tonic::transport::Channel;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -71,8 +75,19 @@ pub enum OptCommand {
     /// Execute HeaderDownload stage
     #[clap(name = "download-headers", about = "Run block headers downloader")]
     HeaderDownload {
-        #[clap(flatten)]
-        opts: HeaderDownloadOpts,
+        #[clap(
+            long = "chain",
+            help = "Name of the testnet to join",
+            default_value = "mainnet"
+        )]
+        chain: String,
+
+        #[clap(
+            long = "sentry.api.addr",
+            help = "Sentry GRPC service URL as 'http://host:port'",
+            default_value = "http://localhost:8000"
+        )]
+        uri: tonic::transport::Uri,
     },
 
     ReadBlock {
@@ -97,24 +112,44 @@ pub enum OptCommand {
     },
 }
 
-#[derive(Parser)]
-pub struct HeaderDownloadOpts {
-    #[clap(
-        long = "chain",
-        help = "Name of the testnet to join",
-        default_value = "mainnet"
-    )]
-    pub chain_name: String,
+async fn download_headers(
+    data_dir: AkulaDataDir,
+    chain: String,
+    uri: tonic::transport::Uri,
+) -> anyhow::Result<()> {
+    let chain_config = ChainConfig::new(chain.as_ref())?;
+    let consensus = engine_factory(chain_config.chain_spec.clone())?.into();
+    let conn = SentryClient::new(
+        Channel::builder(uri)
+            .http2_adaptive_window(true)
+            .connect()
+            .await?,
+    );
+    let chain_data_dir = data_dir.chain_data_dir();
+    let etl_temp_path = data_dir.etl_temp_dir();
 
-    #[clap(
-        long = "sentry.api.addr",
-        help = "Sentry GRPC service URL as 'http://host:port'",
-        default_value = "http://localhost:8000"
-    )]
-    pub sentry_api_addr: akula::sentry_connector::sentry_address::SentryAddress,
+    let _ = std::fs::remove_dir_all(&etl_temp_path);
+    std::fs::create_dir_all(&etl_temp_path)?;
+    let env = akula::kv::new_database(&chain_data_dir)?;
+    let txn = env.begin_mutable()?;
+    akula::genesis::initialize_genesis(
+        &txn,
+        &*Arc::new(tempfile::tempdir_in(etl_temp_path).context("failed to create ETL temp dir")?),
+        Some(chain_config.chain_spec.clone()),
+    )?;
 
-    #[clap(flatten)]
-    pub downloader_opts: akula::downloader::opts::Opts,
+    txn.commit()?;
+
+    let mut staged_sync = stagedsync::StagedSync::new();
+    staged_sync.push(HeaderDownload::new(
+        conn,
+        consensus,
+        chain_config,
+        env.begin()?,
+    )?);
+    staged_sync.run(&env).await?;
+
+    Ok(())
 }
 
 async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
@@ -139,48 +174,6 @@ async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     staged_sync.run(&env).await?;
     Ok(())
 }
-
-#[allow(unreachable_code)]
-async fn header_download(data_dir: AkulaDataDir, opts: HeaderDownloadOpts) -> anyhow::Result<()> {
-    let chains_config = akula::sentry_connector::chain_config::ChainsConfig::new()?;
-    let chain_config = chains_config.get(&opts.chain_name)?;
-
-    let sentry_api_addr = opts.sentry_api_addr.clone();
-    let sentry_connector =
-        akula::sentry_connector::sentry_client_connector::SentryClientConnectorImpl::new(
-            sentry_api_addr,
-        );
-
-    let sentry_status_provider =
-        akula::downloader::sentry_status_provider::SentryStatusProvider::new(chain_config.clone());
-    let mut sentry_reactor =
-        akula::sentry_connector::sentry_client_reactor::SentryClientReactor::new(
-            Box::new(sentry_connector),
-            sentry_status_provider.current_status_stream(),
-        );
-    sentry_reactor.start()?;
-    let sentry = sentry_reactor.into_shared();
-
-    let stage = akula::stages::HeaderDownload::new(
-        chain_config,
-        opts.downloader_opts.headers_mem_limit(),
-        opts.downloader_opts.headers_batch_size,
-        sentry.clone(),
-        sentry_status_provider,
-    )?;
-
-    std::fs::create_dir_all(&data_dir.0)?;
-    let db = akula::kv::new_database(&data_dir.chain_data_dir())?;
-
-    let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(stage);
-    staged_sync.run(&db).await?;
-
-    let _ = sentry.write().await.stop().await;
-
-    Ok(())
-}
-
 fn open_db(
     data_dir: AkulaDataDir,
 ) -> anyhow::Result<akula::kv::mdbx::MdbxEnvironment<mdbx::NoWriteMap>> {
@@ -484,6 +477,9 @@ async fn main() -> anyhow::Result<()> {
     match opt.command {
         OptCommand::DbStats { csv } => table_sizes(opt.data_dir, csv)?,
         OptCommand::Blockhashes => blockhashes(opt.data_dir).await?,
+        OptCommand::HeaderDownload { chain, uri } => {
+            download_headers(opt.data_dir, chain, uri).await?
+        }
         OptCommand::DbQuery { table, key } => db_query(opt.data_dir, table, key)?,
         OptCommand::DbWalk {
             table,
@@ -491,7 +487,6 @@ async fn main() -> anyhow::Result<()> {
             max_entries,
         } => db_walk(opt.data_dir, table, starting_key, max_entries)?,
         OptCommand::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table)?,
-        OptCommand::HeaderDownload { opts } => header_download(opt.data_dir, opts).await?,
         OptCommand::ReadBlock { block_number } => read_block(opt.data_dir, block_number)?,
         OptCommand::ReadAccount {
             address,

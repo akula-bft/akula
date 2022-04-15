@@ -148,7 +148,7 @@ where
     txn.set(tables::TotalGas, genesis, 0)?;
     txn.set(tables::TotalTx, genesis, 0)?;
 
-    txn.set(tables::LastHeader, (), block_hash)?;
+    txn.set(tables::LastHeader, (), (BlockNumber(0), block_hash))?;
 
     txn.set(tables::Config, (), chainspec.clone())?;
 

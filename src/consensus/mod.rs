@@ -2,7 +2,7 @@ mod base;
 mod blockchain;
 mod ethash;
 
-pub use self::{blockchain::*, ethash::*};
+pub use self::{base::*, blockchain::*, ethash::*};
 use crate::{models::*, State};
 use anyhow::bail;
 use derive_more::{Display, From};

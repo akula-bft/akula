@@ -2,8 +2,7 @@ use super::algorithm::ECIES;
 use crate::sentry::devp2p::{errors::ECIESError, transport::Transport, types::PeerId};
 use anyhow::{bail, Context as _};
 use bytes::{Bytes, BytesMut};
-use futures_sink::Sink;
-use futures_util::SinkExt;
+use futures::{Sink, SinkExt};
 use secp256k1::SecretKey;
 use std::{
     fmt::Debug,

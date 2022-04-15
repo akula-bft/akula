@@ -14,6 +14,10 @@ impl AkulaDataDir {
     pub fn etl_temp_dir(&self) -> PathBuf {
         self.0.join("etl-temp")
     }
+
+    pub fn node_key_path(&self) -> PathBuf {
+        self.0.join("nodekey")
+    }
 }
 
 impl Default for AkulaDataDir {

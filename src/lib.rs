@@ -1,8 +1,10 @@
 #![feature(
     adt_const_params,
     bool_to_option,
+    const_convert,
     const_for,
     const_mut_refs,
+    const_trait_impl,
     entry_insert,
     generator_trait,
     generators,
@@ -31,15 +33,14 @@ mod bitmapdb;
 pub mod chain;
 pub mod consensus;
 pub mod crypto;
-pub mod downloader;
 pub mod etl;
 pub mod execution;
 pub mod kv;
 pub mod models;
+pub mod p2p;
 pub mod res;
 pub mod rpc;
 pub mod sentry;
-pub mod sentry_connector;
 pub mod stagedsync;
 pub mod stages;
 mod state;

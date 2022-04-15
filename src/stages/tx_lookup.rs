@@ -365,7 +365,7 @@ mod tests {
         ] {
             assert_eq!(
                 dbg!(chain::tl::read(&tx, hashed_tx).unwrap().unwrap()),
-                block_number.into()
+                block_number
             );
         }
     }

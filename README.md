@@ -26,11 +26,13 @@ You can find built binaries in `target/production` folder.
 
 ## Running
 
-* `akula` takes an _already synced_ [Erigon](https://github.com/ledgerwatch/erigon) database with downloaded blocks and headers (stages 1-3), imports them, executes and verifies state root:
+* `akula` is the main binary that runs as full node, requires `akula-sentry`:
 
 ```
-akula --datadir=<path to Akula database directory> --erigon-datadir=<path to Erigon database directory>
+akula --datadir=<path to Akula database directory>
 ```
+
+* `akula-sentry` is the P2P node.
 
 * `akula-toolbox` provides various helper commands to check and manipulate Akula's database. Please consult its help for more info:
 ```

@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail, Context};
 use bytes::{BufMut, BytesMut};
 use chrono::Utc;
 use fastrlp::*;
-use futures_util::future::join_all;
+use futures::future::join_all;
 use igd::aio::search_gateway;
 use num_traits::FromPrimitive;
 use parking_lot::{Mutex, RwLock};
@@ -724,7 +724,6 @@ impl Node {
                 .collect::<Vec<_>>();
 
             if picked_nodes.is_empty() {
-                debug!("No picked nodes, ending lookup");
                 break;
             }
 

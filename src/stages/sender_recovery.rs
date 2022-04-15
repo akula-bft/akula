@@ -76,7 +76,7 @@ where
             }
 
             debug!("Recovering senders from batch of {} bodies", batch.len());
-            let mut recovered_senders = batch
+            let recovered_senders = batch
                 .par_drain(..)
                 .filter_map(move |(block_number, hash, txs)| {
                     if !txs.is_empty() {
@@ -105,7 +105,7 @@ where
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             debug!("Inserting recovered senders");
-            for (db_key, db_value) in recovered_senders.drain(..) {
+            for (db_key, db_value) in recovered_senders {
                 senders_cur.append(db_key, db_value)?;
             }
 

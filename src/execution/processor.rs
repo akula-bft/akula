@@ -12,7 +12,7 @@ use crate::{
     trie::root_hash,
     State,
 };
-use anyhow::Context;
+use anyhow::format_err;
 use std::cmp::min;
 use TransactionAction;
 
@@ -293,7 +293,7 @@ where
             }
 
             self.validate_transaction(&txn.message, txn.sender)
-                .with_context(|| format!("Failed to validate tx #{}", i))?;
+                .map_err(|err| format_err!("Failed to validate tx #{i}: {err}"))?;
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
