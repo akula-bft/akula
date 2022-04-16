@@ -14,7 +14,10 @@ use crate::{
 };
 use anyhow::Result;
 use parking_lot::Mutex;
-use std::{marker::PhantomData, time::{Duration, Instant}};
+use std::{
+    marker::PhantomData,
+    time::{Duration, Instant},
+};
 use tempfile::TempDir;
 use tracing::info;
 
@@ -336,7 +339,7 @@ where
             let trie_key = trie.key();
 
             while let Some((address, account)) = acc {
-                let packed_key  = address.as_bytes();
+                let packed_key = address.as_bytes();
                 let unpacked_key = unpack_nibbles(packed_key);
 
                 if let Some(ref key) = trie_key {
@@ -518,7 +521,10 @@ where
         data = storage_changes.next()?;
     }
 
-    info!("Gathered {} storage changes.", out.len() - n_account_changes);
+    info!(
+        "Gathered {} storage changes.",
+        out.len() - n_account_changes
+    );
 
     Ok(out)
 }
