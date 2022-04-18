@@ -25,13 +25,14 @@ impl Stack {
 
     #[inline]
     pub fn get(&self, pos: usize) -> &U256 {
-        &self.0[self.get_pos(pos)]
+        let pos = self.get_pos(pos);
+        unsafe { self.0.get_unchecked(pos) }
     }
 
     #[inline]
     pub fn get_mut(&mut self, pos: usize) -> &mut U256 {
         let pos = self.get_pos(pos);
-        &mut self.0[pos]
+        unsafe { self.0.get_unchecked_mut(pos) }
     }
 
     #[inline(always)]
@@ -58,7 +59,9 @@ impl Stack {
     pub fn swap_top(&mut self, pos: usize) {
         let top = self.0.len() - 1;
         let pos = self.get_pos(pos);
-        self.0.swap(top, pos);
+        unsafe {
+            self.0.swap_unchecked(top, pos);
+        }
     }
 }
 
