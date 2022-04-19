@@ -1,7 +1,9 @@
 #![feature(
+    adt_const_params,
     bool_to_option,
     const_for,
     const_mut_refs,
+    entry_insert,
     generator_trait,
     generators,
     let_else,
@@ -9,8 +11,7 @@
     never_type,
     poll_ready,
     step_trait,
-    type_alias_impl_trait,
-    adt_const_params
+    type_alias_impl_trait
 )]
 #![recursion_limit = "256"]
 #![allow(
