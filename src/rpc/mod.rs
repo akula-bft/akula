@@ -3,9 +3,14 @@ pub mod eth;
 mod helpers {
     use crate::{
         accessors::chain,
+        consensus::engine_factory,
+        execution::{
+            analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer,
+        },
         kv::{mdbx::*, tables},
         models::*,
         stagedsync::stages,
+        Buffer,
     };
     use anyhow::format_err;
     use ethereum_jsonrpc::types;
@@ -86,7 +91,7 @@ mod helpers {
                                             max_fee_per_gas, ..
                                         } => max_fee_per_gas,
                                     },
-                                    hash: tx.message.hash(),
+                                    hash: tx.hash(),
                                     input: tx.message.input().clone().into(),
                                     nonce: U64::from(tx.message.nonce()),
                                     to: tx.message.action().into_address(),
@@ -101,7 +106,7 @@ mod helpers {
                     } else {
                         body.transactions
                             .into_iter()
-                            .map(|tx| types::Tx::Hash(tx.message.hash()))
+                            .map(|tx| types::Tx::Hash(tx.hash()))
                             .collect()
                     };
 
@@ -134,5 +139,120 @@ mod helpers {
         }
 
         Ok(None)
+    }
+
+    pub fn get_receipts<K: TransactionKind, E: EnvironmentKind>(
+        txn: &MdbxTransaction<'_, K, E>,
+        block_number: BlockNumber,
+    ) -> anyhow::Result<Vec<types::TransactionReceipt>> {
+        let block_hash = chain::canonical_hash::read(txn, block_number)?
+            .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
+        let header = PartialHeader::from(
+            chain::header::read(txn, block_hash, block_number)?.ok_or_else(|| {
+                format_err!("header not found for block #{block_number}/{block_hash}")
+            })?,
+        );
+        let block_body = chain::block_body::read_with_senders(txn, block_hash, block_number)?
+            .ok_or_else(|| format_err!("body not found for block #{block_number}/{block_hash}"))?;
+        let chain_spec = chain::chain_config::read(txn)?
+            .ok_or_else(|| format_err!("chain specification not found"))?;
+
+        // Prepare the execution context.
+        let mut buffer = Buffer::new(txn, Some(BlockNumber(block_number.0 - 1)));
+
+        let block_execution_spec = chain_spec.collect_block_spec(block_number);
+        let mut engine = engine_factory(chain_spec)?;
+        let mut analysis_cache = AnalysisCache::default();
+        let mut tracer = NoopTracer;
+
+        let mut processor = ExecutionProcessor::new(
+            &mut buffer,
+            &mut tracer,
+            &mut analysis_cache,
+            &mut *engine,
+            &header,
+            &block_body,
+            &block_execution_spec,
+        );
+
+        processor
+            .execute_block_no_post_validation()
+            .map(|receipts| {
+                let mut last_cumul_gas_used = 0;
+                receipts
+                    .into_iter()
+                    .enumerate()
+                    .map(
+                        |(
+                            transaction_index,
+                            Receipt {
+                                success,
+                                cumulative_gas_used,
+                                bloom,
+                                logs,
+                                ..
+                            },
+                        )| {
+                            let transaction = &block_body.transactions[transaction_index];
+                            let transaction_hash = transaction.hash();
+                            let gas_used = (cumulative_gas_used - last_cumul_gas_used).into();
+                            last_cumul_gas_used = cumulative_gas_used;
+                            types::TransactionReceipt {
+                                transaction_hash,
+                                transaction_index: U64::from(transaction_index),
+                                block_hash,
+                                block_number: U64::from(block_number.0),
+                                from: transaction.sender,
+                                to: transaction.message.action().into_address(),
+                                cumulative_gas_used: cumulative_gas_used.into(),
+                                gas_used,
+                                contract_address: if let TransactionAction::Create =
+                                    transaction.message.action()
+                                {
+                                    Some(crate::execution::address::create_address(
+                                        transaction.sender,
+                                        transaction.message.nonce(),
+                                    ))
+                                } else {
+                                    None
+                                },
+                                logs: logs
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(
+                                        |(
+                                            log_index,
+                                            Log {
+                                                address,
+                                                data,
+                                                topics,
+                                            },
+                                        )| {
+                                            types::TransactionLog {
+                                                log_index: Some(U64::from(log_index)),
+                                                transaction_index: Some(U64::from(
+                                                    transaction_index,
+                                                )),
+                                                transaction_hash: Some(transaction_hash),
+                                                block_hash: Some(block_hash),
+                                                block_number: Some(U64::from(block_number.0)),
+                                                address,
+                                                data: data.into(),
+                                                topics,
+                                            }
+                                        },
+                                    )
+                                    .collect::<Vec<_>>(),
+                                logs_bloom: bloom,
+                                status: if success {
+                                    U64::from(1_u16)
+                                } else {
+                                    U64::zero()
+                                },
+                            }
+                        },
+                    )
+                    .collect()
+            })
     }
 }

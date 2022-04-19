@@ -10,7 +10,11 @@ use std::fmt::{Debug, Display};
 
 #[derive(Debug)]
 pub enum FinalizationChange {
-    Reward { address: Address, amount: U256 },
+    Reward {
+        address: Address,
+        amount: U256,
+        ommer: bool,
+    },
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {

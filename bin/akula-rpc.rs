@@ -1,7 +1,11 @@
-use akula::{binutil::AkulaDataDir, rpc::eth::EthApiServerImpl};
+use akula::{
+    binutil::AkulaDataDir,
+    kv::{mdbx::*, MdbxWithDirHandle},
+    rpc::eth::EthApiServerImpl,
+};
 use clap::Parser;
 use ethereum_jsonrpc::EthApiServer;
-use jsonrpsee::http_server::HttpServerBuilder;
+use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -32,8 +36,8 @@ async fn main() -> anyhow::Result<()> {
         .with(env_filter)
         .init();
 
-    let db = Arc::new(
-        akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
+    let db: Arc<MdbxWithDirHandle<NoWriteMap>> = Arc::new(
+        MdbxEnvironment::<NoWriteMap>::open_ro(
             mdbx::Environment::new(),
             &opt.datadir,
             akula::kv::tables::CHAINDATA_TABLES.clone(),
@@ -44,13 +48,18 @@ async fn main() -> anyhow::Result<()> {
     let server = HttpServerBuilder::default()
         .build(opt.listen_address)
         .await?;
-    let _server_handle = server.start(
+
+    let mut api = Methods::new();
+    api.merge(
         EthApiServerImpl {
-            db,
+            db: db.clone(),
             call_gas_limit: 100_000_000,
         }
         .into_rpc(),
-    )?;
+    )
+    .unwrap();
+
+    let _server_handle = server.start(api)?;
 
     pending().await
 }

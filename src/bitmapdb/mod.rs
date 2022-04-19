@@ -51,6 +51,68 @@ where
     Ok(out.unwrap_or_default())
 }
 
+impl<'txn, TK, K, T> MdbxCursor<'txn, TK, T>
+where
+    TK: TransactionKind,
+    K: Clone + PartialEq + Send + 'txn,
+    BitmapKey<K>: TableDecode,
+    T: Table<Key = BitmapKey<K>, Value = RoaringTreemap, SeekKey = BitmapKey<K>>,
+{
+    pub fn walk_chunks(
+        self,
+        key: K,
+        start_block: Option<BlockNumber>,
+    ) -> impl Iterator<Item = anyhow::Result<BlockNumber>> + 'txn {
+        TryGenIter::from(move || {
+            let start_block = start_block.unwrap_or(BlockNumber(0));
+            let mut chunk_provider = self.walk(Some(BitmapKey {
+                inner: key.clone(),
+                block_number: start_block,
+            }));
+            while let Some((BitmapKey { inner, .. }, chunk)) = chunk_provider.next().transpose()? {
+                if inner != key {
+                    break;
+                }
+
+                for block in chunk.iter().collect::<Vec<_>>() {
+                    if block >= *start_block {
+                        yield BlockNumber(block);
+                    }
+                }
+            }
+
+            Ok(())
+        })
+    }
+
+    pub fn walk_chunks_back(
+        self,
+        key: K,
+        start_block: Option<BlockNumber>,
+    ) -> impl Iterator<Item = anyhow::Result<BlockNumber>> + 'txn {
+        TryGenIter::from(move || {
+            let start_block = start_block.unwrap_or(BlockNumber(u64::MAX));
+            let mut chunk_provider = self.walk_back(Some(BitmapKey {
+                inner: key.clone(),
+                block_number: start_block,
+            }));
+            while let Some((BitmapKey { inner, .. }, chunk)) = chunk_provider.next().transpose()? {
+                if inner != key {
+                    break;
+                }
+
+                for block in chunk.iter().collect::<Vec<_>>().into_iter().rev() {
+                    if block <= *start_block {
+                        yield BlockNumber(block);
+                    }
+                }
+            }
+
+            Ok(())
+        })
+    }
+}
+
 pub struct Chunks {
     bm: RoaringTreemap,
     size_limit: usize,

@@ -122,6 +122,7 @@ impl Consensus for Ethash {
             changes.push(FinalizationChange::Reward {
                 address: ommer.beneficiary,
                 amount: ommer_reward,
+                ommer: true,
             });
             miner_reward += block_reward / 32;
         }
@@ -129,6 +130,7 @@ impl Consensus for Ethash {
         changes.push(FinalizationChange::Reward {
             address: header.beneficiary,
             amount: miner_reward.into(),
+            ommer: false,
         });
 
         Ok(changes)

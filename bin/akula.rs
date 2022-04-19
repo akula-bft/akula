@@ -21,7 +21,7 @@ use async_trait::async_trait;
 use clap::Parser;
 use ethereum_jsonrpc::EthApiServer;
 use fastrlp::*;
-use jsonrpsee::http_server::HttpServerBuilder;
+use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use rayon::prelude::*;
 use std::{
     fs::File,
@@ -682,15 +682,18 @@ fn main() -> anyhow::Result<()> {
                             .build(listen_address)
                             .await
                             .unwrap();
-                        let _server_handle = server
-                            .start(
-                                EthApiServerImpl {
-                                    db,
-                                    call_gas_limit: 100_000_000,
-                                }
-                                .into_rpc(),
-                            )
-                            .unwrap();
+
+                        let mut api = Methods::new();
+                        api.merge(
+                            EthApiServerImpl {
+                                db: db.clone(),
+                                call_gas_limit: 100_000_000,
+                            }
+                            .into_rpc(),
+                        )
+                        .unwrap();
+
+                        let _server_handle = server.start(api).unwrap();
 
                         pending::<()>().await
                     });

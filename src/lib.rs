@@ -18,6 +18,7 @@
     dead_code,
     incomplete_features,
     clippy::mutable_key_type,
+    clippy::too_many_arguments,
     clippy::type_complexity,
     clippy::unused_io_amount
 )]
