@@ -617,11 +617,11 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
+        .stack_size(128 * 1024 * 1024)
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .thread_stack_size(64 * 1024 * 1024)
+                .thread_stack_size(128 * 1024 * 1024)
                 .build()?;
 
             rt.block_on(async move {
