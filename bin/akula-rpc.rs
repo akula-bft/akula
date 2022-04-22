@@ -1,10 +1,13 @@
 use akula::{
     binutil::AkulaDataDir,
     kv::{mdbx::*, MdbxWithDirHandle},
-    rpc::eth::EthApiServerImpl,
+    rpc::{
+        erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
+        otterscan::OtterscanApiServerImpl,
+    },
 };
 use clap::Parser;
-use ethereum_jsonrpc::EthApiServer;
+use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -58,6 +61,10 @@ async fn main() -> anyhow::Result<()> {
         .into_rpc(),
     )
     .unwrap();
+    api.merge(NetApiServerImpl.into_rpc()).unwrap();
+    api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+        .unwrap();
+    api.merge(OtterscanApiServerImpl { db }.into_rpc()).unwrap();
 
     let _server_handle = server.start(api)?;
 

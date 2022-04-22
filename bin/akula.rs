@@ -7,7 +7,10 @@ use akula::{
         traits::*,
     },
     models::*,
-    rpc::eth::EthApiServerImpl,
+    rpc::{
+        erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
+        otterscan::OtterscanApiServerImpl,
+    },
     sentry_connector::{
         chain_config::ChainConfig, sentry_client_connector::SentryClientConnectorImpl,
         sentry_client_reactor::SentryClientReactor,
@@ -19,7 +22,7 @@ use akula::{
 use anyhow::{bail, format_err, Context};
 use async_trait::async_trait;
 use clap::Parser;
-use ethereum_jsonrpc::EthApiServer;
+use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
 use fastrlp::*;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use rayon::prelude::*;
@@ -692,6 +695,10 @@ fn main() -> anyhow::Result<()> {
                             .into_rpc(),
                         )
                         .unwrap();
+                        api.merge(NetApiServerImpl.into_rpc()).unwrap();
+                        api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+                            .unwrap();
+                        api.merge(OtterscanApiServerImpl { db }.into_rpc()).unwrap();
 
                         let _server_handle = server.start(api).unwrap();
 
