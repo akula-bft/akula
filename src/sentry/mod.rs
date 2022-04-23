@@ -5,7 +5,7 @@ use async_stream::stream;
 use async_trait::async_trait;
 use devp2p::*;
 use educe::Educe;
-use ethereum_interfaces::sentry::{self, InboundMessage, PeersReply};
+use ethereum_interfaces::sentry::{self, InboundMessage, PeerEvent};
 use fastrlp::Decodable;
 use futures_core::stream::BoxStream;
 use num_traits::{FromPrimitive, ToPrimitive};
@@ -107,7 +107,7 @@ pub struct CapabilityServerImpl {
     valid_peers: Arc<RwLock<HashSet<PeerId>>>,
 
     data_sender: BroadcastSender<InboundMessage>,
-    peers_status_sender: BroadcastSender<PeersReply>,
+    peers_status_sender: BroadcastSender<PeerEvent>,
 
     no_new_peers: Arc<AtomicBool>,
 }
@@ -168,9 +168,10 @@ impl CapabilityServerImpl {
 
         let send_status_result =
             self.peers_status_sender
-                .send(ethereum_interfaces::sentry::PeersReply {
+                .send(ethereum_interfaces::sentry::PeerEvent {
                     peer_id: Some(ethereum_interfaces::types::H512::from(peer)),
-                    event: ethereum_interfaces::sentry::peers_reply::PeerEvent::Disconnect as i32,
+                    event_id: ethereum_interfaces::sentry::peer_event::PeerEventId::Disconnect
+                        as i32,
                 });
         if send_status_result.is_err() {
             debug!("No subscribers to report peer status to");
@@ -229,10 +230,10 @@ impl CapabilityServerImpl {
 
                             let send_status_result =
                                 self.peers_status_sender
-                                    .send(ethereum_interfaces::sentry::PeersReply {
+                                    .send(ethereum_interfaces::sentry::PeerEvent {
                                     peer_id: Some(ethereum_interfaces::types::H512::from(peer)),
-                                    event:
-                                        ethereum_interfaces::sentry::peers_reply::PeerEvent::Connect
+                                    event_id:
+                                        ethereum_interfaces::sentry::peer_event::PeerEventId::Connect
                                             as i32,
                                 });
                             if send_status_result.is_err() {

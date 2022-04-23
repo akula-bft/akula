@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use ethereum_interfaces::{
     sentry::{
         sentry_server::*, HandShakeReply, InboundMessage, MessageId as ProtoMessageId,
-        OutboundMessageData, PeerMinBlockRequest, PeersReply, PeersRequest, SentPeers,
+        OutboundMessageData, PeerEvent, PeerEventsRequest, PeerMinBlockRequest, SentPeers,
         SetStatusReply,
     },
     types::NodeInfoReply,
@@ -27,7 +27,7 @@ pub type InboundMessageStream =
     Pin<Box<dyn Stream<Item = anyhow::Result<InboundMessage, tonic::Status>> + Send + Sync>>;
 
 pub type PeersReplyStream =
-    Pin<Box<dyn Stream<Item = anyhow::Result<PeersReply, tonic::Status>> + Send + Sync>>;
+    Pin<Box<dyn Stream<Item = anyhow::Result<PeerEvent, tonic::Status>> + Send + Sync>>;
 
 pub struct SentryService {
     capability_server: Arc<CapabilityServerImpl>,
@@ -146,12 +146,12 @@ impl Sentry for SentryService {
         Ok(Response::new(reply))
     }
 
-    type PeersStream = PeersReplyStream;
+    type PeerEventsStream = PeersReplyStream;
 
-    async fn peers(
+    async fn peer_events(
         &self,
-        _request: tonic::Request<PeersRequest>,
-    ) -> Result<Response<Self::PeersStream>, tonic::Status> {
+        _request: tonic::Request<PeerEventsRequest>,
+    ) -> Result<Response<Self::PeerEventsStream>, tonic::Status> {
         let receiver = self.capability_server.peers_status_sender.subscribe();
         let stream = BroadcastStream::new(receiver)
             // map BroadcastStreamRecvError to tonic::Status
