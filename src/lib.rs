@@ -10,6 +10,7 @@
     map_first_last,
     never_type,
     poll_ready,
+    slice_swap_unchecked,
     step_trait,
     type_alias_impl_trait
 )]
