@@ -2,13 +2,45 @@ use self::difficulty::BlockDifficultyBombData;
 use super::{base::ConsensusEngineBase, *};
 use crate::{chain::protocol_param::param, h256_to_u256};
 use ::ethash::LightDAG;
-use std::collections::BTreeMap;
+use lru::LruCache;
+use parking_lot::Mutex;
+use std::{collections::BTreeMap, sync::Arc};
 
 pub mod difficulty;
+
+type Dag = LightDAG;
+
+#[derive(Debug)]
+struct DagCache {
+    inner: Mutex<LruCache<u64, Arc<Dag>>>,
+}
+
+impl DagCache {
+    fn new() -> Self {
+        Self {
+            inner: Mutex::new(LruCache::new(16)),
+        }
+    }
+
+    fn get(&self, block_number: BlockNumber) -> Arc<Dag> {
+        let epoch = block_number.0 / 30_000;
+
+        let mut dag_cache = self.inner.lock();
+
+        dag_cache.get(&epoch).cloned().unwrap_or_else(|| {
+            let dag = Arc::new(Dag::new(block_number.0.into()));
+
+            dag_cache.put(epoch, dag.clone());
+
+            dag
+        })
+    }
+}
 
 #[derive(Debug)]
 pub struct Ethash {
     base: ConsensusEngineBase,
+    dag_cache: DagCache,
     duration_limit: u64,
     block_reward: BTreeMap<BlockNumber, U256>,
     homestead_formula: Option<BlockNumber>,
@@ -31,6 +63,7 @@ impl Ethash {
     ) -> Self {
         Self {
             base: ConsensusEngineBase::new(chain_id, eip1559_block),
+            dag_cache: DagCache::new(),
             duration_limit,
             block_reward,
             homestead_formula,
@@ -75,8 +108,7 @@ impl Consensus for Ethash {
         }
 
         if !self.skip_pow_verification {
-            type Dag = LightDAG;
-            let light_dag = Dag::new(header.number.0.into());
+            let light_dag = self.dag_cache.get(header.number);
             let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
 
             if mixh != header.mix_hash {
