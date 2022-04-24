@@ -49,16 +49,11 @@ impl Consensus for Ethash {
     fn validate_block_header(
         &self,
         header: &BlockHeader,
-        state: &mut dyn State,
+        parent: &BlockHeader,
         with_future_timestamp_check: bool,
     ) -> anyhow::Result<()> {
-        let parent = self
-            .base
-            .get_parent_header(state, header)?
-            .ok_or(ValidationError::UnknownParent)?;
-
         self.base
-            .validate_block_header(header, &parent, with_future_timestamp_check)?;
+            .validate_block_header(header, parent, with_future_timestamp_check)?;
 
         let parent_has_uncles = parent.ommers_hash != EMPTY_LIST_HASH;
         let difficulty = difficulty::canonical_difficulty(
@@ -79,9 +74,6 @@ impl Consensus for Ethash {
             return Err(ValidationError::WrongDifficulty.into());
         }
 
-        Ok(())
-    }
-    fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()> {
         if !self.skip_pow_verification {
             type Dag = LightDAG;
             let light_dag = Dag::new(header.number.0.into());

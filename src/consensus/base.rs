@@ -94,18 +94,6 @@ impl ConsensusEngineBase {
         Ok(())
     }
 
-    pub fn get_parent_header(
-        &self,
-        state: &mut dyn State,
-        header: &BlockHeader,
-    ) -> anyhow::Result<Option<BlockHeader>> {
-        if let Some(parent_number) = header.number.0.checked_sub(1) {
-            return state.read_header(parent_number.into(), header.parent_hash);
-        }
-
-        Ok(None)
-    }
-
     // See [YP] Section 11.1 "Ommer Validation"
     fn is_kin(
         &self,
@@ -120,8 +108,8 @@ impl ConsensusEngineBase {
             if let Some(mainline_body) = state.read_body(mainline_header.number, mainline_hash)? {
                 old_ommers.extend_from_slice(&mainline_body.ommers);
 
-                let mainline_parent = self.get_parent_header(state, mainline_header)?;
-                let branch_parent = self.get_parent_header(state, branch_header)?;
+                let mainline_parent = state.read_parent_header(mainline_header)?;
+                let branch_parent = state.read_parent_header(branch_header)?;
 
                 if let Some(mainline_parent) = mainline_parent {
                     if let Some(branch_parent) = branch_parent {
@@ -220,13 +208,13 @@ impl ConsensusEngineBase {
             return Err(ValidationError::DuplicateOmmer.into());
         }
 
-        let parent = self
-            .get_parent_header(state, &block.header)?
+        let parent = state
+            .read_parent_header(&block.header)?
             .ok_or(ValidationError::UnknownParent)?;
 
         for ommer in &block.ommers {
-            let ommer_parent = self
-                .get_parent_header(state, ommer)?
+            let ommer_parent = state
+                .read_parent_header(ommer)?
                 .ok_or(ValidationError::UnknownParent)?;
 
             self.validate_block_header(ommer, &ommer_parent, false)

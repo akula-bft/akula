@@ -30,12 +30,9 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn validate_block_header(
         &self,
         header: &BlockHeader,
-        state: &mut dyn State,
+        parent: &BlockHeader,
         with_future_timestamp_check: bool,
     ) -> anyhow::Result<()>;
-
-    /// Validates the seal of the header
-    fn validate_seal(&self, header: &BlockHeader) -> anyhow::Result<()>;
 
     /// Finalizes block execution by applying changes in the state of accounts or of the consensus itself
     ///
