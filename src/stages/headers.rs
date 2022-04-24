@@ -231,46 +231,54 @@ impl HeaderDownload {
     ) -> anyhow::Result<Vec<BlockHeader>> {
         self.prepare_requests(starting_block, target);
 
-        let mut ticker = tokio::time::interval(Duration::from_secs(15));
-
         let cap = (*target - *starting_block) as usize;
         let mut headers = Vec::<BlockHeader>::with_capacity(cap);
 
+        let mut ticker = tokio::time::interval(Duration::from_secs(15));
+
         while !self.pending_requests.is_empty() {
-            match future::select(stream.next().fuse(), ticker.tick().boxed().fuse()).await {
-                future::Either::Left((Some(msg), _)) => match msg.msg {
-                    Message::BlockHeaders(msg) if self.prevalidate_block_headers(&msg.headers) => {
-                        let _v = self.pending_requests.remove(&msg.headers[0].number);
-                        debug_assert!(_v.is_some());
-                        info!(
-                            "Received block headers for {}->{}, requests left={}",
-                            msg.headers[0].number,
-                            msg.headers.last().unwrap().number,
-                            self.pending_requests.len()
-                        );
-                        headers.extend(msg.headers.into_iter());
+            let mut message_processed = false;
+            tokio::select! {
+                msg = stream.next() => {
+                    if let Some(msg) = msg {
+                        message_processed = true;
+                        if let Message::BlockHeaders(msg) = msg.msg {
+                            if self.prevalidate_block_headers(&msg.headers) {
+                                let _v = self.pending_requests.remove(&msg.headers[0].number);
+                                debug_assert!(_v.is_some());
+                                info!(
+                                    "Received block headers for {}->{}, requests left={}",
+                                    msg.headers[0].number,
+                                    msg.headers.last().unwrap().number,
+                                    self.pending_requests.len()
+                                );
+                                headers.extend(msg.headers.into_iter());
+                            }
+                        }
                     }
-                    _ => continue,
-                },
-                _ => {
-                    self.pending_requests
-                        .values()
-                        .cloned()
-                        .into_iter()
-                        .map(|request| {
-                            let peer = self.peer.clone();
-                            tokio::spawn(async move { peer.send_header_request(request).await })
-                        })
-                        .collect::<FuturesUnordered<_>>()
-                        .for_each(|_| async {})
-                        .await;
                 }
+                _ = ticker.tick() => {}
+            }
+
+            if !message_processed {
+                self.pending_requests
+                    .values()
+                    .cloned()
+                    .into_iter()
+                    .map(|request| {
+                        let peer = self.peer.clone();
+                        tokio::spawn(async move { peer.send_header_request(request).await })
+                    })
+                    .collect::<FuturesUnordered<_>>()
+                    .for_each(|_| async {})
+                    .await;
             }
         }
 
-        match self.verify_chunks(&mut headers) {
-            0 => (),
-            valid_till => headers.truncate(valid_till - 1),
+        let valid_till = self.verify_chunks(&mut headers);
+
+        if valid_till > 0 {
+            headers.truncate(valid_till - 1);
         };
 
         Ok(headers)
