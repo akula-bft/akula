@@ -18,6 +18,7 @@ use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilde
 use std::{
     fs::File, future::pending, net::SocketAddr, panic, path::PathBuf, sync::Arc, time::Duration,
 };
+use tokio::time::sleep;
 use tonic::transport::Channel;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -40,10 +41,12 @@ pub struct Opt {
     /// Sentry GRPC service URL
     #[clap(
         long = "sentry.api.addr",
-        help = "Sentry GRPC service URL as 'http://host:port'",
-        default_value = "http://localhost:8000"
+        help = "Sentry GRPC service URL as 'http://host:port'"
     )]
-    pub sentry_api_addr: tonic::transport::Uri,
+    pub sentry_api_addr: Option<tonic::transport::Uri>,
+
+    #[clap(flatten)]
+    pub sentry_opts: akula::sentry::Opts,
 
     /// Last block where to sync to.
     #[clap(long)]
@@ -209,9 +212,34 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.set_max_block(opt.max_block);
                 staged_sync.set_exit_after_sync(opt.exit_after_sync);
                 staged_sync.set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
+
+                let sentry_api_addr = if let Some(sentry_api_addr) = opt.sentry_api_addr {
+                    sentry_api_addr
+                } else {
+                    let max_peers = opt.sentry_opts.max_peers;
+
+                    let sentry_api_addr = opt.sentry_opts.sentry_addr;
+                    let swarm = akula::sentry::run(opt.sentry_opts).await?;
+
+                    tokio::spawn(async move {
+                        loop {
+                            info!(
+                                "P2P node peer info: {} active (+{} dialing) / {} max.",
+                                swarm.connected_peers(),
+                                swarm.dialing(),
+                                max_peers
+                            );
+
+                            sleep(Duration::from_secs(5)).await;
+                        }
+                    });
+
+                    format!("http://{sentry_api_addr}").parse()?
+                };
+
                 // also add body download stage here
                 let header_download = HeaderDownload::new(
-                    SentryClient::new(Channel::builder(opt.sentry_api_addr).connect().await?),
+                    SentryClient::new(Channel::builder(sentry_api_addr).connect().await?),
                     consensus,
                     chain_config.clone(),
                     db.begin()?,
