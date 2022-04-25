@@ -1,23 +1,20 @@
 use crate::models::{BlockNumber, H256};
-use std::sync::atomic::AtomicPtr;
+use parking_lot::Mutex;
 
-pub struct AtomicStatus(AtomicPtr<Status>);
+pub struct AtomicStatus(Mutex<Status>);
 
 impl AtomicStatus {
     #[inline(always)]
     pub fn new(status: Status) -> Self {
-        Self(AtomicPtr::new(Box::into_raw(Box::new(status))))
+        Self(Mutex::new(status))
     }
     #[inline(always)]
     pub fn load(&self) -> Status {
-        unsafe { *self.0.load(std::sync::atomic::Ordering::SeqCst) }
+        *self.0.lock()
     }
     #[inline(always)]
     pub fn store(&self, status: Status) {
-        self.0.store(
-            Box::into_raw(Box::new(status)),
-            std::sync::atomic::Ordering::SeqCst,
-        );
+        *self.0.lock() = status;
     }
 }
 
@@ -28,7 +25,6 @@ impl std::fmt::Debug for AtomicStatus {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-#[repr(align( /* at least */ 2))]
 pub struct Status {
     pub height: BlockNumber,
     pub hash: H256,

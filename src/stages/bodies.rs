@@ -222,12 +222,7 @@ impl BodyDownload {
         };
         for block_number in starting_block..=target {
             let (hash, body) = bodies.remove(&block_number).unwrap_or_else(|| {
-                let (_, hash) = unsafe {
-                    hash_cur
-                        .seek_exact(block_number)
-                        .unwrap_unchecked()
-                        .unwrap_unchecked()
-                };
+                let (_, hash) = hash_cur.seek_exact(block_number).unwrap().unwrap();
                 (hash, BlockBody::default())
             });
 

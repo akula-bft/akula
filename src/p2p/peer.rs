@@ -9,7 +9,11 @@ use bytes::BytesMut;
 use ethereum_interfaces::sentry as grpc_sentry;
 use fastrlp::Encodable;
 use futures::{stream::FuturesUnordered, Stream};
-use std::{pin::Pin, sync::atomic::AtomicU64};
+use std::{
+    pin::Pin,
+    sync::atomic::AtomicU64,
+    task::{Context, Poll},
+};
 use tokio_stream::StreamExt;
 use tracing::error;
 
@@ -97,19 +101,14 @@ impl Stream for SentryStream {
     type Item = InboundMessage;
 
     #[inline]
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        let this = unsafe { Pin::new_unchecked(&mut self.get_mut().0) };
-
-        match this.poll_next(cx) {
-            std::task::Poll::Ready(Some(Ok(value))) => match InboundMessage::try_from(value) {
-                Ok(msg) => std::task::Poll::Ready(Some(msg)),
-                _ => std::task::Poll::Pending,
-            },
-            _ => std::task::Poll::Pending,
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if let Poll::Ready(Some(Ok(value))) = Pin::new(&mut self.get_mut().0).poll_next(cx) {
+            if let Ok(msg) = InboundMessage::try_from(value) {
+                return Poll::Ready(Some(msg));
+            }
         }
+
+        Poll::Pending
     }
 }
 
