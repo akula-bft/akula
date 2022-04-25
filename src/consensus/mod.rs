@@ -3,7 +3,7 @@ mod blockchain;
 mod ethash;
 
 pub use self::{base::*, blockchain::*, ethash::*};
-use crate::{models::*, State};
+use crate::{models::*, BlockState};
 use anyhow::bail;
 use derive_more::{Display, From};
 use std::fmt::{Debug, Display};
@@ -22,7 +22,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// See [YP] Sections 4.3.2 "Holistic Validity", 4.3.4 "Block Header Validity", and 11.1 "Ommer Validation".
     ///
     /// NOTE: Shouldn't be used for genesis block.
-    fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()>;
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()>;
 
     /// See [YP] Section 4.3.4 "Block Header Validity".
     ///

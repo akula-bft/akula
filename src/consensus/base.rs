@@ -101,7 +101,7 @@ impl ConsensusEngineBase {
         mainline_header: &BlockHeader,
         mainline_hash: H256,
         n: usize,
-        state: &mut dyn State,
+        state: &dyn BlockState,
         old_ommers: &mut Vec<BlockHeader>,
     ) -> anyhow::Result<bool> {
         if n > 0 && branch_header != mainline_header {
@@ -181,7 +181,7 @@ impl ConsensusEngineBase {
         None
     }
 
-    pub fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()> {
+    pub fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()> {
         let expected_ommers_hash = Block::ommers_hash(&block.ommers);
         if block.header.ommers_hash != expected_ommers_hash {
             return Err(ValidationError::WrongOmmersHash {

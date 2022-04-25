@@ -3,7 +3,7 @@ use crate::{
     models::*,
     trie::{unpack_nibbles, HashBuilder},
     util::*,
-    State,
+    BlockState, State,
 };
 use bytes::{Bytes, BytesMut};
 use std::{collections::*, convert::TryInto};
@@ -250,6 +250,32 @@ impl InMemoryState {
     }
 }
 
+impl BlockState for InMemoryState {
+    fn read_header(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        if let Some(header_map) = self.headers.get(block_number.0 as usize) {
+            return Ok(header_map.get(&block_hash).cloned());
+        }
+
+        Ok(None)
+    }
+
+    fn read_body(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockBody>> {
+        if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
+            return Ok(body_map.get(&block_hash).cloned());
+        }
+
+        Ok(None)
+    }
+}
+
 impl State for InMemoryState {
     // Readers
 
@@ -288,30 +314,6 @@ impl State for InMemoryState {
         }
 
         Ok(())
-    }
-
-    fn read_header(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockHeader>> {
-        if let Some(header_map) = self.headers.get(block_number.0 as usize) {
-            return Ok(header_map.get(&block_hash).cloned());
-        }
-
-        Ok(None)
-    }
-
-    fn read_body(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockBody>> {
-        if let Some(body_map) = self.bodies.get(block_number.0 as usize) {
-            return Ok(body_map.get(&block_hash).cloned());
-        }
-
-        Ok(None)
     }
 
     fn total_difficulty(

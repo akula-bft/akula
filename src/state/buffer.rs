@@ -6,7 +6,7 @@ use crate::{
     },
     models::*,
     state::database::*,
-    u256_to_h256, State,
+    u256_to_h256, BlockState, State,
 };
 use bytes::Bytes;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -81,6 +81,52 @@ where
             self.logs
                 .insert((block_number, TxIndex(i.try_into().unwrap())), receipt.logs);
         }
+    }
+}
+
+impl<'db, 'tx, K, E> BlockState for MdbxTransaction<'db, K, E>
+where
+    'db: 'tx,
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
+    fn read_header(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        self.get(tables::Header, (block_number, block_hash))
+    }
+
+    fn read_body(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockBody>> {
+        accessors::chain::block_body::read_without_senders(self, block_hash, block_number)
+    }
+}
+
+impl<'db, 'tx, K, E> BlockState for Buffer<'db, 'tx, K, E>
+where
+    'db: 'tx,
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
+    fn read_header(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockHeader>> {
+        self.txn.read_header(block_number, block_hash)
+    }
+
+    fn read_body(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<BlockBody>> {
+        self.txn.read_body(block_number, block_hash)
     }
 }
 
@@ -173,22 +219,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn read_header(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockHeader>> {
-        self.txn.get(tables::Header, (block_number, block_hash))
-    }
-
-    fn read_body(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockBody>> {
-        accessors::chain::block_body::read_without_senders(self.txn, block_hash, block_number)
     }
 
     fn total_difficulty(

@@ -75,7 +75,7 @@ impl Ethash {
 }
 
 impl Consensus for Ethash {
-    fn pre_validate_block(&self, block: &Block, state: &mut dyn State) -> anyhow::Result<()> {
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()> {
         self.base.pre_validate_block(block, state)
     }
 
