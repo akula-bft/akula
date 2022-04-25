@@ -1,4 +1,5 @@
 use crate::{
+    consensus::Consensus,
     kv::{mdbx::MdbxTransaction, tables},
     models::*,
     p2p::{peer::*, types::Message},
@@ -25,6 +26,7 @@ const REQUEST_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 pub struct BodyDownload {
+    consensus: Arc<dyn Consensus>,
     /// Peer is a interface for interacting with p2p.
     peer: Arc<Peer>,
 }
@@ -95,8 +97,8 @@ where
 }
 
 impl BodyDownload {
-    pub fn new(peer: Arc<Peer>) -> anyhow::Result<Self> {
-        Ok(Self { peer })
+    pub fn new(consensus: Arc<dyn Consensus>, peer: Arc<Peer>) -> anyhow::Result<Self> {
+        Ok(Self { consensus, peer })
     }
 
     async fn collect_bodies<E: EnvironmentKind>(
@@ -209,6 +211,7 @@ impl BodyDownload {
         info!("Saving {} block bodies", bodies.len());
 
         let mut cursor = txn.cursor(tables::BlockBody)?;
+        let mut header_cur = txn.cursor(tables::Header)?;
         let mut block_tx_cursor = txn.cursor(tables::BlockTransaction)?;
         let mut hash_cur = txn.cursor(tables::CanonicalHeader)?;
         let mut base_tx_id = cursor
@@ -226,16 +229,28 @@ impl BodyDownload {
                 (hash, BlockBody::default())
             });
 
+            let block = Block {
+                header: header_cur
+                    .seek_exact((block_number, hash))
+                    .unwrap()
+                    .unwrap()
+                    .1,
+                transactions: body.transactions,
+                ommers: body.ommers,
+            };
+
+            self.consensus.pre_validate_block(&block, txn)?;
+
             cursor.append(
                 (block_number, hash),
                 BodyForStorage {
                     base_tx_id: TxIndex(base_tx_id),
-                    tx_amount: body.transactions.len() as u64,
-                    uncles: body.ommers,
+                    tx_amount: block.transactions.len() as u64,
+                    uncles: block.ommers,
                 },
             )?;
 
-            for transaction in body.transactions {
+            for transaction in block.transactions {
                 block_tx_cursor.append(TxIndex(base_tx_id), transaction)?;
                 base_tx_id += 1;
             }

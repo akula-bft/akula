@@ -1,6 +1,6 @@
 use akula::{
     binutil::AkulaDataDir,
-    consensus::engine_factory,
+    consensus::{engine_factory, Consensus},
     models::*,
     p2p::peer::SentryClient,
     rpc::{
@@ -167,7 +167,7 @@ fn main() -> anyhow::Result<()> {
                     chainspec
                 };
 
-                let consensus = engine_factory(chainspec.clone())?.into();
+                let consensus: Arc<dyn Consensus> = engine_factory(chainspec.clone())?.into();
 
                 let chain_config = ChainConfig::from(chainspec);
 
@@ -240,7 +240,7 @@ fn main() -> anyhow::Result<()> {
                 // also add body download stage here
                 let header_download = HeaderDownload::new(
                     SentryClient::new(Channel::builder(sentry_api_addr).connect().await?),
-                    consensus,
+                    consensus.clone(),
                     chain_config.clone(),
                     db.begin()?,
                 )?;
@@ -250,7 +250,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(BlockHashes {
                     temp_dir: etl_temp_dir.clone(),
                 });
-                staged_sync.push(BodyDownload::new(peer)?);
+                staged_sync.push(BodyDownload::new(consensus, peer)?);
                 staged_sync.push(TotalTxIndex);
                 staged_sync.push(SenderRecovery {
                     batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
