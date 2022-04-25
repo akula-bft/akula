@@ -132,6 +132,13 @@ impl Sentry for SentryService {
         Ok(Response::new(()))
     }
 
+    async fn peers(
+        &self,
+        _: tonic::Request<()>,
+    ) -> Result<Response<ethereum_interfaces::sentry::PeersReply>, tonic::Status> {
+        Err(tonic::Status::unimplemented(""))
+    }
+
     async fn peer_count(
         &self,
         _: tonic::Request<ethereum_interfaces::sentry::PeerCountRequest>,
