@@ -57,6 +57,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: highest_block,
             done: true,
+            reached_tip: true,
         })
     }
 

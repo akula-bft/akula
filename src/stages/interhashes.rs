@@ -110,6 +110,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: cmp::max(max_block, past_progress),
             done: true,
+            reached_tip: true,
         })
     }
 

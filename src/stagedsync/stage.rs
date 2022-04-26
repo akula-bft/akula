@@ -32,6 +32,7 @@ pub enum ExecOutput {
     Progress {
         stage_progress: BlockNumber,
         done: bool,
+        reached_tip: bool,
     },
 }
 

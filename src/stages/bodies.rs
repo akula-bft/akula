@@ -59,6 +59,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: target,
             done: true,
+            reached_tip: true,
         })
     }
 

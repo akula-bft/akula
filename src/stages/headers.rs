@@ -81,25 +81,23 @@ where
         };
 
         let mut starting_block = prev_progress;
-        let mut target = txn
-            .cursor(tables::LastHeader)?
-            .last()?
-            .map(|(_, (v, _))| v)
-            .unwrap();
-        let do_lookup = target - starting_block <= BlockNumber(BATCH_SIZE as u64);
-        match do_lookup {
-            true => {
-                let mut stream = self.peer.recv().await?;
-                target = match self.evaluate_chain_tip(&mut stream).await? {
-                    (value, _) if value - starting_block <= BlockNumber(BATCH_SIZE as u64) => value,
-                    last_header => {
-                        txn.set(tables::LastHeader, Default::default(), last_header)?;
-                        starting_block + BlockNumber(BATCH_SIZE as u64)
-                    }
-                }
+        let (target, reached_tip) = if *txn.get(tables::LastHeader, ())?.unwrap().0
+            - *starting_block
+            <= BATCH_SIZE as u64
+        {
+            let mut stream = self.peer.recv().await?;
+
+            let (tip_block_number, tip_hash) = self.evaluate_chain_tip(&mut stream).await?;
+
+            if *tip_block_number - *starting_block <= BATCH_SIZE as u64 {
+                (tip_block_number, true)
+            } else {
+                txn.set(tables::LastHeader, (), (tip_block_number, tip_hash))?;
+                (BlockNumber(*starting_block + BATCH_SIZE as u64), false)
             }
-            false => target = starting_block + BlockNumber(BATCH_SIZE as u64),
-        }
+        } else {
+            (starting_block + BlockNumber(BATCH_SIZE as u64), false)
+        };
 
         let mut stream = self.peer.recv_headers().await?;
 
@@ -122,6 +120,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: target - 1u8,
             done: true,
+            reached_tip,
         })
     }
 

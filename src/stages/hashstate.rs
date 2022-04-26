@@ -203,6 +203,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: max_block,
             done: true,
+            reached_tip: true,
         })
     }
 
@@ -418,6 +419,7 @@ mod tests {
             ExecOutput::Progress {
                 stage_progress: BlockNumber(3),
                 done: true,
+                reached_tip: true,
             }
         );
 

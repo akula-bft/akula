@@ -7,6 +7,14 @@ use crate::{kv::mdbx::*, models::*, stagedsync::stage::*};
 use std::time::{Duration, Instant};
 use tracing::*;
 
+struct QueuedStage<'db, E>
+where
+    E: EnvironmentKind,
+{
+    stage: Box<dyn Stage<'db, E>>,
+    require_tip: bool,
+}
+
 /// Staged synchronization framework
 ///
 /// As the name suggests, the gist of this framework is splitting sync into logical _stages_ that are consecutively executed one after another.
@@ -23,7 +31,7 @@ pub struct StagedSync<'db, E>
 where
     E: EnvironmentKind,
 {
-    stages: Vec<Box<dyn Stage<'db, E>>>,
+    stages: Vec<QueuedStage<'db, E>>,
     min_progress_to_commit_after_stage: u64,
     pruning_interval: u64,
     max_block: Option<BlockNumber>,
@@ -55,11 +63,14 @@ where
         }
     }
 
-    pub fn push<S>(&mut self, stage: S)
+    pub fn push<S>(&mut self, stage: S, require_tip: bool)
     where
         S: Stage<'db, E> + 'static,
     {
-        self.stages.push(Box::new(stage))
+        self.stages.push(QueuedStage {
+            stage: Box::new(stage),
+            require_tip,
+        })
     }
 
     pub fn set_pruning_interval(&mut self, v: u64) -> &mut Self {
@@ -94,6 +105,8 @@ where
     pub async fn run(&mut self, db: &'db MdbxEnvironment<E>) -> anyhow::Result<()> {
         let num_stages = self.stages.len();
 
+        let mut minimum_progress = None;
+        let mut maximum_progress = None;
         let mut unwind_to = None;
         'run_loop: loop {
             let mut tx = db.begin_mutable()?;
@@ -101,7 +114,9 @@ where
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
                 // Unwind stages in reverse order.
-                for (stage_index, stage) in self.stages.iter_mut().enumerate().rev() {
+                for (stage_index, QueuedStage { stage, .. }) in
+                    self.stages.iter_mut().enumerate().rev()
+                {
                     let stage_id = stage.id();
 
                     // Unwind magic happens here.
@@ -159,17 +174,18 @@ where
                 let mut previous_stage = None;
                 let mut timings = vec![];
 
-                let mut minimum_progress = None;
+                let mut reached_tip_flag = true;
 
                 // Execute each stage in direct order.
-                for (stage_index, stage) in self.stages.iter_mut().enumerate() {
+                for (stage_index, QueuedStage { stage, require_tip }) in
+                    self.stages.iter_mut().enumerate()
+                {
                     let mut restarted = false;
 
                     let stage_id = stage.id();
 
                     let start_time = Instant::now();
                     let start_progress = stage_id.get_progress(&tx)?;
-
                     // Re-invoke the stage until it reports `StageOutput::done`.
                     let done_progress = loop {
                         let prev_progress = stage_id.get_progress(&tx)?;
@@ -194,17 +210,36 @@ where
                             }
 
                             let invocation_start_time = Instant::now();
-                            let output = stage
-                                .execute(
-                                    &mut tx,
-                                    StageInput {
-                                        restarted,
-                                        first_started_at: (start_time, start_progress),
-                                        previous_stage,
-                                        stage_progress: prev_progress,
-                                    },
-                                )
-                                .await?;
+
+                            let output = if !reached_tip_flag
+                                && *require_tip
+                                && maximum_progress
+                                    .map(|maximum_progress| {
+                                        maximum_progress
+                                            < self.max_block.unwrap_or(BlockNumber(u64::MAX))
+                                    })
+                                    .unwrap_or(true)
+                            {
+                                info!("Tip not reached, skipping stage");
+
+                                ExecOutput::Progress {
+                                    stage_progress: prev_progress.unwrap_or_default(),
+                                    done: true,
+                                    reached_tip: false,
+                                }
+                            } else {
+                                stage
+                                    .execute(
+                                        &mut tx,
+                                        StageInput {
+                                            restarted,
+                                            first_started_at: (start_time, start_progress),
+                                            previous_stage,
+                                            stage_progress: prev_progress,
+                                        },
+                                    )
+                                    .await?
+                            };
 
                             // Nothing here, pass along.
                             match &output {
@@ -260,13 +295,25 @@ where
                             stage::ExecOutput::Progress {
                                 stage_progress,
                                 done,
+                                reached_tip,
                             } => {
                                 stage_id.save_progress(&tx, stage_progress)?;
 
-                                if let Some(m) = &mut minimum_progress {
-                                    *m = std::cmp::min(*m, stage_progress);
-                                } else {
-                                    minimum_progress = Some(stage_progress);
+                                macro_rules! record_outliers {
+                                    ($f:expr, $v:expr) => {
+                                        if let Some(m) = $v {
+                                            *m = $f(*m, stage_progress);
+                                        } else {
+                                            *$v = Some(stage_progress);
+                                        }
+                                    };
+                                }
+
+                                record_outliers!(std::cmp::min, &mut minimum_progress);
+                                record_outliers!(std::cmp::max, &mut maximum_progress);
+
+                                if !reached_tip {
+                                    reached_tip_flag = false;
                                 }
 
                                 // Check if we should commit now.
@@ -318,7 +365,9 @@ where
                             let prune_to = BlockNumber(prune_to);
 
                             // Prune all stages
-                            for (stage_index, stage) in self.stages.iter_mut().enumerate().rev() {
+                            for (stage_index, QueuedStage { stage, .. }) in
+                                self.stages.iter_mut().enumerate().rev()
+                            {
                                 let stage_id = stage.id();
 
                                 let span = span!(

@@ -222,11 +222,13 @@ where
             ExecOutput::Progress {
                 stage_progress: executed_to,
                 done,
+                reached_tip: true,
             }
         } else {
             ExecOutput::Progress {
                 stage_progress: prev_progress,
                 done: true,
+                reached_tip: true,
             }
         })
     }

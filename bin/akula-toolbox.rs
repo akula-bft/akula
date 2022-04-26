@@ -141,12 +141,10 @@ async fn download_headers(
     txn.commit()?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(HeaderDownload::new(
-        conn,
-        consensus,
-        chain_config,
-        env.begin()?,
-    )?);
+    staged_sync.push(
+        HeaderDownload::new(conn, consensus, chain_config, env.begin()?)?,
+        false,
+    );
     staged_sync.run(&env).await?;
 
     Ok(())
@@ -168,9 +166,12 @@ async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     )?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(BlockHashes {
-        temp_dir: etl_temp_dir.clone(),
-    });
+    staged_sync.push(
+        BlockHashes {
+            temp_dir: etl_temp_dir.clone(),
+        },
+        false,
+    );
     staged_sync.run(&env).await?;
     Ok(())
 }

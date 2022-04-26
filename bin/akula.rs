@@ -245,45 +245,66 @@ fn main() -> anyhow::Result<()> {
                     db.begin()?,
                 )?;
                 let peer = header_download.peer.clone();
-                staged_sync.push(header_download);
-                staged_sync.push(TotalGasIndex);
-                staged_sync.push(BlockHashes {
-                    temp_dir: etl_temp_dir.clone(),
-                });
-                staged_sync.push(BodyDownload::new(consensus, peer)?);
-                staged_sync.push(TotalTxIndex);
-                staged_sync.push(SenderRecovery {
-                    batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
-                });
-                staged_sync.push(Execution {
-                    batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
-                    history_batch_size: opt
-                        .execution_history_batch_size
-                        .saturating_mul(1_000_000_000_u64),
-                    exit_after_batch: opt.execution_exit_after_batch,
-                    batch_until: None,
-                    commit_every: None,
-                });
+                staged_sync.push(header_download, false);
+                staged_sync.push(TotalGasIndex, false);
+                staged_sync.push(
+                    BlockHashes {
+                        temp_dir: etl_temp_dir.clone(),
+                    },
+                    false,
+                );
+                staged_sync.push(BodyDownload::new(consensus, peer)?, false);
+                staged_sync.push(TotalTxIndex, false);
+                staged_sync.push(
+                    SenderRecovery {
+                        batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
+                    },
+                    false,
+                );
+                staged_sync.push(
+                    Execution {
+                        batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
+                        history_batch_size: opt
+                            .execution_history_batch_size
+                            .saturating_mul(1_000_000_000_u64),
+                        exit_after_batch: opt.execution_exit_after_batch,
+                        batch_until: None,
+                        commit_every: None,
+                    },
+                    false,
+                );
                 if !opt.skip_commitment {
-                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None));
-                    staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None));
+                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
+                    staged_sync.push(Interhashes::new(etl_temp_dir.clone(), None), !opt.prune);
                 }
-                staged_sync.push(AccountHistoryIndex {
-                    temp_dir: etl_temp_dir.clone(),
-                    flush_interval: 50_000,
-                });
-                staged_sync.push(StorageHistoryIndex {
-                    temp_dir: etl_temp_dir.clone(),
-                    flush_interval: 50_000,
-                });
-                staged_sync.push(TxLookup {
-                    temp_dir: etl_temp_dir.clone(),
-                });
-                staged_sync.push(CallTraceIndex {
-                    temp_dir: etl_temp_dir.clone(),
-                    flush_interval: 50_000,
-                });
-                staged_sync.push(Finish);
+                staged_sync.push(
+                    AccountHistoryIndex {
+                        temp_dir: etl_temp_dir.clone(),
+                        flush_interval: 50_000,
+                    },
+                    !opt.prune,
+                );
+                staged_sync.push(
+                    StorageHistoryIndex {
+                        temp_dir: etl_temp_dir.clone(),
+                        flush_interval: 50_000,
+                    },
+                    !opt.prune,
+                );
+                staged_sync.push(
+                    TxLookup {
+                        temp_dir: etl_temp_dir.clone(),
+                    },
+                    !opt.prune,
+                );
+                staged_sync.push(
+                    CallTraceIndex {
+                        temp_dir: etl_temp_dir.clone(),
+                        flush_interval: 50_000,
+                    },
+                    !opt.prune,
+                );
+                staged_sync.push(Finish, !opt.prune);
 
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;

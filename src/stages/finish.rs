@@ -33,6 +33,7 @@ where
         Ok(ExecOutput::Progress {
             stage_progress: prev_stage,
             done: true,
+            reached_tip: true,
         })
     }
     async fn unwind<'tx>(
