@@ -123,8 +123,9 @@ pub trait PeerExt: Send + Sync {
         msg: grpc_sentry::OutboundMessageData,
         predicate: PeerFilter,
     ) -> anyhow::Result<()>;
-    /// Sends a block bodies request to other peers, and returns used request_id.
+    /// Sends a block bodies request to other peers.
     async fn send_body_request<'a>(&self, req: &'a [H256]) -> anyhow::Result<()>;
+    /// Sends block headers request to other peers.
     async fn send_header_request(&self, req: HeaderRequest) -> anyhow::Result<()>;
     async fn send_ping(&self) -> anyhow::Result<()>;
     async fn recv(&self) -> anyhow::Result<InboundStream>;
