@@ -7,7 +7,10 @@ use akula::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
         otterscan::OtterscanApiServerImpl,
     },
-    stagedsync::{self},
+    stagedsync::{
+        self,
+        stages::{BODIES, HEADERS},
+    },
     stages::*,
     version_string,
 };
@@ -221,14 +224,20 @@ fn main() -> anyhow::Result<()> {
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
                     let swarm = akula::sentry::run(opt.sentry_opts).await?;
 
+                    let current_stage = staged_sync.current_stage();
+
                     tokio::spawn(async move {
                         loop {
-                            info!(
-                                "P2P node peer info: {} active (+{} dialing) / {} max.",
-                                swarm.connected_peers(),
-                                swarm.dialing(),
-                                max_peers
-                            );
+                            if let Some(stage) = *current_stage.borrow() {
+                                if stage == HEADERS || stage == BODIES {
+                                    info!(
+                                        "P2P node peer info: {} active (+{} dialing) / {} max.",
+                                        swarm.connected_peers(),
+                                        swarm.dialing(),
+                                        max_peers
+                                    );
+                                }
+                            }
 
                             sleep(Duration::from_secs(5)).await;
                         }
