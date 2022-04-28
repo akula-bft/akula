@@ -5,10 +5,11 @@ use crate::{
 use arrayvec::ArrayVec;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 use ethereum_interfaces::sentry as grpc_sentry;
 use fastrlp::Encodable;
 use futures::{stream::FuturesUnordered, Stream};
+use rand::Rng;
 use std::{
     pin::Pin,
     sync::atomic::AtomicU64,
@@ -117,9 +118,15 @@ impl Stream for SentryStream {
 pub trait PeerExt: Send + Sync {
     async fn set_status(&self) -> anyhow::Result<()>;
     async fn send_message(&self, message: Message, predicate: PeerFilter) -> anyhow::Result<()>;
-    async fn send_ping(&self) -> anyhow::Result<()>;
-    async fn send_body_request(&self, req: Vec<H256>) -> anyhow::Result<()>;
+    async fn send_message_raw(
+        &self,
+        msg: grpc_sentry::OutboundMessageData,
+        predicate: PeerFilter,
+    ) -> anyhow::Result<()>;
+    /// Sends a block bodies request to other peers, and returns used request_id.
+    async fn send_body_request<'a>(&self, req: &'a [H256]) -> anyhow::Result<()>;
     async fn send_header_request(&self, req: HeaderRequest) -> anyhow::Result<()>;
+    async fn send_ping(&self) -> anyhow::Result<()>;
     async fn recv(&self) -> anyhow::Result<InboundStream>;
     async fn recv_headers(&self) -> anyhow::Result<InboundStream>;
     async fn recv_bodies(&self) -> anyhow::Result<InboundStream>;
@@ -189,15 +196,27 @@ impl PeerExt for Peer {
 
     #[inline]
     async fn send_message(&self, msg: Message, predicate: PeerFilter) -> anyhow::Result<()> {
-        let data = grpc_sentry::OutboundMessageData {
-            id: grpc_sentry::MessageId::from(msg.id()) as i32,
-            data: |msg: Message| -> bytes::Bytes {
-                let mut buf = BytesMut::new();
-                msg.encode(&mut buf);
-                buf.freeze()
-            }(msg),
-        };
+        self.send_message_raw(
+            grpc_sentry::OutboundMessageData {
+                id: grpc_sentry::MessageId::from(msg.id()) as i32,
+                data: |msg: Message| -> bytes::Bytes {
+                    let mut buf = BytesMut::new();
+                    msg.encode(&mut buf);
+                    buf.freeze()
+                }(msg),
+            },
+            predicate,
+        )
+        .await?;
 
+        Ok(())
+    }
+
+    async fn send_message_raw(
+        &self,
+        msg: grpc_sentry::OutboundMessageData,
+        predicate: PeerFilter,
+    ) -> anyhow::Result<()> {
         let send_msg = move |mut conn: SentryClient,
                              predicate: PeerFilter,
                              data: grpc_sentry::OutboundMessageData| {
@@ -238,17 +257,76 @@ impl PeerExt for Peer {
         let _ = self
             .conn
             .iter()
-            .map(|conn| {
-                let conn = conn.clone();
+            .map(|sentry| {
+                let sentry = sentry.clone();
                 let predicate = predicate.clone();
-                let data = data.clone();
+                let data = msg.clone();
                 tokio::spawn(async move {
-                    let _ = send_msg(conn, predicate, data).await;
+                    let _ = send_msg(sentry, predicate, data).await;
                 })
             })
             .collect::<FuturesUnordered<_>>()
             .map(|_| ())
             .collect::<()>();
+
+        Ok(())
+    }
+
+    #[inline]
+    async fn send_body_request<'a>(&self, hashes: &'a [H256]) -> anyhow::Result<()> {
+        self.set_status().await?;
+
+        let request_id = rand::thread_rng().gen::<u64>();
+
+        pub struct GetBlockBodies_<'a> {
+            pub request_id: u64,
+            pub hashes: &'a [H256],
+        }
+        trait E {
+            fn rlp_header(&self) -> fastrlp::Header;
+        }
+        impl<'a> E for GetBlockBodies_<'a> {
+            fn rlp_header(&self) -> fastrlp::Header {
+                let mut rlp_head = fastrlp::Header {
+                    list: true,
+                    payload_length: 0,
+                };
+                rlp_head.payload_length += fastrlp::Encodable::length(&self.request_id);
+                rlp_head.payload_length += fastrlp::list_length(self.hashes);
+                rlp_head
+            }
+        }
+        impl<'a> Encodable for GetBlockBodies_<'a> {
+            fn length(&self) -> usize {
+                let rlp_head = E::rlp_header(self);
+                fastrlp::length_of_length(rlp_head.payload_length) + rlp_head.payload_length
+            }
+            fn encode(&self, out: &mut dyn BufMut) {
+                E::rlp_header(self).encode(out);
+                fastrlp::Encodable::encode(&self.request_id, out);
+                fastrlp::encode_list(self.hashes, out);
+            }
+        }
+
+        self.send_message_raw(
+            grpc_sentry::OutboundMessageData {
+                id: grpc_sentry::MessageId::from(MessageId::GetBlockBodies) as i32,
+                data: |hashes: &[H256]| -> bytes::Bytes {
+                    let mut buf = BytesMut::new();
+                    GetBlockBodies_ { request_id, hashes }.encode(&mut buf);
+                    buf.freeze()
+                }(hashes),
+            },
+            PeerFilter::All,
+        )
+        .await?;
+
+        Ok(())
+    }
+    #[inline]
+    async fn send_header_request(&self, request: HeaderRequest) -> anyhow::Result<()> {
+        self.set_status().await?;
+        self.send_message(request.into(), PeerFilter::All).await?;
 
         Ok(())
     }
@@ -265,20 +343,6 @@ impl PeerExt for Peer {
                 ..Default::default()
             })
             .await;
-
-        Ok(())
-    }
-    #[inline]
-    async fn send_body_request(&self, request: Vec<H256>) -> anyhow::Result<()> {
-        self.set_status().await?;
-        self.send_message(request.into(), PeerFilter::All).await?;
-
-        Ok(())
-    }
-    #[inline]
-    async fn send_header_request(&self, request: HeaderRequest) -> anyhow::Result<()> {
-        self.set_status().await?;
-        self.send_message(request.into(), PeerFilter::All).await?;
 
         Ok(())
     }

@@ -136,17 +136,16 @@ impl BodyDownload {
 
                     if left_requests.len() < 64 {
                         while !done.load(Ordering::SeqCst) {
-                            let _ = handler.send_body_request(left_requests.clone()).await;
+                            let _ = handler.send_body_request(&left_requests).await;
                             tokio::time::sleep(Duration::from_millis(100)).await;
                         }
                         break;
                     } else {
                         let _ = left_requests
                             .chunks(64)
-                            .map(ToOwned::to_owned)
                             .map(|chunk| {
                                 let handler = handler.clone();
-                                tokio::spawn(async move { handler.send_body_request(chunk).await })
+                                async move { handler.send_body_request(chunk).await }
                             })
                             .collect::<FuturesUnordered<_>>()
                             .map(|_| ())
