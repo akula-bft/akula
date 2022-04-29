@@ -19,12 +19,12 @@ pub enum FinalizationChange {
 
 pub trait Consensus: Debug + Send + Sync + 'static {
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
-    /// See [YP] Sections 4.3.2 "Holistic Validity", 4.3.4 "Block Header Validity", and 11.1 "Ommer Validation".
+    /// See YP Sections 4.3.2 "Holistic Validity", 4.3.4 "Block Header Validity", and 11.1 "Ommer Validation".
     ///
     /// NOTE: Shouldn't be used for genesis block.
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()>;
 
-    /// See [YP] Section 4.3.4 "Block Header Validity".
+    /// See YP Section 4.3.4 "Block Header Validity".
     ///
     /// NOTE: Shouldn't be used for genesis block.
     fn validate_block_header(
@@ -36,7 +36,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
 
     /// Finalizes block execution by applying changes in the state of accounts or of the consensus itself
     ///
-    /// NOTE: For Ethash See [YP] Section 11.3 "Reward Application".
+    /// NOTE: For Ethash See YP Section 11.3 "Reward Application".
     fn finalize(
         &self,
         block: &PartialHeader,
@@ -44,7 +44,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
-    /// See [YP] Section 11.3 "Reward Application".
+    /// See YP Section 11.3 "Reward Application".
     fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address>;
 }
 
