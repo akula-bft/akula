@@ -14,7 +14,7 @@ Look at Mgas/s.
 
 Install `rustup` from rustup.rs.
 
-```
+```ignore
 git clone https://github.com/akula-bft/akula
 
 cd akula
@@ -28,14 +28,14 @@ You can find built binaries in `target/production` folder.
 
 * `akula` is the main binary that runs as full node, requires `akula-sentry`:
 
-```
+```ignore
 akula --datadir=<path to Akula database directory>
 ```
 
 * `akula-sentry` is the P2P node.
 
 * `akula-toolbox` provides various helper commands to check and manipulate Akula's database. Please consult its help for more info:
-```
+```ignore
 akula-toolbox --help
 ```
 
