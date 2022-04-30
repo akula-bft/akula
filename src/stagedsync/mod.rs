@@ -3,8 +3,9 @@ pub mod stages;
 pub mod util;
 
 use self::stage::{Stage, StageInput, UnwindInput};
-use crate::{kv::mdbx::*, models::*, stagedsync::stage::*};
+use crate::{kv::mdbx::*, models::*, stagedsync::stage::*, StageId};
 use std::time::{Duration, Instant};
+use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use tracing::*;
 
 struct QueuedStage<'db, E>
@@ -32,6 +33,8 @@ where
     E: EnvironmentKind,
 {
     stages: Vec<QueuedStage<'db, E>>,
+    current_stage_sender: WatchSender<Option<StageId>>,
+    current_stage_receiver: WatchReceiver<Option<StageId>>,
     min_progress_to_commit_after_stage: u64,
     pruning_interval: u64,
     max_block: Option<BlockNumber>,
@@ -53,8 +56,11 @@ where
     E: EnvironmentKind,
 {
     pub fn new() -> Self {
+        let (current_stage_sender, current_stage_receiver) = tokio::sync::watch::channel(None);
         Self {
             stages: Vec::new(),
+            current_stage_sender,
+            current_stage_receiver,
             min_progress_to_commit_after_stage: 0,
             pruning_interval: 0,
             max_block: None,
@@ -98,6 +104,10 @@ where
         self
     }
 
+    pub fn current_stage(&self) -> WatchReceiver<Option<StageId>> {
+        self.current_stage_receiver.clone()
+    }
+
     /// Run staged sync loop.
     /// Invokes each loaded stage, and does unwinds if necessary.
     ///
@@ -109,6 +119,8 @@ where
         let mut maximum_progress = None;
         let mut unwind_to = None;
         'run_loop: loop {
+            self.current_stage_sender.send(None).unwrap();
+
             let mut tx = db.begin_mutable()?;
 
             // Start with unwinding if it's been requested.
@@ -183,6 +195,8 @@ where
                     let mut restarted = false;
 
                     let stage_id = stage.id();
+
+                    self.current_stage_sender.send(Some(stage.id())).unwrap();
 
                     let start_time = Instant::now();
                     let start_progress = stage_id.get_progress(&tx)?;
@@ -349,6 +363,8 @@ where
 
                     previous_stage = Some((stage_id, done_progress))
                 }
+
+                self.current_stage_sender.send(None).unwrap();
 
                 let t = timings
                     .into_iter()

@@ -1229,7 +1229,7 @@ dependencies = [
 [[package]]
 name = "ethereum-interfaces"
 version = "0.1.0"
-source = "git+https://github.com/ledgerwatch/interfaces#b3ae4c73eedba6573a55bd2158182b11fc75f0e3"
+source = "git+https://github.com/ledgerwatch/interfaces#477d121aafa9566e1f2f7d478852d800d3822bc5"
 dependencies = [
  "arrayref",
  "ethereum-types",
@@ -1552,9 +1552,9 @@ checksum = "78cc372d058dcf6d5ecd98510e7fbc9e5aec4d21de70f65fea8fecebcd881bd4"
 
 [[package]]
 name = "git2"
-version = "0.14.2"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3826a6e0e2215d7a41c2bfc7c9244123969273f3476b939a226aac0ab56e9e3c"
+checksum = "5e77a14ffc6ba4ad5188d6cf428894c4fcfda725326b37558f35bb677e712cec"
 dependencies = [
  "bitflags",
  "libc",
@@ -1698,9 +1698,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f4c6746584866f0feabcc69893c5b51beef3831656a968ed7ae254cdc4fd03"
+checksum = "ff8670570af52249509a86f5e3e18a08c60b177071826898fde8997cf5f6bfbb"
 dependencies = [
  "bytes",
  "fnv",
@@ -2176,9 +2176,9 @@ checksum = "21a41fed9d98f27ab1c6d161da622a4fa35e8a54a8adc24bbf3ddd0ef70b0e50"
 
 [[package]]
 name = "libgit2-sys"
-version = "0.13.2+1.4.2"
+version = "0.13.3+1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a42de9a51a5c12e00fc0e4ca6bc2ea43582fc6418488e8f615e905d886f258b"
+checksum = "c24d36c3ac9b9996a2418d6bf428cc0bc5d1a814a84303fc60986088c5ed60de"
 dependencies = [
  "cc",
  "libc",
@@ -3735,9 +3735,9 @@ checksum = "20518fe4a4c9acf048008599e464deb21beeae3d3578418951a189c235a7a9a8"
 
 [[package]]
 name = "sysinfo"
-version = "0.23.10"
+version = "0.23.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eea2ed6847da2e0c7289f72cb4f285f0bd704694ca067d32be811b2a45ea858"
+checksum = "3bf915673a340ee41f2fc24ad1286c75ea92026f04b65a0d0e5132d80b95fc61"
 dependencies = [
  "cfg-if",
  "core-foundation-sys",
@@ -4036,9 +4036,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-build"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d17087af5c80e5d5fc8ba9878e60258065a0a757e35efe7a05b7904bece1943"
+checksum = "c03447cdc9eaf8feffb6412dcb27baf2db11669a6c4789f29da799aabfb99547"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -4084,9 +4084,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79dd37121c38240c4b4fe6520332406218bbf876f2f690fe9e406020189366fd"
+checksum = "f7755f984aa46a9d50829dc84b6a674b2f3b8b4de47c0708923953b090d48acc"
 dependencies = [
  "bitflags",
  "bytes",

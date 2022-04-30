@@ -5,7 +5,7 @@ use crate::{
 use std::fmt::Display;
 use tracing::*;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StageId(pub &'static str);
 
 pub const HEADERS: StageId = StageId("Headers");

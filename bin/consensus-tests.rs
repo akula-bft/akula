@@ -654,7 +654,7 @@ fn result_is_expected(
     Ok(())
 }
 
-/// https://ethereum-tests.readthedocs.io/en/latest/test_types/blockchain_tests.html
+/// <https://ethereum-tests.readthedocs.io/en/latest/test_types/blockchain_tests.html>
 #[instrument(skip(testdata))]
 fn blockchain_test(testdata: BlockchainTest) -> anyhow::Result<()> {
     let genesis_block = <Block as Decodable>::decode(&mut &*testdata.genesis_rlp).unwrap();

@@ -25,6 +25,7 @@
     clippy::type_complexity,
     clippy::unused_io_amount
 )]
+#![doc = include_str!("../README.md")]
 
 pub mod accessors;
 #[doc(hidden)]
