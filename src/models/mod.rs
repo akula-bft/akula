@@ -128,7 +128,7 @@ macro_rules! impl_ops {
 
 macro_rules! impl_from {
     ($type:ty, $other:ty) => {
-        impl const From<$type> for $other {
+        impl From<$type> for $other {
             #[inline(always)]
             fn from(x: $type) -> $other {
                 x.0 as $other
@@ -164,20 +164,20 @@ macro_rules! u64_wrapper {
         #[repr(transparent)]
         pub struct $ty(pub u64);
 
-        impl const ::parity_scale_codec::WrapperTypeEncode for $ty {}
-        impl const ::parity_scale_codec::EncodeLike for $ty {}
-        impl const ::parity_scale_codec::EncodeLike<u64> for $ty {}
-        impl const ::parity_scale_codec::EncodeLike<$ty> for u64 {}
-        impl const ::parity_scale_codec::WrapperTypeDecode for $ty {
+        impl ::parity_scale_codec::WrapperTypeEncode for $ty {}
+        impl ::parity_scale_codec::EncodeLike for $ty {}
+        impl ::parity_scale_codec::EncodeLike<u64> for $ty {}
+        impl ::parity_scale_codec::EncodeLike<$ty> for u64 {}
+        impl ::parity_scale_codec::WrapperTypeDecode for $ty {
             type Wrapped = u64;
         }
-        impl const From<::parity_scale_codec::Compact<$ty>> for $ty {
+        impl From<::parity_scale_codec::Compact<$ty>> for $ty {
             #[inline(always)]
             fn from(x: ::parity_scale_codec::Compact<$ty>) -> $ty {
                 x.0
             }
         }
-        impl const ::parity_scale_codec::CompactAs for $ty {
+        impl ::parity_scale_codec::CompactAs for $ty {
             type As = u64;
             #[inline(always)]
             fn encode_as(&self) -> &Self::As {
@@ -194,7 +194,7 @@ macro_rules! u64_wrapper {
                 self.0.partial_cmp(&(*other as u64))
             }
         }
-        impl const PartialEq<usize> for $ty {
+        impl PartialEq<usize> for $ty {
             #[inline(always)]
             fn eq(&self, other: &usize) -> bool {
                 self.0 == *other as u64

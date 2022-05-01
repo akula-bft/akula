@@ -13,15 +13,13 @@ pub enum BlockId {
     Number(BlockNumber),
 }
 
-impl const From<BlockNumber> for BlockId {
-    #[inline(always)]
+impl From<BlockNumber> for BlockId {
     fn from(number: BlockNumber) -> Self {
         BlockId::Number(number)
     }
 }
 
-impl const From<H256> for BlockId {
-    #[inline(always)]
+impl From<H256> for BlockId {
     fn from(hash: H256) -> Self {
         BlockId::Hash(hash)
     }

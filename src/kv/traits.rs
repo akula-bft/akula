@@ -47,7 +47,6 @@ where
 {
     type Item = Result<G::Yield, E>;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             return None;

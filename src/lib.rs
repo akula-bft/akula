@@ -1,10 +1,8 @@
 #![feature(
     adt_const_params,
     bool_to_option,
-    const_convert,
     const_for,
     const_mut_refs,
-    const_trait_impl,
     entry_insert,
     generator_trait,
     generators,

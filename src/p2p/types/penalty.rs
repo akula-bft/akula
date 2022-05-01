@@ -19,7 +19,7 @@ pub struct Penalty {
     pub kind: PenaltyKind,
 }
 
-impl const From<Penalty> for grpc_sentry::PenalizePeerRequest {
+impl From<Penalty> for grpc_sentry::PenalizePeerRequest {
     #[inline(always)]
     fn from(penalty: Penalty) -> Self {
         grpc_sentry::PenalizePeerRequest {

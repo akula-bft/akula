@@ -193,8 +193,6 @@ where
     where
         'db: 'tx,
     {
-        let _ = tx;
-
         let chain_config = tx
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("No chain specification set"))?;

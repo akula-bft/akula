@@ -73,11 +73,10 @@ pub struct BlockBody {
 }
 
 impl BlockBody {
-    #[inline]
     pub fn transactions_root(&self) -> H256 {
         root_hash(&self.transactions)
     }
-    #[inline]
+
     pub fn ommers_hash(&self) -> H256 {
         Block::ommers_hash(&self.ommers)
     }
