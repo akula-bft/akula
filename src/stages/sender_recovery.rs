@@ -33,7 +33,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {
@@ -61,7 +61,7 @@ where
                 let txs = tx
                     .cursor(tables::BlockTransaction.erased())?
                     .walk(Some(body.base_tx_id.encode().to_vec()))
-                    .take(body.tx_amount.try_into()?)
+                    .take(body.tx_amount.try_into().unwrap())
                     .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 batch_txs += txs.len();

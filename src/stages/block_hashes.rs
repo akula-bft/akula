@@ -30,7 +30,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {

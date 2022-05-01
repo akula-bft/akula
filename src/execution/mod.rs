@@ -1,5 +1,9 @@
 use self::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer};
-use crate::{consensus, models::*, State};
+use crate::{
+    consensus::{self, DuoError},
+    models::*,
+    State,
+};
 
 pub mod address;
 pub mod analysis_cache;
@@ -14,7 +18,7 @@ pub fn execute_block<S: State>(
     config: &ChainSpec,
     header: &PartialHeader,
     block: &BlockBodyWithSenders,
-) -> anyhow::Result<Vec<Receipt>> {
+) -> Result<Vec<Receipt>, DuoError> {
     let mut analysis_cache = AnalysisCache::default();
     let mut engine = consensus::engine_factory(config.clone())?;
     let mut tracer = NoopTracer;

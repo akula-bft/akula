@@ -75,7 +75,7 @@ impl Ethash {
 }
 
 impl Consensus for Ethash {
-    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()> {
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError> {
         self.base.pre_validate_block(block, state)
     }
 
@@ -84,7 +84,7 @@ impl Consensus for Ethash {
         header: &BlockHeader,
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DuoError> {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;
 
@@ -158,9 +158,5 @@ impl Consensus for Ethash {
         });
 
         Ok(changes)
-    }
-
-    fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address> {
-        Ok(header.beneficiary)
     }
 }

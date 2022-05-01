@@ -1,6 +1,6 @@
 use crate::{
     accessors,
-    consensus::engine_factory,
+    consensus::{engine_factory, DuoError},
     execution::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
@@ -15,7 +15,7 @@ use crate::{
     stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*},
     upsert_storage_value, Buffer,
 };
-use anyhow::{format_err, Context};
+use anyhow::format_err;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::*;
@@ -41,7 +41,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
-) -> anyhow::Result<BlockNumber> {
+) -> Result<BlockNumber, StageError> {
     let mut buffer = Buffer::new(tx, None);
     let mut consensus_engine = engine_factory(chain_config.clone())?;
     let mut analysis_cache = AnalysisCache::default();
@@ -85,11 +85,15 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             &block_spec,
         )
         .execute_and_write_block()
-        .with_context(|| {
-            format!(
+        .map_err(|e| match e {
+            DuoError::Validation(error) => StageError::Validation {
+                block: block_number,
+                error,
+            },
+            DuoError::Internal(e) => StageError::Internal(e.context(format!(
                 "Failed to execute block #{} ({:?})",
                 block_number, block_hash
-            )
+            ))),
         })?;
 
         buffer.insert_receipts(block_number, receipts);
@@ -189,7 +193,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {

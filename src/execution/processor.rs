@@ -12,7 +12,6 @@ use crate::{
     trie::root_hash,
     State,
 };
-use anyhow::format_err;
 use std::cmp::min;
 use TransactionAction;
 
@@ -70,7 +69,7 @@ pub fn execute_transaction<'r, S>(
     cumulative_gas_used: &mut u64,
     message: &Message,
     sender: Address,
-) -> anyhow::Result<Receipt>
+) -> Result<Receipt, DuoError>
 where
     S: State,
 {
@@ -159,6 +158,18 @@ where
     })
 }
 
+#[derive(Debug)]
+pub enum TransactionValidationError {
+    Validation(BadTransactionError),
+    Internal(anyhow::Error),
+}
+
+impl From<anyhow::Error> for TransactionValidationError {
+    fn from(e: anyhow::Error) -> Self {
+        TransactionValidationError::Internal(e)
+    }
+}
+
 impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
     ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
 where
@@ -205,7 +216,7 @@ where
         &mut self,
         message: &Message,
         sender: Address,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), TransactionValidationError> {
         pre_validate_transaction(
             message,
             self.block_spec.params.chain_id,
@@ -213,17 +224,20 @@ where
         )
         .expect("Tx must have been prevalidated");
         if self.state.get_code_hash(sender)? != EMPTY_HASH {
-            return Err(ValidationError::SenderNoEOA { sender }.into());
+            return Err(TransactionValidationError::Validation(
+                BadTransactionError::SenderNoEOA { sender },
+            ));
         }
 
         let expected_nonce = self.state.get_nonce(sender)?;
         if expected_nonce != message.nonce() {
-            return Err(ValidationError::WrongNonce {
-                account: sender,
-                expected: expected_nonce,
-                got: message.nonce(),
-            }
-            .into());
+            return Err(TransactionValidationError::Validation(
+                BadTransactionError::WrongNonce {
+                    account: sender,
+                    expected: expected_nonce,
+                    got: message.nonce(),
+                },
+            ));
         }
 
         // https://github.com/ethereum/EIPs/pull/3594
@@ -237,12 +251,13 @@ where
         let available_balance =
             ethereum_types::U256::from(self.state.get_balance(sender)?.to_be_bytes()).into();
         if available_balance < v0 {
-            return Err(ValidationError::InsufficientFunds {
-                account: sender,
-                available: available_balance,
-                required: v0,
-            }
-            .into());
+            return Err(TransactionValidationError::Validation(
+                BadTransactionError::InsufficientFunds {
+                    account: sender,
+                    available: available_balance,
+                    required: v0,
+                },
+            ));
         }
 
         let available_gas = self.available_gas();
@@ -250,11 +265,12 @@ where
             // Corresponds to the final condition of Eq (58) in Yellow Paper Section 6.2 "Execution".
             // The sum of the transaction’s gas limit and the gas utilized in this block prior
             // must be no greater than the block’s gas limit.
-            return Err(ValidationError::BlockGasLimitExceeded {
-                available: available_gas,
-                required: message.gas_limit(),
-            }
-            .into());
+            return Err(TransactionValidationError::Validation(
+                BadTransactionError::BlockGasLimitExceeded {
+                    available: available_gas,
+                    required: message.gas_limit(),
+                },
+            ));
         }
 
         Ok(())
@@ -264,7 +280,7 @@ where
         &mut self,
         message: &Message,
         sender: Address,
-    ) -> anyhow::Result<Receipt> {
+    ) -> Result<Receipt, DuoError> {
         execute_transaction(
             &mut self.state,
             self.block_spec,
@@ -280,7 +296,7 @@ where
     pub fn execute_block_no_post_validation_while(
         &mut self,
         mut pred: impl FnMut(usize, &MessageWithSender) -> bool,
-    ) -> anyhow::Result<Vec<Receipt>> {
+    ) -> Result<Vec<Receipt>, DuoError> {
         let mut receipts = Vec::with_capacity(self.block.transactions.len());
 
         for (&address, &balance) in &self.block_spec.balance_changes {
@@ -293,7 +309,12 @@ where
             }
 
             self.validate_transaction(&txn.message, txn.sender)
-                .map_err(|err| format_err!("Failed to validate tx #{i}: {err}"))?;
+                .map_err(|e| match e {
+                    TransactionValidationError::Validation(error) => {
+                        DuoError::Validation(ValidationError::BadTransaction { index: i, error })
+                    }
+                    TransactionValidationError::Internal(e) => DuoError::Internal(e),
+                })?;
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
@@ -313,11 +334,11 @@ where
         Ok(receipts)
     }
 
-    pub fn execute_block_no_post_validation(&mut self) -> anyhow::Result<Vec<Receipt>> {
+    pub fn execute_block_no_post_validation(&mut self) -> Result<Vec<Receipt>, DuoError> {
         self.execute_block_no_post_validation_while(|_, _| true)
     }
 
-    pub fn execute_and_write_block(mut self) -> anyhow::Result<Vec<Receipt>> {
+    pub fn execute_and_write_block(mut self) -> Result<Vec<Receipt>, DuoError> {
         let receipts = self.execute_block_no_post_validation()?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);

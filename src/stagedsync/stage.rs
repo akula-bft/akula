@@ -1,5 +1,5 @@
 use super::stages::StageId;
-use crate::{kv::mdbx::*, models::*};
+use crate::{consensus::ValidationError, kv::mdbx::*, models::*};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use std::{fmt::Debug, time::Instant};
@@ -16,6 +16,7 @@ pub struct StageInput {
 pub struct UnwindInput {
     pub stage_progress: BlockNumber,
     pub unwind_to: BlockNumber,
+    pub bad_block: Option<BlockNumber>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -41,6 +42,22 @@ pub struct UnwindOutput {
     pub stage_progress: BlockNumber,
 }
 
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub enum StageError {
+    Validation {
+        block: BlockNumber,
+        error: ValidationError,
+    },
+    Internal(anyhow::Error),
+}
+
+impl From<anyhow::Error> for StageError {
+    fn from(e: anyhow::Error) -> Self {
+        StageError::Internal(e)
+    }
+}
+
 #[async_trait]
 #[auto_impl(&mut, Box)]
 pub trait Stage<'db, E>: Send + Sync + Debug
@@ -54,7 +71,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx;
     /// Called when the stage should be unwound. The unwind logic should be there.

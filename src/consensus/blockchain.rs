@@ -4,7 +4,7 @@ use crate::{
     models::*,
     state::*,
 };
-use anyhow::{format_err, Context};
+use anyhow::format_err;
 use std::{collections::HashMap, convert::TryFrom};
 
 #[derive(Debug)]
@@ -50,7 +50,7 @@ impl<'state> Blockchain<'state> {
         })
     }
 
-    pub fn insert_block(&mut self, block: Block, check_state_root: bool) -> anyhow::Result<()> {
+    pub fn insert_block(&mut self, block: Block, check_state_root: bool) -> Result<(), DuoError> {
         let parent = self
             .state
             .read_parent_header(&block.header)?
@@ -83,18 +83,24 @@ impl<'state> Blockchain<'state> {
 
         let mut num_of_executed_chain_blocks = 0;
         for x in &chain {
-            if let Err(e) = self
-                .execute_block(&x.inner, check_state_root)
-                .with_context(|| format!("Failed to execute block #{}", block_number))
-            {
-                if let Some(e) = e.downcast_ref::<ValidationError>() {
-                    self.bad_blocks.insert(hash, e.clone());
-                    self.unwind_last_changes(ancestor, ancestor.0 + num_of_executed_chain_blocks)?;
-                    self.re_execute_canonical_chain(ancestor, current_canonical_block)?;
-                }
+            self.execute_block(&x.inner, check_state_root)
+                .or_else(|e| {
+                    Err(match e {
+                        DuoError::Validation(e) => {
+                            self.bad_blocks.insert(hash, e.clone());
+                            self.unwind_last_changes(
+                                ancestor,
+                                ancestor.0 + num_of_executed_chain_blocks,
+                            )?;
+                            self.re_execute_canonical_chain(ancestor, current_canonical_block)?;
 
-                return Err(e);
-            }
+                            DuoError::Validation(e)
+                        }
+                        DuoError::Internal(e) => DuoError::Internal(
+                            e.context(format!("Failed to execute block #{}", block_number)),
+                        ),
+                    })
+                })?;
 
             num_of_executed_chain_blocks += 1;
         }
@@ -130,7 +136,7 @@ impl<'state> Blockchain<'state> {
         &mut self,
         block: &BlockWithSenders,
         check_state_root: bool,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DuoError> {
         let body = BlockBodyWithSenders {
             transactions: block.transactions.clone(),
             ommers: block.ommers.clone(),
@@ -171,7 +177,7 @@ impl<'state> Blockchain<'state> {
         &mut self,
         ancestor: impl Into<BlockNumber>,
         tip: impl Into<BlockNumber>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DuoError> {
         let ancestor = ancestor.into();
         let tip = tip.into();
         assert!(ancestor <= tip);
@@ -250,7 +256,7 @@ impl<'state> Blockchain<'state> {
         &self,
         header: &PartialHeader,
         hash: H256,
-    ) -> anyhow::Result<BlockNumber> {
+    ) -> Result<BlockNumber, DuoError> {
         if let Some(canonical_hash) = self.state.canonical_hash(header.number) {
             if canonical_hash == hash {
                 return Ok(header.number);

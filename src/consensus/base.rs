@@ -22,10 +22,11 @@ impl ConsensusEngineBase {
         header: &BlockHeader,
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DuoError> {
         if with_future_timestamp_check {
             let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)?
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
                 .as_secs();
             if header.timestamp > now {
                 return Err(ValidationError::FutureBlock {
@@ -181,7 +182,11 @@ impl ConsensusEngineBase {
         None
     }
 
-    pub fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()> {
+    pub fn pre_validate_block(
+        &self,
+        block: &Block,
+        state: &dyn BlockState,
+    ) -> Result<(), DuoError> {
         let expected_ommers_hash = Block::ommers_hash(&block.ommers);
         if block.header.ommers_hash != expected_ommers_hash {
             return Err(ValidationError::WrongOmmersHash {

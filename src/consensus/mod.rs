@@ -22,7 +22,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// See YP Sections 4.3.2 "Holistic Validity", 4.3.4 "Block Header Validity", and 11.1 "Ommer Validation".
     ///
     /// NOTE: Shouldn't be used for genesis block.
-    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> anyhow::Result<()>;
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError>;
 
     /// See YP Section 4.3.4 "Block Header Validity".
     ///
@@ -32,7 +32,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         header: &BlockHeader,
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), DuoError>;
 
     /// Finalizes block execution by applying changes in the state of accounts or of the consensus itself
     ///
@@ -45,7 +45,31 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See YP Section 11.3 "Reward Application".
-    fn get_beneficiary(&self, header: &BlockHeader) -> anyhow::Result<Address>;
+    fn get_beneficiary(&self, header: &BlockHeader) -> Address {
+        header.beneficiary
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum BadTransactionError {
+    SenderNoEOA {
+        sender: Address,
+    }, // EIP-3607: σ[S(T)]c ≠ KEC( () )
+    WrongNonce {
+        account: Address,
+        expected: u64,
+        got: u64,
+    }, // Tn ≠ σ[S(T)]n
+    InsufficientFunds {
+        account: Address,
+        available: U512,
+        required: U512,
+    }, // v0 > σ[S(T)]b
+    BlockGasLimitExceeded {
+        available: u64,
+        required: u64,
+    }, // Tg > BHl - l(BR)u
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -100,25 +124,12 @@ pub enum ValidationError {
 
     // See [YP] Section 6.2 "Execution", Eq (58)
     MissingSender, // S(T) = ∅
-    SenderNoEOA {
-        sender: Address,
-    }, // EIP-3607: σ[S(T)]c ≠ KEC( () )
-    WrongNonce {
-        account: Address,
-        expected: u64,
-        got: u64,
-    }, // Tn ≠ σ[S(T)]n
-    IntrinsicGas,  // g0 > Tg
-    InsufficientFunds {
-        account: Address,
-        available: U512,
-        required: U512,
-    }, // v0 > σ[S(T)]b
-    BlockGasLimitExceeded {
-        available: u64,
-        required: u64,
-    }, // Tg > BHl - l(BR)u
-    MaxFeeLessThanBase, // max_fee_per_gas < base_fee_per_gas (EIP-1559)
+    BadTransaction {
+        index: usize,
+        error: BadTransactionError,
+    },
+    IntrinsicGas,                 // g0 > Tg
+    MaxFeeLessThanBase,           // max_fee_per_gas < base_fee_per_gas (EIP-1559)
     MaxPriorityFeeGreaterThanMax, // max_priority_fee_per_gas > max_fee_per_gas (EIP-1559)
 
     // See [YP] Section 11.1 "Ommer Validation", Eq (157)
@@ -147,11 +158,10 @@ impl Display for ValidationError {
     }
 }
 
-impl std::error::Error for ValidationError {}
-
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Display, From)]
 pub enum DuoError {
-    Validation(Box<ValidationError>),
+    Validation(ValidationError),
     Internal(anyhow::Error),
 }
 

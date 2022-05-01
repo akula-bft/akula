@@ -431,12 +431,10 @@ where
 
     if let Some(expected) = expected_root {
         if expected != root {
-            return Err(DuoError::Validation(Box::new(
-                ValidationError::WrongStateRoot {
-                    expected,
-                    got: root,
-                },
-            )));
+            return Err(DuoError::Validation(ValidationError::WrongStateRoot {
+                expected,
+                got: root,
+            }));
         }
     }
 

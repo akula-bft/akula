@@ -30,7 +30,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {
@@ -55,7 +55,7 @@ where
             let walker_block_txs = tx
                 .cursor(tables::BlockTransaction)?
                 .walk(Some(base_tx_id))
-                .take(tx_amount.try_into()?);
+                .take(tx_amount.try_into().unwrap());
             pin!(walker_block_txs);
 
             while let Some((_, tx)) = walker_block_txs.next().transpose()? {
@@ -568,6 +568,7 @@ mod tests {
                 UnwindInput {
                     stage_progress: 2.into(),
                     unwind_to: 1.into(),
+                    bad_block: None,
                 },
             )
             .await

@@ -2,11 +2,10 @@ pub mod erigon;
 pub mod eth;
 pub mod net;
 pub mod otterscan;
-
 mod helpers {
     use crate::{
         accessors::chain,
-        consensus::engine_factory,
+        consensus::{engine_factory, DuoError},
         execution::{
             analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer,
         },
@@ -18,6 +17,16 @@ mod helpers {
     use anyhow::format_err;
     use ethereum_jsonrpc::types;
     use ethereum_types::U64;
+    use jsonrpsee::core::Error as RpcError;
+
+    impl From<DuoError> for RpcError {
+        fn from(e: DuoError) -> Self {
+            match e {
+                DuoError::Validation(e) => format_err!("validation error: {:?}", e).into(),
+                DuoError::Internal(e) => e.into(),
+            }
+        }
+    }
 
     pub fn resolve_block_number<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
@@ -147,7 +156,7 @@ mod helpers {
     pub fn get_receipts<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
         block_number: BlockNumber,
-    ) -> anyhow::Result<Vec<types::TransactionReceipt>> {
+    ) -> Result<Vec<types::TransactionReceipt>, DuoError> {
         let block_hash = chain::canonical_hash::read(txn, block_number)?
             .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
         let header = PartialHeader::from(

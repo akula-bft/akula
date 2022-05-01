@@ -728,10 +728,12 @@ fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
                 if let Err(e) = pre_validate_transaction(txn, config.params.chain_id, None) {
                     match t {
                         TransactionTestResult::Correct { hash, sender } => {
-                            return Err(anyhow::Error::new(e).context(format!(
-                                "Unexpected validation error (tx hash {:?}, sender {:?})",
-                                hash, sender
-                            )));
+                            return Err(format_err!(
+                                "Unexpected validation error (tx hash {:?}, sender {:?}): {:?}",
+                                hash,
+                                sender,
+                                e
+                            ));
                         }
                         TransactionTestResult::Incorrect { .. } => {
                             continue;

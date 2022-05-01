@@ -3,14 +3,14 @@ use crate::{
     kv::{mdbx::*, tables},
     models::*,
     stagedsync::{
-        stage::{ExecOutput, Stage, StageInput, UnwindInput, UnwindOutput},
+        stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
         stages::*,
     },
     stages::stage_util::should_do_clean_promotion,
     trie::{increment_intermediate_hashes, regenerate_intermediate_hashes},
     StageId,
 };
-use anyhow::{format_err, Context};
+use anyhow::format_err;
 use async_trait::async_trait;
 use std::{cmp, sync::Arc};
 use tempfile::TempDir;
@@ -45,7 +45,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {
@@ -79,30 +79,24 @@ where
             )? {
                 debug!("Regenerating intermediate hashes");
                 regenerate_intermediate_hashes(tx, self.temp_dir.as_ref(), Some(block_state_root))
-                    .with_context(|| "Failed to generate interhashes")?
             } else {
                 debug!("Incrementing intermediate hashes");
-                let res = increment_intermediate_hashes(
+                increment_intermediate_hashes(
                     tx,
                     self.temp_dir.as_ref(),
                     past_progress,
                     Some(block_state_root),
-                );
-                if let Err(DuoError::Validation(_)) = &res {
-                    warn!(
-                        "Failed to increment intermediate hashes: {res:?}. Attempting regenerate."
-                    );
-
-                    regenerate_intermediate_hashes(
-                        tx,
-                        self.temp_dir.as_ref(),
-                        Some(block_state_root),
-                    )
-                    .with_context(|| "Failed to generate interhashes")?
-                } else {
-                    res.with_context(|| "Failed to increment interhashes")?
+                )
+            }
+            .map_err(|e| match e {
+                DuoError::Validation(error) => StageError::Validation {
+                    block: max_block,
+                    error,
+                },
+                DuoError::Internal(e) => {
+                    StageError::Internal(e.context("state root computation failure"))
                 }
-            };
+            })?;
 
             info!("Block #{} state root OK: {:?}", max_block, trie_root)
         };

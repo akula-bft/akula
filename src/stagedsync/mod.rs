@@ -117,6 +117,7 @@ where
 
         let mut minimum_progress = None;
         let mut maximum_progress = None;
+        let mut bad_block = None;
         let mut unwind_to = None;
         'run_loop: loop {
             self.current_stage_sender.send(None).unwrap();
@@ -146,6 +147,7 @@ where
                                         UnwindInput {
                                             stage_progress,
                                             unwind_to: to,
+                                            bad_block,
                                         },
                                     )
                                     .await?;
@@ -179,6 +181,7 @@ where
                     res?;
                 }
 
+                bad_block = None;
                 tx.commit()?;
             } else {
                 // Now that we're done with unwind, let's roll.
@@ -206,7 +209,7 @@ where
 
                         let stage_id = stage.id();
 
-                        let exec_output: anyhow::Result<_> = async {
+                        let exec_output: Result<_, StageError> = async {
                             if restarted {
                                 debug!(
                                     "Invoking stage @ {}",
@@ -305,12 +308,12 @@ where
                         .await;
 
                         // Check how stage run went.
-                        match exec_output? {
-                            stage::ExecOutput::Progress {
+                        match exec_output {
+                            Ok(stage::ExecOutput::Progress {
                                 stage_progress,
                                 done,
                                 reached_tip,
-                            } => {
+                            }) => {
                                 stage_id.save_progress(&tx, stage_progress)?;
 
                                 macro_rules! record_outliers {
@@ -350,12 +353,21 @@ where
 
                                 restarted = true
                             }
-                            stage::ExecOutput::Unwind { unwind_to: to } => {
+                            Ok(stage::ExecOutput::Unwind { unwind_to: to }) => {
                                 // Stage has asked us to unwind.
                                 // Set unwind point and restart the whole staged sync loop.
                                 // Current DB transaction will be aborted.
                                 unwind_to = Some(to);
                                 continue 'run_loop;
+                            }
+                            Err(StageError::Validation { block, error }) => {
+                                warn!("Block #{block}, failed validation: {error:?}");
+                                bad_block = Some(block);
+                                unwind_to = Some(prev_progress.unwrap_or_default());
+                                continue 'run_loop;
+                            }
+                            Err(StageError::Internal(e)) => {
+                                return Err(e);
                             }
                         }
                     };

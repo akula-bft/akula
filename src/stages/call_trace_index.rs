@@ -40,7 +40,7 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {
@@ -394,6 +394,7 @@ mod tests {
                 UnwindInput {
                     stage_progress: BlockNumber(20),
                     unwind_to: BlockNumber(10),
+                    bad_block: None,
                 },
             )
             .await

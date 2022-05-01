@@ -43,11 +43,11 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {
-        execute_index(
+        Ok(execute_index(
             tx,
             input,
             &*self.temp_dir,
@@ -55,7 +55,7 @@ where
             tables::AccountChangeSet,
             tables::AccountHistory,
             |block_number, AccountChange { address, .. }| (block_number, address),
-        )
+        )?)
     }
 
     async fn unwind<'tx>(
@@ -113,11 +113,11 @@ where
         &mut self,
         tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: StageInput,
-    ) -> anyhow::Result<ExecOutput>
+    ) -> Result<ExecOutput, StageError>
     where
         'db: 'tx,
     {
-        execute_index(
+        Ok(execute_index(
             tx,
             input,
             &*self.temp_dir,
@@ -129,7 +129,7 @@ where
                  address,
              },
              StorageChange { location, .. }| (block_number, (address, location)),
-        )
+        )?)
     }
 
     async fn unwind<'tx>(
