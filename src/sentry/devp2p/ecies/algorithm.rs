@@ -8,7 +8,7 @@ use crate::{
     },
 };
 use aes::{cipher::StreamCipher, Aes128, Aes256};
-use anyhow::Context;
+use anyhow::{format_err, Context};
 use byteorder::{BigEndian, ByteOrder, ReadBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
 use ctr::Ctr64BE;
@@ -84,6 +84,16 @@ pub struct ECIES {
     remote_init_msg: Option<Bytes>,
 
     body_size: Option<usize>,
+}
+
+fn split_at_mut<T>(arr: &mut [T], mid: usize) -> Result<(&mut [T], &mut [T]), ECIESError> {
+    if mid > arr.len() {
+        return Err(ECIESError::Other(format_err!(
+            "too short: {mid} > {}",
+            arr.len()
+        )));
+    }
+    Ok(arr.split_at_mut(mid))
 }
 
 impl ECIES {
@@ -206,12 +216,12 @@ impl ECIES {
     }
 
     fn decrypt_message<'a>(&self, data: &'a mut [u8]) -> Result<&'a mut [u8], ECIESError> {
-        let (auth_data, encrypted) = data.split_at_mut(2);
-        let (pubkey_bytes, encrypted) = encrypted.split_at_mut(65);
+        let (auth_data, encrypted) = split_at_mut(data, 2)?;
+        let (pubkey_bytes, encrypted) = split_at_mut(encrypted, 65)?;
         let public_key = PublicKey::from_slice(pubkey_bytes)
             .with_context(|| format!("bad public key {}", hex::encode(pubkey_bytes)))?;
-        let (data_iv, tag_bytes) = encrypted.split_at_mut(encrypted.len() - 32);
-        let (iv, encrypted_data) = data_iv.split_at_mut(16);
+        let (data_iv, tag_bytes) = split_at_mut(encrypted, encrypted.len() - 32)?;
+        let (iv, encrypted_data) = split_at_mut(data_iv, 16)?;
         let tag = H256::from_slice(tag_bytes);
 
         let x = ecdh_x(&public_key, &self.secret_key);
@@ -485,7 +495,7 @@ impl ECIES {
     }
 
     pub fn read_header(&mut self, data: &mut [u8]) -> Result<usize, ECIESError> {
-        let (header_bytes, mac_bytes) = data.split_at_mut(16);
+        let (header_bytes, mac_bytes) = split_at_mut(data, 16)?;
         let header = HeaderBytes::from_mut_slice(header_bytes);
         let mac = H128::from_slice(&mac_bytes[..16]);
 
@@ -544,7 +554,7 @@ impl ECIES {
     }
 
     pub fn read_body<'a>(&mut self, data: &'a mut [u8]) -> Result<&'a mut [u8], ECIESError> {
-        let (body, mac_bytes) = data.split_at_mut(data.len() - 16);
+        let (body, mac_bytes) = split_at_mut(data, data.len() - 16)?;
         let mac = H128::from_slice(mac_bytes);
         self.ingress_mac.as_mut().unwrap().update_body(body);
         let check_mac = self.ingress_mac.as_mut().unwrap().digest();
@@ -556,7 +566,7 @@ impl ECIES {
         self.body_size = None;
         let ret = body;
         self.ingress_aes.as_mut().unwrap().apply_keystream(ret);
-        Ok(ret.split_at_mut(size).0)
+        Ok(split_at_mut(ret, size)?.0)
     }
 }
 
