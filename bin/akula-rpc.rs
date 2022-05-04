@@ -11,7 +11,7 @@ use clap::Parser;
 use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{future::pending, net::SocketAddr, sync::Arc};
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::{prelude::*};
 
 #[derive(Parser)]
 #[clap(name = "Akula RPC", about = "RPC server for Akula")]
