@@ -5,12 +5,16 @@ use super::{
 };
 use crate::{
     models::{BlockNumber, ChainConfig, H256},
-    p2p::types::{BlockId, GetBlockHeaders, HeaderRequest, Message, MessageId, PeerFilter, Status},
+    p2p::types::{
+        BlockId, GetBlockBodies, GetBlockHeaders, HeaderRequest, Message, MessageId, PeerFilter,
+        Status,
+    },
 };
 use bytes::{BufMut, BytesMut};
 use ethereum_interfaces::{sentry as grpc_sentry, sentry::sentry_client::SentryClient};
 use fastrlp::*;
 use futures::stream::FuturesUnordered;
+use hashbrown::HashSet;
 use hashlink::LruCache;
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
@@ -50,18 +54,22 @@ impl Node {
 }
 
 impl Node {
+    const SYNC_INTERVAL: Duration = Duration::from_secs(5);
+
     /// Start node synchronization.
     pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
         let mut tasks = JoinSet::new();
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(128);
 
+        let requested = Arc::new(Mutex::new(LruCache::new(128)));
+
         let _ = tasks.spawn({
             let handler = self.clone();
+            let requested = requested.clone();
+
             async move {
                 let mut stream = handler.sync_stream().await;
-                let mut requested = LruCache::new(128);
-
                 loop {
                     if let Some(msg) = stream.next().await {
                         let (block_number, _) = *handler.chain_tip.read();
@@ -74,12 +82,12 @@ impl Node {
                                         let id = thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::PeerId(peer_id), b.hash, 0u64))
                                             .await?;
-                                        requested.insert(id, ());
+                                        requested.lock().insert(id, ());
                                     }
                                 }
                             }
                             Message::BlockHeaders(ref headers)
-                                if requested.remove(&headers.request_id).is_some()
+                                if requested.lock().remove(&headers.request_id).is_some()
                                     && headers.headers.len() == 1 =>
                             {
                                 let header = &headers.headers[0];
@@ -101,7 +109,7 @@ impl Node {
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::All, hash, skip)).await?;
-                                        requested.insert(id, ());
+                                        requested.lock().insert(id, ());
                                     }
                                 }
                             }
@@ -126,7 +134,7 @@ impl Node {
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::All, hash, skip)).await?;
-                                        requested.insert(id, ());
+                                        requested.lock().insert(id, ());
                                     }
                                 }
                             }
@@ -147,7 +155,7 @@ impl Node {
                         request_id,
                         params: HeaderRequest {
                             start: BlockId::Hash(hash),
-                            limit: skip,
+                            limit: 1,
                             reverse: false,
                             skip,
                         }
@@ -156,6 +164,36 @@ impl Node {
                     let _ = handler.send_message(msg, filter).await;
                 }
 
+                Ok::<(), anyhow::Error>(())
+            }
+        });
+
+        let _ = tasks.spawn({
+            let handler = self.clone();
+            async move {
+                loop {
+                    let (block_number, _) = *handler.chain_tip.read();
+
+                    for skip in 1..4 {
+                        let request_id = rand::thread_rng().gen::<u64>();
+                        requested.lock().insert(request_id, ());
+
+                        let msg = Message::GetBlockHeaders(GetBlockHeaders {
+                            request_id,
+                            params: HeaderRequest {
+                                start: BlockId::Number(block_number),
+                                limit: 1,
+                                reverse: false,
+                                skip,
+                            }
+                            .into(),
+                        });
+
+                        let _ = handler.send_message(msg, PeerFilter::All).await;
+                    }
+
+                    tokio::time::sleep(Self::SYNC_INTERVAL).await;
+                }
                 Ok::<(), anyhow::Error>(())
             }
         });
@@ -212,17 +250,17 @@ impl Node {
         Ok(())
     }
 
-    pub async fn send_many_body_requests<'a, T>(self: Arc<Self>, requests: T) -> anyhow::Result<()>
+    pub async fn send_many_body_requests<T>(self: Arc<Self>, requests: T) -> anyhow::Result<()>
     where
-        T: Iterator<Item = &'a [H256]>,
+        T: IntoIterator<Item = Vec<H256>>,
     {
         let _ = requests
             .into_iter()
             .map(|chunk| {
                 let handler = self.clone();
-                async move {
-                    let _ = handler.send_block_request(chunk).await;
-                }
+                tokio::spawn(async move {
+                    let _ = handler.send_message(chunk.into(), PeerFilter::All).await;
+                })
             })
             .collect::<FuturesUnordered<_>>()
             .map(|_| ())

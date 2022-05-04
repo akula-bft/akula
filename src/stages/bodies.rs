@@ -110,7 +110,6 @@ impl BodyDownload {
 
         let mut verified = HashMap::with_capacity(requests.len());
         let mut unverified_buf = Vec::with_capacity(Self::STEP_UPPER_BOUND);
-        let mut requests_buf = Vec::with_capacity(Self::STEP_UPPER_BOUND);
 
         while !requests.is_empty() {
             tokio::select! {
@@ -120,16 +119,14 @@ impl BodyDownload {
                     }
                 }
                 _ = ticker.tick() => {
-                    requests_buf.clear();
-                    requests
+                    let r = requests
                         .iter()
                         .map(|(_, (_, h))| *h)
-                        .take(Self::STEP_UPPER_BOUND)
-                        .collect_into(&mut requests_buf);
+                        .take(Self::STEP_UPPER_BOUND).collect::<Vec<_>>();
 
                     self.node
                         .clone()
-                        .send_many_body_requests(requests_buf.chunks(Self::REQUEST_UPPER_BOUND))
+                        .send_many_body_requests(r.chunks(Self::REQUEST_UPPER_BOUND).map(ToOwned::to_owned))
                         .await?;
 
                     if unverified_buf.len() >= Self::STEP_UPPER_BOUND
