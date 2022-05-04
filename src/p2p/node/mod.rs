@@ -4,4 +4,4 @@ mod builder;
 mod node;
 mod stream;
 
-pub use self::{builder::*, node::*};
+pub use self::{builder::*, node::*, stream::NodeStream};
