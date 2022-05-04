@@ -1,34 +1,32 @@
 use crate::{
     consensus::Consensus,
     kv::{mdbx::MdbxTransaction, tables},
-    models::*,
-    p2p::{peer::*, types::Message},
-    stagedsync::{stage::*, stages::BODIES},
+    models::{
+        Block, BlockBody, BlockNumber, BodyForStorage, TxIndex, EMPTY_LIST_HASH, EMPTY_ROOT, H256,
+    },
+    p2p::{node::Node, types::Message},
+    stagedsync::{
+        stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
+        stages::BODIES,
+    },
     StageId,
 };
 use async_trait::async_trait;
-use futures::stream::FuturesUnordered;
 use hashbrown::HashMap;
 use mdbx::{EnvironmentKind, RW};
-use parking_lot::RwLock;
 use rayon::iter::{ParallelDrainRange, ParallelIterator};
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 use tokio_stream::StreamExt;
 use tracing::*;
 
-const REQUEST_INTERVAL: Duration = Duration::from_secs(30);
+const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub struct BodyDownload {
-    consensus: Arc<dyn Consensus>,
-    /// Peer is a interface for interacting with p2p.
-    peer: Arc<Peer>,
+    /// P2P Interface.
+    pub node: Arc<Node>,
+    /// Consensus engine used.
+    pub consensus: Arc<dyn Consensus>,
 }
 
 #[async_trait]
@@ -52,9 +50,7 @@ where
         let starting_block = prev_progress;
         let target = input.previous_stage.map(|(_, v)| v).unwrap();
 
-        let mut stream = self.peer.recv_bodies().await?;
-        self.collect_bodies(&mut stream, txn, starting_block, target)
-            .await?;
+        self.download_bodies(txn, starting_block, target).await?;
 
         Ok(ExecOutput::Progress {
             stage_progress: target,
@@ -98,117 +94,62 @@ where
 }
 
 impl BodyDownload {
-    pub fn new(consensus: Arc<dyn Consensus>, peer: Arc<Peer>) -> anyhow::Result<Self> {
-        Ok(Self { consensus, peer })
-    }
+    const STEP_UPPER_BOUND: usize = 1 << 15;
+    const REQUEST_UPPER_BOUND: usize = 1 << 6;
 
-    async fn collect_bodies<E: EnvironmentKind>(
-        &mut self,
-        stream: &mut InboundStream,
+    async fn download_bodies<E: EnvironmentKind>(
+        &self,
         txn: &mut MdbxTransaction<'_, RW, E>,
         mut starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<()> {
-        let requests = Arc::new(RwLock::new(self.prepare_requests(
-            txn,
-            starting_block,
-            target,
-        )?));
-        let done = Arc::new(AtomicBool::new(false));
-        let handler = self.peer.clone();
+        let mut requests = Self::prepare_requests(txn, starting_block, target)?;
 
-        tokio::spawn({
-            let done = done.clone();
-            let handler = handler.clone();
-            let requests = requests.clone();
-            async move {
-                while !done.load(Ordering::SeqCst) {
-                    let left_requests = requests
-                        .read()
+        let mut stream = self.node.stream_bodies().await;
+        let mut ticker = tokio::time::interval(REQUEST_INTERVAL);
+
+        let mut verified = HashMap::with_capacity(requests.len());
+        let mut unverified_buf = Vec::with_capacity(Self::STEP_UPPER_BOUND);
+        let mut requests_buf = Vec::with_capacity(Self::STEP_UPPER_BOUND);
+
+        while !requests.is_empty() {
+            tokio::select! {
+                Some(msg) = stream.next() => {
+                    if let Message::BlockBodies(bodies) = msg.msg {
+                        unverified_buf.extend(bodies.bodies);
+                    }
+                }
+                _ = ticker.tick() => {
+                    requests_buf.clear();
+                    requests
                         .iter()
-                        .map(|(_, (_, hash))| *hash)
-                        .collect::<Vec<_>>();
-                    info!("Sending {} block bodies requests", left_requests.len());
-                    if left_requests.is_empty() {
-                        done.store(true, Ordering::SeqCst);
-                        break;
-                    }
+                        .map(|(_, (_, h))| *h)
+                        .take(Self::STEP_UPPER_BOUND)
+                        .collect_into(&mut requests_buf);
 
-                    if left_requests.len() < 64 {
-                        while !done.load(Ordering::SeqCst) {
-                            let _ = handler.send_body_request(&left_requests).await;
-                            tokio::time::sleep(Duration::from_millis(100)).await;
+                    self.node
+                        .clone()
+                        .send_many_body_requests(requests_buf.chunks(Self::REQUEST_UPPER_BOUND))
+                        .await?;
+
+                    if unverified_buf.len() >= Self::STEP_UPPER_BOUND
+                        || unverified_buf.len() >= requests.len()
+                    {
+                        for (key, value) in unverified_buf
+                            .par_drain(..)
+                            .map(|body| ((body.ommers_hash(), body.transactions_root()), body))
+                            .collect::<Vec<_>>()
+                        {
+                            if let Some((number, hash)) = requests.remove(&key) {
+                                verified.insert(number, (hash, value));
+                            }
                         }
-                        break;
-                    } else {
-                        let _ = left_requests
-                            .chunks(64)
-                            .map(|chunk| {
-                                let handler = handler.clone();
-                                async move { handler.send_body_request(chunk).await }
-                            })
-                            .collect::<FuturesUnordered<_>>()
-                            .map(|_| ())
-                            .collect::<()>()
-                            .await;
                     }
-
-                    // Check if we're done before we go sleep.
-                    if done.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    tokio::time::sleep(REQUEST_INTERVAL).await;
-                }
+                },
             }
-            .instrument(span!(Level::DEBUG, "body downloader requester"))
-        });
+        }
 
-        let mut bodies = {
-            let done = done.clone();
-            let requests = requests.clone();
-            let mut bodies = HashMap::with_capacity(requests.read().len());
-            while !done.load(Ordering::SeqCst) {
-                let requests_length = requests.read().len();
-                if requests_length == 0 {
-                    done.store(true, Ordering::SeqCst);
-                    break;
-                };
-                // No floting point version of: requests_length * 1.25 / 64.
-                let batch_size = match requests_length * 5 / 256 {
-                    v if v <= 2 => 8,
-                    v => v,
-                };
-
-                let mut pending_bodies = stream
-                    .filter_map(|msg| match msg.msg {
-                        Message::BlockBodies(msg) => Some(msg.bodies),
-                        _ => None,
-                    })
-                    .take(batch_size)
-                    .collect::<Vec<_>>()
-                    .await;
-
-                let mut requests = requests.write();
-                for (key, value) in pending_bodies
-                    .par_drain(..)
-                    .flatten()
-                    .map(|body| ((body.ommers_hash(), body.transactions_root()), body))
-                    .collect::<Vec<_>>()
-                {
-                    if let Some((number, hash)) = requests.remove(&key) {
-                        bodies.insert(number, (hash, value));
-                    }
-                }
-                if requests.is_empty() {
-                    done.store(true, Ordering::SeqCst);
-                    break;
-                }
-                drop(requests);
-            }
-            bodies
-        };
-
-        info!("Saving {} block bodies", bodies.len());
+        info!("Saving {} block bodies", verified.len());
 
         let mut cursor = txn.cursor(tables::BlockBody)?;
         let mut header_cur = txn.cursor(tables::Header)?;
@@ -224,7 +165,7 @@ impl BodyDownload {
             starting_block += 1u8
         };
         for block_number in starting_block..=target {
-            let (hash, body) = bodies.remove(&block_number).unwrap_or_else(|| {
+            let (hash, body) = verified.remove(&block_number).unwrap_or_else(|| {
                 let (_, hash) = hash_cur.seek_exact(block_number).unwrap().unwrap();
                 (hash, BlockBody::default())
             });
@@ -259,29 +200,33 @@ impl BodyDownload {
         Ok(())
     }
 
-    pub fn prepare_requests<E: EnvironmentKind>(
-        &mut self,
+    fn prepare_requests<E: EnvironmentKind>(
         txn: &mut MdbxTransaction<'_, RW, E>,
         starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<HashMap<(H256, H256), (BlockNumber, H256)>> {
-        Ok(txn
+        assert!(target > starting_block);
+
+        let cap = (target.0 - starting_block.0) as usize;
+        let mut map = HashMap::with_capacity(cap);
+
+        let mut canonical_cursor = txn
             .cursor(tables::CanonicalHeader)?
-            .walk(Some(starting_block))
-            .filter_map(Result::ok)
-            .filter_map(Option::Some)
-            .map_while(|(number, hash)| {
-                (number <= target).then(|| {
-                    let header = txn.get(tables::Header, (number, hash)).unwrap().unwrap();
-                    (
-                        (header.ommers_hash, header.transactions_root),
-                        (number, hash),
-                    )
-                })
-            })
-            .filter(|&((ommers_hash, transactions_root), _)| {
-                !(ommers_hash == EMPTY_LIST_HASH && transactions_root == EMPTY_ROOT)
-            })
-            .collect::<HashMap<_, _>>())
+            .walk(Some(starting_block));
+        let mut header_cursor = txn.cursor(tables::Header)?;
+
+        while let Some(Ok((block_number, hash))) = canonical_cursor.next() {
+            let (_, header) = header_cursor.seek_exact((block_number, hash))?.unwrap();
+            if header.ommers_hash == EMPTY_LIST_HASH && header.transactions_root == EMPTY_ROOT {
+                continue;
+            }
+
+            map.insert(
+                (header.ommers_hash, header.transactions_root),
+                (block_number, hash),
+            );
+        }
+
+        Ok(map)
     }
 }

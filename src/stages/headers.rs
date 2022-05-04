@@ -1,15 +1,26 @@
 use crate::{
     consensus::Consensus,
-    kv::{mdbx::*, tables},
-    models::{BlockHeader, BlockNumber, ChainConfig, H256},
-    p2p::{peer::*, types::*},
-    stagedsync::{stage::*, stages::HEADERS},
+    kv::{mdbx::MdbxTransaction, tables},
+    models::{BlockHeader, BlockNumber, H256},
+    p2p::{
+        node::Node,
+        types::{BlockId, HeaderRequest, Message, Status},
+    },
+    stagedsync::{
+        stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
+        stages::HEADERS,
+    },
 };
+
 use async_trait::async_trait;
-use futures::{future, stream::FuturesUnordered, FutureExt, StreamExt};
-use hashbrown::{HashMap, HashSet};
-use hashlink::{LinkedHashSet, LruCache};
-use rayon::prelude::*;
+use hashbrown::HashMap;
+use mdbx::{EnvironmentKind, RW};
+use rayon::{
+    iter::{
+        IndexedParallelIterator, IntoParallelRefIterator, ParallelDrainRange, ParallelIterator,
+    },
+    slice::ParallelSliceMut,
+};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -17,27 +28,19 @@ use std::{
     },
     time::Duration,
 };
-use tracing::{debug, info};
+use tokio_stream::StreamExt;
+use tracing::*;
+
+const HEADERS_UPPER_BOUND: usize = 1 << 10;
+const STAGE_UPPER_BOUND: usize = 3 << 15;
+const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub struct HeaderDownload {
-    /// Consensus engine used
-    consensus: Arc<dyn Consensus>,
-    /// Peer is an interface for interacting with P2P network.
-    pub peer: Arc<Peer>,
-    /// Height is a HeaderDownloader highest seen height.
-    height: BlockNumber,
-    /// Marker is a HeaderDownloader highest seen hash.
-    marker: H256,
-    /// seen_announces is a set of seen announced blocks/headers.
-    seen_announces: LruCache<H256, ()>,
-    /// parents_table is a mapping from block hash to its parent hash.
-    parents_table: LruCache<H256, H256>,
-    /// block_table is a mapping from block hash to its block number and optionally total difficulty.
-    blocks_table: LruCache<H256, (BlockNumber, Option<u128>)>,
-    pending_requests: HashMap<BlockNumber, HeaderRequest>,
+    pub node: Arc<Node>,
+    /// Consensus engine used.
+    pub consensus: Arc<dyn Consensus>,
 }
-
 #[async_trait]
 impl<'db, E> Stage<'db, E> for HeaderDownload
 where
@@ -56,68 +59,41 @@ where
         'db: 'tx,
     {
         let prev_progress = input.stage_progress.map(|v| v + 1u8).unwrap_or_default();
-        match prev_progress {
-            BlockNumber(0) => {
-                self.peer
-                    .update_head(
-                        BlockNumber(0),
-                        self.peer.chain_config.genesis_hash,
-                        self.peer.chain_config.chain_spec.genesis.seal.difficulty(),
-                    )
-                    .await?;
-            }
-            height => {
-                let hash = txn
-                    .get(tables::CanonicalHeader, height - 1u8)
-                    .unwrap()
-                    .unwrap();
-                let td = txn
-                    .get(tables::HeadersTotalDifficulty, (height - 1u8, hash))
-                    .unwrap()
-                    .unwrap();
-                self.peer.update_head(height - 1u8, hash, td).await?;
-            }
-        };
-
+        if prev_progress != 0 {
+            self.update_head(txn, prev_progress).await?;
+        }
         let mut starting_block = prev_progress;
-        let (target, reached_tip) = if *txn.get(tables::LastHeader, ())?.unwrap().0
-            - *starting_block
-            <= BATCH_SIZE as u64
-        {
-            let mut stream = self.peer.recv().await?;
-
-            let (tip_block_number, tip_hash) = self.evaluate_chain_tip(&mut stream).await?;
-
-            if *tip_block_number - *starting_block <= BATCH_SIZE as u64 {
-                (tip_block_number, true)
-            } else {
-                txn.set(tables::LastHeader, (), (tip_block_number, tip_hash))?;
-                (BlockNumber(*starting_block + BATCH_SIZE as u64), false)
+        let current_chain_tip = loop {
+            let n = self.node.chain_tip.read().0;
+            if n > starting_block {
+                break n;
             }
-        } else {
-            (starting_block + BlockNumber(BATCH_SIZE as u64), false)
+            tokio::time::sleep(Duration::from_secs(10)).await;
         };
 
-        let mut stream = self.peer.recv_headers().await?;
+        let (target_block, reached_tip) =
+            if starting_block + STAGE_UPPER_BOUND as u64 > current_chain_tip {
+                (current_chain_tip, true)
+            } else {
+                (starting_block + STAGE_UPPER_BOUND as u64, false)
+            };
 
-        let alloc = *(target - starting_block) as usize;
-        let mut headers = Vec::<BlockHeader>::with_capacity(alloc);
-        while headers.len() < alloc {
+        let headers_cap = (target_block.0 - starting_block.0) as usize;
+        let mut headers: Vec<(H256, BlockHeader)> = Vec::with_capacity(headers_cap);
+
+        while headers.len() < headers_cap {
             if !headers.is_empty() {
-                (starting_block, _) = headers
-                    .last()
-                    .map(|header| (header.number, header.hash()))
-                    .unwrap();
+                starting_block = headers.last().unwrap().1.number;
             }
-            headers.extend(
-                self.collect_headers(&mut stream, starting_block, target)
-                    .await?,
-            );
+
+            let requests = Self::prepare_requests(starting_block, target_block);
+            headers.extend(self.download_headers(requests).await?);
         }
 
-        insert(txn, &mut headers)?;
+        Self::insert(txn, headers)?;
+
         Ok(ExecOutput::Progress {
-            stage_progress: target - 1u8,
+            stage_progress: target_block - 1u8,
             done: true,
             reached_tip,
         })
@@ -147,308 +123,84 @@ where
 }
 
 impl HeaderDownload {
-    pub fn new<T, E>(
-        conn: T,
-        consensus: Arc<dyn Consensus>,
-        chain_config: ChainConfig,
-        txn: MdbxTransaction<'_, RO, E>,
-    ) -> anyhow::Result<Self>
-    where
-        T: Into<SentryPool>,
-        E: EnvironmentKind,
-    {
-        let (height, hash) = txn
-            .cursor(tables::CanonicalHeader)?
-            .last()?
-            .unwrap_or((BlockNumber(0), chain_config.genesis_hash));
-        let total_difficulty = txn
-            .get(tables::HeadersTotalDifficulty, (height, hash))?
-            .unwrap_or_else(|| chain_config.chain_spec.genesis.seal.difficulty())
-            .to_be_bytes()
-            .into();
-        Ok(Self {
-            consensus,
-            peer: Arc::new(Peer::new(
-                conn,
-                chain_config,
-                Status {
-                    height,
-                    hash,
-                    total_difficulty,
-                },
-            )),
-            height,
-            marker: hash,
-            seen_announces: LruCache::new(128),
-            parents_table: LruCache::new(8),
-            blocks_table: LruCache::new(128),
-            pending_requests: Default::default(),
-        })
-    }
+    pub async fn download_headers(
+        &self,
+        mut requests: HashMap<BlockNumber, HeaderRequest>,
+    ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
+        let mut headers = Vec::with_capacity(requests.len() * HEADERS_UPPER_BOUND);
+        let mut ticker = tokio::time::interval(REQUEST_INTERVAL);
 
-    #[inline(always)]
-    fn prevalidate_block_headers(&self, headers: &[BlockHeader]) -> bool {
-        !headers.is_empty()
-            && self.pending_requests.contains_key(&headers[0].number)
-            && (headers.len() == CHUNK_SIZE
-                || headers.len()
-                    == self.pending_requests.get(&headers[0].number).unwrap().limit as usize)
-            && (headers.last().unwrap().number + 1u8 == headers[0].number + CHUNK_SIZE
-                || headers.last().unwrap().number + 1u8
-                    == headers[0].number
-                        + self.pending_requests.get(&headers[0].number).unwrap().limit)
-    }
+        let mut stream = self.node.stream_headers().await;
 
-    fn prepare_requests(&mut self, starting_block: BlockNumber, target: BlockNumber) {
-        self.pending_requests = (starting_block..target)
-            .step_by(CHUNK_SIZE)
-            .map(|block_number| {
-                debug!(
-                    "Preparing header requests for {}->{}",
-                    block_number,
-                    block_number + CHUNK_SIZE
-                );
-                (
-                    block_number,
-                    HeaderRequest {
-                        start: block_number.into(),
-                        limit: (block_number + CHUNK_SIZE < target)
-                            .then(|| CHUNK_SIZE as u64)
-                            .unwrap_or(*target - *block_number),
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>();
-    }
-    async fn collect_headers(
-        &mut self,
-        stream: &mut InboundStream,
-        starting_block: BlockNumber,
-        target: BlockNumber,
-    ) -> anyhow::Result<Vec<BlockHeader>> {
-        self.prepare_requests(starting_block, target);
-
-        let cap = (*target - *starting_block) as usize;
-        let mut headers = Vec::<BlockHeader>::with_capacity(cap);
-
-        let mut ticker = tokio::time::interval(Duration::from_secs(15));
-
-        while !self.pending_requests.is_empty() {
+        while !requests.is_empty() {
             let mut message_processed = false;
+
             tokio::select! {
-                msg = stream.next() => {
-                    if let Some(msg) = msg {
-                        message_processed = true;
-                        if let Message::BlockHeaders(msg) = msg.msg {
-                            if self.prevalidate_block_headers(&msg.headers) {
-                                let _v = self.pending_requests.remove(&msg.headers[0].number);
-                                debug_assert!(_v.is_some());
-                                info!(
-                                    "Received block headers for {}->{}, requests left={}",
-                                    msg.headers[0].number,
-                                    msg.headers.last().unwrap().number,
-                                    self.pending_requests.len()
-                                );
-                                headers.extend(msg.headers.into_iter());
-                            }
+                Some(msg) = stream.next() => {
+                    let peer_id = msg.peer_id;
+                    if let Message::BlockHeaders(msg) = msg.msg {
+                        if msg.headers.is_empty() {
+                            continue;
                         }
+                        if msg.headers.len() > HEADERS_UPPER_BOUND {
+                            self.node.penalize_peer(peer_id).await?;
+                            continue;
+                        }
+                        let key = &msg.headers[0].number;
+                        if !requests.contains_key(key) {
+                            continue;
+                        }
+                        let limit = requests.get(key).unwrap().limit as usize;
+                        if msg.headers.len() != limit {
+                            continue;
+                        }
+
+                        headers.extend_from_slice(&msg.headers);
+                        requests.remove(key);
+
+                        info!("Downloaded {} block headers: {}->{}", msg.headers.len(), **key, **key + msg.headers.len() as u64);
+                        message_processed = true;
                     }
                 }
                 _ = ticker.tick() => {}
             }
-
             if !message_processed {
-                self.pending_requests
-                    .values()
-                    .cloned()
-                    .into_iter()
-                    .map(|request| {
-                        let peer = self.peer.clone();
-                        tokio::spawn(async move { peer.send_header_request(request).await })
-                    })
-                    .collect::<FuturesUnordered<_>>()
-                    .for_each(|_| async {})
-                    .await;
+                let r = requests.values().copied();
+                self.node.clone().send_many_header_requests(r).await?;
             }
         }
 
-        let valid_till = self.verify_chunks(&mut headers);
-
-        if valid_till > 0 {
-            headers.truncate(valid_till - 1);
-        };
-
-        Ok(headers)
+        Ok(self.calculate_and_verify(headers))
     }
 
-    async fn evaluate_chain_tip(
-        &mut self,
-        stream: &mut InboundStream,
-    ) -> anyhow::Result<(BlockNumber, H256)> {
-        let mut ticker = tokio::time::interval(Duration::from_secs(15));
+    fn insert<E: EnvironmentKind>(
+        txn: &mut MdbxTransaction<'_, RW, E>,
+        headers: Vec<(H256, BlockHeader)>,
+    ) -> anyhow::Result<()> {
+        let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
+        let mut cursor_header = txn.cursor(tables::Header)?;
+        let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
+        let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
+        let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
 
-        let prevalidate_block_hashes = |s: &mut Self, hashes: &[BlockHashAndNumber]| -> bool {
-            !hashes.is_empty()
-                && !s.seen_announces.contains_key(&hashes.last().unwrap().hash)
-                && hashes.last().unwrap().number >= s.height
-        };
-
-        loop {
-            match future::select(stream.next().fuse(), ticker.tick().boxed().fuse()).await {
-                future::Either::Left((Some(msg), _)) => match msg.msg {
-                    Message::NewBlockHashes(msg) if prevalidate_block_hashes(self, &msg.0) => {
-                        let block = msg.0.last().unwrap();
-                        self.seen_announces.insert(block.hash, ());
-                        self.peer
-                            .send_header_request(HeaderRequest {
-                                start: block.hash.into(),
-                                limit: 1,
-                                ..Default::default()
-                            })
-                            .await?;
-                    }
-                    Message::BlockHeaders(msg) => {
-                        if msg.headers.len() == 1 && msg.headers[0].number > self.peer.last_ping() {
-                            let header = &msg.headers[0];
-                            let hash = header.hash();
-
-                            self.parents_table.insert(hash, header.parent_hash);
-                            self.blocks_table.insert(hash, (header.number, None));
-                            self.peer
-                                .send_header_request(HeaderRequest {
-                                    start: hash.into(),
-                                    limit: 1,
-                                    skip: 1,
-                                    ..Default::default()
-                                })
-                                .await?;
-                            if self.height < header.number {
-                                self.height = header.number;
-                            }
-                        }
-                    }
-                    Message::NewBlock(msg) => {
-                        let (hash, number, parent_hash) = (
-                            msg.block.header.hash(),
-                            msg.block.header.number,
-                            msg.block.header.parent_hash,
-                        );
-                        self.parents_table.insert(hash, parent_hash);
-                        self.blocks_table
-                            .insert(hash, (number, Some(msg.total_difficulty)));
-                        self.peer
-                            .send_header_request(HeaderRequest {
-                                start: hash.into(),
-                                limit: 1,
-                                skip: 1,
-                                ..Default::default()
-                            })
-                            .await?;
-                        if self.height < number {
-                            self.height = number;
-                        }
-                    }
-                    _ => continue,
-                },
-                _ => {
-                    self.peer.send_ping().await?;
-                    if let Some((number, hash)) = self.try_find_tip().await {
-                        self.height = number;
-                        self.marker = hash;
-                        return Ok((number, hash));
-                    }
-
-                    self.parents_table
-                        .clone()
-                        .into_iter()
-                        .flat_map(|(key, value)| {
-                            (1..3)
-                                .map(|skip| {
-                                    info!("Requesting block headers for {:?}->{:?}", key, value);
-                                    let peer = self.peer.clone();
-                                    tokio::task::spawn(async move {
-                                        let _ = peer
-                                            .send_header_request(HeaderRequest {
-                                                start: key.into(),
-                                                limit: 1,
-                                                skip,
-                                                ..Default::default()
-                                            })
-                                            .await;
-                                        let _ = peer
-                                            .send_header_request(HeaderRequest {
-                                                start: value.into(),
-                                                limit: 1,
-                                                skip,
-                                                ..Default::default()
-                                            })
-                                            .await;
-                                    })
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .collect::<FuturesUnordered<_>>()
-                        .for_each(|_| async {})
-                        .await;
-                }
+        for (hash, header) in headers {
+            if header.number == 0 {
+                continue;
             }
+
+            let block_number = header.number;
+            td += header.difficulty;
+
+            cursor_header_number.put(hash, block_number)?;
+            cursor_header.put((block_number, hash), header)?;
+            cursor_canonical.put(block_number, hash)?;
+            cursor_td.put((block_number, hash), td)?;
         }
+
+        Ok(())
     }
 
-    async fn try_find_tip(&mut self) -> Option<(BlockNumber, H256)> {
-        let possible_tips = self
-            .parents_table
-            .clone()
-            .into_iter()
-            .map(|(k, _)| k)
-            .collect::<HashSet<_>>();
-        let mut longest_chain = LinkedHashSet::new();
-        for tip in &possible_tips {
-            let mut path = LinkedHashSet::new();
-            path.insert(*tip);
-
-            let mut current = *tip;
-            while let Some(v) = self.parents_table.get(&current) {
-                current = *v;
-                path.insert(current);
-            }
-
-            if path.len() > longest_chain.len() {
-                longest_chain = path;
-            }
-        }
-
-        possible_tips
-            .into_iter()
-            .map(|hash| {
-                let peer = self.peer.clone();
-                tokio::spawn(async move {
-                    let _ = peer
-                        .send_header_request(HeaderRequest {
-                            start: hash.into(),
-                            limit: 1,
-                            skip: 1,
-                            ..Default::default()
-                        })
-                        .await;
-                })
-            })
-            .collect::<FuturesUnordered<_>>()
-            .for_each(|_| async {})
-            .await;
-
-        if longest_chain.len() > 1 {
-            let tip = longest_chain.pop_front().unwrap();
-            let number = self.blocks_table.get(&tip).unwrap().0;
-            self.parents_table.clear();
-            Some((number, tip))
-        } else {
-            None
-        }
-    }
-
-    fn verify_chunks(&self, headers: &mut [BlockHeader]) -> usize {
+    fn calculate_and_verify(&self, mut headers: Vec<BlockHeader>) -> Vec<(H256, BlockHeader)> {
         headers.par_sort_unstable_by_key(|header| header.number);
         let valid_till = AtomicUsize::new(0);
 
@@ -471,39 +223,63 @@ impl HeaderDownload {
             }
         });
 
-        valid_till.load(Ordering::SeqCst)
-    }
-}
-
-fn insert<E: EnvironmentKind>(
-    txn: &mut MdbxTransaction<'_, RW, E>,
-    headers: &mut Vec<BlockHeader>,
-) -> anyhow::Result<()> {
-    let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
-    let mut cursor_header = txn.cursor(tables::Header)?;
-    let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
-    let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
-    let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
-
-    let mut block_headers = Vec::<(H256, BlockHeader)>::with_capacity(headers.len());
-    headers
-        .par_drain(..)
-        .map(|header| (header.hash(), header))
-        .collect_into_vec(&mut block_headers);
-
-    for (hash, header) in block_headers {
-        if header.number == 0 {
-            continue;
+        let valid_till = valid_till.load(Ordering::SeqCst);
+        if valid_till != 0 {
+            headers.truncate(valid_till);
         }
 
-        let block_number = header.number;
-        td += header.difficulty;
+        let mut block_headers = headers
+            .par_drain(..)
+            .map(|header| (header.hash(), header))
+            .collect::<Vec<_>>();
 
-        cursor_header_number.put(hash, block_number)?;
-        cursor_header.put((block_number, hash), header)?;
-        cursor_canonical.put(block_number, hash)?;
-        cursor_td.put((block_number, hash), td)?;
+        if let Some(index) = self
+            .node
+            .position_bad_block(block_headers.iter().map(|(h, _)| h))
+        {
+            block_headers.truncate(index);
+        }
+
+        block_headers
     }
 
-    Ok(())
+    fn prepare_requests(
+        starting_block: BlockNumber,
+        target: BlockNumber,
+    ) -> HashMap<BlockNumber, HeaderRequest> {
+        assert!(starting_block < target);
+
+        let cap = (target.0 - starting_block.0) as usize / HEADERS_UPPER_BOUND;
+        let mut requests = HashMap::with_capacity(cap + 1);
+        for start in (starting_block..target).step_by(HEADERS_UPPER_BOUND) {
+            let limit = if start + HEADERS_UPPER_BOUND < target {
+                HEADERS_UPPER_BOUND as u64
+            } else {
+                *target - *start
+            };
+
+            let request = HeaderRequest {
+                start: BlockId::Number(start),
+                limit,
+                ..Default::default()
+            };
+            requests.insert(start, request);
+        }
+        requests
+    }
+
+    async fn update_head<'tx, E: EnvironmentKind>(
+        &self,
+        txn: &'tx mut MdbxTransaction<'_, RW, E>,
+        height: BlockNumber,
+    ) -> anyhow::Result<()> {
+        let hash = txn.get(tables::CanonicalHeader, height - 1u8)?.unwrap();
+        let td = txn
+            .get(tables::HeadersTotalDifficulty, (height - 1u8, hash))?
+            .unwrap();
+        let status = Status::new(height, hash, td);
+        self.node.update_chain_head(Some(status)).await?;
+
+        Ok(())
+    }
 }

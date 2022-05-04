@@ -2,7 +2,7 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
     models::*,
-    p2p::peer::SentryClient,
+    p2p::node::NodeBuilder,
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
         otterscan::OtterscanApiServerImpl,
@@ -22,7 +22,6 @@ use std::{
     fs::File, future::pending, net::SocketAddr, panic, path::PathBuf, sync::Arc, time::Duration,
 };
 use tokio::time::sleep;
-use tonic::transport::Channel;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -246,15 +245,26 @@ fn main() -> anyhow::Result<()> {
                     format!("http://{sentry_api_addr}").parse()?
                 };
 
-                // also add body download stage here
-                let header_download = HeaderDownload::new(
-                    SentryClient::new(Channel::builder(sentry_api_addr).connect().await?),
-                    consensus.clone(),
-                    chain_config.clone(),
-                    db.begin()?,
-                )?;
-                let peer = header_download.peer.clone();
-                staged_sync.push(header_download, false);
+                let node = Arc::new(
+                    NodeBuilder::default()
+                        .add_sentry(sentry_api_addr)
+                        .set_config(chain_config.clone())
+                        .build()?,
+                );
+                tokio::spawn({
+                    let node = node.clone();
+                    async move {
+                        node.start_sync().await.unwrap();
+                    }
+                });
+
+                staged_sync.push(
+                    HeaderDownload {
+                        node: node.clone(),
+                        consensus: consensus.clone(),
+                    },
+                    false,
+                );
                 staged_sync.push(TotalGasIndex, false);
                 staged_sync.push(
                     BlockHashes {
@@ -262,7 +272,7 @@ fn main() -> anyhow::Result<()> {
                     },
                     false,
                 );
-                staged_sync.push(BodyDownload::new(consensus, peer)?, false);
+                staged_sync.push(BodyDownload { node, consensus }, false);
                 staged_sync.push(TotalTxIndex, false);
                 staged_sync.push(
                     SenderRecovery {

@@ -8,7 +8,7 @@ use akula::{
         traits::*,
     },
     models::*,
-    p2p::peer::SentryClient,
+    p2p::node::NodeBuilder,
     stagedsync,
     stages::*,
 };
@@ -18,7 +18,6 @@ use clap::Parser;
 use itertools::Itertools;
 use std::{borrow::Cow, collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::pin;
-use tonic::transport::Channel;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
@@ -119,12 +118,14 @@ async fn download_headers(
 ) -> anyhow::Result<()> {
     let chain_config = ChainConfig::new(chain.as_ref())?;
     let consensus = engine_factory(chain_config.chain_spec.clone())?.into();
-    let conn = SentryClient::new(
-        Channel::builder(uri)
-            .http2_adaptive_window(true)
-            .connect()
-            .await?,
-    );
+    let node = Arc::new(NodeBuilder::default().add_sentry(uri).build()?);
+    tokio::spawn({
+        let node = node.clone();
+        async move {
+            node.start_sync().await.unwrap();
+        }
+    });
+
     let chain_data_dir = data_dir.chain_data_dir();
     let etl_temp_path = data_dir.etl_temp_dir();
 
@@ -141,10 +142,7 @@ async fn download_headers(
     txn.commit()?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(
-        HeaderDownload::new(conn, consensus, chain_config, env.begin()?)?,
-        false,
-    );
+    staged_sync.push(HeaderDownload { node, consensus }, false);
     staged_sync.run(&env).await?;
 
     Ok(())

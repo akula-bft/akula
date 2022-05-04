@@ -4,7 +4,7 @@ use crate::{
 };
 use fastrlp::*;
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct HeaderRequest {
     pub start: BlockId,
     pub limit: u64,
@@ -12,7 +12,7 @@ pub struct HeaderRequest {
     pub reverse: bool,
 }
 
-impl Default for HeaderRequest {
+impl const Default for HeaderRequest {
     #[inline(always)]
     fn default() -> Self {
         HeaderRequest {
@@ -41,6 +41,17 @@ pub struct GetBlockHeadersParams {
     pub limit: u64,
     pub skip: u64,
     pub reverse: u8,
+}
+
+impl From<HeaderRequest> for GetBlockHeadersParams {
+    fn from(req: HeaderRequest) -> Self {
+        Self {
+            start: req.start,
+            limit: req.limit,
+            skip: req.skip,
+            reverse: if req.reverse { 1 } else { 0 },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
