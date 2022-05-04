@@ -1,6 +1,6 @@
 use crate::{
     models::{BlockBody, H256},
-    p2p::{peer::HashChunk, types::*},
+    p2p::types::*,
     sentry::devp2p::PeerId,
 };
 use anyhow::anyhow;
@@ -149,16 +149,6 @@ impl From<Vec<H256>> for Message {
         Message::GetBlockBodies(GetBlockBodies {
             request_id: rand::thread_rng().gen::<u64>(),
             hashes,
-        })
-    }
-}
-
-impl From<HashChunk> for Message {
-    #[inline(always)]
-    fn from(chunk: HashChunk) -> Self {
-        Message::GetBlockBodies(GetBlockBodies {
-            request_id: rand::thread_rng().gen::<u64>(),
-            hashes: chunk.to_vec(),
         })
     }
 }

@@ -6,13 +6,13 @@
     entry_insert,
     generator_trait,
     generators,
+    iter_collect_into,
     let_else,
     map_first_last,
     never_type,
     poll_ready,
     slice_swap_unchecked,
-    step_trait,
-    type_alias_impl_trait
+    step_trait
 )]
 #![recursion_limit = "256"]
 #![allow(

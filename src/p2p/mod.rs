@@ -1,2 +1,2 @@
-pub mod peer;
+pub mod node;
 pub mod types;

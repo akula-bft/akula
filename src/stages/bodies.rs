@@ -2,9 +2,12 @@ use crate::{
     consensus::Consensus,
     kv::{mdbx::MdbxTransaction, tables},
     models::*,
-    p2p::{peer::*, types::Message},
+    p2p::{
+        node::{Node, NodeStream},
+        types::Message,
+    },
     stagedsync::{stage::*, stages::BODIES},
-    StageId,
+    StageId, TaskGuard,
 };
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
@@ -14,7 +17,7 @@ use parking_lot::RwLock;
 use rayon::iter::{ParallelDrainRange, ParallelIterator};
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicIsize, Ordering},
         Arc,
     },
     time::Duration,
@@ -22,13 +25,14 @@ use std::{
 use tokio_stream::StreamExt;
 use tracing::*;
 
-const REQUEST_INTERVAL: Duration = Duration::from_secs(30);
+const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub struct BodyDownload {
-    consensus: Arc<dyn Consensus>,
-    /// Peer is a interface for interacting with p2p.
-    peer: Arc<Peer>,
+    /// Node is a interface for interacting with p2p.
+    pub node: Arc<Node>,
+    /// Consensus engine used.
+    pub consensus: Arc<dyn Consensus>,
 }
 
 #[async_trait]
@@ -52,8 +56,8 @@ where
         let starting_block = prev_progress;
         let target = input.previous_stage.map(|(_, v)| v).unwrap();
 
-        let mut stream = self.peer.recv_bodies().await?;
-        self.collect_bodies(&mut stream, txn, starting_block, target)
+        let mut stream = self.node.stream_bodies().await;
+        self.download_bodies(&mut stream, txn, starting_block, target)
             .await?;
 
         Ok(ExecOutput::Progress {
@@ -98,112 +102,129 @@ where
 }
 
 impl BodyDownload {
-    pub fn new(consensus: Arc<dyn Consensus>, peer: Arc<Peer>) -> anyhow::Result<Self> {
-        Ok(Self { consensus, peer })
-    }
-
-    async fn collect_bodies<E: EnvironmentKind>(
+    async fn download_bodies<E: EnvironmentKind>(
         &mut self,
-        stream: &mut InboundStream,
+        stream: &mut NodeStream,
         txn: &mut MdbxTransaction<'_, RW, E>,
         mut starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<()> {
-        let requests = Arc::new(RwLock::new(self.prepare_requests(
+        let requests = Arc::new(RwLock::new(Self::prepare_requests(
             txn,
             starting_block,
             target,
         )?));
-        let done = Arc::new(AtomicBool::new(false));
-        let handler = self.peer.clone();
+        let pending_responses = Arc::new(AtomicIsize::new(0));
+        let handler = self.node.clone();
 
-        tokio::spawn({
-            let done = done.clone();
-            let handler = handler.clone();
-            let requests = requests.clone();
-            async move {
-                while !done.load(Ordering::SeqCst) {
+        let mut bodies = {
+            let _requester_task = TaskGuard(tokio::spawn({
+                let handler = handler.clone();
+                let requests = requests.clone();
+                let pending_responses = pending_responses.clone();
+
+                async move {
+                loop {
                     let left_requests = requests
                         .read()
                         .iter()
                         .map(|(_, (_, hash))| *hash)
                         .collect::<Vec<_>>();
-                    info!("Sending {} block bodies requests", left_requests.len());
+
                     if left_requests.is_empty() {
-                        done.store(true, Ordering::SeqCst);
                         break;
                     }
+                    let chunk = 16;
+                    let total_requests = 30 * handler.total_peers().await;
 
-                    if left_requests.len() < 64 {
-                        while !done.load(Ordering::SeqCst) {
-                            let _ = handler.send_body_request(&left_requests).await;
-                            tokio::time::sleep(Duration::from_millis(100)).await;
+                    info!(
+                        "Sending {total_requests}x{chunk}={} out of {} block bodies requests",
+                        total_requests * chunk,
+                        left_requests.len()
+                    );
+
+                    pending_responses.fetch_add(total_requests as isize, Ordering::SeqCst);
+
+                    let _ = left_requests
+                        .chunks(chunk)
+                        .take(total_requests)
+                        .map(|chunk| {
+                            let handler = handler.clone();
+                            async move {
+                                let _ = tokio::time::timeout(
+                                    REQUEST_INTERVAL,
+                                    handler.send_block_request(chunk),
+                                )
+                                .await;
+                            }
+                        })
+                        .collect::<FuturesUnordered<_>>()
+                        .map(|_| ())
+                        .collect::<()>()
+                        .await;
+
+                    for _ in 0..(REQUEST_INTERVAL.as_secs() as usize * 4) {
+                        let current_pending_responses = pending_responses.load(Ordering::SeqCst);
+                        let next_cycle_threshold = total_requests as isize / 5;
+                        if current_pending_responses < next_cycle_threshold {
+                            break;
                         }
-                        break;
-                    } else {
-                        let _ = left_requests
-                            .chunks(64)
-                            .map(|chunk| {
-                                let handler = handler.clone();
-                                async move { handler.send_body_request(chunk).await }
-                            })
-                            .collect::<FuturesUnordered<_>>()
-                            .map(|_| ())
-                            .collect::<()>()
-                            .await;
+
+                        trace!("Not enough blocks received for next request cycle ({current_pending_responses} < {next_cycle_threshold})");
+
+                        tokio::time::sleep(Duration::from_millis(250)).await;
                     }
 
-                    // Check if we're done before we go sleep.
-                    if done.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    tokio::time::sleep(REQUEST_INTERVAL).await;
+                    pending_responses.store(0, Ordering::SeqCst);
                 }
             }
             .instrument(span!(Level::DEBUG, "body downloader requester"))
-        });
+            }));
 
-        let mut bodies = {
-            let done = done.clone();
-            let requests = requests.clone();
             let mut bodies = HashMap::with_capacity(requests.read().len());
-            while !done.load(Ordering::SeqCst) {
+            loop {
                 let requests_length = requests.read().len();
                 if requests_length == 0 {
-                    done.store(true, Ordering::SeqCst);
                     break;
                 };
-                // No floting point version of: requests_length * 1.25 / 64.
                 let batch_size = match requests_length * 5 / 256 {
                     v if v <= 2 => 8,
                     v => v,
                 };
 
-                let mut pending_bodies = stream
-                    .filter_map(|msg| match msg.msg {
-                        Message::BlockBodies(msg) => Some(msg.bodies),
-                        _ => None,
-                    })
-                    .take(batch_size)
-                    .collect::<Vec<_>>()
-                    .await;
+                let mut pending_bodies = Vec::with_capacity(batch_size);
 
-                let mut requests = requests.write();
-                for (key, value) in pending_bodies
+                let mut s = Box::pin(
+                    stream
+                        .filter_map(|msg| match msg.msg {
+                            Message::BlockBodies(msg) => Some(msg.bodies),
+                            _ => None,
+                        })
+                        .take(batch_size)
+                        .timeout(REQUEST_INTERVAL),
+                );
+
+                while let Some(Ok(msg)) = s.next().await {
+                    pending_bodies.push(msg);
+                }
+
+                let tmp = pending_bodies
                     .par_drain(..)
                     .flatten()
                     .map(|body| ((body.ommers_hash(), body.transactions_root()), body))
-                    .collect::<Vec<_>>()
-                {
-                    if let Some((number, hash)) = requests.remove(&key) {
+                    .collect::<Vec<_>>();
+
+                let mut r = requests.write();
+                for (key, value) in tmp {
+                    if let Some((number, hash)) = r.remove(&key) {
                         bodies.insert(number, (hash, value));
+
+                        pending_responses.fetch_sub(1, Ordering::SeqCst);
                     }
                 }
-                if requests.is_empty() {
-                    done.store(true, Ordering::SeqCst);
+                if r.is_empty() {
                     break;
                 }
-                drop(requests);
             }
             bodies
         };
@@ -259,29 +280,33 @@ impl BodyDownload {
         Ok(())
     }
 
-    pub fn prepare_requests<E: EnvironmentKind>(
-        &mut self,
+    fn prepare_requests<E: EnvironmentKind>(
         txn: &mut MdbxTransaction<'_, RW, E>,
         starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<HashMap<(H256, H256), (BlockNumber, H256)>> {
-        Ok(txn
+        assert!(target > starting_block);
+
+        let cap = (target.0 - starting_block.0) as usize;
+        let mut map = HashMap::with_capacity(cap);
+
+        let mut canonical_cursor = txn
             .cursor(tables::CanonicalHeader)?
-            .walk(Some(starting_block))
-            .filter_map(Result::ok)
-            .filter_map(Option::Some)
-            .map_while(|(number, hash)| {
-                (number <= target).then(|| {
-                    let header = txn.get(tables::Header, (number, hash)).unwrap().unwrap();
-                    (
-                        (header.ommers_hash, header.transactions_root),
-                        (number, hash),
-                    )
-                })
-            })
-            .filter(|&((ommers_hash, transactions_root), _)| {
-                !(ommers_hash == EMPTY_LIST_HASH && transactions_root == EMPTY_ROOT)
-            })
-            .collect::<HashMap<_, _>>())
+            .walk(Some(starting_block));
+        let mut header_cursor = txn.cursor(tables::Header)?;
+
+        while let Some(Ok((block_number, hash))) = canonical_cursor.next() {
+            let (_, header) = header_cursor.seek_exact((block_number, hash))?.unwrap();
+            if header.ommers_hash == EMPTY_LIST_HASH && header.transactions_root == EMPTY_ROOT {
+                continue;
+            }
+
+            map.insert(
+                (header.ommers_hash, header.transactions_root),
+                (block_number, hash),
+            );
+        }
+
+        Ok(map)
     }
 }

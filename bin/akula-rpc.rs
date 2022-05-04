@@ -1,4 +1,5 @@
 use akula::{
+    akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     kv::{mdbx::*, MdbxWithDirHandle},
     rpc::{
@@ -10,7 +11,7 @@ use clap::Parser;
 use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{future::pending, net::SocketAddr, sync::Arc};
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::prelude::*;
 
 #[derive(Parser)]
 #[clap(name = "Akula RPC", about = "RPC server for Akula")]
@@ -26,18 +27,7 @@ pub struct Opt {
 async fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
 
-    let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
-        .unwrap_or_default()
-        .is_empty()
-    {
-        EnvFilter::new("akula=info,rpc=info")
-    } else {
-        EnvFilter::from_default_env()
-    };
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_target(false))
-        .with(env_filter)
-        .init();
+    akula_tracing::build_subscriber(Component::RPCDaemon).init();
 
     let db: Arc<MdbxWithDirHandle<NoWriteMap>> = Arc::new(
         MdbxEnvironment::<NoWriteMap>::open_ro(
