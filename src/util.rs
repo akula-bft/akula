@@ -77,6 +77,75 @@ where
     Ok(d)
 }
 
+pub mod akula_tracing {
+    use tracing::Subscriber;
+    use tracing_subscriber::{prelude::*, EnvFilter};
+
+    pub enum Component {
+        Core,
+        Sentry,
+        RPCDaemon,
+    }
+
+    impl Component {
+        fn default_filter(self) -> EnvFilter {
+            match self {
+                Self::Core => EnvFilter::new("akula=info"),
+                Self::Sentry => EnvFilter::new(
+                    "akula_sentry=info,akula::sentry::devp2p=info,akula::sentry::devp2p::disc=info",
+                ),
+                Self::RPCDaemon => EnvFilter::new("akula=info,rpc=info"),
+            }
+        }
+    }
+
+    pub fn build_subscriber(bin: Component) -> impl Subscriber {
+        let nocolor = std::env::var("RUST_LOG_STYLE")
+            .map(|val| val == "never")
+            .unwrap_or(false);
+
+        // tracing setup
+        let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
+            .unwrap_or_default()
+            .is_empty()
+        {
+            bin.default_filter()
+        } else {
+            EnvFilter::from_default_env()
+        };
+
+        #[cfg(feature = "console")]
+        fn build_inner(filter: EnvFilter, no_color: bool) -> impl Subscriber {
+            tracing_subscriber::registry()
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(!no_color)
+                        .with_target(false)
+                        .with_filter(filter),
+                )
+                .with(
+                    console_subscriber::ConsoleLayer::builder()
+                        .spawn()
+                        .with_filter(EnvFilter::new(
+                            "tokio=trace,runtime=trace,akula=trace,akula::sentry=info",
+                        )),
+                )
+        }
+        #[cfg(not(feature = "console"))]
+        fn build_inner(filter: EnvFilter, no_color: bool) -> impl Subscriber {
+            tracing_subscriber::registry()
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(!no_color)
+                        .with_target(false),
+                )
+                .with(filter)
+        }
+
+        build_inner(env_filter, nocolor)
+    }
+}
+
 pub mod hexbytes {
     use serde::Serializer;
 

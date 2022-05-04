@@ -1,4 +1,5 @@
 use akula::{
+    akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
     models::*,
@@ -23,7 +24,7 @@ use std::{
 };
 use tokio::time::sleep;
 use tracing::*;
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::prelude::*;
 
 #[derive(Parser)]
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
@@ -93,10 +94,6 @@ pub struct Opt {
     /// Enable JSONRPC at this address.
     #[clap(long)]
     pub rpc_listen_address: Option<SocketAddr>,
-
-    /// P2P Listen port.
-    #[clap(long, default_value = "30303")]
-    pub listen_port: u16,
 }
 
 #[allow(unreachable_code)]
@@ -104,27 +101,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
     fdlimit::raise_fd_limit();
 
-    let nocolor = std::env::var("RUST_LOG_STYLE")
-        .map(|val| val == "never")
-        .unwrap_or(false);
-
-    // tracing setup
-    let env_filter = if std::env::var(EnvFilter::DEFAULT_ENV)
-        .unwrap_or_default()
-        .is_empty()
-    {
-        EnvFilter::new("akula=info")
-    } else {
-        EnvFilter::from_default_env()
-    };
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(false)
-                .with_ansi(!nocolor),
-        )
-        .with(env_filter)
-        .init();
+    akula_tracing::build_subscriber(Component::Core).init();
 
     std::thread::Builder::new()
         .stack_size(128 * 1024 * 1024)
