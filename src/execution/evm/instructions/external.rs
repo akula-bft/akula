@@ -6,6 +6,12 @@ use crate::{
 };
 use ethnum::U256;
 
+#[inline(always)]
+fn ok_or_out_of_gas(gas_left: i64) -> Result<(), StatusCode> {
+    let enough_gas = gas_left >= 0;
+    [Err(StatusCode::OutOfGas), Ok(())][enough_gas as usize]
+}
+
 #[inline]
 pub(crate) fn address(state: &mut ExecutionState) {
     state.stack.push(address_to_u256(state.message.recipient));
@@ -34,18 +40,14 @@ pub(crate) fn balance<H: Host, const REVISION: Revision>(
 
     let address = u256_to_address(state.stack.pop());
 
-    if REVISION >= Revision::Berlin {
-        if host.access_account(address) == AccessStatus::Cold {
-            state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
-            if state.gas_left < 0 {
-                return Err(StatusCode::OutOfGas);
-            }
-        }
-    }
+    let is_cold =
+        REVISION >= Revision::Berlin && host.access_account(address) == AccessStatus::Cold;
+    let additional_cost = is_cold as i64 * ADDITIONAL_COLD_ACCOUNT_ACCESS_COST as i64;
+    state.gas_left -= additional_cost;
 
     state.stack.push(host.get_balance(address));
 
-    Ok(())
+    ok_or_out_of_gas(state.gas_left)
 }
 
 #[inline]
@@ -61,18 +63,14 @@ pub(crate) fn extcodesize<H: Host, const REVISION: Revision>(
 
     let address = u256_to_address(state.stack.pop());
 
-    if REVISION >= Revision::Berlin {
-        if host.access_account(address) == AccessStatus::Cold {
-            state.gas_left -= i64::from(ADDITIONAL_COLD_ACCOUNT_ACCESS_COST);
-            if state.gas_left < 0 {
-                return Err(StatusCode::OutOfGas);
-            }
-        }
-    }
+    let is_cold =
+        REVISION >= Revision::Berlin && host.access_account(address) == AccessStatus::Cold;
+    let additional_cost = is_cold as i64 * ADDITIONAL_COLD_ACCOUNT_ACCESS_COST as i64;
 
     state.stack.push(host.get_code_size(address));
+    state.gas_left -= additional_cost;
 
-    Ok(())
+    ok_or_out_of_gas(state.gas_left)
 }
 
 #[inline]
@@ -208,23 +206,17 @@ pub(crate) fn sload<H: Host, const REVISION: Revision>(
 
     let location = state.stack.pop();
 
-    if REVISION >= Revision::Berlin {
-        if host.access_storage(state.message.recipient, location) == AccessStatus::Cold {
-            // The warm storage access cost is already applied (from the cost table).
-            // Here we need to apply additional cold storage access cost.
-            const ADDITIONAL_COLD_SLOAD_COST: u16 = COLD_SLOAD_COST - WARM_STORAGE_READ_COST;
-            state.gas_left -= i64::from(ADDITIONAL_COLD_SLOAD_COST);
-            if state.gas_left < 0 {
-                return Err(StatusCode::OutOfGas);
-            }
-        }
-    }
+    const ADDITIONAL_COLD_SLOAD_COST: u16 = COLD_SLOAD_COST - WARM_STORAGE_READ_COST;
+    let is_cold = REVISION >= Revision::Berlin
+        && host.access_storage(state.message.recipient, location) == AccessStatus::Cold;
+    let additional_cost = is_cold as i64 * ADDITIONAL_COLD_SLOAD_COST as i64;
 
     state
         .stack
         .push(host.get_storage(state.message.recipient, location));
 
-    Ok(())
+    state.gas_left -= additional_cost;
+    ok_or_out_of_gas(state.gas_left)
 }
 
 #[inline]
@@ -283,11 +275,8 @@ pub(crate) fn sstore<H: Host, const REVISION: Revision>(
         StorageStatus::Added => cost + 20000,
     };
     state.gas_left -= i64::from(cost);
-    if state.gas_left < 0 {
-        return Err(StatusCode::OutOfGas);
-    }
 
-    Ok(())
+    ok_or_out_of_gas(state.gas_left)
 }
 
 #[inline]
@@ -307,26 +296,18 @@ pub(crate) fn selfdestruct<H: Host, const REVISION: Revision>(
 
     let beneficiary = u256_to_address(state.stack.pop());
 
-    if REVISION >= Revision::Berlin {
-        if host.access_account(beneficiary) == AccessStatus::Cold {
-            state.gas_left -= i64::from(COLD_ACCOUNT_ACCESS_COST);
-            if state.gas_left < 0 {
-                return Err(StatusCode::OutOfGas);
-            }
-        }
-    }
+    let is_cold =
+        REVISION >= Revision::Berlin && host.access_account(beneficiary) == AccessStatus::Cold;
+    let has_nonexisting_account_fee = REVISION == Revision::Tangerine
+        || (REVISION > Revision::Tangerine && host.get_balance(state.message.recipient) != 0);
+    let is_punished = has_nonexisting_account_fee && !host.account_exists(beneficiary);
 
-    if REVISION >= Revision::Tangerine {
-        if REVISION == Revision::Tangerine || host.get_balance(state.message.recipient) != 0 {
-            // After TANGERINE_WHISTLE apply additional cost of
-            // sending value to a non-existing account.
-            if !host.account_exists(beneficiary) {
-                state.gas_left -= 25000;
-                if state.gas_left < 0 {
-                    return Err(StatusCode::OutOfGas);
-                }
-            }
-        }
+    let additional_cost =
+        is_cold as i64 * COLD_ACCOUNT_ACCESS_COST as i64 + is_punished as i64 * 25000i64;
+
+    state.gas_left -= additional_cost;
+    if state.gas_left < 0 {
+        return Err(StatusCode::OutOfGas);
     }
 
     host.selfdestruct(state.message.recipient, beneficiary);
