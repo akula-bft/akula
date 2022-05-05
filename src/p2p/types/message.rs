@@ -40,7 +40,7 @@ impl Display for InvalidMessageId {
     }
 }
 
-impl const TryFrom<grpc_sentry::MessageId> for MessageId {
+impl TryFrom<grpc_sentry::MessageId> for MessageId {
     type Error = InvalidMessageId;
 
     #[inline(always)]
@@ -68,7 +68,7 @@ impl const TryFrom<grpc_sentry::MessageId> for MessageId {
     }
 }
 
-impl const From<MessageId> for grpc_sentry::MessageId {
+impl From<MessageId> for grpc_sentry::MessageId {
     #[inline(always)]
     fn from(id: MessageId) -> Self {
         match id {

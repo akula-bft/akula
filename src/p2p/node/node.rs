@@ -419,9 +419,9 @@ impl Node {
         data: impl Into<grpc_sentry::OutboundMessageData>,
         predicate: PeerFilter,
     ) -> anyhow::Result<()> {
-        let send_msg = async move |mut sentry: Sentry,
-                                   pred: PeerFilter,
-                                   data: grpc_sentry::OutboundMessageData| {
+        let send_msg = move |mut sentry: Sentry,
+                             pred: PeerFilter,
+                             data: grpc_sentry::OutboundMessageData| async move {
             match pred {
                 PeerFilter::All => {
                     sentry.send_message_to_all(data).await?;
