@@ -108,6 +108,13 @@ where
         'db: 'tx,
     {
         let mut cur = txn.cursor(tables::CanonicalHeader)?;
+
+        if let Some(bad_block) = input.bad_block {
+            if let Some((_, hash)) = cur.seek_exact(bad_block)? {
+                self.node.mark_bad_block(hash);
+            }
+        }
+
         while let Some((number, _)) = cur.last()? {
             if number <= input.unwind_to {
                 break;
