@@ -203,6 +203,11 @@ impl Node {
         Ok(())
     }
 
+    /// Marks block with given hash as non-canonical.
+    pub fn mark_bad_block(&self, hash: H256) {
+        self.bad_blocks.lock().insert(hash, ());
+    }
+
     /// Finds first bad block if any, and returns it's index in given iterable.
     #[inline]
     pub fn position_bad_block<'a, T: Iterator<Item = &'a H256>>(&self, iter: T) -> Option<usize> {
