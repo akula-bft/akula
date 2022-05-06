@@ -287,7 +287,7 @@ impl BodyDownload {
     ) -> anyhow::Result<HashMap<(H256, H256), (BlockNumber, H256)>> {
         assert!(target >= starting_block);
 
-        let cap = (target.0 - starting_block.0) as usize;
+        let cap = (target.0 - starting_block.0) as usize + 1;
         let mut map = HashMap::with_capacity(cap);
 
         let mut canonical_cursor = txn
