@@ -285,7 +285,7 @@ impl BodyDownload {
         starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<HashMap<(H256, H256), (BlockNumber, H256)>> {
-        assert!(target > starting_block);
+        assert!(target >= starting_block);
 
         let cap = (target.0 - starting_block.0) as usize;
         let mut map = HashMap::with_capacity(cap);
