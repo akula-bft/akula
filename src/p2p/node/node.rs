@@ -255,26 +255,6 @@ impl Node {
         Ok(())
     }
 
-    pub async fn send_many_body_requests<T>(self: Arc<Self>, requests: T) -> anyhow::Result<()>
-    where
-        T: IntoIterator<Item = Vec<H256>>,
-    {
-        let _ = requests
-            .into_iter()
-            .map(|chunk| {
-                let handler = self.clone();
-                tokio::spawn(async move {
-                    let _ = handler.send_message(chunk.into(), PeerFilter::All).await;
-                })
-            })
-            .collect::<FuturesUnordered<_>>()
-            .map(|_| ())
-            .collect::<()>()
-            .await;
-
-        Ok(())
-    }
-
     pub async fn send_many_header_requests<T>(self: Arc<Self>, requests: T) -> anyhow::Result<()>
     where
         T: IntoIterator<Item = HeaderRequest>,
