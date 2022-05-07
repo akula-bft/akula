@@ -1,5 +1,5 @@
 use crate::{
-    consensus::Consensus,
+    consensus::{Consensus, DuoError},
     kv::{mdbx::MdbxTransaction, tables},
     models::*,
     p2p::{
@@ -108,7 +108,7 @@ impl BodyDownload {
         txn: &mut MdbxTransaction<'_, RW, E>,
         mut starting_block: BlockNumber,
         target: BlockNumber,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), StageError> {
         let requests = Arc::new(RwLock::new(Self::prepare_requests(
             txn,
             starting_block,
@@ -260,7 +260,15 @@ impl BodyDownload {
                 ommers: body.ommers,
             };
 
-            self.consensus.pre_validate_block(&block, txn)?;
+            self.consensus
+                .pre_validate_block(&block, txn)
+                .map_err(|e| match e {
+                    DuoError::Validation(error) => StageError::Validation {
+                        block: block.header.number,
+                        error,
+                    },
+                    DuoError::Internal(error) => StageError::Internal(error),
+                })?;
 
             cursor.append(
                 (block_number, hash),
