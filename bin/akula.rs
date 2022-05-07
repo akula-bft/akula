@@ -55,6 +55,10 @@ pub struct Opt {
     #[clap(long)]
     pub max_block: Option<BlockNumber>,
 
+    /// Start with unwinding to this block.
+    #[clap(long)]
+    pub start_with_unwind: Option<BlockNumber>,
+
     /// Turn on pruning.
     #[clap(long)]
     pub prune: bool,
@@ -189,6 +193,7 @@ fn main() -> anyhow::Result<()> {
                     staged_sync.set_pruning_interval(90_000);
                 }
                 staged_sync.set_max_block(opt.max_block);
+                staged_sync.start_with_unwind(opt.start_with_unwind);
                 staged_sync.set_exit_after_sync(opt.exit_after_sync);
                 staged_sync.set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
 
