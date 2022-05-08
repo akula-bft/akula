@@ -115,17 +115,17 @@ where
             }
         }
 
+        let mut stage_progress = BlockNumber(0);
         while let Some((number, _)) = cur.last()? {
             if number <= input.unwind_to {
+                stage_progress = number;
                 break;
             }
 
             cur.delete_current()?;
         }
 
-        Ok(UnwindOutput {
-            stage_progress: input.unwind_to,
-        })
+        Ok(UnwindOutput { stage_progress })
     }
 }
 
