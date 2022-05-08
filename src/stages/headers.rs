@@ -12,6 +12,7 @@ use crate::{
     },
 };
 
+use anyhow::format_err;
 use async_trait::async_trait;
 use hashbrown::HashMap;
 use mdbx::{EnvironmentKind, RW};
@@ -58,11 +59,17 @@ where
     where
         'db: 'tx,
     {
-        let prev_progress = input.stage_progress.map(|v| v + 1u8).unwrap_or_default();
+        let prev_progress = input.stage_progress.unwrap_or_default();
         if prev_progress != 0 {
             self.update_head(txn, prev_progress).await?;
         }
-        let mut starting_block = prev_progress;
+
+        let prev_progress_hash = txn
+            .get(tables::CanonicalHeader, prev_progress)?
+            .ok_or_else(|| {
+                StageError::Internal(format_err!("no canonical hash for block #{prev_progress}"))
+            })?;
+        let mut starting_block: BlockNumber = prev_progress + 1;
         let current_chain_tip = loop {
             let n = self.node.chain_tip.read().0;
             if n > starting_block {
@@ -88,12 +95,49 @@ where
 
             let requests = Self::prepare_requests(starting_block, target_block);
             headers.extend(self.download_headers(requests).await?);
+
+            if let Some((_, h)) = headers.first() {
+                if h.parent_hash != prev_progress_hash {
+                    return Ok(ExecOutput::Unwind {
+                        unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
+                    });
+                }
+            }
         }
 
-        Self::insert(txn, headers)?;
+        let mut stage_progress = prev_progress;
+        let mut prev_hash = prev_progress_hash;
+
+        let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
+        let mut cursor_header = txn.cursor(tables::Header)?;
+        let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
+        let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
+        let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
+
+        for (hash, header) in headers {
+            if header.number == 0 {
+                continue;
+            }
+
+            if header.parent_hash != prev_hash {
+                break;
+            }
+
+            prev_hash = hash;
+
+            let block_number = header.number;
+            td += header.difficulty;
+
+            cursor_header_number.put(hash, block_number)?;
+            cursor_header.put((block_number, hash), header)?;
+            cursor_canonical.put(block_number, hash)?;
+            cursor_td.put((block_number, hash), td)?;
+
+            stage_progress = block_number;
+        }
 
         Ok(ExecOutput::Progress {
-            stage_progress: target_block - 1u8,
+            stage_progress,
             done: true,
             reached_tip,
         })
@@ -180,33 +224,6 @@ impl HeaderDownload {
         Ok(self.calculate_and_verify(headers))
     }
 
-    fn insert<E: EnvironmentKind>(
-        txn: &mut MdbxTransaction<'_, RW, E>,
-        headers: Vec<(H256, BlockHeader)>,
-    ) -> anyhow::Result<()> {
-        let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
-        let mut cursor_header = txn.cursor(tables::Header)?;
-        let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
-        let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
-        let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
-
-        for (hash, header) in headers {
-            if header.number == 0 {
-                continue;
-            }
-
-            let block_number = header.number;
-            td += header.difficulty;
-
-            cursor_header_number.put(hash, block_number)?;
-            cursor_header.put((block_number, hash), header)?;
-            cursor_canonical.put(block_number, hash)?;
-            cursor_td.put((block_number, hash), td)?;
-        }
-
-        Ok(())
-    }
-
     fn calculate_and_verify(&self, mut headers: Vec<BlockHeader>) -> Vec<(H256, BlockHeader)> {
         headers.par_sort_unstable_by_key(|header| header.number);
         let valid_till = AtomicUsize::new(0);
@@ -280,9 +297,9 @@ impl HeaderDownload {
         txn: &'tx mut MdbxTransaction<'_, RW, E>,
         height: BlockNumber,
     ) -> anyhow::Result<()> {
-        let hash = txn.get(tables::CanonicalHeader, height - 1u8)?.unwrap();
+        let hash = txn.get(tables::CanonicalHeader, height)?.unwrap();
         let td = txn
-            .get(tables::HeadersTotalDifficulty, (height - 1u8, hash))?
+            .get(tables::HeadersTotalDifficulty, (height, hash))?
             .unwrap();
         let status = Status::new(height, hash, td);
         self.node.update_chain_head(Some(status)).await?;
