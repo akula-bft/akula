@@ -38,6 +38,7 @@ where
     min_progress_to_commit_after_stage: u64,
     pruning_interval: u64,
     max_block: Option<BlockNumber>,
+    start_with_unwind: Option<BlockNumber>,
     exit_after_sync: bool,
     delay_after_sync: Option<Duration>,
 }
@@ -64,6 +65,7 @@ where
             min_progress_to_commit_after_stage: 0,
             pruning_interval: 0,
             max_block: None,
+            start_with_unwind: None,
             exit_after_sync: false,
             delay_after_sync: None,
         }
@@ -94,6 +96,11 @@ where
         self
     }
 
+    pub fn start_with_unwind(&mut self, v: Option<BlockNumber>) -> &mut Self {
+        self.start_with_unwind = v;
+        self
+    }
+
     pub fn set_exit_after_sync(&mut self, v: bool) -> &mut Self {
         self.exit_after_sync = v;
         self
@@ -118,7 +125,7 @@ where
         let mut minimum_progress = None;
         let mut maximum_progress = None;
         let mut bad_block = None;
-        let mut unwind_to = None;
+        let mut unwind_to = self.start_with_unwind;
         'run_loop: loop {
             self.current_stage_sender.send(None).unwrap();
 

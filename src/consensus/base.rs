@@ -213,14 +213,22 @@ impl ConsensusEngineBase {
             return Err(ValidationError::DuplicateOmmer.into());
         }
 
-        let parent = state
-            .read_parent_header(&block.header)?
-            .ok_or(ValidationError::UnknownParent)?;
+        let parent =
+            state
+                .read_parent_header(&block.header)?
+                .ok_or(ValidationError::UnknownParent {
+                    number: block.header.number,
+                    parent_hash: block.header.parent_hash,
+                })?;
 
         for ommer in &block.ommers {
-            let ommer_parent = state
-                .read_parent_header(ommer)?
-                .ok_or(ValidationError::UnknownParent)?;
+            let ommer_parent =
+                state
+                    .read_parent_header(ommer)?
+                    .ok_or(ValidationError::OmmerUnknownParent {
+                        number: ommer.number,
+                        parent_hash: ommer.parent_hash,
+                    })?;
 
             self.validate_block_header(ommer, &ommer_parent, false)
                 .context(ValidationError::InvalidOmmerHeader)?;
