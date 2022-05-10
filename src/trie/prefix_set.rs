@@ -20,6 +20,10 @@ impl PrefixSet {
     pub(crate) fn insert(&mut self, key: &[u8]) {
         self.0.insert(key.to_vec());
     }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 #[cfg(test)]
