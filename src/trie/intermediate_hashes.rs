@@ -490,12 +490,10 @@ where
     K: TransactionKind,
     E: EnvironmentKind,
 {
-    let starting_key = from + 1;
-
     let mut out = PrefixSet::new();
 
     let mut account_changes = txn.cursor(tables::AccountChangeSet)?;
-    let mut data = account_changes.seek(starting_key)?;
+    let mut data = account_changes.seek(from)?;
     while let Some((_, account_change)) = data {
         let hashed_address = keccak256(account_change.address);
         out.insert(unpack_nibbles(hashed_address.as_bytes()).as_slice());
@@ -506,7 +504,7 @@ where
     info!("Gathered {} account changes.", n_account_changes);
 
     let mut storage_changes = txn.cursor(tables::StorageChangeSet)?;
-    let mut data = storage_changes.seek(starting_key)?;
+    let mut data = storage_changes.seek(from)?;
     while let Some((key, storage_change)) = data {
         let hashed_address = keccak256(key.address);
         let hashed_location = keccak256(storage_change.location);
@@ -539,7 +537,21 @@ where
     'db: 'tx,
     E: EnvironmentKind,
 {
-    let mut changes = gather_changes(txn, from)?;
+    let mut changes = gather_changes(txn, from + 1)?;
+    do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut changes)
+}
+
+pub fn unwind_intermediate_hashes<'db, 'tx, E>(
+    txn: &'tx MdbxTransaction<'db, RW, E>,
+    etl_dir: &TempDir,
+    unwind_to: BlockNumber,
+    expected_root: Option<H256>,
+) -> std::result::Result<H256, DuoError>
+where
+    'db: 'tx,
+    E: EnvironmentKind,
+{
+    let mut changes = gather_changes(txn, unwind_to)?;
     do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut changes)
 }
 

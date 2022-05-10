@@ -13,6 +13,7 @@ where
     E: EnvironmentKind,
 {
     stage: Box<dyn Stage<'db, E>>,
+    unwind_priority: usize,
     require_tip: bool,
 }
 
@@ -78,6 +79,22 @@ where
         self.stages.push(QueuedStage {
             stage: Box::new(stage),
             require_tip,
+            unwind_priority: 0,
+        })
+    }
+
+    pub fn push_with_unwind_priority<S>(
+        &mut self,
+        stage: S,
+        require_tip: bool,
+        unwind_priority: usize,
+    ) where
+        S: Stage<'db, E> + 'static,
+    {
+        self.stages.push(QueuedStage {
+            stage: Box::new(stage),
+            require_tip,
+            unwind_priority,
         })
     }
 
@@ -133,10 +150,18 @@ where
 
             // Start with unwinding if it's been requested.
             if let Some(to) = unwind_to.take() {
+                let mut unwind_pipeline = self.stages.iter_mut().enumerate().collect::<Vec<_>>();
+
+                unwind_pipeline.sort_by_key(|(idx, stage)| {
+                    if stage.unwind_priority > 0 {
+                        (idx - stage.unwind_priority, 0)
+                    } else {
+                        (*idx, 1)
+                    }
+                });
+
                 // Unwind stages in reverse order.
-                for (stage_index, QueuedStage { stage, .. }) in
-                    self.stages.iter_mut().enumerate().rev()
-                {
+                for (stage_index, QueuedStage { stage, .. }) in unwind_pipeline.into_iter().rev() {
                     let stage_id = stage.id();
 
                     // Unwind magic happens here.
@@ -199,8 +224,12 @@ where
                 let mut reached_tip_flag = true;
 
                 // Execute each stage in direct order.
-                for (stage_index, QueuedStage { stage, require_tip }) in
-                    self.stages.iter_mut().enumerate()
+                for (
+                    stage_index,
+                    QueuedStage {
+                        stage, require_tip, ..
+                    },
+                ) in self.stages.iter_mut().enumerate()
                 {
                     let mut restarted = false;
 

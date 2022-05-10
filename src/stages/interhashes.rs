@@ -7,7 +7,7 @@ use crate::{
         stages::*,
     },
     stages::stage_util::should_do_clean_promotion,
-    trie::{increment_intermediate_hashes, regenerate_intermediate_hashes},
+    trie::*,
     StageId,
 };
 use anyhow::format_err;
@@ -116,13 +116,29 @@ where
     where
         'db: 'tx,
     {
-        let _ = input;
-        // TODO: proper unwind
-        tx.clear_table(tables::TrieAccount)?;
-        tx.clear_table(tables::TrieStorage)?;
+        let block_state_root = tx
+            .get(
+                tables::Header,
+                (
+                    input.unwind_to,
+                    tx.get(tables::CanonicalHeader, input.unwind_to)?
+                        .ok_or_else(|| {
+                            format_err!("No canonical hash for block {}", input.unwind_to)
+                        })?,
+                ),
+            )?
+            .ok_or_else(|| format_err!("No header for block {}", input.unwind_to))?
+            .state_root;
+
+        unwind_intermediate_hashes(
+            tx,
+            self.temp_dir.as_ref(),
+            input.unwind_to,
+            Some(block_state_root),
+        )?;
 
         Ok(UnwindOutput {
-            stage_progress: BlockNumber(0),
+            stage_progress: input.unwind_to,
         })
     }
 }
