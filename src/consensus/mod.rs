@@ -103,7 +103,10 @@ pub enum ValidationError {
     }, // wrong Hb
 
     // See [YP] Section 4.3.4 "Block Header Validity", Eq (50)
-    UnknownParent,   // P(H) = ∅ ∨ Hi ≠ P(H)Hi + 1
+    UnknownParent {
+        number: BlockNumber,
+        parent_hash: H256,
+    }, // P(H) = ∅ ∨ Hi ≠ P(H)Hi + 1
     WrongDifficulty, // Hd ≠ D(H)
     GasAboveLimit {
         used: u64,
@@ -133,6 +136,10 @@ pub enum ValidationError {
     MaxPriorityFeeGreaterThanMax, // max_priority_fee_per_gas > max_fee_per_gas (EIP-1559)
 
     // See [YP] Section 11.1 "Ommer Validation", Eq (157)
+    OmmerUnknownParent {
+        number: BlockNumber,
+        parent_hash: H256,
+    }, // P(H) = ∅ ∨ Hi ≠ P(H)Hi + 1
     TooManyOmmers,      // ‖BU‖ > 2
     InvalidOmmerHeader, // ¬V(U)
     NotAnOmmer,         // ¬k(U, P(BH)H, 6)

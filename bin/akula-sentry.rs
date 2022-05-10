@@ -1,10 +1,11 @@
 #![allow(dead_code, clippy::upper_case_acronyms)]
+use akula::akula_tracing::{self, Component};
 use clap::Parser;
 use educe::Educe;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::*;
-use tracing_subscriber::{prelude::*, EnvFilter};
+use tracing_subscriber::prelude::*;
 
 #[derive(Educe, Parser)]
 #[clap(
@@ -24,20 +25,7 @@ async fn main() -> anyhow::Result<()> {
     let opts: Opts = Opts::parse();
     fdlimit::raise_fd_limit();
 
-    let filter = if std::env::var(EnvFilter::DEFAULT_ENV)
-        .unwrap_or_default()
-        .is_empty()
-    {
-        EnvFilter::new(
-            "akula_sentry=info,akula::sentry::devp2p=info,akula::sentry::devp2p::disc=info",
-        )
-    } else {
-        EnvFilter::from_default_env()
-    };
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
-        .with(filter)
-        .init();
+    akula_tracing::build_subscriber(Component::Sentry).init();
 
     let max_peers = opts.sentry_opts.max_peers;
     let swarm = akula::sentry::run(opts.sentry_opts).await?;

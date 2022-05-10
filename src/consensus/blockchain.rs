@@ -265,7 +265,10 @@ impl<'state> Blockchain<'state> {
         let parent = self
             .state
             .read_header(BlockNumber(header.number.0 - 1), header.parent_hash)?
-            .ok_or(ValidationError::UnknownParent)?;
+            .ok_or(ValidationError::UnknownParent {
+                number: header.number,
+                parent_hash: header.parent_hash,
+            })?;
         self.canonical_ancestor(&parent.into(), header.parent_hash)
     }
 }

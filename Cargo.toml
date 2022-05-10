@@ -115,7 +115,8 @@ substrate-bn = "0.6"
 tempfile = "3"
 task-group = { git = "https://github.com/vorot93/task-group" }
 thiserror = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.18", features = ["full"] }
+console-subscriber = { version = "0.1.5", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 toml = { version = "0.5", features = ["preserve_order"] }
@@ -138,8 +139,10 @@ hashbrown = { version = "0.12.0", features = [
     "nightly",
     "ahash-compile-time-rng",
 ] }
-crossbeam = { version = "0.8.1", features = ["nightly"] }
-crossbeam-skiplist = { git = "https://github.com/crossbeam-rs/crossbeam" }
+
+[features]
+default = []
+console = ["tokio/tracing", "dep:console-subscriber"]
 
 [build-dependencies]
 anyhow = "1"
@@ -152,7 +155,7 @@ include_dir = "0.7"
 pprof = { version = "0.8", features = ["flamegraph"] }
 proptest = "1.0.0"
 rand = { version = "0.8", features = ["std"] }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.18", features = ["full"] }
 tokio-test = "0.4.2"
 triehash = "0.8"
 

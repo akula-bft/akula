@@ -14,12 +14,14 @@ pub enum BlockId {
 }
 
 impl From<BlockNumber> for BlockId {
+    #[inline(always)]
     fn from(number: BlockNumber) -> Self {
         BlockId::Number(number)
     }
 }
 
 impl From<H256> for BlockId {
+    #[inline(always)]
     fn from(hash: H256) -> Self {
         BlockId::Hash(hash)
     }
@@ -40,7 +42,7 @@ impl NewBlockHashes {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, RlpEncodable, RlpDecodable)]
 pub struct BlockHashAndNumber {
     pub hash: H256,
     pub number: BlockNumber,
