@@ -1,10 +1,10 @@
 mod base;
 mod blockchain;
+mod clique;
 mod ethash;
 
 pub use self::{base::*, blockchain::*, ethash::*};
-use crate::{models::*, BlockState};
-use anyhow::bail;
+use crate::{consensus::clique::Clique, models::*, BlockState};
 use derive_more::{Display, From};
 use std::fmt::{Debug, Display};
 
@@ -70,6 +70,28 @@ pub enum BadTransactionError {
         available: u64,
         required: u64,
     }, // Tg > BHl - l(BR)u
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum CliqueError {
+    UnknownSigner {
+        signer: Address,
+    },
+    SignedRecently {
+        signer: Address,
+    },
+    WrongExtraData,
+    WrongNonce {
+        nonce: u64,
+    },
+    VoteForZeroAddress,
+    VoteInEpochBlock,
+    CheckpointInNonEpochBlock,
+    InvalidCheckpoint,
+    CheckpointMismatch {
+        expected: Vec<Address>,
+        got: Vec<Address>,
+    },
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -157,6 +179,8 @@ pub enum ValidationError {
     WrongChainId, // EIP-155
 
     UnsupportedTransactionType, // EIP-2718
+
+    CliqueError(CliqueError),
 }
 
 impl Display for ValidationError {
@@ -173,6 +197,12 @@ pub enum DuoError {
 }
 
 impl std::error::Error for DuoError {}
+
+impl From<CliqueError> for DuoError {
+    fn from(clique_error: CliqueError) -> Self {
+        DuoError::Validation(ValidationError::CliqueError(clique_error))
+    }
+}
 
 pub fn pre_validate_transaction(
     txn: &Message,
@@ -218,6 +248,11 @@ pub fn engine_factory(chain_config: ChainSpec) -> anyhow::Result<Box<dyn Consens
             difficulty_bomb,
             skip_pow_verification,
         )),
-        _ => bail!("unsupported consensus engine"),
+        SealVerificationParams::Clique { period, epoch } => Box::new(Clique::new(
+            chain_config.params.chain_id,
+            chain_config.consensus.eip1559_block,
+            period,
+            epoch,
+        )),
     })
 }

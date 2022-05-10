@@ -7,13 +7,25 @@ use std::time::SystemTime;
 pub struct ConsensusEngineBase {
     chain_id: ChainId,
     eip1559_block: Option<BlockNumber>,
+    max_extra_data_length: Option<usize>,
+    min_gas_limit: u64,
+    can_have_ommers: bool,
 }
 
 impl ConsensusEngineBase {
-    pub fn new(chain_id: ChainId, eip1559_block: Option<BlockNumber>) -> Self {
+    pub fn new(
+        chain_id: ChainId,
+        eip1559_block: Option<BlockNumber>,
+        max_extra_data_length: Option<usize>,
+        min_gas_limit: u64,
+        can_have_ommers: bool,
+    ) -> Self {
         Self {
             chain_id,
             eip1559_block,
+            max_extra_data_length,
+            min_gas_limit,
+            can_have_ommers,
         }
     }
 
@@ -45,7 +57,7 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        if header.gas_limit < 5000 {
+        if header.gas_limit < self.min_gas_limit {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 
@@ -55,8 +67,10 @@ impl ConsensusEngineBase {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 
-        if header.extra_data.len() > 32 {
-            return Err(ValidationError::ExtraDataTooLong.into());
+        if let Some(limit) = self.max_extra_data_length {
+            if header.extra_data.len() > limit {
+                return Err(ValidationError::ExtraDataTooLong.into());
+            }
         }
 
         if header.timestamp <= parent.timestamp {
@@ -187,7 +201,12 @@ impl ConsensusEngineBase {
         block: &Block,
         state: &dyn BlockState,
     ) -> Result<(), DuoError> {
-        let expected_ommers_hash = Block::ommers_hash(&block.ommers);
+        let expected_ommers_hash = if self.can_have_ommers {
+            Block::ommers_hash(&block.ommers)
+        } else {
+            EMPTY_LIST_HASH
+        };
+
         if block.header.ommers_hash != expected_ommers_hash {
             return Err(ValidationError::WrongOmmersHash {
                 expected: expected_ommers_hash,
@@ -205,14 +224,6 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        if block.ommers.len() > 2 {
-            return Err(ValidationError::TooManyOmmers.into());
-        }
-
-        if block.ommers.len() == 2 && block.ommers[0] == block.ommers[1] {
-            return Err(ValidationError::DuplicateOmmer.into());
-        }
-
         let parent =
             state
                 .read_parent_header(&block.header)?
@@ -221,33 +232,44 @@ impl ConsensusEngineBase {
                     parent_hash: block.header.parent_hash,
                 })?;
 
-        for ommer in &block.ommers {
-            let ommer_parent =
-                state
-                    .read_parent_header(ommer)?
-                    .ok_or(ValidationError::OmmerUnknownParent {
+        if self.can_have_ommers {
+            if block.ommers.len() > 2 {
+                return Err(ValidationError::TooManyOmmers.into());
+            }
+
+            if block.ommers.len() == 2 && block.ommers[0] == block.ommers[1] {
+                return Err(ValidationError::DuplicateOmmer.into());
+            }
+
+            for ommer in &block.ommers {
+                let ommer_parent = state.read_parent_header(ommer)?.ok_or(
+                    ValidationError::OmmerUnknownParent {
                         number: ommer.number,
                         parent_hash: ommer.parent_hash,
-                    })?;
+                    },
+                )?;
 
-            self.validate_block_header(ommer, &ommer_parent, false)
-                .context(ValidationError::InvalidOmmerHeader)?;
-            let mut old_ommers = vec![];
-            if !self.is_kin(
-                ommer,
-                &parent,
-                block.header.parent_hash,
-                6,
-                state,
-                &mut old_ommers,
-            )? {
-                return Err(ValidationError::NotAnOmmer.into());
-            }
-            for oo in old_ommers {
-                if oo == *ommer {
-                    return Err(ValidationError::DuplicateOmmer.into());
+                self.validate_block_header(ommer, &ommer_parent, false)
+                    .context(ValidationError::InvalidOmmerHeader)?;
+                let mut old_ommers = vec![];
+                if !self.is_kin(
+                    ommer,
+                    &parent,
+                    block.header.parent_hash,
+                    6,
+                    state,
+                    &mut old_ommers,
+                )? {
+                    return Err(ValidationError::NotAnOmmer.into());
+                }
+                for oo in old_ommers {
+                    if oo == *ommer {
+                        return Err(ValidationError::DuplicateOmmer.into());
+                    }
                 }
             }
+        } else if !block.ommers.is_empty() {
+            return Err(ValidationError::TooManyOmmers.into());
         }
 
         for txn in &block.transactions {

@@ -62,7 +62,7 @@ impl Ethash {
         skip_pow_verification: bool,
     ) -> Self {
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, Some(32), 5000, true),
             dag_cache: DagCache::new(),
             duration_limit,
             block_reward,
