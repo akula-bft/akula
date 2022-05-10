@@ -27,6 +27,16 @@ use tracing::*;
 pub type Sentry = SentryClient<Channel>;
 
 #[derive(Debug)]
+pub(crate) struct BlockCaches {
+    /// Table of block hashes of the blocks known to not belong to the canonical chain.
+    pub(crate) bad_blocks: LruCache<H256, ()>,
+    /// Mapping from the child hash to it's parent.
+    pub(crate) parent_cache: LruCache<H256, H256>,
+    /// Mapping from the block hash to it's number.
+    pub(crate) block_cache: LruCache<H256, BlockNumber>,
+}
+
+#[derive(Debug)]
 pub struct Node {
     /// The sentry clients.
     pub(crate) sentries: Vec<Sentry>,
@@ -36,12 +46,8 @@ pub struct Node {
     pub(crate) config: ChainConfig,
     /// Highest persistent chain tip.
     pub(crate) chain_tip: RwLock<(BlockNumber, H256)>,
-    /// Table of block hashes of the blocks known to not belong to the canonical chain.
-    pub(crate) bad_blocks: Mutex<LruCache<H256, ()>>,
-    /// Mapping from the child hash to it's parent.
-    pub(crate) parent_cache: Mutex<LruCache<H256, H256>>,
-    /// Mapping from the block hash to it's number.
-    pub(crate) block_cache: Mutex<LruCache<H256, BlockNumber>>,
+    /// Block caches
+    pub(crate) block_caches: Mutex<BlockCaches>,
     /// Chain forks.
     pub(crate) forks: Vec<u64>,
 }
@@ -94,15 +100,16 @@ impl Node {
                                 let hash = header.hash();
 
                                 {
-                                    let mut block_cache = handler.block_cache.lock();
-                                    block_cache.insert(hash, header.number);
-                                    block_cache.insert(
+                                    let mut caches = handler.block_caches.lock();
+
+                                    caches.block_cache.insert(hash, header.number);
+                                    caches.block_cache.insert(
                                         header.parent_hash,
                                         BlockNumber(header.number.checked_sub(1).unwrap_or(0)),
                                     );
-                                }
 
-                                handler.parent_cache.lock().insert(hash, header.parent_hash);
+                                    caches.parent_cache.insert(hash, header.parent_hash);
+                                }
 
                                 if header.number > block_number {
                                     *handler.chain_tip.write() = (header.number, hash);
@@ -119,15 +126,15 @@ impl Node {
                                 let parent_hash = inner.block.header.parent_hash;
 
                                 {
-                                    let mut block_cache = handler.block_cache.lock();
-                                    block_cache.insert(hash, number);
-                                    block_cache.insert(
+                                    let mut caches = handler.block_caches.lock();
+                                    caches.block_cache.insert(hash, number);
+                                    caches.block_cache.insert(
                                         parent_hash,
                                         BlockNumber(number.checked_sub(1).unwrap_or(0)),
                                     );
-                                }
 
-                                handler.parent_cache.lock().insert(hash, parent_hash);
+                                    caches.parent_cache.insert(hash, parent_hash);
+                                }
 
                                 if number > block_number {
                                     *handler.chain_tip.write() = (inner.block.header.number, hash);
@@ -205,14 +212,14 @@ impl Node {
 
     /// Marks block with given hash as non-canonical.
     pub fn mark_bad_block(&self, hash: H256) {
-        self.bad_blocks.lock().insert(hash, ());
+        self.block_caches.lock().bad_blocks.insert(hash, ());
     }
 
     /// Finds first bad block if any, and returns it's index in given iterable.
     #[inline]
     pub fn position_bad_block<'a, T: Iterator<Item = &'a H256>>(&self, iter: T) -> Option<usize> {
-        let mut g = self.bad_blocks.lock();
-        iter.into_iter().position(|h| g.contains_key(h))
+        let mut g = self.block_caches.lock();
+        iter.into_iter().position(|h| g.bad_blocks.contains_key(h))
     }
 
     /// Updates current node status.
