@@ -280,6 +280,16 @@ where
                                     done: true,
                                     reached_tip: false,
                                 }
+                            } else if prev_progress.unwrap_or(BlockNumber(0))
+                                >= self.max_block.unwrap_or_else(|| u64::MAX.into())
+                            {
+                                info!("Reached max block, skipping stage");
+
+                                ExecOutput::Progress {
+                                    stage_progress: prev_progress.unwrap_or_default(),
+                                    done: true,
+                                    reached_tip: true,
+                                }
                             } else {
                                 stage
                                     .execute(
