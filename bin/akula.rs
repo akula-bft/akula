@@ -92,7 +92,7 @@ pub struct Opt {
     pub exit_after_sync: bool,
 
     /// Delay applied at the terminating stage.
-    #[clap(long, default_value = "2000")]
+    #[clap(long, default_value = "0")]
     pub delay_after_sync: u64,
 
     /// Enable JSONRPC at this address.
@@ -195,7 +195,11 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.set_max_block(opt.max_block);
                 staged_sync.start_with_unwind(opt.start_with_unwind);
                 staged_sync.set_exit_after_sync(opt.exit_after_sync);
-                staged_sync.set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
+
+                if opt.delay_after_sync > 0 {
+                    staged_sync
+                        .set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
+                }
 
                 let sentry_api_addr = if let Some(sentry_api_addr) = opt.sentry_api_addr {
                     sentry_api_addr
