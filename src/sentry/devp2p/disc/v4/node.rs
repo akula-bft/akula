@@ -364,7 +364,7 @@ impl Node {
                         }
 
                         if let Err(e) = udp.send_to(&datagram, addr).await {
-                            warn!("UDP socket send failure: {}", e);
+                            debug!("UDP socket send failure: {}", e);
                         } else if let Some(trigger) = post_trigger {
                             match trigger {
                                 PostSendTrigger::Ping => {
