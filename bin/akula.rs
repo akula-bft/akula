@@ -244,6 +244,7 @@ fn main() -> anyhow::Result<()> {
                     HeaderDownload {
                         node: node.clone(),
                         consensus: consensus.clone(),
+                        max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
                     },
                     false,
                 );

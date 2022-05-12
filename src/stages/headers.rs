@@ -41,6 +41,7 @@ pub struct HeaderDownload {
     pub node: Arc<Node>,
     /// Consensus engine used.
     pub consensus: Arc<dyn Consensus>,
+    pub max_block: BlockNumber,
 }
 #[async_trait]
 impl<'db, E> Stage<'db, E> for HeaderDownload
@@ -78,12 +79,17 @@ where
             tokio::time::sleep(Duration::from_secs(10)).await;
         };
 
-        let (target_block, reached_tip) =
+        let (mut target_block, mut reached_tip) =
             if starting_block + STAGE_UPPER_BOUND as u64 > current_chain_tip {
                 (current_chain_tip, true)
             } else {
                 (starting_block + STAGE_UPPER_BOUND as u64, false)
             };
+
+        if target_block >= self.max_block {
+            target_block = self.max_block;
+            reached_tip = true;
+        }
 
         let headers_cap = (target_block.0 - starting_block.0) as usize;
         let mut headers: Vec<(H256, BlockHeader)> = Vec::with_capacity(headers_cap);
@@ -124,6 +130,10 @@ where
             }
 
             prev_hash = hash;
+
+            if header.number > self.max_block {
+                break;
+            }
 
             let block_number = header.number;
             td += header.difficulty;

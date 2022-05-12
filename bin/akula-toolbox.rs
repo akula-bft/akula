@@ -142,7 +142,14 @@ async fn download_headers(
     txn.commit()?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(HeaderDownload { node, consensus }, false);
+    staged_sync.push(
+        HeaderDownload {
+            node,
+            consensus,
+            max_block: u64::MAX.into(),
+        },
+        false,
+    );
     staged_sync.run(&env).await?;
 
     Ok(())
