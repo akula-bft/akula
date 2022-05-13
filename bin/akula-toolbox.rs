@@ -12,10 +12,9 @@ use akula::{
     stagedsync,
     stages::*,
 };
-use anyhow::{bail, ensure, format_err, Context};
+use anyhow::{ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
-use itertools::Itertools;
 use std::{borrow::Cow, collections::BTreeMap, path::PathBuf, sync::Arc};
 use tokio::pin;
 use tracing::*;
@@ -290,48 +289,48 @@ fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> anyhow
     let mut cur1 = txn1.cursor(&db1)?;
     let mut cur2 = txn2.cursor(&db2)?;
 
-    let mut i = 0;
-    let mut excess = 0;
-    for res in cur1
-        .iter_start::<Cow<[u8]>, Cow<[u8]>>()
-        .zip_longest(cur2.iter_start::<Cow<[u8]>, Cow<[u8]>>())
-    {
-        if i > 0 && i % 1_000_000 == 0 {
-            info!("Checked {} entries", i);
-        }
-        match res {
-            itertools::EitherOrBoth::Both(a, b) => {
-                let (k1, v1) = a?;
-                let (k2, v2) = b?;
-                ensure!(
-                    k1 == k2 && v1 == v2,
-                    "MISMATCH DETECTED: {}: {} != {}: {}\n{:?}\n{:?}",
-                    hex::encode(&k1),
-                    hex::encode(&v1),
-                    hex::encode(&k2),
-                    hex::encode(&v2),
-                    Account::decode_for_storage(&v1),
-                    Account::decode_for_storage(&v2),
-                );
+    let mut kv1 = cur1.next::<Cow<[u8]>, Cow<[u8]>>()?;
+    let mut kv2 = cur2.next::<Cow<[u8]>, Cow<[u8]>>()?;
+    loop {
+        match (&kv1, &kv2) {
+            (None, None) => break,
+            (None, Some((k2, v2))) => {
+                info!("Missing in db1: {} [{}]", hex::encode(k2), hex::encode(v2));
+
+                kv2 = cur2.next()?;
             }
-            itertools::EitherOrBoth::Left(_) => excess -= 1,
-            itertools::EitherOrBoth::Right(_) => excess += 1,
-        }
+            (Some((k1, v1)), None) => {
+                info!("Missing in db2: {} [{}]", hex::encode(k1), hex::encode(v1));
 
-        i += 1;
+                kv1 = cur1.next()?;
+            }
+            (Some((k1, v1)), Some((k2, v2))) => match k1.cmp(k2) {
+                std::cmp::Ordering::Greater => {
+                    info!("Missing in db1: {} [{}]", hex::encode(k2), hex::encode(v2));
+
+                    kv2 = cur2.next()?;
+                }
+                std::cmp::Ordering::Less => {
+                    info!("Missing in db2: {} [{}]", hex::encode(k1), hex::encode(v1));
+
+                    kv1 = cur1.next()?;
+                }
+                std::cmp::Ordering::Equal => {
+                    if v1 != v2 {
+                        info!(
+                            "Mismatch for key: {} [{} != {}]",
+                            hex::encode(k1),
+                            hex::encode(v1),
+                            hex::encode(v2)
+                        );
+                    }
+
+                    kv1 = cur1.next()?;
+                    kv2 = cur2.next()?;
+                }
+            },
+        }
     }
-
-    match excess.cmp(&0) {
-        std::cmp::Ordering::Less => {
-            bail!("db1 longer than db2 by {} entries", -excess);
-        }
-        std::cmp::Ordering::Equal => {}
-        std::cmp::Ordering::Greater => {
-            bail!("db2 longer than db1 by {} entries", excess);
-        }
-    }
-
-    info!("Check complete. {} entries scanned.", i);
 
     Ok(())
 }
