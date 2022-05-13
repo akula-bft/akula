@@ -227,7 +227,7 @@ where
 
                 if let Some(account) = account {
                     hashed_account_cur.put(hashed_address, account)?
-                } else if hashed_account_cur.seek(hashed_address)?.is_some() {
+                } else if hashed_account_cur.seek_exact(hashed_address)?.is_some() {
                     hashed_account_cur.delete_current()?
                 }
             } else {

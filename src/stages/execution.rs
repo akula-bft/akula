@@ -257,7 +257,7 @@ where
 
             if let Some(account) = account {
                 account_cursor.put(address, account)?;
-            } else if account_cursor.seek(address)?.is_some() {
+            } else if account_cursor.seek_exact(address)?.is_some() {
                 account_cursor.delete_current()?;
             }
 
