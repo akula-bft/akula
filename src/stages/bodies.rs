@@ -138,8 +138,8 @@ impl BodyDownload {
                     let total_requests = 30 * handler.total_peers().await;
 
                     info!(
-                        "Sending {total_requests}x{chunk}={} out of {} block bodies requests",
-                        total_requests * chunk,
+                        "Sending {} out of {} block bodies requests",
+                        std::cmp::min(total_requests * chunk, left_requests.len()),
                         left_requests.len()
                     );
 
