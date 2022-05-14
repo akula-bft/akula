@@ -219,7 +219,7 @@ impl HeaderDownload {
                         headers.extend_from_slice(&msg.headers);
                         requests.remove(key);
 
-                        info!("Downloaded {} block headers: {}->{}", msg.headers.len(), **key, **key + msg.headers.len() as u64);
+                        info!("Downloaded {} block headers: {}->{}", msg.headers.len(), **key, **key + msg.headers.len().saturating_sub(1) as u64);
                         message_processed = true;
                     }
                 }
