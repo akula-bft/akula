@@ -35,7 +35,7 @@ derive_more = "0.99"
 digest = "0.10"
 directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
-enr = { version = "0.5", default-features = false, features = [
+enr = { version = "0.6", default-features = false, features = [
     "rust-secp256k1",
 ] }
 enum-as-inner = "0.4"
@@ -77,7 +77,7 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
     "tokio1",
 ] }
 itertools = "0.10"
-jsonrpsee = { version = "0.11", features = ["server", "macros"] }
+jsonrpsee = { version = "0.13", features = ["server", "macros"] }
 lru = "0.7"
 maplit = "1"
 mdbx = { package = "libmdbx", version = "0.1" }
@@ -152,7 +152,7 @@ vergen = "7"
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 criterion = { version = "0.3", default-features = false }
 include_dir = "0.7"
-pprof = { version = "0.8", features = ["flamegraph"] }
+pprof = { version = "0.9", features = ["flamegraph"] }
 proptest = "1.0.0"
 rand = { version = "0.8", features = ["std"] }
 tokio = { version = "1.18", features = ["full"] }

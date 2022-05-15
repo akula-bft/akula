@@ -76,10 +76,10 @@ impl DnsDiscovery {
                             break;
                         }
                         Ok(Some(Ok(v))) => {
-                            if let Some(addr) = v.tcp_socket() {
+                            if let Some(addr) = v.tcp4_socket() {
                                 if tx
                                     .send(Ok(NodeRecord {
-                                        addr,
+                                        addr: addr.into(),
                                         id: pk2id(&v.public_key()),
                                     }))
                                     .await
