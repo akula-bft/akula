@@ -95,7 +95,7 @@ fn get_or_create_object<'m: 'j, 'j, S: State>(
     Ok(objects.get_mut(&address).unwrap())
 }
 
-impl<'storage, 'r, S: State> IntraBlockState<'r, S> {
+impl<'r, S: State> IntraBlockState<'r, S> {
     pub fn new(db: &'r mut S) -> Self {
         Self {
             db,

@@ -470,8 +470,7 @@ impl Node {
             Ok::<_, anyhow::Error>(())
         };
         let data = data.into();
-        let _ = self
-            .sentries
+        self.sentries
             .clone()
             .into_iter()
             .map(|sentry| {
@@ -489,8 +488,7 @@ impl Node {
         Ok(())
     }
     async fn set_status(&self, status_data: grpc_sentry::StatusData) -> anyhow::Result<()> {
-        let _ = self
-            .sentries
+        self.sentries
             .clone()
             .into_iter()
             .map(move |mut sentry| {

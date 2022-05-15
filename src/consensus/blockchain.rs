@@ -195,7 +195,7 @@ impl<'state> Blockchain<'state> {
                 ommers: body.ommers,
             };
 
-            let _ = self.execute_block(&block, false).unwrap();
+            self.execute_block(&block, false).unwrap();
         }
 
         Ok(())

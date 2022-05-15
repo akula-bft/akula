@@ -226,7 +226,7 @@ impl<K: EnrKeyUnambiguous> FromStr for DnsRecord<K> {
             let mut l = None;
             let mut seq = None;
             let mut sig = None;
-            for entry in root.trim().split_whitespace() {
+            for entry in root.split_whitespace() {
                 if let Some(v) = entry.strip_prefix("e=") {
                     trace!("Extracting ENR root: {:?}", v);
                     e = Some(v.parse()?);

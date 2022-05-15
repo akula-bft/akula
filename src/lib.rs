@@ -1,6 +1,5 @@
 #![feature(
     adt_const_params,
-    bool_to_option,
     const_for,
     const_mut_refs,
     entry_insert,

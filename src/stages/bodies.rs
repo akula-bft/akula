@@ -145,7 +145,7 @@ impl BodyDownload {
 
                     pending_responses.fetch_add(total_requests as isize, Ordering::SeqCst);
 
-                    let _ = left_requests
+                    left_requests
                         .chunks(chunk)
                         .take(total_requests)
                         .map(|chunk| {
