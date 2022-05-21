@@ -65,13 +65,14 @@ impl PartialOrd for Link {
 pub struct Link {
     height: BlockNumber,
     hash: H256,
+    parent_hash: H256,
 }
 
 #[derive(Debug)]
 pub struct Graph {
     skip_list: HashMap<H256, HashSet<H256>>,
     raw: HashMap<H256, BlockHeader>,
-    q: BinaryHeap<Link>,
+    q: Vec<Link>,
 }
 
 impl Graph {
@@ -79,7 +80,7 @@ impl Graph {
         Self {
             skip_list: HashMap::new(),
             raw: HashMap::new(),
-            q: BinaryHeap::new(),
+            q: Default::default(),
         }
     }
 
@@ -96,6 +97,7 @@ impl Graph {
         let link = Link {
             height: header.number,
             hash,
+            parent_hash: header.parent_hash,
         };
         self.skip_list
             .entry(header.parent_hash)
@@ -107,30 +109,14 @@ impl Graph {
 
     pub fn dfs(&mut self) -> Option<H256> {
         let mut roots = Vec::new();
-        let mut last_height = None;
-
-        // while let Some(node) = self.q.pop() {
-        //     if !self.raw.contains_key(node
-        // }
-
-        loop {
-            if let Some(head) = self.q.pop() {
-                match last_height {
-                    Some(height) => {
-                        if height != head.height {
-                            break;
-                        } else {
-                            roots.push(head);
-                        }
-                    }
-                    None => {
-                        last_height = Some(head.height);
-                        roots.push(head);
-                    }
-                }
-            } else if roots.is_empty() {
-                return None;
+        for node in self.q.drain(..) {
+            // Check if we don't have node's parent, and if it's the case - node is root.
+            if !self.raw.contains_key(&node.parent_hash) {
+                roots.push(node)
             }
+        }
+        if roots.is_empty() {
+            return None;
         }
 
         let mut stack = VecDeque::new();
@@ -201,7 +187,7 @@ pub struct HeaderDownload {
 impl HeaderDownload {
     pub async fn run(&mut self) -> anyhow::Result<()> {
         let anchors = self
-            .prepare_anchors(BlockNumber(0), BlockNumber(1024))
+            .prepare_anchors(BlockNumber(1), BlockNumber(98_305))
             .await?;
 
         let mut graph = Graph::new();
@@ -249,6 +235,15 @@ impl HeaderDownload {
                         .send_many_header_requests(header_requests.values().copied())
                         .await?;
                 }
+            }
+        }
+
+        if let Some(headers) = match graph.dfs() {
+            Some(tail) => Some(graph.collect(&tail)),
+            _ => None,
+        } {
+            for header in headers {
+                debug!("Header: {}|{:?}", header.number, header.hash());
             }
         }
 
@@ -345,7 +340,7 @@ mod tests {
                 max_block: BlockNumber(0),
             };
 
-            // down.set_anchors(BlockNumber(1), BlockNumber(98_305)).await
+            down.run().await.unwrap();
         });
     }
 }
