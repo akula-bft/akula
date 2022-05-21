@@ -116,7 +116,7 @@ async fn download_headers(
     uri: tonic::transport::Uri,
 ) -> anyhow::Result<()> {
     let chain_config = ChainConfig::new(chain.as_ref())?;
-    let consensus = engine_factory(chain_config.chain_spec.clone())?.into();
+    // let consensus = engine_factory(chain_config.chain_spec.clone())?.into();
     let node = Arc::new(NodeBuilder::default().add_sentry(uri).build()?);
     tokio::spawn({
         let node = node.clone();
@@ -140,16 +140,16 @@ async fn download_headers(
 
     txn.commit()?;
 
-    let mut staged_sync = stagedsync::StagedSync::new();
-    staged_sync.push(
-        HeaderDownload {
-            node,
-            consensus,
-            max_block: u64::MAX.into(),
-        },
-        false,
-    );
-    staged_sync.run(&env).await?;
+    // let mut staged_sync = stagedsync::StagedSync::new();
+    // staged_sync.push(
+    //     HeaderDownload {
+    //         node,
+    //         consensus,
+    //         max_block: u64::MAX.into(),
+    //     },
+    //     false,
+    // );
+    // staged_sync.run(&env).await?;
 
     Ok(())
 }

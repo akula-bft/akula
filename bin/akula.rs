@@ -244,14 +244,14 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
 
-                staged_sync.push(
-                    HeaderDownload {
-                        node: node.clone(),
-                        consensus: consensus.clone(),
-                        max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
-                    },
-                    false,
-                );
+                // staged_sync.push(
+                //     HeaderDownload {
+                //         node: node.clone(),
+                //         consensus: consensus.clone(),
+                //         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
+                //     },
+                //     false,
+                // );
                 staged_sync.push(TotalGasIndex, false);
                 staged_sync.push(
                     BlockHashes {

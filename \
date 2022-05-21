@@ -1,0 +1,491 @@
+#![allow(unused_imports)]
+
+use crate::{
+    consensus::Consensus,
+    kv::{mdbx::MdbxTransaction, tables},
+    models::{BlockHeader, BlockNumber, H256},
+    p2p::{
+        node::Node,
+        types::{BlockId, HeaderRequest, Message, Status},
+    },
+    stagedsync::{
+        stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
+        stages::HEADERS,
+    },
+};
+
+use anyhow::format_err;
+use async_trait::async_trait;
+use ethnum::U256;
+use hashbrown::{HashMap, HashSet};
+use hashlink::LinkedHashMap;
+use mdbx::{EnvironmentKind, RW};
+use rayon::{
+    iter::{
+        IndexedParallelIterator, IntoParallelRefIterator, ParallelDrainRange, ParallelIterator,
+    },
+    slice::ParallelSliceMut,
+};
+use std::{
+    collections::{BinaryHeap, VecDeque},
+    hash::Hash,
+    pin::Pin,
+    ptr::NonNull,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+use tokio::pin;
+use tokio_stream::StreamExt;
+use tracing::*;
+
+const HEADERS_UPPER_BOUND: usize = 1 << 10;
+const STAGE_UPPER_BOUND: usize = 3 << 15;
+const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
+
+impl Ord for Link {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.height.cmp(&other.height).reverse()
+    }
+}
+
+impl PartialOrd for Link {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Link {
+    height: BlockNumber,
+    hash: H256,
+    parent: H256,
+}
+
+#[derive(Debug)]
+pub struct LinkedList {
+    head: Option<Link>,
+
+    skip_list: HashMap<H256, HashSet<H256>>,
+    raw: HashMap<H256, BlockHeader>,
+    td: HashMap<H256, U256>,
+    q: BinaryHeap<Link>,
+}
+
+impl LinkedList {
+    pub fn new() -> Self {
+        Self {
+            head: None,
+            skip_list: HashMap::new(),
+            raw: HashMap::new(),
+            td: HashMap::new(),
+            q: BinaryHeap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, header: BlockHeader) {
+        let hash = header.hash();
+        if self.raw.contains_key(&hash) {
+            return;
+        }
+
+        let link = Link {
+            height: header.number,
+            hash,
+            parent: header.parent_hash,
+        };
+        self.raw.insert(hash, header);
+        self.skip_list.entry(link.parent).or_default().insert(hash);
+        self.q.push(link);
+    }
+
+    pub fn rebuild_index(&mut self) {
+        let mut roots = Vec::new();
+        let mut last_height = None;
+
+        loop {
+            if let Some(head) = self.q.pop() {
+                match last_height {
+                    Some(height) => {
+                        if height != head.height {
+                            break;
+                        } else {
+                            roots.push(head);
+                        }
+                    }
+                    None => {
+                        last_height = Some(head.height);
+                        roots.push(head);
+                    }
+                }
+            } else {
+                return;
+            }
+        }
+
+        let mut td = U256::ZERO;
+
+        let mut stack = VecDeque::new();
+        for root in roots {
+            stack.push_back(root.hash);
+        }
+
+        let mut branches = HashSet::new();
+
+        while let Some(hash) = stack.pop_back() {
+            let next = self.skip_list.get(&hash).cloned().unwrap_or_default();
+            if next.is_empty() {
+                branches.insert(hash);
+            } else {
+                for child in next {
+                    stack.push_back(child);
+                }
+            }
+        }
+
+        let mut tds = HashMap::new();
+        for branch in branches {
+            let mut td = U256::ZERO;
+            let mut parent = branch;
+            while let Some(header) = self.raw.get(&parent) {
+                td = td + header.difficulty;
+                parent = header.parent_hash;
+            }
+            tds.insert(branch, td);
+        }
+
+        debug!("tds: {:?}", tds);
+    }
+}
+
+// impl LinkedList {
+//     pub fn new() -> Self {
+//         Self {
+//             head: None,
+//             tail: None,
+//             skip_list: HashMap::new(),
+//             ptrs: HashMap::new(),
+//         }
+//     }
+
+//     pub fn len(&self) -> usize {
+//         self.ptrs.len()
+//     }
+
+//     pub fn is_empty(&self) -> bool {
+//         self.ptrs.is_empty()
+//     }
+
+//     pub fn skip_nodes(&mut self, val: &H256) -> Vec<NonNull<Link>> {
+//         self.skip_list.remove(val).map_or_else(Vec::new, |set| {
+//             set.iter().map(|k| *self.ptrs.get(k).unwrap()).collect()
+//         })
+//     }
+
+//     pub fn debug(&mut self, head: &H256) {
+//         if let Some(ptr) = self.ptrs.get(head).cloned() {
+//             self.head = Some(ptr);
+//         } else {
+//             return;
+//         }
+//         // self.head = Some(self.ptrs.get(head).cloned().unwrap());
+
+//         let mut curr = self.head.clone().unwrap();
+//         'outer_loop: loop {
+//             debug!("{:?}", unsafe { curr.as_ref() });
+//             if let Some(next) = unsafe { curr.as_ref() }.next.iter().cloned().next() {
+//                 curr = next;
+//             } else {
+//                 break;
+//             }
+//         }
+//     }
+
+//     pub fn find_path(&mut self, head: &H256) -> anyhow::Result<Vec<BlockHeader>> {
+//         let mut headers = Vec::new();
+
+//         match self.ptrs.get(head).cloned() {
+//             Some(ptr) => {
+//                 self.head = Some(ptr);
+//             }
+//             None => anyhow::bail!("Head not found"),
+//         }
+
+//         // Drop tail ptr, so we don't accidentally point to invalid memory.
+//         std::mem::take(&mut self.tail);
+
+//         // Those are will point to invalid memory after the pathfinding.
+//         std::mem::take(&mut self.ptrs);
+
+//         let mut link = Some(unsafe {
+//             // SAFETY: NonNull doesn't return a null pointer.
+//             Box::from_raw(std::mem::take(&mut self.head).unwrap().as_ptr())
+//         });
+
+//         while let Some(l) = link {
+//             let next = l
+//                 .next
+//                 .iter()
+//                 .copied()
+//                 .map(|ptr| {
+//                     // SAFETY: NonNull doesn't return a null pointer.
+//                     // And there's no live mutable references to the ptr.
+//                     unsafe { Box::from_raw(ptr.as_ptr()) }
+//                 })
+//                 .max_by_key(|link| link.raw.difficulty);
+//             headers.push(l.raw);
+//             link = next;
+//         }
+
+//         info!("Headers found: {:?}", headers.len());
+
+//         Ok(vec![])
+//     }
+
+//     pub fn rebuild_index(&mut self) {
+//         let mut skip_list = std::mem::take(&mut self.skip_list);
+
+//         let mut to_remove = Vec::new();
+
+//         for (parent, hashes) in skip_list.clone().into_iter() {
+//             if let Some(parent_ptr) = self
+//                 .ptrs
+//                 .get_mut(&parent)
+//                 .map(|ptr| unsafe { ptr.as_mut() })
+//             {
+//                 for k in hashes.iter() {
+//                     parent_ptr.next.push(*self.ptrs.get(k).unwrap())
+//                 }
+//                 parent_ptr.next.dedup();
+//                 to_remove.push(parent);
+//             }
+//         }
+
+//         for key in to_remove {
+//             skip_list.remove(&key);
+//         }
+
+//         std::mem::swap(&mut self.skip_list, &mut skip_list);
+//     }
+
+//     pub fn insert(&mut self, header: BlockHeader, parent: H256) {
+//         let hash = header.hash();
+
+//         let link = Link {
+//             hash,
+//             next: self.skip_nodes(&hash),
+//             prev: parent,
+//             raw: header,
+//         };
+//         let ptr = NonNull::new(Box::into_raw(Box::new(link))).unwrap();
+//         if self.head.is_none() {
+//             self.head = Some(ptr);
+//             self.tail = Some(ptr);
+//         }
+
+//         if self.ptrs.insert(hash, ptr).is_some() {
+//             return;
+//         }
+
+//         self.ptrs.get_mut(&parent).map(|parent_ptr| {
+//             unsafe { parent_ptr.as_mut() }.next.push(ptr);
+//         });
+
+//         if let Some(parent_ptr) = self.ptrs.get(&parent) {
+//             self.head = Some(*parent_ptr);
+//         } else {
+//             self.skip_list.entry(parent).or_default().insert(hash);
+//         }
+//     }
+// }
+
+// impl Extend<BlockHeader> for LinkedList {
+//     fn extend<T: IntoIterator<Item = BlockHeader>>(&mut self, iter: T) {
+//         for header in iter {
+//             let parent_hash = header.parent_hash;
+//             self.insert(header, parent_hash);
+//         }
+//     }
+// }
+
+#[derive(Debug)]
+pub struct HeaderDownload {
+    pub node: Arc<Node>,
+    /// Consensus engine used.
+    pub consensus: Arc<dyn Consensus>,
+    pub max_block: BlockNumber,
+}
+
+impl HeaderDownload {
+    pub fn run(&mut self) {
+        let current_progress = BlockNumber(0);
+    }
+
+    pub async fn set_anchors(
+        &mut self,
+        start: BlockNumber,
+        end: BlockNumber,
+    ) -> anyhow::Result<()> {
+        let node = self.node.clone();
+
+        if end - start > HEADERS_UPPER_BOUND {
+            let limit = (*end - *start) / HEADERS_UPPER_BOUND as u64 + 1;
+
+            let request = HeaderRequest {
+                start: start.into(),
+                skip: HEADERS_UPPER_BOUND as u64 - 1,
+                limit,
+                reverse: false,
+            };
+
+            let stream = node.stream_headers().await.timeout(Duration::from_secs(2));
+            pin!(stream);
+
+            let anchors = 'outer_loop: loop {
+                match stream.next().await {
+                    Some(Ok(msg)) => match msg.msg {
+                        Message::BlockHeaders(inner) => {
+                            info!("{:?}", &inner);
+
+                            if inner.headers.is_empty() {
+                                node.penalize_peer(msg.peer_id).await?;
+                                continue 'outer_loop;
+                            }
+
+                            let mut cur = start;
+                            for header in &inner.headers {
+                                if header.number != cur {
+                                    node.penalize_peer(msg.peer_id).await?;
+                                    continue 'outer_loop;
+                                }
+                                cur += HEADERS_UPPER_BOUND;
+                            }
+                            break inner.headers;
+                        }
+                        _ => continue,
+                    },
+                    _ => {
+                        node.send_header_request(request).await?;
+                    }
+                }
+            };
+
+            let mut linked_list = LinkedList::new();
+
+            let mut requests = anchors
+                .into_iter()
+                .rev()
+                .map(|(anchor)| {
+                    let parent_hash = anchor.parent_hash;
+                    linked_list.insert(header);
+
+                    (
+                        hash,
+                        HeaderRequest {
+                            start: (hash).into(),
+                            reverse: true,
+                            ..Default::default()
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+        }
+
+        //     let anchors = anchors
+        //         .into_iter()
+        //         .map(|h| (h.hash(), h))
+        //         .collect::<Vec<_>>();
+
+        //     let last = anchors.first().unwrap().0;
+
+        // //     let mut linked_list = LinkedList::new();
+
+        // //     'outer_loop: loop {
+        // //         while !requests.is_empty() {
+        // //             match stream.next().await {
+        // //                 Some(Ok(msg)) => match msg.msg {
+        // //                     Message::BlockHeaders(inner) => {
+        // //                         if inner.headers.is_empty() {
+        // //                             node.penalize_peer(msg.peer_id).await?;
+        // //                             continue;
+        // //                         }
+
+        // //                         requests.remove(&inner.headers.first().unwrap().hash());
+
+        // //                         linked_list.extend(inner.headers);
+        // //                         info!("linked list: {:?}", linked_list.len());
+        // //                     }
+        // //                     _ => unreachable!(),
+        // //                 },
+        // //                 _ => {
+        // //                     node.clone()
+        // //                         .send_many_header_requests(requests.values().copied())
+        // //                         .await?;
+        // //                 }
+        // //             }
+        // //         }
+        // //         linked_list.rebuild_index();
+        // //         linked_list.find_path(&last);
+        // //         break;
+        // //     }
+
+        // //     info!("Rebuilding index");
+        // // }
+
+        Ok(())
+
+        // let request = HeaderRequest {
+        //     start: end,
+        //     limit: todo!(),
+        //     skip: todo!(),
+        //     reverse: todo!(),
+        // };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HeaderDownload;
+    use crate::{
+        akula_tracing::{self, Component},
+        consensus::{engine_factory, Consensus},
+        models::{BlockNumber, ChainConfig},
+        p2p::node::NodeBuilder,
+    };
+    use http::Uri;
+    use std::sync::Arc;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    #[test]
+    fn test_header_download() {
+        akula_tracing::build_subscriber(Component::Core).init();
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async move {
+            let node = Arc::new(
+                NodeBuilder::default()
+                    .add_sentry("http://127.0.0.1:8080".parse::<Uri>().unwrap())
+                    .build()
+                    .unwrap(),
+            );
+
+            let consensus: Arc<dyn Consensus> =
+                engine_factory(ChainConfig::new("mainnet").unwrap().chain_spec)
+                    .unwrap()
+                    .into();
+            let mut down = HeaderDownload {
+                node,
+                consensus,
+                max_block: BlockNumber(0),
+            };
+
+            down.set_anchors(BlockNumber(1), BlockNumber(98_305)).await
+        });
+    }
+}

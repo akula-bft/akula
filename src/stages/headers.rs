@@ -1,10 +1,12 @@
+#![allow(unused_imports)]
+
 use crate::{
     consensus::Consensus,
     kv::{mdbx::MdbxTransaction, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
         node::Node,
-        types::{BlockId, HeaderRequest, Message, Status},
+        types::{BlockId, HeaderRequest, InboundMessage, Message, Status},
     },
     stagedsync::{
         stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
@@ -14,7 +16,10 @@ use crate::{
 
 use anyhow::format_err;
 use async_trait::async_trait;
-use hashbrown::HashMap;
+use ethnum::U256;
+use futures::Stream;
+use hashbrown::{HashMap, HashSet};
+use hashlink::LinkedHashMap;
 use mdbx::{EnvironmentKind, RW};
 use rayon::{
     iter::{
@@ -23,11 +28,19 @@ use rayon::{
     slice::ParallelSliceMut,
 };
 use std::{
+    collections::{BinaryHeap, VecDeque},
+    hash::Hash,
+    pin::Pin,
+    ptr::NonNull,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
+};
+use tokio::{
+    pin,
+    time::{error::Elapsed, Timeout},
 };
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -36,6 +49,147 @@ const HEADERS_UPPER_BOUND: usize = 1 << 10;
 const STAGE_UPPER_BOUND: usize = 3 << 15;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
+impl Ord for Link {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.height.cmp(&other.height).reverse()
+    }
+}
+
+impl PartialOrd for Link {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Link {
+    height: BlockNumber,
+    hash: H256,
+}
+
+#[derive(Debug)]
+pub struct Graph {
+    skip_list: HashMap<H256, HashSet<H256>>,
+    raw: HashMap<H256, BlockHeader>,
+    q: BinaryHeap<Link>,
+}
+
+impl Graph {
+    pub fn new() -> Self {
+        Self {
+            skip_list: HashMap::new(),
+            raw: HashMap::new(),
+            q: BinaryHeap::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.raw.len()
+    }
+
+    pub fn insert(&mut self, header: BlockHeader) {
+        let hash = header.hash();
+        if self.raw.contains_key(&hash) {
+            return;
+        }
+
+        let link = Link {
+            height: header.number,
+            hash,
+        };
+        self.skip_list
+            .entry(header.parent_hash)
+            .or_default()
+            .insert(hash);
+        self.raw.insert(hash, header);
+        self.q.push(link);
+    }
+
+    pub fn dfs(&mut self) -> Option<H256> {
+        let mut roots = Vec::new();
+        let mut last_height = None;
+
+        // while let Some(node) = self.q.pop() {
+        //     if !self.raw.contains_key(node
+        // }
+
+        loop {
+            if let Some(head) = self.q.pop() {
+                match last_height {
+                    Some(height) => {
+                        if height != head.height {
+                            break;
+                        } else {
+                            roots.push(head);
+                        }
+                    }
+                    None => {
+                        last_height = Some(head.height);
+                        roots.push(head);
+                    }
+                }
+            } else if roots.is_empty() {
+                return None;
+            }
+        }
+
+        let mut stack = VecDeque::new();
+        for root in roots {
+            stack.push_back(root.hash);
+        }
+
+        let mut branches = HashSet::new();
+
+        // DFS and then backtrack.
+        while let Some(hash) = stack.pop_back() {
+            if let Some(next) = self.skip_list.remove(&hash) {
+                for child in next {
+                    stack.push_back(child);
+                }
+            } else {
+                branches.insert(hash);
+            }
+        }
+
+        if branches.len() > 1 {
+            let mut tds = HashMap::new();
+            for branch in branches {
+                let mut td = U256::ZERO;
+                let mut parent = branch;
+                while let Some(header) = self.raw.get(&parent) {
+                    td = td + header.difficulty;
+                    parent = header.parent_hash;
+                }
+                tds.insert(branch, td);
+            }
+
+            tds.iter().max_by_key(|(_, td)| *td).map(|(hash, _)| *hash)
+        } else {
+            branches.into_iter().next()
+        }
+    }
+
+    pub fn collect(self, tail: &H256) -> Vec<BlockHeader> {
+        let mut raw = self.raw;
+        let mut headers = Vec::new();
+        let mut current = *tail;
+        while let Some(header) = raw.remove(&current) {
+            current = header.parent_hash;
+            headers.push(header);
+        }
+        headers.reverse();
+        headers
+    }
+}
+
+impl Extend<BlockHeader> for Graph {
+    fn extend<T: IntoIterator<Item = BlockHeader>>(&mut self, iter: T) {
+        for header in iter {
+            self.insert(header);
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct HeaderDownload {
     pub node: Arc<Node>,
@@ -43,277 +197,155 @@ pub struct HeaderDownload {
     pub consensus: Arc<dyn Consensus>,
     pub max_block: BlockNumber,
 }
-#[async_trait]
-impl<'db, E> Stage<'db, E> for HeaderDownload
-where
-    E: EnvironmentKind,
-{
-    fn id(&self) -> crate::StageId {
-        HEADERS
-    }
 
-    async fn execute<'tx>(
-        &mut self,
-        txn: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: StageInput,
-    ) -> Result<ExecOutput, StageError>
-    where
-        'db: 'tx,
-    {
-        let prev_progress = input.stage_progress.unwrap_or_default();
-        if prev_progress != 0 {
-            self.update_head(txn, prev_progress).await?;
-        }
+impl HeaderDownload {
+    pub async fn run(&mut self) -> anyhow::Result<()> {
+        let anchors = self
+            .prepare_anchors(BlockNumber(0), BlockNumber(1024))
+            .await?;
 
-        let prev_progress_hash = txn
-            .get(tables::CanonicalHeader, prev_progress)?
-            .ok_or_else(|| {
-                StageError::Internal(format_err!("no canonical hash for block #{prev_progress}"))
-            })?;
-        let mut starting_block: BlockNumber = prev_progress + 1;
-        let current_chain_tip = loop {
-            let n = self.node.chain_tip.read().0;
-            if n > starting_block {
-                break n;
-            }
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        };
-
-        let (mut target_block, mut reached_tip) =
-            if starting_block + STAGE_UPPER_BOUND as u64 > current_chain_tip {
-                (current_chain_tip, true)
-            } else {
-                (starting_block + STAGE_UPPER_BOUND as u64, false)
+        let mut graph = Graph::new();
+        // Mapping from the anchor hash to the corresponding request.
+        let mut header_requests = HashMap::<H256, HeaderRequest>::new();
+        for anchor in anchors {
+            let hash = anchor.hash();
+            let request = HeaderRequest {
+                start: hash.into(),
+                reverse: true,
+                ..Default::default()
             };
-
-        if target_block >= self.max_block {
-            target_block = self.max_block;
-            reached_tip = true;
+            graph.insert(anchor);
+            header_requests.insert(hash, request);
         }
 
-        let headers_cap = (target_block.0 - starting_block.0) as usize;
-        let mut headers: Vec<(H256, BlockHeader)> = Vec::with_capacity(headers_cap);
+        let stream = self
+            .node
+            .stream_headers()
+            .await
+            .timeout(Duration::from_secs(2));
+        pin!(stream);
 
-        while headers.len() < headers_cap {
-            if !headers.is_empty() {
-                starting_block = headers.last().unwrap().1.number;
-            }
+        while !header_requests.is_empty() {
+            match stream.next().await {
+                Some(Ok(msg)) => match msg.msg {
+                    Message::BlockHeaders(inner) => {
+                        if inner.headers.is_empty() {
+                            self.node.penalize_peer(msg.peer_id).await?;
+                            continue;
+                        }
 
-            let requests = Self::prepare_requests(starting_block, target_block);
-            headers.extend(self.download_headers(requests).await?);
-
-            if let Some((_, h)) = headers.first() {
-                if h.parent_hash != prev_progress_hash {
-                    return Ok(ExecOutput::Unwind {
-                        unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
-                    });
+                        if header_requests
+                            .remove(&inner.headers.first().unwrap().hash())
+                            .is_some()
+                        {
+                            graph.extend(inner.headers);
+                        }
+                    }
+                    _ => continue,
+                },
+                _ => {
+                    self.node
+                        .clone()
+                        .send_many_header_requests(header_requests.values().copied())
+                        .await?;
                 }
             }
         }
 
-        let mut stage_progress = prev_progress;
-        let mut prev_hash = prev_progress_hash;
-
-        let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
-        let mut cursor_header = txn.cursor(tables::Header)?;
-        let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
-        let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
-        let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
-
-        for (hash, header) in headers {
-            if header.number == 0 {
-                continue;
-            }
-
-            if header.parent_hash != prev_hash {
-                break;
-            }
-
-            prev_hash = hash;
-
-            if header.number > self.max_block {
-                break;
-            }
-
-            let block_number = header.number;
-            td += header.difficulty;
-
-            cursor_header_number.put(hash, block_number)?;
-            cursor_header.put((block_number, hash), header)?;
-            cursor_canonical.put(block_number, hash)?;
-            cursor_td.put((block_number, hash), td)?;
-
-            stage_progress = block_number;
-        }
-
-        Ok(ExecOutput::Progress {
-            stage_progress,
-            done: true,
-            reached_tip,
-        })
+        Ok(())
     }
 
-    async fn unwind<'tx>(
+    pub async fn prepare_anchors(
         &mut self,
-        txn: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: UnwindInput,
-    ) -> anyhow::Result<UnwindOutput>
-    where
-        'db: 'tx,
-    {
-        let mut cur = txn.cursor(tables::CanonicalHeader)?;
+        start: BlockNumber,
+        end: BlockNumber,
+    ) -> anyhow::Result<Vec<BlockHeader>> {
+        let stream = self
+            .node
+            .stream_headers()
+            .await
+            .timeout(Duration::from_secs(2));
+        pin!(stream);
 
-        if let Some(bad_block) = input.bad_block {
-            if let Some((_, hash)) = cur.seek_exact(bad_block)? {
-                self.node.mark_bad_block(hash);
+        let limit = (*end - *start) / HEADERS_UPPER_BOUND as u64 + 1;
+        let anchor_request = HeaderRequest {
+            start: start.into(),
+            skip: HEADERS_UPPER_BOUND as u64 - 1,
+            limit,
+            reverse: false,
+        };
+        let anchors = 'outer_loop: loop {
+            match stream.next().await {
+                Some(Ok(msg)) => match msg.msg {
+                    Message::BlockHeaders(inner) => {
+                        if inner.headers.is_empty() {
+                            self.node.penalize_peer(msg.peer_id).await?;
+                            continue 'outer_loop;
+                        }
+
+                        let mut cur = start;
+                        for header in &inner.headers {
+                            if header.number != cur && limit > 1 {
+                                self.node.penalize_peer(msg.peer_id).await?;
+                                continue 'outer_loop;
+                            }
+                            cur += HEADERS_UPPER_BOUND;
+                        }
+                        break inner.headers;
+                    }
+                    _ => continue,
+                },
+                _ => {
+                    self.node.send_header_request(anchor_request).await?;
+                }
             }
-        }
+        };
 
-        let mut stage_progress = BlockNumber(0);
-        while let Some((number, _)) = cur.last()? {
-            if number <= input.unwind_to {
-                stage_progress = number;
-                break;
-            }
-
-            cur.delete_current()?;
-        }
-
-        Ok(UnwindOutput { stage_progress })
+        Ok(anchors)
     }
 }
 
-impl HeaderDownload {
-    pub async fn download_headers(
-        &self,
-        mut requests: HashMap<BlockNumber, HeaderRequest>,
-    ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
-        let mut headers = Vec::with_capacity(requests.len() * HEADERS_UPPER_BOUND);
-        let mut ticker = tokio::time::interval(REQUEST_INTERVAL);
+#[cfg(test)]
+mod tests {
+    use super::HeaderDownload;
+    use crate::{
+        akula_tracing::{self, Component},
+        consensus::{engine_factory, Consensus},
+        models::{BlockNumber, ChainConfig},
+        p2p::node::NodeBuilder,
+    };
+    use http::Uri;
+    use std::sync::Arc;
+    use tracing_subscriber::util::SubscriberInitExt;
 
-        let mut stream = self.node.stream_headers().await;
+    #[test]
+    fn test_header_download() {
+        akula_tracing::build_subscriber(Component::Core).init();
 
-        while !requests.is_empty() {
-            let mut message_processed = false;
-
-            tokio::select! {
-                Some(msg) = stream.next() => {
-                    let peer_id = msg.peer_id;
-                    if let Message::BlockHeaders(msg) = msg.msg {
-                        if msg.headers.is_empty() {
-                            continue;
-                        }
-                        if msg.headers.len() > HEADERS_UPPER_BOUND {
-                            self.node.penalize_peer(peer_id).await?;
-                            continue;
-                        }
-                        let key = &msg.headers[0].number;
-                        if !requests.contains_key(key) {
-                            continue;
-                        }
-                        let limit = requests.get(key).unwrap().limit as usize;
-                        if msg.headers.len() != limit {
-                            continue;
-                        }
-
-                        headers.extend_from_slice(&msg.headers);
-                        requests.remove(key);
-
-                        info!("Downloaded {} block headers: {}->{}", msg.headers.len(), **key, **key + msg.headers.len().saturating_sub(1) as u64);
-                        message_processed = true;
-                    }
-                }
-                _ = ticker.tick() => {}
-            }
-            if !message_processed {
-                let r = requests.values().copied();
-                self.node.clone().send_many_header_requests(r).await?;
-            }
-        }
-
-        Ok(self.calculate_and_verify(headers))
-    }
-
-    fn calculate_and_verify(&self, mut headers: Vec<BlockHeader>) -> Vec<(H256, BlockHeader)> {
-        headers.par_sort_unstable_by_key(|header| header.number);
-        let valid_till = AtomicUsize::new(0);
-
-        headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
-            if self
-                .consensus
-                .validate_block_header(&headers[i], &headers[i - 1], false)
-                .is_err()
-            {
-                let mut value = valid_till.load(Ordering::SeqCst);
-                while i < value {
-                    if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)
-                        == Ok(value)
-                    {
-                        break;
-                    } else {
-                        value = valid_till.load(Ordering::SeqCst);
-                    }
-                }
-            }
-        });
-
-        let valid_till = valid_till.load(Ordering::SeqCst);
-        if valid_till != 0 {
-            headers.truncate(valid_till);
-        }
-
-        let mut block_headers = headers
-            .par_drain(..)
-            .map(|header| (header.hash(), header))
-            .collect::<Vec<_>>();
-
-        if let Some(index) = self
-            .node
-            .position_bad_block(block_headers.iter().map(|(h, _)| h))
-        {
-            block_headers.truncate(index);
-        }
-
-        block_headers
-    }
-
-    fn prepare_requests(
-        starting_block: BlockNumber,
-        target: BlockNumber,
-    ) -> HashMap<BlockNumber, HeaderRequest> {
-        assert!(starting_block < target);
-
-        let cap = (target.0 - starting_block.0) as usize / HEADERS_UPPER_BOUND;
-        let mut requests = HashMap::with_capacity(cap + 1);
-        for start in (starting_block..target).step_by(HEADERS_UPPER_BOUND) {
-            let limit = if start + HEADERS_UPPER_BOUND < target {
-                HEADERS_UPPER_BOUND as u64
-            } else {
-                *target - *start
-            };
-
-            let request = HeaderRequest {
-                start: BlockId::Number(start),
-                limit,
-                ..Default::default()
-            };
-            requests.insert(start, request);
-        }
-        requests
-    }
-
-    async fn update_head<'tx, E: EnvironmentKind>(
-        &self,
-        txn: &'tx mut MdbxTransaction<'_, RW, E>,
-        height: BlockNumber,
-    ) -> anyhow::Result<()> {
-        let hash = txn.get(tables::CanonicalHeader, height)?.unwrap();
-        let td = txn
-            .get(tables::HeadersTotalDifficulty, (height, hash))?
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
             .unwrap();
-        let status = Status::new(height, hash, td);
-        self.node.update_chain_head(Some(status)).await?;
 
-        Ok(())
+        runtime.block_on(async move {
+            let node = Arc::new(
+                NodeBuilder::default()
+                    .add_sentry("http://127.0.0.1:8080".parse::<Uri>().unwrap())
+                    .build()
+                    .unwrap(),
+            );
+
+            let consensus: Arc<dyn Consensus> =
+                engine_factory(ChainConfig::new("mainnet").unwrap().chain_spec)
+                    .unwrap()
+                    .into();
+            let mut down = HeaderDownload {
+                node,
+                consensus,
+                max_block: BlockNumber(0),
+            };
+
+            // down.set_anchors(BlockNumber(1), BlockNumber(98_305)).await
+        });
     }
 }
