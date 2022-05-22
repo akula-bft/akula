@@ -13,6 +13,8 @@ mod total_gas_index;
 mod total_tx_index;
 mod tx_lookup;
 
+pub const STAGE_UPPER_BOUND: usize = 3 << 15;
+
 pub use block_hashes::BlockHashes;
 pub use bodies::BodyDownload;
 pub use call_trace_index::CallTraceIndex;

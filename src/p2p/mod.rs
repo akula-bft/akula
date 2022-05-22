@@ -4,8 +4,8 @@ pub mod types;
 pub mod collections {
     use crate::models::{BlockHeader, BlockNumber, H256};
     use ethnum::U256;
-    use hashbrown::{HashMap, HashSet};
-    use std::{self, collections::VecDeque};
+    use hashbrown::HashSet;
+    use hashlink::LruCache;
 
     #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
     pub struct Link {
@@ -19,23 +19,40 @@ pub mod collections {
     #[derive(Debug)]
     pub struct Graph {
         head: Link,
-        chains: HashMap<H256, (U256, Depth, H256)>,
+        chains: LruCache<H256, (U256, Depth, H256)>,
         reorged: bool,
 
-        skip_list: HashMap<H256, HashSet<H256>>,
-        raw: HashMap<H256, BlockHeader>,
-        q: Vec<Link>,
+        skip_list: LruCache<H256, HashSet<H256>>,
+        raw: LruCache<H256, BlockHeader>,
+        q: LruCache<Link, ()>,
+        lru: LruCache<BlockNumber, HashSet<H256>>,
     }
 
     impl Graph {
+        const CHAINS_CAP: usize = 1 << 8;
+        const CACHE_CAP: usize = 3 << 17;
+
         pub fn new() -> Self {
             Self {
                 head: Default::default(),
-                chains: HashMap::new(),
-                reorged: false,
-                skip_list: HashMap::new(),
-                raw: HashMap::new(),
-                q: Vec::new(),
+                chains: LruCache::new(Self::CHAINS_CAP),
+                reorged: Default::default(),
+                skip_list: LruCache::new(Self::CACHE_CAP),
+                raw: LruCache::new(Self::CACHE_CAP),
+                q: LruCache::new(Self::CACHE_CAP),
+                lru: LruCache::new(Self::CACHE_CAP),
+            }
+        }
+
+        pub fn contains(&mut self, number: &BlockNumber) -> bool {
+            match self.lru.get(number) {
+                Some(set) => set
+                    .iter()
+                    .map(|hash| self.raw.get(hash).unwrap().parent_hash)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .any(|parent_hash| self.raw.contains_key(&parent_hash)),
+                None => false,
             }
         }
 
@@ -60,16 +77,20 @@ pub mod collections {
             };
             self.skip_list
                 .entry(header.parent_hash)
-                .or_default()
+                .or_insert(HashSet::new())
+                .insert(hash);
+            self.lru
+                .entry(header.number)
+                .or_insert(HashSet::new())
                 .insert(hash);
             self.raw.insert(hash, header);
-            self.q.push(link);
+            self.q.insert(link, ());
         }
 
         pub fn dfs(&mut self) -> Option<H256> {
             let mut roots = HashSet::new();
 
-            for node in self.q.iter() {
+            for (node, _) in self.q.iter() {
                 // Check if we don't have node's parent, and if it's the case - node is root.
                 if !self.raw.contains_key(&node.parent_hash) {
                     roots.insert(node.hash);
@@ -79,18 +100,18 @@ pub mod collections {
                 return None;
             }
 
-            let mut stack = VecDeque::with_capacity(roots.len());
+            let mut stack = Vec::with_capacity(roots.len());
             for root in roots {
-                stack.push_back(root);
+                stack.push(root);
             }
 
             let mut branches = HashSet::with_capacity(stack.len());
 
             // DFS and then backtrack.
-            while let Some(hash) = stack.pop_back() {
+            while let Some(hash) = stack.pop() {
                 if let Some(next) = self.skip_list.get(&hash) {
                     for &child in next {
-                        stack.push_back(child);
+                        stack.push(child);
                     }
                 } else {
                     branches.insert(hash);
@@ -124,10 +145,12 @@ pub mod collections {
             {
                 self.reorged = !(self.head.hash == *ancestor_hash);
 
+                let header = self.raw.get(&head_hash).unwrap();
+
                 self.head = Link {
-                    height: self.raw[&head_hash].number,
+                    height: header.number,
                     hash: *head_hash,
-                    parent_hash: self.raw[&head_hash].parent_hash,
+                    parent_hash: header.parent_hash,
                 };
                 Some(*head_hash)
             } else {
@@ -135,8 +158,7 @@ pub mod collections {
             }
         }
 
-        pub fn collect(&mut self, tail: &H256) -> Vec<BlockHeader> {
-            let mut raw = std::mem::take(&mut self.raw);
+        pub fn backtrack(&mut self, tail: &H256) -> Vec<BlockHeader> {
             let cap = self
                 .chains
                 .get(tail)
@@ -145,7 +167,7 @@ pub mod collections {
             let mut headers = Vec::with_capacity(cap);
 
             let mut current = *tail;
-            while let Some(header) = raw.remove(&current) {
+            while let Some(header) = self.raw.remove(&current) {
                 current = header.parent_hash;
                 headers.push(header);
             }
