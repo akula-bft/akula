@@ -2,7 +2,7 @@ pub mod node;
 pub mod types;
 
 pub mod collections {
-    use crate::models::{BlockHeader, BlockNumber, H256};
+    use crate::models::{BlockHeader, BlockNumber, ChainConfig, H256};
     use ethnum::U256;
     use hashbrown::HashSet;
     use hashlink::LruCache;
@@ -15,11 +15,12 @@ pub mod collections {
     }
 
     type Depth = usize;
+    type Ancestor = H256;
 
     #[derive(Debug)]
     pub struct Graph {
         head: Link,
-        chains: LruCache<H256, (U256, Depth, H256)>,
+        chains: LruCache<H256, (U256, Depth, Ancestor)>,
         reorged: bool,
 
         skip_list: LruCache<H256, HashSet<H256>>,
@@ -30,11 +31,16 @@ pub mod collections {
 
     impl Graph {
         const CHAINS_CAP: usize = 1 << 8;
-        const CACHE_CAP: usize = 3 << 17;
+        const CACHE_CAP: usize = 3 << 16;
 
         pub fn new() -> Self {
+            let chain_config = ChainConfig::new("mainnet").unwrap();
             Self {
-                head: Default::default(),
+                head: Link {
+                    height: BlockNumber(0),
+                    hash: chain_config.genesis_hash,
+                    parent_hash: Default::default(),
+                },
                 chains: LruCache::new(Self::CHAINS_CAP),
                 reorged: Default::default(),
                 skip_list: LruCache::new(Self::CACHE_CAP),
@@ -44,26 +50,32 @@ pub mod collections {
             }
         }
 
-        pub fn contains(&mut self, number: &BlockNumber) -> bool {
-            match self.lru.get(number) {
+        #[inline]
+        pub fn contains(&mut self, number: BlockNumber) -> bool {
+            match self.lru.get(&number) {
                 Some(set) => set
                     .iter()
                     .map(|hash| self.raw.get(hash).unwrap().parent_hash)
                     .collect::<Vec<_>>()
                     .into_iter()
-                    .any(|parent_hash| self.raw.contains_key(&parent_hash)),
+                    .any(|parent_hash| {
+                        self.raw.contains_key(&parent_hash) || self.head.hash == parent_hash
+                    }),
                 None => false,
             }
         }
 
+        #[inline]
         pub fn len(&self) -> usize {
             self.raw.len()
         }
 
+        #[inline]
         pub fn is_empty(&self) -> bool {
             self.raw.is_empty()
         }
 
+        #[inline]
         pub fn insert(&mut self, header: BlockHeader) {
             let hash = header.hash();
             if self.raw.contains_key(&hash) {
@@ -158,7 +170,7 @@ pub mod collections {
             }
         }
 
-        pub fn backtrack(&mut self, tail: &H256) -> Vec<BlockHeader> {
+        pub fn backtrack(&mut self, tail: &H256) -> Vec<(H256, BlockHeader)> {
             let cap = self
                 .chains
                 .get(tail)
@@ -168,10 +180,14 @@ pub mod collections {
 
             let mut current = *tail;
             while let Some(header) = self.raw.remove(&current) {
-                current = header.parent_hash;
-                headers.push(header);
+                let parent_hash = header.parent_hash;
+                headers.push((current, header));
+                current = parent_hash;
             }
             headers.reverse();
+            if let Some((hash, last_header)) = headers.last().cloned() {
+                self.raw.insert(hash, last_header);
+            }
             headers
         }
     }

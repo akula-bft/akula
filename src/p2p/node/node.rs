@@ -281,7 +281,6 @@ impl Node {
     }
 
     pub async fn send_header_request(&self, request: HeaderRequest) -> anyhow::Result<()> {
-        self.update_chain_head(None).await?;
         self.send_message(request.into(), PeerFilter::All).await?;
 
         Ok(())

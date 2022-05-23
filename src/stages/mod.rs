@@ -21,6 +21,7 @@ pub use call_trace_index::CallTraceIndex;
 pub use execution::Execution;
 pub use finish::Finish;
 pub use hashstate::{promote_clean_accounts, promote_clean_storage, HashState};
+pub use headers::HeaderDownload;
 pub use history_index::{AccountHistoryIndex, StorageHistoryIndex};
 pub use interhashes::Interhashes;
 pub use sender_recovery::SenderRecovery;
