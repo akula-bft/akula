@@ -19,7 +19,8 @@ use hashlink::LruCache;
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
-use tokio::task::{JoinHandle, JoinSet};
+use task_group::TaskGroup;
+use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
@@ -64,7 +65,7 @@ impl Node {
 
     /// Start node synchronization.
     pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
-        let mut tasks = JoinSet::new();
+        let tasks = TaskGroup::new();
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(128);
 
