@@ -11,8 +11,7 @@
     never_type,
     poll_ready,
     slice_swap_unchecked,
-    step_trait,
-    async_closure
+    step_trait
 )]
 #![recursion_limit = "256"]
 #![allow(

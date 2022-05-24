@@ -8,7 +8,6 @@ use crate::{
         types::{BlockId, HeaderRequest, Message, Status},
     },
     stagedsync::{stage::*, stages::HEADERS},
-    stages::STAGE_UPPER_BOUND,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -26,6 +25,8 @@ use tokio_stream::StreamExt;
 use tracing::*;
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
+
+const STAGE_UPPER_BOUND: usize = 3 << 15;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
