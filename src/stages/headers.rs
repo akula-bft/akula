@@ -169,7 +169,6 @@ where
 
 impl HeaderDownload {
     const BACK_OFF: Duration = Duration::from_secs(5);
-    const ANCHOR_THRESHOLD: usize = 8;
 
     fn prepare_requests(
         starting_block: BlockNumber,

@@ -29,6 +29,12 @@ pub mod collections {
         q: LruCache<Link, ()>,
     }
 
+    impl Default for Graph {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl Graph {
         const CHAINS_CAP: usize = 1 << 8;
         const CACHE_CAP: usize = 3 << 16;
@@ -115,7 +121,7 @@ pub mod collections {
             {
                 self.reorged = self.head.hash != *ancestor_hash;
 
-                let header = self.raw.get(&head_hash).unwrap();
+                let header = self.raw.get(head_hash).unwrap();
 
                 self.head = Link {
                     height: header.number,

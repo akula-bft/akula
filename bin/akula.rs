@@ -2,7 +2,6 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
-    kv::tables,
     models::*,
     p2p::{collections::Graph, node::NodeBuilder},
     rpc::{
