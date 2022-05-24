@@ -181,7 +181,7 @@ pub mod collections {
                 let header = BlockHeader {
                     parent_hash,
                     number,
-                    difficulty: U256::from(1 * 10u64),
+                    difficulty: U256::from(10u64),
                     ..Default::default()
                 };
                 parent_hash = header.hash();
@@ -193,7 +193,7 @@ pub mod collections {
                 let header = BlockHeader {
                     parent_hash,
                     number,
-                    difficulty: U256::from(1 * 10u64),
+                    difficulty: U256::from(10u64),
                     ..Default::default()
                 };
                 parent_hash = header.hash();
@@ -220,7 +220,7 @@ pub mod collections {
                 let header = BlockHeader {
                     parent_hash,
                     number,
-                    difficulty: U256::from(1 * 10u64),
+                    difficulty: U256::from(10u64),
                     ..Default::default()
                 };
                 parent_hash = header.hash();
