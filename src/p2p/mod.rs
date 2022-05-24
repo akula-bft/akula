@@ -2,10 +2,11 @@ pub mod node;
 pub mod types;
 
 pub mod collections {
-    use crate::models::{BlockHeader, BlockNumber, ChainConfig, H256};
+    use crate::models::{BlockHeader, BlockNumber, H256};
     use ethnum::U256;
     use hashbrown::HashSet;
     use hashlink::LruCache;
+    use std::borrow::Borrow;
 
     #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
     pub struct Link {
@@ -26,7 +27,6 @@ pub mod collections {
         skip_list: LruCache<H256, HashSet<H256>>,
         raw: LruCache<H256, BlockHeader>,
         q: LruCache<Link, ()>,
-        lru: LruCache<BlockNumber, HashSet<H256>>,
     }
 
     impl Graph {
@@ -34,35 +34,22 @@ pub mod collections {
         const CACHE_CAP: usize = 3 << 16;
 
         pub fn new() -> Self {
-            let chain_config = ChainConfig::new("mainnet").unwrap();
             Self {
-                head: Link {
-                    height: BlockNumber(0),
-                    hash: chain_config.genesis_hash,
-                    parent_hash: Default::default(),
-                },
+                head: Default::default(),
                 chains: LruCache::new(Self::CHAINS_CAP),
                 reorged: Default::default(),
                 skip_list: LruCache::new(Self::CACHE_CAP),
                 raw: LruCache::new(Self::CACHE_CAP),
                 q: LruCache::new(Self::CACHE_CAP),
-                lru: LruCache::new(Self::CACHE_CAP),
             }
         }
 
         #[inline]
-        pub fn contains(&mut self, number: BlockNumber) -> bool {
-            match self.lru.get(&number) {
-                Some(set) => set
-                    .iter()
-                    .map(|hash| self.raw.get(hash).unwrap().parent_hash)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .any(|parent_hash| {
-                        self.raw.contains_key(&parent_hash) || self.head.hash == parent_hash
-                    }),
-                None => false,
-            }
+        pub fn contains<K>(&mut self, key: K) -> bool
+        where
+            K: Borrow<H256>,
+        {
+            self.raw.contains_key(key.borrow())
         }
 
         #[inline]
@@ -91,10 +78,6 @@ pub mod collections {
                 .entry(header.parent_hash)
                 .or_insert(HashSet::new())
                 .insert(hash);
-            self.lru
-                .entry(header.number)
-                .or_insert(HashSet::new())
-                .insert(hash);
             self.raw.insert(hash, header);
             self.q.insert(link, ());
         }
@@ -103,8 +86,7 @@ pub mod collections {
             let mut roots = HashSet::new();
 
             for (node, _) in self.q.iter() {
-                // Check if we don't have node's parent, and if it's the case - node is root.
-                if !self.raw.contains_key(&node.parent_hash) {
+                if !self.skip_list.contains_key(&node.hash) {
                     roots.insert(node.hash);
                 }
             }
@@ -112,50 +94,26 @@ pub mod collections {
                 return None;
             }
 
-            let mut stack = Vec::with_capacity(roots.len());
             for root in roots {
-                stack.push(root);
-            }
-
-            let mut branches = HashSet::with_capacity(stack.len());
-
-            // DFS and then backtrack.
-            while let Some(hash) = stack.pop() {
-                if let Some(next) = self.skip_list.get(&hash) {
-                    for &child in next {
-                        stack.push(child);
-                    }
-                } else {
-                    branches.insert(hash);
-                }
-            }
-
-            for branch in branches {
-                let mut td = self
-                    .chains
-                    .get(&branch)
-                    .map(|(td, _, _)| *td)
-                    .unwrap_or_default();
-                let mut parent = branch;
+                let mut current = root;
+                let mut td = U256::ZERO;
                 let mut depth = 0;
-
-                while let Some(header) = self.raw.get(&parent) {
-                    // Break loop if we're branching on the same chain.
-                    if self.chains.contains_key(&header.hash()) {
+                while let Some(header) = self.raw.get(&current) {
+                    if self.chains.contains_key(&current) {
                         break;
                     }
 
                     td += header.difficulty;
-                    parent = header.parent_hash;
+                    current = header.parent_hash;
                     depth += 1;
                 }
-                self.chains.insert(branch, (td, depth, parent));
+                self.chains.insert(root, (td, depth, current));
             }
 
             if let Some((head_hash, (_, _, ancestor_hash))) =
                 self.chains.iter().max_by_key(|(_, (td, _, _))| *td)
             {
-                self.reorged = !(self.head.hash == *ancestor_hash);
+                self.reorged = self.head.hash != *ancestor_hash;
 
                 let header = self.raw.get(&head_hash).unwrap();
 
@@ -173,21 +131,20 @@ pub mod collections {
         pub fn backtrack(&mut self, tail: &H256) -> Vec<(H256, BlockHeader)> {
             let cap = self
                 .chains
-                .get(tail)
-                .map(|(_, depth, _)| *depth)
+                .remove(tail)
+                .map(|(_, depth, _)| depth)
                 .expect("Tail is not in the graph");
             let mut headers = Vec::with_capacity(cap);
 
             let mut current = *tail;
             while let Some(header) = self.raw.remove(&current) {
+                self.skip_list.remove(&current);
+
                 let parent_hash = header.parent_hash;
                 headers.push((current, header));
                 current = parent_hash;
             }
             headers.reverse();
-            if let Some((hash, last_header)) = headers.last().cloned() {
-                self.raw.insert(hash, last_header);
-            }
             headers
         }
     }

@@ -2,6 +2,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
+    kv::tables,
     models::*,
     p2p::{collections::Graph, node::NodeBuilder},
     rpc::{
@@ -244,6 +245,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
 
+                // let root = {
+                //     let ro_txn = db.begin()?;
+                //     let header_key = ro_txn.cursor(tables::CanonicalHeader)?.last()?.unwrap();
+                //     ro_txn.get(tables::Header, header_key)?.unwrap()
+                // };
                 staged_sync.push(
                     HeaderDownload {
                         node: node.clone(),
