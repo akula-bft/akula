@@ -1,0 +1,73 @@
+(
+    name: "Sepolia",
+    consensus: (
+        seal_verification: Ethash(
+            duration_limit: 13,
+            block_reward: {
+                0: "0x1bc16d674ec80000",
+            },
+            homestead_formula: 0,
+            byzantium_formula: 1700000,
+            difficulty_bomb: DifficultyBomb(
+                delays: {},
+            ),
+        ),
+        eip1559_block: 0,
+    ),
+    upgrades: (
+        homestead: 0,
+        tangerine: 0,
+        spurious: 0,
+        byzantium: 0,
+        constantinople: 0,
+        petersburg: 0,
+        istanbul: 0,
+        berlin: 0,
+        london: 0,
+    ),
+    params: (
+        chain_id: 11155111,
+        network_id: 11155111,
+        min_gas_limit: 5000,
+    ),
+    genesis: (
+        number: 0,
+        author: "0x0000000000000000000000000000000000000000",
+        timestamp: 1633267481,
+        gas_limit: 30000000,
+        base_fee_per_gas: "0x3b9aca00",
+        seal: Ethash(
+            vanity: "0x5365706f6c69612c20417468656e732c204174746963612c2047726565636521",
+            difficulty: "0x20000",
+            nonce: "0x0000000000000000",
+            mix_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+        ),
+    ),
+    balances: {
+        0: {
+            "0xa2a6d93439144ffe4d27c9e088dcd8b783946263": "0xd3c21bcecceda1000000",
+            "0xbc11295936aa79d594139de1b2e12629414f3bdb": "0xd3c21bcecceda1000000",
+            "0x7cf5b79bfe291a67ab02b393e456ccc4c266f753": "0xd3c21bcecceda1000000",
+            "0xaaec86394441f915bce3e6ab399977e9906f3b69": "0xd3c21bcecceda1000000",
+            "0xf47cae1cf79ca6758bfc787dbd21e6bdbe7112b8": "0xd3c21bcecceda1000000",
+            "0xd7eddb78ed295b3c9629240e8924fb8d8874ddd8": "0xd3c21bcecceda1000000",
+            "0x8b7f0977bb4f0fbe7076fa22bc24aca043583f5e": "0xd3c21bcecceda1000000",
+            "0xe2e2659028143784d557bcec6ff3a0721048880a": "0xd3c21bcecceda1000000",
+            "0xd9a5179f091d85051d3c982785efd1455cec8699": "0xd3c21bcecceda1000000",
+            "0xbeef32ca5b9a198d27b4e02f4c70439fe60356cf": "0xd3c21bcecceda1000000",
+            "0x0000006916a87b82333f4245046623b23794c65c": "0x84595161401484a000000",
+            "0xb21c33de1fab3fa15499c62b59fe0cc3250020d1": "0x52b7d2dcc80cd2e4000000",
+            "0x10f5d45854e038071485ac9e402308cf80d2d2fe": "0x52b7d2dcc80cd2e4000000",
+            "0xd7d76c58b3a519e9fa6cc4d22dc017259bc49f1e": "0x52b7d2dcc80cd2e4000000",
+            "0x799d329e5f583419167cd722962485926e338f4a": "0xde0b6b3a7640000"
+        },
+    },
+    p2p: (
+        bootnodes: [
+            "enode://9246d00bc8fd1742e5ad2428b80fc4dc45d786283e05ef6edbd9002cbc335d40998444732fbe921cb88e1d2c73d1b1de53bae6a2237996e9bfe14f871baf7066@18.168.182.86:30303",
+	    "enode://ec66ddcf1a974950bd4c782789a7e04f8aa7110a72569b6e65fcd51e937e74eed303b1ea734e4d19cfaec9fbff9b6ee65bf31dcb50ba79acce9dd63a6aca61c7@52.14.151.177:30303"
+        ],
+        preverified_hashes: [
+        ],
+    ),
+)

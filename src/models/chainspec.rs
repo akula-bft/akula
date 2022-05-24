@@ -343,6 +343,12 @@ pub struct Genesis {
     pub gas_limit: u64,
     pub timestamp: u64,
     pub seal: Seal,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub base_fee_per_gas: Option<U256>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -452,6 +458,7 @@ mod tests {
                     author: hex!("0000000000000000000000000000000000000000").into(),
                     gas_limit: 0x47b760,
                     timestamp: 0x58ee40ba,
+                    base_fee_per_gas: None,
                     seal: Seal::Clique {
                         vanity: hex!(
                             "52657370656374206d7920617574686f7269746168207e452e436172746d616e"
