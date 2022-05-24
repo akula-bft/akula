@@ -86,7 +86,7 @@ pub mod collections {
             let mut roots = HashSet::new();
 
             for (node, _) in self.q.iter() {
-                if !self.skip_list.contains_key(&node.hash) {
+                if !self.skip_list.contains_key(&node.hash) && self.raw.contains_key(&node.hash) {
                     roots.insert(node.hash);
                 }
             }
@@ -144,6 +144,8 @@ pub mod collections {
                 headers.push((current, header));
                 current = parent_hash;
             }
+            self.chains.remove(tail);
+
             headers.reverse();
             headers
         }
