@@ -3,7 +3,7 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
     models::*,
-    p2p::node::NodeBuilder,
+    p2p::{collections::Graph, node::NodeBuilder},
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
         otterscan::OtterscanApiServerImpl,
@@ -249,6 +249,7 @@ fn main() -> anyhow::Result<()> {
                         node: node.clone(),
                         consensus: consensus.clone(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
+                        graph: Graph::new(),
                     },
                     false,
                 );
