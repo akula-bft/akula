@@ -146,6 +146,7 @@ where
     where
         'db: 'tx,
     {
+        self.graph.clear();
         let mut cur = txn.cursor(tables::CanonicalHeader)?;
 
         if let Some(bad_block) = input.bad_block {
