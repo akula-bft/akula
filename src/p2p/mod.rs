@@ -59,6 +59,14 @@ pub mod collections {
         }
 
         #[inline]
+        pub fn clear(&mut self) {
+            self.q.clear();
+            self.raw.clear();
+            self.skip_list.clear();
+            self.chains.clear();
+        }
+
+        #[inline]
         pub fn len(&self) -> usize {
             self.raw.len()
         }
@@ -171,6 +179,7 @@ pub mod collections {
     #[cfg(test)]
     mod tests {
         use super::*;
+
         #[test]
         fn test_max_td() {
             let mut graph = Graph::new();
