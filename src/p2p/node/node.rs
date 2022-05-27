@@ -363,8 +363,6 @@ impl Node {
     const HEADERS_PREDICATE: [i32; 1] = [grpc_sentry::MessageId::BlockHeaders66 as i32];
 
     pub async fn stream_headers(&self) -> NodeStream {
-        let _ = self.update_chain_head(None).await;
-
         let sentries = self.sentries.iter().collect::<Vec<_>>();
         SentryStream::join_all(sentries, Self::HEADERS_PREDICATE).await
     }
@@ -469,6 +467,9 @@ impl Node {
             };
             Ok::<_, anyhow::Error>(())
         };
+
+        const TIMEOUT: Duration = Duration::from_secs(2);
+
         let data = data.into();
         self.sentries
             .clone()
@@ -476,8 +477,11 @@ impl Node {
             .map(|sentry| {
                 let predicate = predicate.clone();
                 let data = data.clone();
+
                 async move {
-                    let _ = send_msg(sentry, predicate, data).await;
+                    let _ =
+                        tokio::time::timeout(TIMEOUT, send_msg(sentry, predicate, data)).await?;
+                    Ok::<_, anyhow::Error>(())
                 }
             })
             .collect::<FuturesUnordered<_>>()
