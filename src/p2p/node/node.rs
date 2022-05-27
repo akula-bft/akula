@@ -479,7 +479,8 @@ impl Node {
                 let data = data.clone();
 
                 async move {
-                    let _ = tokio::time::timeout(TIMEOUT, send_msg(sentry, predicate, data)).await?;
+                    let _ =
+                        tokio::time::timeout(TIMEOUT, send_msg(sentry, predicate, data)).await?;
                     Ok::<_, anyhow::Error>(())
                 }
             })
