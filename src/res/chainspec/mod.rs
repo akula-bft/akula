@@ -9,6 +9,8 @@ pub static RINKEBY: Lazy<ChainSpec> =
     Lazy::new(|| ron::from_str(include_str!("rinkeby.ron")).unwrap());
 pub static SEPOLIA: Lazy<ChainSpec> =
     Lazy::new(|| ron::from_str(include_str!("sepolia.ron")).unwrap());
+pub static GOERLI: Lazy<ChainSpec> =
+    Lazy::new(|| ron::from_str(include_str!("goerli.ron")).unwrap());
 
 #[cfg(test)]
 mod tests {}

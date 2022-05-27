@@ -32,6 +32,7 @@ impl ChainConfig {
             "ropsten" => Ok(ChainConfig::from(chainspec::ROPSTEN.clone())),
             "rinkeby" => Ok(ChainConfig::from(chainspec::RINKEBY.clone())),
             "sepolia" => Ok(ChainConfig::from(chainspec::SEPOLIA.clone())),
+            "goerli" => Ok(ChainConfig::from(chainspec::GOERLI.clone())),
             _ => Err(anyhow!(
                 "{name} is not yet supported, please fill an issue at {REPOSITORY_URL} and we'll maybe add support for it in the foreseeable future",
             )),
