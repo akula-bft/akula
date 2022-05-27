@@ -52,7 +52,7 @@ impl GenesisState {
             extra_data: seal.extra_data(),
             mix_hash: seal.mix_hash(),
             nonce: seal.nonce(),
-            base_fee_per_gas: None,
+            base_fee_per_gas: genesis.base_fee_per_gas,
 
             receipts_root: EMPTY_ROOT,
             ommers_hash: EMPTY_LIST_HASH,
@@ -118,7 +118,7 @@ where
         extra_data: chainspec.genesis.seal.extra_data(),
         mix_hash: chainspec.genesis.seal.mix_hash(),
         nonce: chainspec.genesis.seal.nonce(),
-        base_fee_per_gas: None,
+        base_fee_per_gas: chainspec.genesis.base_fee_per_gas,
 
         receipts_root: EMPTY_ROOT,
         ommers_hash: EMPTY_LIST_HASH,

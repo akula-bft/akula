@@ -38,7 +38,6 @@ educe = { version = "0.4", features = ["Debug", "Default"] }
 enr = { version = "0.6", default-features = false, features = [
     "rust-secp256k1",
 ] }
-enum-as-inner = "0.4"
 enum-primitive-derive = "0.2"
 ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
 ethereum-forkid = "0.8.0"
@@ -48,11 +47,7 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", featu
 ] }
 ethereum-types = { version = "0.13", features = ["codec"] }
 ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc" }
-ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging", features = [
-    "llvm-intrinsics",
-    "rlp",
-    "scale",
-] }
+ethnum = { version = "1", features = ["llvm-intrinsics", "rlp", "scale"] }
 fastrlp = { version = "0.1", features = [
     "derive",
     "ethereum-types",
@@ -161,7 +156,7 @@ triehash = "0.8"
 
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
-enr = { git = "https://github.com/rust-ethereum/enr", branch = "vorot93/update-deps" }
+enr = { git = "https://github.com/rust-ethereum/enr" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "staging" }
 
 [[bin]]

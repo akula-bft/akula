@@ -19,7 +19,8 @@ use hashlink::LruCache;
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
-use tokio::task::{JoinHandle, JoinSet};
+use task_group::TaskGroup;
+use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
@@ -64,7 +65,7 @@ impl Node {
 
     /// Start node synchronization.
     pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
-        let mut tasks = JoinSet::new();
+        let tasks = TaskGroup::new();
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(128);
 
@@ -280,7 +281,6 @@ impl Node {
     }
 
     pub async fn send_header_request(&self, request: HeaderRequest) -> anyhow::Result<()> {
-        self.update_chain_head(None).await?;
         self.send_message(request.into(), PeerFilter::All).await?;
 
         Ok(())
@@ -363,8 +363,6 @@ impl Node {
     const HEADERS_PREDICATE: [i32; 1] = [grpc_sentry::MessageId::BlockHeaders66 as i32];
 
     pub async fn stream_headers(&self) -> NodeStream {
-        let _ = self.update_chain_head(None).await;
-
         let sentries = self.sentries.iter().collect::<Vec<_>>();
         SentryStream::join_all(sentries, Self::HEADERS_PREDICATE).await
     }
@@ -469,6 +467,9 @@ impl Node {
             };
             Ok::<_, anyhow::Error>(())
         };
+
+        const TIMEOUT: Duration = Duration::from_secs(2);
+
         let data = data.into();
         self.sentries
             .clone()
@@ -476,8 +477,11 @@ impl Node {
             .map(|sentry| {
                 let predicate = predicate.clone();
                 let data = data.clone();
+
                 async move {
-                    let _ = send_msg(sentry, predicate, data).await;
+                    let _ =
+                        tokio::time::timeout(TIMEOUT, send_msg(sentry, predicate, data)).await?;
+                    Ok::<_, anyhow::Error>(())
                 }
             })
             .collect::<FuturesUnordered<_>>()

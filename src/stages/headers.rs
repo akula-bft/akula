@@ -1,27 +1,18 @@
 use crate::{
     consensus::Consensus,
-    kv::{mdbx::MdbxTransaction, tables},
+    kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
+        collections::Graph,
         node::Node,
         types::{BlockId, HeaderRequest, Message, Status},
     },
-    stagedsync::{
-        stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
-        stages::HEADERS,
-    },
+    stagedsync::{stage::*, stages::HEADERS},
 };
-
 use anyhow::format_err;
 use async_trait::async_trait;
 use hashbrown::HashMap;
-use mdbx::{EnvironmentKind, RW};
-use rayon::{
-    iter::{
-        IndexedParallelIterator, IntoParallelRefIterator, ParallelDrainRange, ParallelIterator,
-    },
-    slice::ParallelSliceMut,
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -29,20 +20,23 @@ use std::{
     },
     time::Duration,
 };
+use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::*;
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
+
 const STAGE_UPPER_BOUND: usize = 3 << 15;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub struct HeaderDownload {
     pub node: Arc<Node>,
-    /// Consensus engine used.
     pub consensus: Arc<dyn Consensus>,
     pub max_block: BlockNumber,
+    pub graph: Graph,
 }
+
 #[async_trait]
 impl<'db, E> Stage<'db, E> for HeaderDownload
 where
@@ -70,38 +64,38 @@ where
             .ok_or_else(|| {
                 StageError::Internal(format_err!("no canonical hash for block #{prev_progress}"))
             })?;
+
         let mut starting_block: BlockNumber = prev_progress + 1;
         let current_chain_tip = loop {
             let n = self.node.chain_tip.read().0;
             if n > starting_block {
                 break n;
             }
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(Self::BACK_OFF).await;
         };
 
+        debug!("Chain tip={}", current_chain_tip);
+
         let (mut target_block, mut reached_tip) =
-            if starting_block + STAGE_UPPER_BOUND as u64 > current_chain_tip {
+            if starting_block + STAGE_UPPER_BOUND > current_chain_tip {
                 (current_chain_tip, true)
             } else {
-                (starting_block + STAGE_UPPER_BOUND as u64, false)
+                (starting_block + STAGE_UPPER_BOUND, false)
             };
-
         if target_block >= self.max_block {
             target_block = self.max_block;
             reached_tip = true;
         }
 
         let headers_cap = (target_block.0 - starting_block.0) as usize;
-        let mut headers: Vec<(H256, BlockHeader)> = Vec::with_capacity(headers_cap);
+        let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
 
         while headers.len() < headers_cap {
             if !headers.is_empty() {
-                starting_block = headers.last().unwrap().1.number;
+                starting_block = headers.last().map(|(_, h)| h).unwrap().number;
             }
 
-            let requests = Self::prepare_requests(starting_block, target_block);
-            headers.extend(self.download_headers(requests).await?);
-
+            headers.extend(self.download_headers(starting_block, target_block).await?);
             if let Some((_, h)) = headers.first() {
                 if h.parent_hash != prev_progress_hash {
                     return Ok(ExecOutput::Unwind {
@@ -110,9 +104,7 @@ where
                 }
             }
         }
-
         let mut stage_progress = prev_progress;
-        let mut prev_hash = prev_progress_hash;
 
         let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
         let mut cursor_header = txn.cursor(tables::Header)?;
@@ -124,13 +116,6 @@ where
             if header.number == 0 {
                 continue;
             }
-
-            if header.parent_hash != prev_hash {
-                break;
-            }
-
-            prev_hash = hash;
-
             if header.number > self.max_block {
                 break;
             }
@@ -161,6 +146,7 @@ where
     where
         'db: 'tx,
     {
+        self.graph.clear();
         let mut cur = txn.cursor(tables::CanonicalHeader)?;
 
         if let Some(bad_block) = input.bad_block {
@@ -184,98 +170,7 @@ where
 }
 
 impl HeaderDownload {
-    pub async fn download_headers(
-        &self,
-        mut requests: HashMap<BlockNumber, HeaderRequest>,
-    ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
-        let mut headers = Vec::with_capacity(requests.len() * HEADERS_UPPER_BOUND);
-        let mut ticker = tokio::time::interval(REQUEST_INTERVAL);
-
-        let mut stream = self.node.stream_headers().await;
-
-        while !requests.is_empty() {
-            let mut message_processed = false;
-
-            tokio::select! {
-                Some(msg) = stream.next() => {
-                    let peer_id = msg.peer_id;
-                    if let Message::BlockHeaders(msg) = msg.msg {
-                        if msg.headers.is_empty() {
-                            continue;
-                        }
-                        if msg.headers.len() > HEADERS_UPPER_BOUND {
-                            self.node.penalize_peer(peer_id).await?;
-                            continue;
-                        }
-                        let key = &msg.headers[0].number;
-                        if !requests.contains_key(key) {
-                            continue;
-                        }
-                        let limit = requests.get(key).unwrap().limit as usize;
-                        if msg.headers.len() != limit {
-                            continue;
-                        }
-
-                        headers.extend_from_slice(&msg.headers);
-                        requests.remove(key);
-
-                        info!("Downloaded {} block headers: {}->{}", msg.headers.len(), **key, **key + msg.headers.len().saturating_sub(1) as u64);
-                        message_processed = true;
-                    }
-                }
-                _ = ticker.tick() => {}
-            }
-            if !message_processed {
-                let r = requests.values().copied();
-                self.node.clone().send_many_header_requests(r).await?;
-            }
-        }
-
-        Ok(self.calculate_and_verify(headers))
-    }
-
-    fn calculate_and_verify(&self, mut headers: Vec<BlockHeader>) -> Vec<(H256, BlockHeader)> {
-        headers.par_sort_unstable_by_key(|header| header.number);
-        let valid_till = AtomicUsize::new(0);
-
-        headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
-            if self
-                .consensus
-                .validate_block_header(&headers[i], &headers[i - 1], false)
-                .is_err()
-            {
-                let mut value = valid_till.load(Ordering::SeqCst);
-                while i < value {
-                    if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)
-                        == Ok(value)
-                    {
-                        break;
-                    } else {
-                        value = valid_till.load(Ordering::SeqCst);
-                    }
-                }
-            }
-        });
-
-        let valid_till = valid_till.load(Ordering::SeqCst);
-        if valid_till != 0 {
-            headers.truncate(valid_till);
-        }
-
-        let mut block_headers = headers
-            .par_drain(..)
-            .map(|header| (header.hash(), header))
-            .collect::<Vec<_>>();
-
-        if let Some(index) = self
-            .node
-            .position_bad_block(block_headers.iter().map(|(h, _)| h))
-        {
-            block_headers.truncate(index);
-        }
-
-        block_headers
-    }
+    const BACK_OFF: Duration = Duration::from_secs(5);
 
     fn prepare_requests(
         starting_block: BlockNumber,
@@ -300,6 +195,138 @@ impl HeaderDownload {
             requests.insert(start, request);
         }
         requests
+    }
+
+    pub async fn download_headers(
+        &mut self,
+        start: BlockNumber,
+        end: BlockNumber,
+    ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
+        let mut requests = Self::prepare_requests(start, end);
+
+        let mut stream = self.node.stream_headers().await;
+
+        let is_bounded = |block_number: BlockNumber| block_number >= start && block_number <= end;
+
+        let mut took = Instant::now();
+        let mut instant = Instant::now();
+
+        let mut ticker = tokio::time::interval(Self::BACK_OFF);
+
+        while !requests.is_empty() {
+            let mut message_processed = false;
+
+            tokio::select! {
+                Some(msg) = stream.next() => {
+                    if let Message::BlockHeaders(inner) = msg.msg {
+                        if inner.headers.is_empty() {
+                            self.node.penalize_peer(msg.peer_id).await?;
+                            continue;
+                        }
+
+                        let num = inner.headers[0].number;
+                        let last_hash = inner.headers[inner.headers.len() - 1].hash();
+                        if requests.contains_key(&num) || (is_bounded(num) && !self.graph.contains(last_hash)) {
+                            requests.remove(&num);
+                            debug!(
+                                "Received={} headers, Graph={}",
+                                inner.headers.len(),
+                                self.graph.len()
+                            );
+                            self.graph.extend(inner.headers);
+                            message_processed = true;
+                        }
+                    }
+                }
+                _ = ticker.tick() => {}
+            }
+
+            if instant.elapsed() > Duration::from_secs(30) {
+                instant = Instant::now();
+                let all = (*end - *start) as usize;
+                info!(
+                    "Downloading headers... left={} out of {}",
+                    all - self.graph.len(),
+                    all
+                );
+            }
+
+            if !message_processed {
+                self.node
+                    .clone()
+                    .send_many_header_requests(requests.values().copied())
+                    .await?;
+            }
+        }
+
+        info!(
+            "Downloaded {} headers, elapsed={:?}... Starting to build canonical chain...",
+            self.graph.len(),
+            took.elapsed(),
+        );
+
+        took = Instant::now();
+
+        let tail = self.graph.dfs().expect("unreachable");
+        let mut headers = self.graph.backtrack(&tail);
+
+        info!(
+            "Built canonical chain with={} headers, elapsed={:?}",
+            headers.len(),
+            took.elapsed()
+        );
+
+        let cur_size = headers.len();
+        let took = Instant::now();
+
+        self.verify_seal(&mut headers);
+
+        if cur_size == headers.len() {
+            info!(
+                "Seal verification took={:?} all headers are valid.",
+                took.elapsed()
+            );
+        } else {
+            info!(
+                "Seal verification took={:?} {} headers are invalidated.",
+                took.elapsed(),
+                cur_size - headers.len()
+            );
+        }
+
+        Ok(headers)
+    }
+
+    fn verify_seal(&self, headers: &mut Vec<(H256, BlockHeader)>) {
+        let valid_till = AtomicUsize::new(0);
+
+        headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
+            if self
+                .consensus
+                .validate_block_header(&headers[i].1, &headers[i - 1].1, false)
+                .is_err()
+            {
+                let mut value = valid_till.load(Ordering::SeqCst);
+                while i < value {
+                    if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)
+                        == Ok(value)
+                    {
+                        break;
+                    } else {
+                        value = valid_till.load(Ordering::SeqCst);
+                    }
+                }
+            }
+        });
+
+        let valid_till = valid_till.load(Ordering::SeqCst);
+        if valid_till != 0 {
+            headers.truncate(valid_till);
+        }
+
+        if let Some(index) = self.node.position_bad_block(headers.iter().map(|(h, _)| h)) {
+            headers.truncate(index);
+        }
     }
 
     async fn update_head<'tx, E: EnvironmentKind>(

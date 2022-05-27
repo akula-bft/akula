@@ -16,8 +16,6 @@ use tracing_subscriber::prelude::*;
 pub struct Opts {
     #[clap(flatten)]
     pub sentry_opts: akula::sentry::Opts,
-    #[clap(long, takes_value = false)]
-    pub tokio_console: bool,
 }
 
 #[tokio::main]
