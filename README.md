@@ -39,9 +39,15 @@ akula --datadir=<path to Akula database directory>
 akula-toolbox --help
 ```
 
-## Contributing and getting support
+## Helping us and getting support
 
 Please join [our Telegram chat](https://t.me/akula_bft) to meet the developers and find out how you can help.
+
+Work on Akula is sponsored by:
+
+[<img src="https://avatars.githubusercontent.com/u/24954468?s=75" alt="Gnosis">](https://gnosis.io/) [<img src="https://avatars.githubusercontent.com/u/80278162?s=75" alt="Stateful Works">](https://stateful.mirror.xyz/a151ee1decb2028a8bb48277f6928c6f38319c32601dc1da1ee82acfcad2e525)
+
+If you'd like to sponsor, check out our [Gitcoin](https://gitcoin.co/grants/5933/akula) grant page.
 
 ---
 Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
