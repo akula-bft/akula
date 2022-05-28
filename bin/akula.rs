@@ -233,6 +233,7 @@ fn main() -> anyhow::Result<()> {
 
                 let node = Arc::new(
                     NodeBuilder::default()
+                        .set_env(db.clone())
                         .add_sentry(sentry_api_addr)
                         .set_config(chain_config.clone())
                         .build()?,

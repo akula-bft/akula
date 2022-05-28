@@ -4,6 +4,7 @@ use super::{
     NodeBuilder,
 };
 use crate::{
+    kv::MdbxWithDirHandle,
     models::{BlockNumber, ChainConfig, H256},
     p2p::types::{
         BlockId, GetBlockBodies, GetBlockHeaders, HeaderRequest, Message, MessageId, PeerFilter,
@@ -16,6 +17,7 @@ use fastrlp::*;
 use futures::stream::FuturesUnordered;
 use hashbrown::HashSet;
 use hashlink::LruCache;
+use mdbx::EnvironmentKind;
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
@@ -38,7 +40,11 @@ pub(crate) struct BlockCaches {
 }
 
 #[derive(Debug)]
-pub struct Node {
+pub struct Node<E>
+where
+    E: EnvironmentKind,
+{
+    pub(crate) env: Arc<MdbxWithDirHandle<E>>,
     /// The sentry clients.
     pub(crate) sentries: Vec<Sentry>,
     /// The current Node status message.
@@ -53,15 +59,25 @@ pub struct Node {
     pub(crate) forks: Vec<u64>,
 }
 
-impl Node {
+impl<E> Node<E>
+where
+    E: EnvironmentKind,
+{
     /// Node builder.
-    pub fn builder() -> NodeBuilder {
+    pub fn builder() -> NodeBuilder<E> {
         NodeBuilder::default()
     }
 }
 
-impl Node {
+impl<E> Node<E>
+where
+    E: EnvironmentKind,
+{
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
+
+    async fn p2p_exchange(self: Arc<Self>) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// Start node synchronization.
     pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
@@ -425,7 +441,10 @@ impl Node {
     }
 }
 
-impl Node {
+impl<E> Node<E>
+where
+    E: EnvironmentKind,
+{
     async fn send_raw(
         &self,
         data: impl Into<grpc_sentry::OutboundMessageData>,

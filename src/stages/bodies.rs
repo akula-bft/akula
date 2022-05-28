@@ -28,15 +28,18 @@ use tracing::*;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
-pub struct BodyDownload {
+pub struct BodyDownload<E>
+where
+    E: EnvironmentKind,
+{
     /// Node is a interface for interacting with p2p.
-    pub node: Arc<Node>,
+    pub node: Arc<Node<E>>,
     /// Consensus engine used.
     pub consensus: Arc<dyn Consensus>,
 }
 
 #[async_trait]
-impl<'db, E> Stage<'db, E> for BodyDownload
+impl<'db, E> Stage<'db, E> for BodyDownload<E>
 where
     E: EnvironmentKind,
 {
@@ -101,8 +104,11 @@ where
     }
 }
 
-impl BodyDownload {
-    async fn download_bodies<E: EnvironmentKind>(
+impl<E> BodyDownload<E>
+where
+    E: EnvironmentKind,
+{
+    async fn download_bodies(
         &mut self,
         stream: &mut NodeStream,
         txn: &mut MdbxTransaction<'_, RW, E>,
@@ -288,7 +294,7 @@ impl BodyDownload {
         Ok(())
     }
 
-    fn prepare_requests<E: EnvironmentKind>(
+    fn prepare_requests(
         txn: &mut MdbxTransaction<'_, RW, E>,
         starting_block: BlockNumber,
         target: BlockNumber,
