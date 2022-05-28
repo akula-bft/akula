@@ -1,5 +1,5 @@
 use crate::{
-    models::{BlockBody, H256},
+    models::{BlockBody, MessageWithSignature, H256},
     p2p::types::*,
     sentry::devp2p::PeerId,
 };
@@ -93,8 +93,23 @@ impl From<MessageId> for grpc_sentry::MessageId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct NewPooledTransactionHashes(pub Vec<H256>);
+
+#[derive(Debug, Clone, Eq, PartialEq, RlpEncodableWrapper, RlpDecodableWrapper)]
+pub struct Transactions(pub Vec<MessageWithSignature>);
+
+#[derive(Debug, Clone, Eq, PartialEq, RlpEncodable, RlpDecodable)]
+pub struct GetPooledTransactions {
+    pub request_id: u64,
+    pub hashes: Vec<H256>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, RlpEncodable, RlpDecodable)]
+pub struct PooledTransactions {
+    pub request_id: u64,
+    pub transactions: Vec<MessageWithSignature>,
+}
 
 #[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
 pub struct BlockBodies {
@@ -111,19 +126,25 @@ pub enum Message {
     BlockHeaders(BlockHeaders),
     NewBlock(Box<NewBlock>),
     NewPooledTransactionHashes(NewPooledTransactionHashes),
+    Transactions(Transactions),
+    GetPooledTransactions(GetPooledTransactions),
+    PooledTransactions(PooledTransactions),
 }
 
 impl Message {
     #[inline(always)]
     pub const fn id(&self) -> MessageId {
         match self {
-            Message::NewBlockHashes(_) => MessageId::NewBlockHashes,
-            Message::GetBlockHeaders(_) => MessageId::GetBlockHeaders,
-            Message::GetBlockBodies(_) => MessageId::GetBlockBodies,
-            Message::BlockBodies(_) => MessageId::BlockBodies,
-            Message::BlockHeaders(_) => MessageId::BlockHeaders,
-            Message::NewBlock(_) => MessageId::NewBlock,
-            Message::NewPooledTransactionHashes(_) => MessageId::NewPooledTransactionHashes,
+            Self::NewBlockHashes(_) => MessageId::NewBlockHashes,
+            Self::GetBlockHeaders(_) => MessageId::GetBlockHeaders,
+            Self::GetBlockBodies(_) => MessageId::GetBlockBodies,
+            Self::BlockBodies(_) => MessageId::BlockBodies,
+            Self::BlockHeaders(_) => MessageId::BlockHeaders,
+            Self::NewBlock(_) => MessageId::NewBlock,
+            Self::NewPooledTransactionHashes(_) => MessageId::NewPooledTransactionHashes,
+            Self::Transactions(_) => MessageId::Transactions,
+            Self::GetPooledTransactions(_) => MessageId::GetPooledTransactions,
+            Self::PooledTransactions(_) => MessageId::PooledTransactions,
         }
     }
 }
@@ -170,33 +191,31 @@ impl TryFrom<grpc_sentry::InboundMessage> for InboundMessage {
             _ => return Err(anyhow!("Unsupported message id: {}", value.id)),
         })? {
             MessageId::NewBlockHashes => {
-                Message::NewBlockHashes(<NewBlockHashes as Decodable>::decode(msg_data_slice)?)
+                Message::NewBlockHashes(Decodable::decode(msg_data_slice)?)
             }
-            MessageId::NewBlock => {
-                Message::NewBlock(Box::new(<NewBlock as Decodable>::decode(msg_data_slice)?))
+            MessageId::NewBlock => Message::NewBlock(Box::new(Decodable::decode(msg_data_slice)?)),
+            MessageId::Transactions => Message::Transactions(Decodable::decode(msg_data_slice)?),
+            MessageId::NewPooledTransactionHashes => {
+                Message::NewPooledTransactionHashes(Decodable::decode(msg_data_slice)?)
             }
-            MessageId::Transactions => todo!(),
-            MessageId::NewPooledTransactionHashes => Message::NewPooledTransactionHashes(
-                <NewPooledTransactionHashes as Decodable>::decode(msg_data_slice)?,
-            ),
             MessageId::GetBlockHeaders => {
-                Message::GetBlockHeaders(<GetBlockHeaders as Decodable>::decode(msg_data_slice)?)
+                Message::GetBlockHeaders(Decodable::decode(msg_data_slice)?)
             }
             MessageId::GetBlockBodies => {
-                Message::GetBlockBodies(<GetBlockBodies as Decodable>::decode(msg_data_slice)?)
+                Message::GetBlockBodies(Decodable::decode(msg_data_slice)?)
             }
             MessageId::GetNodeData => todo!(),
             MessageId::GetReceipts => todo!(),
-            MessageId::GetPooledTransactions => todo!(),
-            MessageId::BlockHeaders => {
-                Message::BlockHeaders(<BlockHeaders as Decodable>::decode(msg_data_slice)?)
+            MessageId::GetPooledTransactions => {
+                Message::GetPooledTransactions(Decodable::decode(msg_data_slice)?)
             }
-            MessageId::BlockBodies => {
-                Message::BlockBodies(<BlockBodies as Decodable>::decode(msg_data_slice)?)
-            }
+            MessageId::BlockHeaders => Message::BlockHeaders(Decodable::decode(msg_data_slice)?),
+            MessageId::BlockBodies => Message::BlockBodies(Decodable::decode(msg_data_slice)?),
             MessageId::NodeData => todo!(),
             MessageId::Receipts => todo!(),
-            MessageId::PooledTransactions => todo!(),
+            MessageId::PooledTransactions => {
+                Message::PooledTransactions(Decodable::decode(msg_data_slice)?)
+            }
             _ => todo!(),
         };
         Ok(InboundMessage {

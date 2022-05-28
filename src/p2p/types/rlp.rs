@@ -34,6 +34,9 @@ impl Encodable for Message {
             Message::BlockHeaders(ref value) => value.encode(out),
             Message::NewBlock(ref value) => value.encode(out),
             Message::NewPooledTransactionHashes(ref value) => value.encode(out),
+            Message::Transactions(ref value) => value.encode(out),
+            Message::GetPooledTransactions(ref value) => value.encode(out),
+            Message::PooledTransactions(ref value) => value.encode(out),
         }
     }
 }
