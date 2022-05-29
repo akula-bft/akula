@@ -284,11 +284,14 @@ where
                                     headers.push(header);
                                 }
                             }
-                            let next_num = block_number.0 as i64 + add_op;
-                            if next_num < 0 {
-                                break;
-                            }
-                            next_number = Some(BlockNumber(next_num as u64));
+                            next_number = Some(BlockNumber(
+                                if let Ok(next_num) = u64::try_from(block_number.0 as i64 + add_op)
+                                {
+                                    next_num
+                                } else {
+                                    break;
+                                },
+                            ));
                         }
                         None => break,
                     };
