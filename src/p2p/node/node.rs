@@ -80,6 +80,7 @@ where
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
     /// Start node synchronization.
+    #[allow(clippy::collapsible_else_if)]
     pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
         let tasks = TaskGroup::new();
 
@@ -291,14 +292,15 @@ where
                         for _ in 0..limit {
                             match next_number {
                                 Some(block_number) => {
-                                    canonical_cursor
-                                        .seek_exact(block_number)?
-                                        .map(|header_key| {
-                                            header_cursor
-                                                .seek_exact(header_key)?
-                                                .map(|(_, header)| headers.push(header));
-                                            Ok::<_, anyhow::Error>(())
-                                        });
+                                    if let Some(header_key) =
+                                        canonical_cursor.seek_exact(block_number)?
+                                    {
+                                        if let Some((_, header)) =
+                                            header_cursor.seek_exact(header_key)?
+                                        {
+                                            headers.push(header);
+                                        }
+                                    }
                                     let next_num = block_number.0 as i64 + add_op;
                                     if next_num < 0 {
                                         break;
@@ -314,14 +316,15 @@ where
 
                         for _ in 0..limit {
                             if let Some(block_number) = next_number {
-                                canonical_cursor
-                                    .seek_exact(block_number)?
-                                    .map(|header_key| {
-                                        header_cursor
-                                            .seek_exact(header_key)?
-                                            .map(|(_, header)| headers.push(header));
-                                        Ok::<_, anyhow::Error>(())
-                                    });
+                                if let Some(header_key) =
+                                    canonical_cursor.seek_exact(block_number)?
+                                {
+                                    if let Some((_, header)) =
+                                        header_cursor.seek_exact(header_key)?
+                                    {
+                                        headers.push(header);
+                                    }
+                                }
                                 let next_num = block_number.0 as i64 + add_op;
                                 if next_num < 0 {
                                     break;
