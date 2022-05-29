@@ -271,8 +271,6 @@ where
                 };
 
                 let mut headers = Vec::with_capacity(limit as usize);
-                let mut next_number: Option<BlockNumber> = None;
-
                 let mut number_cursor = txn
                     .cursor(tables::HeaderNumber)
                     .expect("Failed to open cursor, likely a DB corruption");
@@ -283,57 +281,32 @@ where
                     .cursor(tables::Header)
                     .expect("Failed to open cursor, likely a DB corruption");
 
-                match params.start {
-                    BlockId::Hash(hash) => {
-                        if let Ok(Some((_, block_number))) = number_cursor.seek_exact(hash) {
-                            next_number = Some(block_number);
-                        }
+                let mut next_number = match params.start {
+                    BlockId::Hash(hash) => match number_cursor.seek_exact(hash) {
+                        Ok(Some((_, block_number))) => Some(block_number),
+                        _ => None,
+                    },
+                    BlockId::Number(number) => Some(number),
+                };
 
-                        for _ in 0..limit {
-                            match next_number {
-                                Some(block_number) => {
-                                    if let Some(header_key) =
-                                        canonical_cursor.seek_exact(block_number)?
-                                    {
-                                        if let Some((_, header)) =
-                                            header_cursor.seek_exact(header_key)?
-                                        {
-                                            headers.push(header);
-                                        }
-                                    }
-                                    let next_num = block_number.0 as i64 + add_op;
-                                    if next_num < 0 {
-                                        break;
-                                    }
-                                    next_number = Some(BlockNumber(next_num as u64));
+                for _ in 0..limit {
+                    match next_number {
+                        Some(block_number) => {
+                            if let Some(header_key) = canonical_cursor.seek_exact(block_number)? {
+                                if let Some((_, header)) = header_cursor.seek_exact(header_key)? {
+                                    headers.push(header);
                                 }
-                                None => break,
-                            };
+                            }
+                            let next_num = block_number.0 as i64 + add_op;
+                            if next_num < 0 {
+                                break;
+                            }
+                            next_number = Some(BlockNumber(next_num as u64));
                         }
-                    }
-                    BlockId::Number(number) => {
-                        next_number = Some(number);
-
-                        for _ in 0..limit {
-                            if let Some(block_number) = next_number {
-                                if let Some(header_key) =
-                                    canonical_cursor.seek_exact(block_number)?
-                                {
-                                    if let Some((_, header)) =
-                                        header_cursor.seek_exact(header_key)?
-                                    {
-                                        headers.push(header);
-                                    }
-                                }
-                                let next_num = block_number.0 as i64 + add_op;
-                                if next_num < 0 {
-                                    break;
-                                }
-                                next_number = Some(BlockNumber(next_num as u64));
-                            };
-                        }
-                    }
+                        None => break,
+                    };
                 }
+
                 Ok::<_, anyhow::Error>(headers)
             }
         };
