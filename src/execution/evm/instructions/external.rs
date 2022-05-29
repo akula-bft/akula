@@ -130,7 +130,7 @@ pub(crate) fn blockhash<H: Host>(
 ) -> Result<(), StatusCode> {
     let number = state.stack.pop();
 
-    let upper_bound = host.get_tx_context().block_number;
+    let upper_bound = host.get_tx_context()?.block_number;
     let lower_bound = upper_bound.saturating_sub(256);
 
     let mut header = U256::ZERO;

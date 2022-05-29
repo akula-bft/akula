@@ -2,7 +2,7 @@ use crate::execution::tracer::{NoopTracer, Tracer};
 
 use super::{
     common::{InterpreterMessage, Output},
-    CreateMessage,
+    CreateMessage, StatusCode,
 };
 use bytes::Bytes;
 use ethereum_types::Address;
@@ -101,7 +101,7 @@ pub trait Host {
     /// Call to another account.
     fn call(&mut self, msg: Call) -> Output;
     /// Retrieve transaction context.
-    fn get_tx_context(&mut self) -> TxContext;
+    fn get_tx_context(&mut self) -> Result<TxContext, StatusCode>;
     /// Get block hash.
     ///
     /// Returns `Ok(U256::zero())` if block does not exist.

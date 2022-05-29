@@ -576,9 +576,13 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: State> Host
         }
     }
 
-    fn get_tx_context(&mut self) -> TxContext {
+    fn get_tx_context(&mut self) -> Result<TxContext, StatusCode> {
         let base_fee_per_gas = self.inner.header.base_fee_per_gas.unwrap_or(U256::ZERO);
-        let tx_gas_price = self.inner.message.effective_gas_price(base_fee_per_gas);
+        let tx_gas_price = self
+            .inner
+            .message
+            .effective_gas_price(base_fee_per_gas)
+            .ok_or(StatusCode::InternalError("tx gas price too low"))?;
         let tx_origin = self.inner.sender;
         let block_coinbase = self.inner.beneficiary;
         let block_number = self.inner.header.number.0;
@@ -588,7 +592,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: State> Host
         let chain_id = self.inner.block_spec.params.chain_id.0.into();
         let block_base_fee = base_fee_per_gas;
 
-        TxContext {
+        Ok(TxContext {
             tx_gas_price,
             tx_origin,
             block_coinbase,
@@ -598,7 +602,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: State> Host
             block_difficulty,
             chain_id,
             block_base_fee,
-        }
+        })
     }
 
     fn get_block_hash(&mut self, block_number: u64) -> U256 {
