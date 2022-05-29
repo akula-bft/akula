@@ -112,9 +112,12 @@ where
             .ok_or_else(|| format_err!("failed to resolve block {block_number:?}"))?;
         let header = chain::header::read(&txn, hash, block_number)?
             .ok_or_else(|| format_err!("no header found for block #{block_number}/{hash}"))?;
+        let mut buffer = Buffer::new(&txn, Some(block_number));
+        let mut state = IntraBlockState::new(&mut buffer);
+        let sender = call_data.from.unwrap_or_else(Address::zero);
         let message = Message::Legacy {
             chain_id: None,
-            nonce: 0,
+            nonce: state.get_nonce(sender)?,
             gas_price: call_data
                 .gas_price
                 .map(|v| v.as_u64().as_u256())
@@ -127,9 +130,6 @@ where
             value: call_data.value.unwrap_or(U256::ZERO),
             input: call_data.data.unwrap_or_default().into(),
         };
-        let sender = call_data.from.unwrap_or_else(Address::zero);
-        let mut db = Buffer::new(&txn, Some(block_number));
-        let mut state = IntraBlockState::new(&mut db);
         let mut cache = AnalysisCache::default();
         let block_spec = chain::chain_config::read(&txn)?
             .ok_or_else(|| format_err!("no chainspec found"))?
