@@ -663,7 +663,6 @@ impl<C: CapabilityServer> Swarm<C> {
                             async move {
                                 loop {
                                     if !no_new_peers.load(Ordering::SeqCst) {
-                                        trace!("Waiting for next peer from discovery");
                                         let next_peer = discovery_tasks.lock().await.next().await;
                                         match next_peer {
                                             None => (),

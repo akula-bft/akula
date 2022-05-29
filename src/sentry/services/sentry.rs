@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use ethereum_interfaces::{
     sentry::{
         sentry_server::Sentry, HandShakeReply, InboundMessage, MessageId as ProtoMessageId,
-        OutboundMessageData, PeerEvent, PeerEventsRequest, PeerMinBlockRequest, SentPeers,
-        SetStatusReply,
+        OutboundMessageData, PeerByIdReply, PeerEvent, PeerEventsRequest, PeerMinBlockRequest,
+        SentPeers, SetStatusReply,
     },
     types::NodeInfoReply,
 };
@@ -147,6 +147,13 @@ impl Sentry for SentryService {
             count: self.capability_server.all_peers().len() as u64,
         };
         Ok(Response::new(reply))
+    }
+
+    async fn peer_by_id(
+        &self,
+        _: tonic::Request<ethereum_interfaces::sentry::PeerByIdRequest>,
+    ) -> Result<Response<PeerByIdReply>, tonic::Status> {
+        Err(tonic::Status::unimplemented("todo"))
     }
 
     type PeerEventsStream = PeersReplyStream;

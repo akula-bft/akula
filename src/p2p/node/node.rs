@@ -8,8 +8,8 @@ use crate::{
     kv::{mdbx::MdbxTransaction, tables, MdbxWithDirHandle},
     models::{BlockNumber, ChainConfig, MessageWithSignature, H256},
     p2p::types::{
-        BlockBodies, BlockId, GetBlockBodies, GetBlockHeaders, HeaderRequest, Message, MessageId,
-        PeerFilter, PooledTransactions, Status,
+        BlockBodies, BlockHeaders, BlockId, GetBlockBodies, GetBlockHeaders, GetBlockHeadersParams,
+        HeaderRequest, Message, MessageId, PeerFilter, PooledTransactions, Status,
     },
 };
 use anyhow::anyhow;
@@ -20,6 +20,7 @@ use futures::stream::FuturesUnordered;
 use hashbrown::HashSet;
 use hashlink::LruCache;
 use mdbx::{EnvironmentKind, WriteMap, RO};
+use num_traits::Zero;
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
@@ -221,36 +222,117 @@ where
             }
         });
 
-        // TODO: Behaviour of this closure is the subject of change.
-        let try_collect_bodies = {
+        let collect_bodies = {
             let env = self.env.clone();
 
             move |hashes: Vec<H256>| {
-                let txn = env.begin()?;
+                let txn = env.begin().expect("Failed to begin transaction");
 
                 hashes
                     .into_iter()
-                    .map(|hash| {
-                        let block_number = txn
-                            .get(tables::HeaderNumber, hash)?
-                            .ok_or_else(|| anyhow!("header not found"))?;
-                        Ok((block_number, hash))
+                    .filter_map(|hash| {
+                        txn.get(tables::HeaderNumber, hash)
+                            .unwrap_or(None)
+                            .map(|number| (hash, number))
                     })
-                    .collect::<anyhow::Result<Vec<_>>>()?
-                    .into_iter()
-                    .map(|(number, hash)| {
-                        chain::block_body::read_without_senders(&txn, hash, number)?
-                            .ok_or_else(|| anyhow!("block body not found"))
+                    .filter_map(|(hash, number)| {
+                        chain::block_body::read_without_senders(&txn, hash, number).unwrap_or(None)
                     })
-                    .collect::<anyhow::Result<Vec<_>>>()
+                    .collect::<Vec<_>>()
             }
         };
 
-        // TODO: Behaviour of this closure is the subject of change.
-        let _try_collect_headers = {
-            let _env = self.env.clone();
+        let collect_headers = {
+            let env = self.env.clone();
 
-            move || {}
+            move |params: GetBlockHeadersParams| {
+                let txn = env.begin().expect("Failed to begin transaction");
+
+                let limit = if params.limit > 1024 {
+                    1024
+                } else {
+                    params.limit
+                };
+                let reverse = params.reverse == 1;
+
+                let add_op = if reverse {
+                    if params.skip == 0 {
+                        -1
+                    } else {
+                        -(params.skip as i64) - 1
+                    }
+                } else {
+                    if params.skip == 0 {
+                        1
+                    } else {
+                        params.skip as i64 + 1
+                    }
+                };
+
+                let mut headers = Vec::with_capacity(limit as usize);
+                let mut next_number: Option<BlockNumber> = None;
+
+                let mut number_cursor = txn
+                    .cursor(tables::HeaderNumber)
+                    .expect("Failed to open cursor, likely a DB corruption");
+                let mut canonical_cursor = txn
+                    .cursor(tables::CanonicalHeader)
+                    .expect("Failed to open cursor, likely a DB corruption");
+                let mut header_cursor = txn
+                    .cursor(tables::Header)
+                    .expect("Failed to open cursor, likely a DB corruption");
+
+                match params.start {
+                    BlockId::Hash(hash) => {
+                        if let Ok(Some((_, block_number))) = number_cursor.seek_exact(hash) {
+                            next_number = Some(block_number);
+                        }
+
+                        for _ in 0..limit {
+                            match next_number {
+                                Some(block_number) => {
+                                    canonical_cursor
+                                        .seek_exact(block_number)?
+                                        .map(|header_key| {
+                                            header_cursor
+                                                .seek_exact(header_key)?
+                                                .map(|(_, header)| headers.push(header));
+                                            Ok::<_, anyhow::Error>(())
+                                        });
+                                    let next_num = block_number.0 as i64 + add_op;
+                                    if next_num < 0 {
+                                        break;
+                                    }
+                                    next_number = Some(BlockNumber(next_num as u64));
+                                }
+                                None => break,
+                            };
+                        }
+                    }
+                    BlockId::Number(number) => {
+                        next_number = Some(number);
+
+                        for _ in 0..limit {
+                            if let Some(block_number) = next_number {
+                                canonical_cursor
+                                    .seek_exact(block_number)?
+                                    .map(|header_key| {
+                                        header_cursor
+                                            .seek_exact(header_key)?
+                                            .map(|(_, header)| headers.push(header));
+                                        Ok::<_, anyhow::Error>(())
+                                    });
+                                let next_num = block_number.0 as i64 + add_op;
+                                if next_num < 0 {
+                                    break;
+                                }
+                                next_number = Some(BlockNumber(next_num as u64));
+                            };
+                        }
+                    }
+                }
+                Ok::<_, anyhow::Error>(headers)
+            }
         };
 
         tasks.spawn({
@@ -267,18 +349,21 @@ where
                     let peer_id = msg.peer_id;
 
                     match msg.msg {
-                        Message::GetBlockHeaders(_inner) => {
-                            // TODO: Implement.
+                        Message::GetBlockHeaders(inner) => {
+                            let msg = Message::BlockHeaders(BlockHeaders {
+                                request_id: inner.request_id,
+                                headers: collect_headers(inner.params).unwrap_or_default(),
+                            });
+
+                            self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
                         }
                         Message::GetBlockBodies(inner) => {
-                            if let Ok(bodies) = try_collect_bodies(inner.hashes) {
-                                let msg = Message::BlockBodies(BlockBodies {
-                                    request_id: inner.request_id,
-                                    bodies,
-                                });
+                            let msg = Message::BlockBodies(BlockBodies {
+                                request_id: inner.request_id,
+                                bodies: collect_bodies(inner.hashes),
+                            });
 
-                                self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
-                            }
+                            self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
                         }
                         _ => unreachable!(),
                     }

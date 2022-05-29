@@ -223,10 +223,8 @@ where
                 Some(msg) = stream.next() => {
                     if let Message::BlockHeaders(inner) = msg.msg {
                         if inner.headers.is_empty() {
-                            self.node.penalize_peer(msg.peer_id).await?;
                             continue;
                         }
-
                         let num = inner.headers[0].number;
                         let last_hash = inner.headers[inner.headers.len() - 1].hash();
                         if requests.contains_key(&num) || (is_bounded(num) && !self.graph.contains(last_hash)) {
