@@ -4,18 +4,23 @@ use super::{
     NodeBuilder,
 };
 use crate::{
-    models::{BlockNumber, ChainConfig, H256},
+    accessors::chain,
+    kv::{mdbx::MdbxTransaction, tables, MdbxWithDirHandle},
+    models::{BlockNumber, ChainConfig, MessageWithSignature, H256},
     p2p::types::{
-        BlockId, GetBlockBodies, GetBlockHeaders, HeaderRequest, Message, MessageId, PeerFilter,
-        Status,
+        BlockBodies, BlockHeaders, BlockId, GetBlockBodies, GetBlockHeaders, GetBlockHeadersParams,
+        HeaderRequest, Message, MessageId, PeerFilter, PooledTransactions, Status,
     },
 };
+use anyhow::anyhow;
 use bytes::{BufMut, BytesMut};
 use ethereum_interfaces::{sentry as grpc_sentry, sentry::sentry_client::SentryClient};
 use fastrlp::*;
 use futures::stream::FuturesUnordered;
 use hashbrown::HashSet;
 use hashlink::LruCache;
+use mdbx::{EnvironmentKind, WriteMap, RO};
+use num_traits::Zero;
 use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
@@ -26,6 +31,7 @@ use tonic::transport::Channel;
 use tracing::*;
 
 pub type Sentry = SentryClient<Channel>;
+pub type RequestId = u64;
 
 #[derive(Debug)]
 pub(crate) struct BlockCaches {
@@ -38,7 +44,11 @@ pub(crate) struct BlockCaches {
 }
 
 #[derive(Debug)]
-pub struct Node {
+pub struct Node<E>
+where
+    E: EnvironmentKind,
+{
+    pub(crate) env: Arc<MdbxWithDirHandle<E>>,
     /// The sentry clients.
     pub(crate) sentries: Vec<Sentry>,
     /// The current Node status message.
@@ -53,14 +63,20 @@ pub struct Node {
     pub(crate) forks: Vec<u64>,
 }
 
-impl Node {
+impl<E> Node<E>
+where
+    E: EnvironmentKind,
+{
     /// Node builder.
-    pub fn builder() -> NodeBuilder {
+    pub fn builder() -> NodeBuilder<E> {
         NodeBuilder::default()
     }
 }
 
-impl Node {
+impl<E> Node<E>
+where
+    E: EnvironmentKind,
+{
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
     /// Start node synchronization.
@@ -206,6 +222,119 @@ impl Node {
             }
         });
 
+        let collect_bodies = {
+            let env = self.env.clone();
+
+            move |hashes: Vec<H256>| {
+                let txn = env.begin().expect("Failed to begin transaction");
+
+                hashes
+                    .into_iter()
+                    .filter_map(|hash| {
+                        txn.get(tables::HeaderNumber, hash)
+                            .unwrap_or(None)
+                            .map(|number| (hash, number))
+                    })
+                    .filter_map(|(hash, number)| {
+                        chain::block_body::read_without_senders(&txn, hash, number).unwrap_or(None)
+                    })
+                    .collect::<Vec<_>>()
+            }
+        };
+
+        let collect_headers = {
+            let env = self.env.clone();
+
+            move |params: GetBlockHeadersParams| {
+                let txn = env.begin().expect("Failed to begin transaction");
+
+                let limit = std::cmp::min(params.limit, 1024);
+                let reverse = params.reverse == 1;
+
+                let mut add_op = if params.skip == 0 {
+                    1
+                } else {
+                    params.skip as i64 + 1
+                };
+                if reverse {
+                    add_op = -add_op;
+                }
+
+                let mut headers = Vec::with_capacity(limit as usize);
+                let mut number_cursor = txn
+                    .cursor(tables::HeaderNumber)
+                    .expect("Failed to open cursor, likely a DB corruption");
+                let mut canonical_cursor = txn
+                    .cursor(tables::CanonicalHeader)
+                    .expect("Failed to open cursor, likely a DB corruption");
+                let mut header_cursor = txn
+                    .cursor(tables::Header)
+                    .expect("Failed to open cursor, likely a DB corruption");
+
+                let mut next_number = match params.start {
+                    BlockId::Hash(hash) => number_cursor.seek_exact(hash)?.map(|(_, k)| k),
+                    BlockId::Number(number) => Some(number),
+                };
+
+                for _ in 0..limit {
+                    match next_number {
+                        Some(block_number) => {
+                            if let Some(header_key) = canonical_cursor.seek_exact(block_number)? {
+                                if let Some((_, header)) = header_cursor.seek_exact(header_key)? {
+                                    headers.push(header);
+                                }
+                            }
+                            next_number = u64::try_from(block_number.0 as i64 + add_op)
+                                .ok()
+                                .map(BlockNumber);
+                        }
+                        None => break,
+                    };
+                }
+
+                Ok::<_, anyhow::Error>(headers)
+            }
+        };
+
+        tasks.spawn({
+            let handler = self.clone();
+            let mut stream = handler
+                .stream_by_predicate([
+                    ethereum_interfaces::sentry::MessageId::GetBlockBodies66 as i32,
+                    ethereum_interfaces::sentry::MessageId::GetBlockHeaders66 as i32,
+                ])
+                .await;
+
+            async move {
+                while let Some(msg) = stream.next().await {
+                    let peer_id = msg.peer_id;
+
+                    match msg.msg {
+                        Message::GetBlockHeaders(inner) => {
+                            let msg = Message::BlockHeaders(BlockHeaders {
+                                request_id: inner.request_id,
+                                headers: collect_headers(inner.params).unwrap_or_default(),
+                            });
+
+                            self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
+                        }
+                        Message::GetBlockBodies(inner) => {
+                            let msg = Message::BlockBodies(BlockBodies {
+                                request_id: inner.request_id,
+                                bodies: collect_bodies(inner.hashes),
+                            });
+
+                            self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                Ok::<(), anyhow::Error>(())
+            }
+            .instrument(span!(Level::DEBUG, "inbound handler"))
+        });
+
         pending::<()>().await;
 
         Ok(())
@@ -334,6 +463,78 @@ impl Node {
         Ok(())
     }
 
+    pub async fn send_pooled_transactions(
+        &self,
+        request_id: RequestId,
+        transactions: Vec<MessageWithSignature>,
+        pred: PeerFilter,
+    ) -> anyhow::Result<()> {
+        let data = grpc_sentry::OutboundMessageData {
+            id: grpc_sentry::MessageId::from(MessageId::PooledTransactions) as i32,
+            data: |transactions: Vec<MessageWithSignature>| -> bytes::Bytes {
+                let mut buf = BytesMut::new();
+                PooledTransactions {
+                    request_id,
+                    transactions,
+                }
+                .encode(&mut buf);
+                buf.freeze()
+            }(transactions),
+        };
+        self.send_raw(data, pred).await?;
+
+        Ok(())
+    }
+
+    pub async fn get_pooled_transactions<'a>(
+        &self,
+        request_id: u64,
+        hashes: &'a [H256],
+        pred: PeerFilter,
+    ) -> anyhow::Result<()> {
+        pub struct GetPooledTransactions_<'a> {
+            pub request_id: u64,
+            pub hashes: &'a [H256],
+        }
+        trait E {
+            fn rlp_header(&self) -> fastrlp::Header;
+        }
+        impl<'a> E for GetPooledTransactions_<'a> {
+            fn rlp_header(&self) -> fastrlp::Header {
+                let mut rlp_head = fastrlp::Header {
+                    list: true,
+                    payload_length: 0,
+                };
+                rlp_head.payload_length += fastrlp::Encodable::length(&self.request_id);
+                rlp_head.payload_length += fastrlp::list_length(self.hashes);
+                rlp_head
+            }
+        }
+        impl<'a> Encodable for GetPooledTransactions_<'a> {
+            fn length(&self) -> usize {
+                let rlp_head = E::rlp_header(self);
+                fastrlp::length_of_length(rlp_head.payload_length) + rlp_head.payload_length
+            }
+            fn encode(&self, out: &mut dyn BufMut) {
+                E::rlp_header(self).encode(out);
+                fastrlp::Encodable::encode(&self.request_id, out);
+                fastrlp::encode_list(self.hashes, out);
+            }
+        }
+
+        let data = grpc_sentry::OutboundMessageData {
+            id: grpc_sentry::MessageId::from(MessageId::GetPooledTransactions) as i32,
+            data: |hashes: &'_ [H256]| -> bytes::Bytes {
+                let mut buf = BytesMut::new();
+                GetPooledTransactions_ { request_id, hashes }.encode(&mut buf);
+                buf.freeze()
+            }(hashes),
+        };
+        self.send_raw(data, pred).await?;
+
+        Ok(())
+    }
+
     const SYNC_PREDICATE: [i32; 3] = [
         grpc_sentry::MessageId::BlockHeaders66 as i32,
         grpc_sentry::MessageId::NewBlockHashes66 as i32,
@@ -360,6 +561,24 @@ impl Node {
         SentryStream::join_all(sentries, Self::RAW_PREDICATE).await
     }
 
+    const TRANSACTIONS_PREDICATE: [i32; 4] = [
+        grpc_sentry::MessageId::Transactions66 as i32,
+        grpc_sentry::MessageId::NewPooledTransactionHashes66 as i32,
+        grpc_sentry::MessageId::PooledTransactions66 as i32,
+        grpc_sentry::MessageId::GetPooledTransactions66 as i32,
+    ];
+
+    pub async fn stream_transactions(&self) -> NodeStream {
+        SentryStream::join_all(self.sentries.iter(), Self::TRANSACTIONS_PREDICATE).await
+    }
+
+    pub async fn stream_by_predicate<T>(&self, pred: T) -> NodeStream
+    where
+        T: IntoIterator<Item = i32>,
+    {
+        SentryStream::join_all(self.sentries.iter(), pred).await
+    }
+
     const HEADERS_PREDICATE: [i32; 1] = [grpc_sentry::MessageId::BlockHeaders66 as i32];
 
     pub async fn stream_headers(&self) -> NodeStream {
@@ -374,6 +593,11 @@ impl Node {
 
         let sentries = self.sentries.iter().collect::<Vec<_>>();
         SentryStream::join_all(sentries, Self::BODIES_PREDICATE).await
+    }
+
+    #[inline]
+    pub async fn sqrt_peers(&self) -> usize {
+        (self.total_peers().await as f64).sqrt() as usize
     }
 
     pub async fn total_peers(&self) -> usize {
@@ -425,7 +649,10 @@ impl Node {
     }
 }
 
-impl Node {
+impl<E> Node<E>
+where
+    E: EnvironmentKind,
+{
     async fn send_raw(
         &self,
         data: impl Into<grpc_sentry::OutboundMessageData>,

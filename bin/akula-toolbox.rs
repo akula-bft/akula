@@ -117,20 +117,13 @@ async fn download_headers(
 ) -> anyhow::Result<()> {
     let chain_config = ChainConfig::new(chain.as_ref())?;
     let consensus = engine_factory(chain_config.chain_spec.clone())?.into();
-    let node = Arc::new(NodeBuilder::default().add_sentry(uri).build()?);
-    tokio::spawn({
-        let node = node.clone();
-        async move {
-            node.start_sync().await.unwrap();
-        }
-    });
 
     let chain_data_dir = data_dir.chain_data_dir();
     let etl_temp_path = data_dir.etl_temp_dir();
 
     let _ = std::fs::remove_dir_all(&etl_temp_path);
     std::fs::create_dir_all(&etl_temp_path)?;
-    let env = akula::kv::new_database(&chain_data_dir)?;
+    let env = Arc::new(akula::kv::new_database(&chain_data_dir)?);
     let txn = env.begin_mutable()?;
     akula::genesis::initialize_genesis(
         &txn,
@@ -139,6 +132,19 @@ async fn download_headers(
     )?;
 
     txn.commit()?;
+
+    let node = Arc::new(
+        NodeBuilder::default()
+            .set_env(env.clone())
+            .add_sentry(uri)
+            .build()?,
+    );
+    tokio::spawn({
+        let node = node.clone();
+        async move {
+            node.start_sync().await.unwrap();
+        }
+    });
 
     let mut staged_sync = stagedsync::StagedSync::new();
     staged_sync.push(

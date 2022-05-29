@@ -30,15 +30,15 @@ const STAGE_UPPER_BOUND: usize = 3 << 15;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
-pub struct HeaderDownload {
-    pub node: Arc<Node>,
+pub struct HeaderDownload<E: EnvironmentKind> {
+    pub node: Arc<Node<E>>,
     pub consensus: Arc<dyn Consensus>,
     pub max_block: BlockNumber,
     pub graph: Graph,
 }
 
 #[async_trait]
-impl<'db, E> Stage<'db, E> for HeaderDownload
+impl<'db, E> Stage<'db, E> for HeaderDownload<E>
 where
     E: EnvironmentKind,
 {
@@ -169,7 +169,10 @@ where
     }
 }
 
-impl HeaderDownload {
+impl<E> HeaderDownload<E>
+where
+    E: EnvironmentKind,
+{
     const BACK_OFF: Duration = Duration::from_secs(5);
 
     fn prepare_requests(
@@ -220,10 +223,8 @@ impl HeaderDownload {
                 Some(msg) = stream.next() => {
                     if let Message::BlockHeaders(inner) = msg.msg {
                         if inner.headers.is_empty() {
-                            self.node.penalize_peer(msg.peer_id).await?;
                             continue;
                         }
-
                         let num = inner.headers[0].number;
                         let last_hash = inner.headers[inner.headers.len() - 1].hash();
                         if requests.contains_key(&num) || (is_bounded(num) && !self.graph.contains(last_hash)) {
@@ -329,7 +330,7 @@ impl HeaderDownload {
         }
     }
 
-    async fn update_head<'tx, E: EnvironmentKind>(
+    async fn update_head<'tx>(
         &self,
         txn: &'tx mut MdbxTransaction<'_, RW, E>,
         height: BlockNumber,

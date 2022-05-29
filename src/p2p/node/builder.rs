@@ -1,21 +1,46 @@
+use std::sync::Arc;
+
 use super::{BlockCaches, Node, Sentry};
 use crate::{
+    kv::MdbxWithDirHandle,
     models::{BlockNumber, ChainConfig, H256, U256},
     p2p::types::Status,
 };
 use hashlink::LruCache;
 use http::Uri;
+use mdbx::EnvironmentKind;
 use parking_lot::{Mutex, RwLock};
 use tonic::transport::Channel;
 
-#[derive(Default, Debug)]
-pub struct NodeBuilder {
+#[derive(Debug)]
+pub struct NodeBuilder<E>
+where
+    E: EnvironmentKind,
+{
     sentries: Vec<Sentry>,
+    env: Option<Arc<MdbxWithDirHandle<E>>>,
     config: Option<ChainConfig>,
     status: Option<Status>,
 }
 
-impl NodeBuilder {
+impl<E> Default for NodeBuilder<E>
+where
+    E: EnvironmentKind,
+{
+    fn default() -> Self {
+        Self {
+            sentries: Vec::new(),
+            env: None,
+            config: None,
+            status: None,
+        }
+    }
+}
+
+impl<E> NodeBuilder<E>
+where
+    E: EnvironmentKind,
+{
     pub fn add_sentry(mut self, endpoint: impl Into<Uri>) -> Self {
         self.sentries.push(Sentry::new(
             Channel::builder(endpoint.into()).connect_lazy(),
@@ -37,7 +62,14 @@ impl NodeBuilder {
         self
     }
 
-    pub fn build(self) -> anyhow::Result<Node> {
+    pub fn set_env(mut self, env: Arc<MdbxWithDirHandle<E>>) -> Self {
+        self.env = Some(env);
+        self
+    }
+
+    pub fn build(self) -> anyhow::Result<Node<E>> {
+        let env = self.env.ok_or_else(|| anyhow::anyhow!("env not set"))?;
+
         let sentries = self.sentries;
         if sentries.is_empty() {
             anyhow::bail!("No sentries");
@@ -50,6 +82,7 @@ impl NodeBuilder {
         let forks = config.forks().into_iter().map(|f| *f).collect::<Vec<_>>();
 
         Ok(Node {
+            env,
             sentries,
             status,
             config,
