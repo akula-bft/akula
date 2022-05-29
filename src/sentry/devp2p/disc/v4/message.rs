@@ -113,27 +113,32 @@ impl Encodable for PingMessage {
     }
 }
 
-#[derive(RlpDecodable)]
-struct PingMessageD {
-    version: u64,
-    from: Endpoint,
-    to: Endpoint,
-    expire: u64,
-}
-
 impl Decodable for PingMessage {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
-        let PingMessageD {
-            from, to, expire, ..
-        } = PingMessageD::decode(buf)?;
+        let _rlp_head = fastrlp::Header::decode(buf)?;
+        let _: u64 = Decodable::decode(buf)?;
+        let from = Decodable::decode(buf)?;
+        let to = Decodable::decode(buf)?;
+        let expire = Decodable::decode(buf)?;
 
         Ok(Self { from, to, expire })
     }
 }
 
-#[derive(Debug, Clone, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, RlpEncodable)]
 pub struct PongMessage {
     pub to: Endpoint,
     pub echo: H256,
     pub expire: u64,
+}
+
+impl Decodable for PongMessage {
+    fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+        let _rlp_head = fastrlp::Header::decode(buf)?;
+        let to = Decodable::decode(buf)?;
+        let echo = Decodable::decode(buf)?;
+        let expire = Decodable::decode(buf)?;
+
+        Ok(Self { to, echo, expire })
+    }
 }

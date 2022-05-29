@@ -63,9 +63,8 @@ impl TcpServer for TokioCidrListener {
                     );
                     continue;
                 }
-            } else {
-                return Ok(node);
             }
+            return Ok(node);
         }
     }
 }
