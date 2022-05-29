@@ -248,11 +248,7 @@ where
             move |params: GetBlockHeadersParams| {
                 let txn = env.begin().expect("Failed to begin transaction");
 
-                let limit = if params.limit > 1024 {
-                    1024
-                } else {
-                    params.limit
-                };
+                let limit = std::cmp::min(params.limit, 1024);
                 let reverse = params.reverse == 1;
 
                 let mut add_op = if params.skip == 0 {
@@ -276,10 +272,7 @@ where
                     .expect("Failed to open cursor, likely a DB corruption");
 
                 let mut next_number = match params.start {
-                    BlockId::Hash(hash) => match number_cursor.seek_exact(hash) {
-                        Ok(Some((_, block_number))) => Some(block_number),
-                        _ => None,
-                    },
+                    BlockId::Hash(hash) => number_cursor.seek_exact(hash)?.map(|(_, k)| k),
                     BlockId::Number(number) => Some(number),
                 };
 
