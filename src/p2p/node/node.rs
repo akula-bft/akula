@@ -80,7 +80,6 @@ where
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
     /// Start node synchronization.
-    #[allow(clippy::collapsible_else_if)]
     pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
         let tasks = TaskGroup::new();
 
@@ -256,19 +255,14 @@ where
                 };
                 let reverse = params.reverse == 1;
 
-                let add_op = if reverse {
-                    if params.skip == 0 {
-                        -1
-                    } else {
-                        -(params.skip as i64) - 1
-                    }
+                let mut add_op = if params.skip == 0 {
+                    1
                 } else {
-                    if params.skip == 0 {
-                        1
-                    } else {
-                        params.skip as i64 + 1
-                    }
+                    params.skip as i64 + 1
                 };
+                if reverse {
+                    add_op = -add_op;
+                }
 
                 let mut headers = Vec::with_capacity(limit as usize);
                 let mut number_cursor = txn
