@@ -9,7 +9,6 @@ impl Decodable for BlockId {
         if buf.len() == 32 {
             Ok(BlockId::Hash(<H256 as Decodable>::decode(buf)?))
         } else {
-            debug_assert!(buf.len() <= 8);
             Ok(BlockId::Number(<BlockNumber as Decodable>::decode(buf)?))
         }
     }

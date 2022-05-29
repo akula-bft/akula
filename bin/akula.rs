@@ -18,6 +18,7 @@ use akula::{
 use anyhow::Context;
 use clap::Parser;
 use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
+use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{
     fs::File, future::pending, net::SocketAddr, panic, path::PathBuf, sync::Arc, time::Duration,
@@ -44,9 +45,9 @@ pub struct Opt {
     /// Sentry GRPC service URL
     #[clap(
         long = "sentry.api.addr",
-        help = "Sentry GRPC service URL as 'http://host:port'"
+        help = "Sentry GRPC service URLs as 'http://host:port'"
     )]
-    pub sentry_api_addr: Option<tonic::transport::Uri>,
+    pub sentry_api_addr: Option<String>,
 
     #[clap(flatten)]
     pub sentry_opts: akula::sentry::Opts,
@@ -201,11 +202,13 @@ fn main() -> anyhow::Result<()> {
                         .set_delay_after_sync(Some(Duration::from_millis(opt.delay_after_sync)));
                 }
 
-                let sentry_api_addr = if let Some(sentry_api_addr) = opt.sentry_api_addr {
-                    sentry_api_addr
+                let sentries = if let Some(raw_str) = opt.sentry_api_addr {
+                    raw_str
+                        .split(',')
+                        .filter_map(|s| s.parse::<Uri>().ok())
+                        .collect::<Vec<_>>()
                 } else {
                     let max_peers = opt.sentry_opts.max_peers;
-
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
                     let swarm = akula::sentry::run(opt.sentry_opts).await?;
 
@@ -228,16 +231,17 @@ fn main() -> anyhow::Result<()> {
                         }
                     });
 
-                    format!("http://{sentry_api_addr}").parse()?
+                    vec![format!("http://{sentry_api_addr}").parse()?]
                 };
 
-                let node = Arc::new(
-                    NodeBuilder::default()
-                        .set_env(db.clone())
-                        .add_sentry(sentry_api_addr)
-                        .set_config(chain_config.clone())
-                        .build()?,
-                );
+                let mut builder = NodeBuilder::default()
+                    .set_env(db.clone())
+                    .set_config(chain_config.clone());
+                for sentry_api_addr in sentries {
+                    builder = builder.add_sentry(sentry_api_addr);
+                }
+
+                let node = Arc::new(builder.build()?);
                 tokio::spawn({
                     let node = node.clone();
                     async move {
