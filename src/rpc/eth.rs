@@ -8,7 +8,7 @@ use crate::{
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
     stagedsync::stages::FINISH,
-    Buffer, InMemoryState, IntraBlockState,
+    Buffer, IntraBlockState,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -127,7 +127,7 @@ where
             input: call_data.data.unwrap_or_default().into(),
         };
         let sender = call_data.from.unwrap_or_else(Address::zero);
-        let mut db = InMemoryState::default();
+        let mut db = Buffer::new(&txn, Some(block_number));
         let mut state = IntraBlockState::new(&mut db);
         let mut cache = AnalysisCache::default();
         let block_spec = chain::chain_config::read(&txn)?
