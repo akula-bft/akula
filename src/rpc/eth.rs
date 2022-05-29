@@ -61,41 +61,42 @@ where
         let header = chain::header::read(&txn, block_hash, block_number)?
             .ok_or_else(|| format_err!("Header not found for #{block_number}/{block_hash}"))?;
 
-        let mut state = Buffer::new(&txn, Some(block_number));
+        let mut buffer = Buffer::new(&txn, Some(block_number));
+        let mut state = IntraBlockState::new(&mut buffer);
+
         let mut analysis_cache = AnalysisCache::default();
         let block_spec = chain::chain_config::read(&txn)?
             .ok_or_else(|| format_err!("no chainspec found"))?
             .collect_block_spec(block_number);
 
-        let input = call_data.data.unwrap_or_default().into();
         let sender = call_data.from.unwrap_or_else(Address::zero);
-        let value = call_data.value.unwrap_or_default();
 
-        let message = Message::Legacy {
-            chain_id: Some(ChainId(1)),
-            nonce: 0,
-            gas_price: Default::default(),
-            gas_limit: 0,
-            action: TransactionAction::Call(call_data.to),
-            value,
-            input,
-        };
-
-        let gas = call_data
+        let gas_limit = call_data
             .gas
             .map(|v| v.as_u64())
             .unwrap_or(self.call_gas_limit);
+
+        let message = Message::Legacy {
+            chain_id: None,
+            nonce: state.get_nonce(sender)?,
+            gas_price: call_data.gas_price.unwrap_or_default(),
+            gas_limit,
+            action: TransactionAction::Call(call_data.to),
+            value: call_data.value.unwrap_or_default(),
+            input: call_data.data.unwrap_or_default().into(),
+        };
+
         let mut tracer = NoopTracer;
 
         Ok(evmglue::execute(
-            &mut IntraBlockState::new(&mut state),
+            &mut state,
             &mut tracer,
             &mut analysis_cache,
             &PartialHeader::from(header),
             &block_spec,
             &message,
             sender,
-            gas,
+            gas_limit,
         )?
         .output_data
         .into())
