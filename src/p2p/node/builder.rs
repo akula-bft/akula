@@ -68,8 +68,6 @@ where
     }
 
     pub fn build(self) -> anyhow::Result<Node<E>> {
-        let env = self.env.ok_or_else(|| anyhow::anyhow!("env not set"))?;
-
         let sentries = self.sentries;
         if sentries.is_empty() {
             anyhow::bail!("No sentries");
@@ -82,7 +80,7 @@ where
         let forks = config.forks().into_iter().map(|f| *f).collect::<Vec<_>>();
 
         Ok(Node {
-            env,
+            env: self.env,
             sentries,
             status,
             config,
