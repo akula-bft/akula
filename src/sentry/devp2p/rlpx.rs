@@ -667,7 +667,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                         match next_peer {
                                             None => (),
                                             Some((disc_id, Err(e))) => {
-                                                warn!("Failed to get new peer: {e} ({disc_id})")
+                                                debug!("Failed to get new peer: {e} ({disc_id})")
                                             }
                                             Some((disc_id, Ok(NodeRecord { id, addr }))) => {
                                                 let now = Instant::now();
