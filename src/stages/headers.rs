@@ -259,12 +259,12 @@ where
                 }
             }));
 
-            let (tx, mut rx) = mpsc::channel::<H512>(128);
+            let (penalization_tx, mut penalization_rx) = mpsc::channel::<H512>(128);
 
             let _guard = TaskGuard(tokio::task::spawn({
                 let node = self.node.clone();
                 async move {
-                    while let Some(penalty) = rx.recv().await {
+                    while let Some(penalty) = penalization_rx.recv().await {
                         node.penalize_peer(penalty).await?;
                     }
 
@@ -297,7 +297,7 @@ where
                                 self.graph.extend(inner.headers);
                             }
                         } else {
-                            tx.send(peer_id).await?;
+                            penalization_tx.send(peer_id).await?;
                             continue;
                         }
                     }
