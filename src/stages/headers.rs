@@ -14,11 +14,11 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use dashmap::{mapref::entry::Entry, DashMap};
 use ethereum_types::H512;
+use parking_lot::Mutex;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
-    hash::Hash,
+    collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -186,16 +186,6 @@ fn dummy_check_headers(headers: &[BlockHeader]) -> bool {
     true
 }
 
-#[inline]
-fn spin_entry<K: Eq + Hash + Copy, V>(map: &DashMap<K, V>, key: K) -> Entry<'_, K, V> {
-    loop {
-        match map.try_entry(key) {
-            Some(entry) => break entry,
-            None => continue,
-        }
-    }
-}
-
 impl<E> HeaderDownload<E>
 where
     E: EnvironmentKind,
@@ -205,26 +195,26 @@ where
     fn prepare_requests(
         starting_block: BlockNumber,
         target: BlockNumber,
-    ) -> DashMap<BlockNumber, HeaderRequest> {
+    ) -> HashMap<BlockNumber, HeaderRequest> {
         assert!(starting_block < target);
 
-        let cap = (target.0 - starting_block.0) as usize / HEADERS_UPPER_BOUND;
-        let requests = DashMap::with_capacity(cap + 1);
-        for start in (starting_block..target).step_by(HEADERS_UPPER_BOUND) {
-            let limit = if start + HEADERS_UPPER_BOUND < target {
-                HEADERS_UPPER_BOUND as u64
-            } else {
-                *target - *start
-            };
+        (starting_block..target)
+            .step_by(HEADERS_UPPER_BOUND)
+            .map(|start| {
+                let limit = if start + HEADERS_UPPER_BOUND < target {
+                    HEADERS_UPPER_BOUND as u64
+                } else {
+                    *target - *start
+                };
 
-            let request = HeaderRequest {
-                start: BlockId::Number(start),
-                limit,
-                ..Default::default()
-            };
-            requests.insert(start, request);
-        }
-        requests
+                let request = HeaderRequest {
+                    start: BlockId::Number(start),
+                    limit,
+                    ..Default::default()
+                };
+                (start, request)
+            })
+            .collect()
     }
 
     pub async fn download_headers(
@@ -232,7 +222,7 @@ where
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
-        let requests = Arc::new(Self::prepare_requests(start, end));
+        let requests = Arc::new(Mutex::new(Self::prepare_requests(start, end)));
 
         let mut stream = self.node.stream_headers().await;
 
@@ -247,10 +237,7 @@ where
 
                 async move {
                     loop {
-                        let reqs = requests
-                            .iter()
-                            .map(|entry| *entry.value())
-                            .collect::<Vec<_>>();
+                        let reqs = requests.lock().values().copied().collect::<Vec<_>>();
                         node.clone().send_many_header_requests(reqs).await?;
                         tokio::time::sleep(Self::BACK_OFF).await;
                     }
@@ -272,7 +259,7 @@ where
                 }
             }));
 
-            while !requests.is_empty() {
+            while !requests.lock().is_empty() {
                 if let Some(msg) = stream.next().await {
                     let peer_id = msg.peer_id;
 
@@ -286,7 +273,8 @@ where
                             let num = inner.headers[0].number;
                             let last_hash = inner.headers[inner.headers.len() - 1].hash();
 
-                            if let Entry::Occupied(entry) = spin_entry(&requests, num) {
+                            let mut requests = requests.lock();
+                            if let Entry::Occupied(entry) = requests.entry(num) {
                                 let limit = entry.get().limit as usize;
 
                                 if inner.headers.len() == limit {
