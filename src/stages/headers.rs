@@ -187,7 +187,7 @@ fn dummy_check_headers(headers: &[BlockHeader]) -> bool {
 }
 
 #[inline]
-fn spin_entry<'a, K: Eq + Hash + Copy, V>(map: &'a DashMap<K, V>, key: K) -> Entry<'a, K, V> {
+fn spin_entry<K: Eq + Hash + Copy, V>(map: &DashMap<K, V>, key: K) -> Entry<'_, K, V> {
     loop {
         match map.try_entry(key) {
             Some(entry) => break entry,
@@ -249,7 +249,7 @@ where
                     loop {
                         let reqs = requests
                             .iter()
-                            .map(|entry| entry.value().clone())
+                            .map(|entry| *entry.value())
                             .collect::<Vec<_>>();
                         node.clone().send_many_header_requests(reqs).await?;
                         tokio::time::sleep(Self::BACK_OFF).await;

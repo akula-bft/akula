@@ -94,7 +94,7 @@ pub mod collections {
             let mut roots = HashSet::new();
 
             for (hash, _) in self.q.iter() {
-                if !self.skip_list.contains_key(&hash) && self.raw.contains_key(&hash) {
+                if !self.skip_list.contains_key(hash) && self.raw.contains_key(hash) {
                     roots.insert(*hash);
                 }
             }
