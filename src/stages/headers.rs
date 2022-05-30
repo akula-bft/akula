@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use hashbrown::HashMap;
+use hashbrown::{hash_map::Entry, HashMap};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
     sync::{
@@ -225,17 +225,24 @@ where
                         if inner.headers.is_empty() {
                             continue;
                         }
+
                         let num = inner.headers[0].number;
                         let last_hash = inner.headers[inner.headers.len() - 1].hash();
-                        if requests.contains_key(&num) || (is_bounded(num) && !self.graph.contains(last_hash)) {
-                            requests.remove(&num);
-                            debug!(
-                                "Received={} headers, Graph={}",
-                                inner.headers.len(),
-                                self.graph.len()
-                            );
+
+                        if let Entry::Occupied(request) = requests.entry(num) {
+                            if request.get().limit == inner.headers.len() as u64 {
+                                debug!(
+                                    "Received={} headers, Graph={}",
+                                    inner.headers.len(),
+                                    self.graph.len()
+                                );
+
+                                self.graph.extend(inner.headers);
+                                request.remove();
+                                message_processed = true;
+                            }
+                        } else if is_bounded(num) && !self.graph.contains(last_hash) {
                             self.graph.extend(inner.headers);
-                            message_processed = true;
                         }
                     }
                 }
@@ -244,12 +251,7 @@ where
 
             if instant.elapsed() > Duration::from_secs(30) {
                 instant = Instant::now();
-                let all = (*end - *start) as usize;
-                info!(
-                    "Downloading headers... left={} out of {}",
-                    all - self.graph.len(),
-                    all
-                );
+                info!("Downloading headers... requests left={}", requests.len(),);
             }
 
             if !message_processed {

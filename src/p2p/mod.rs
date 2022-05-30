@@ -26,7 +26,7 @@ pub mod collections {
 
         skip_list: LruCache<H256, HashSet<H256>>,
         raw: LruCache<H256, BlockHeader>,
-        q: LruCache<Link, ()>,
+        q: LruCache<H256, ()>,
     }
 
     impl Default for Graph {
@@ -60,7 +60,6 @@ pub mod collections {
 
         #[inline]
         pub fn clear(&mut self) {
-            self.q.clear();
             self.raw.clear();
             self.skip_list.clear();
             self.chains.clear();
@@ -79,29 +78,24 @@ pub mod collections {
         #[inline]
         pub fn insert(&mut self, header: BlockHeader) {
             let hash = header.hash();
-            if self.raw.contains_key(&hash) {
+            if self.q.contains_key(&hash) {
                 return;
             }
 
-            let link = Link {
-                height: header.number,
-                hash,
-                parent_hash: header.parent_hash,
-            };
             self.skip_list
                 .entry(header.parent_hash)
                 .or_insert(HashSet::new())
                 .insert(hash);
             self.raw.insert(hash, header);
-            self.q.insert(link, ());
+            self.q.insert(hash, ());
         }
 
         pub fn dfs(&mut self) -> Option<H256> {
             let mut roots = HashSet::new();
 
-            for (node, _) in self.q.iter() {
-                if !self.skip_list.contains_key(&node.hash) && self.raw.contains_key(&node.hash) {
-                    roots.insert(node.hash);
+            for (hash, _) in self.q.iter() {
+                if !self.skip_list.contains_key(&hash) && self.raw.contains_key(&hash) {
+                    roots.insert(*hash);
                 }
             }
             if roots.is_empty() {
@@ -112,11 +106,11 @@ pub mod collections {
                 let mut current = root;
                 let mut td = U256::ZERO;
                 let mut depth = 0;
+
                 while let Some(header) = self.raw.get(&current) {
                     if self.chains.contains_key(&current) {
                         break;
                     }
-
                     td += header.difficulty;
                     current = header.parent_hash;
                     depth += 1;
@@ -158,8 +152,6 @@ pub mod collections {
                 headers.push((current, header));
                 current = parent_hash;
             }
-            self.chains.remove(tail);
-
             headers.reverse();
             headers
         }
