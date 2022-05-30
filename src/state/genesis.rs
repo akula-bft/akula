@@ -161,41 +161,48 @@ mod tests {
     use crate::kv::new_mem_database;
     use hex_literal::hex;
 
-    fn genesis_header_hash(chain_spec: &'static ChainSpec) -> H256 {
-        let genesis = GenesisState::new(chain_spec.clone());
-        let genesis_header = genesis.header(&genesis.initial_state());
-        genesis_header.hash()
-    }
-
     #[test]
-    fn test_genesis_header_hashes() {
-        assert_eq!(
-            genesis_header_hash(&crate::res::chainspec::MAINNET),
-            hex!("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3").into()
-        );
-        assert_eq!(
-            genesis_header_hash(&crate::res::chainspec::ROPSTEN),
-            hex!("41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d").into()
-        );
-        assert_eq!(
-            genesis_header_hash(&crate::res::chainspec::RINKEBY),
-            hex!("6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177").into()
-        );
-    }
+    fn test_genesis_hashes() {
+        for (chainspec, hash) in [
+            (
+                &crate::res::chainspec::MAINNET,
+                hex!("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"),
+            ),
+            (
+                &crate::res::chainspec::ROPSTEN,
+                hex!("41941023680923e0fe4d74a34bdac8141f2540e3ae90623718e47d66d1ca4a2d"),
+            ),
+            (
+                &crate::res::chainspec::RINKEBY,
+                hex!("6341fd3daf94b748c72ced5a5b26028f2474f5f00d824504e4fa37a75767e177"),
+            ),
+            (
+                &crate::res::chainspec::SEPOLIA,
+                hex!("25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9"),
+            ),
+        ] {
+            let hash = H256(hash);
 
-    #[test]
-    fn init_mainnet_genesis() {
-        let db = new_mem_database().unwrap();
-        let tx = db.begin_mutable().unwrap();
+            {
+                let genesis = GenesisState::new((*chainspec).clone());
+                let genesis_header = genesis.header(&genesis.initial_state());
+                assert_eq!(genesis_header.hash(), hash);
+            }
 
-        let temp_dir = TempDir::new().unwrap();
-        assert!(initialize_genesis(&tx, &temp_dir, None).unwrap().1);
+            let db = new_mem_database().unwrap();
+            let tx = db.begin_mutable().unwrap();
 
-        let genesis_hash = tx.get(tables::CanonicalHeader, 0.into()).unwrap().unwrap();
+            let temp_dir = TempDir::new().unwrap();
+            assert!(
+                initialize_genesis(&tx, &temp_dir, Some((*chainspec).clone()))
+                    .unwrap()
+                    .1
+            );
 
-        assert_eq!(
-            genesis_hash,
-            hex!("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3").into()
-        );
+            assert_eq!(
+                tx.get(tables::CanonicalHeader, 0.into()).unwrap().unwrap(),
+                hash
+            );
+        }
     }
 }
