@@ -35,15 +35,15 @@ const STAGE_UPPER_BOUND: usize = 3 << 15;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
-pub struct HeaderDownload<E: EnvironmentKind> {
-    pub node: Arc<Node<E>>,
+pub struct HeaderDownload {
+    pub node: Arc<Node>,
     pub consensus: Arc<dyn Consensus>,
     pub max_block: BlockNumber,
     pub graph: Graph,
 }
 
 #[async_trait]
-impl<'db, E> Stage<'db, E> for HeaderDownload<E>
+impl<'db, E> Stage<'db, E> for HeaderDownload
 where
     E: EnvironmentKind,
 {
@@ -186,10 +186,7 @@ fn dummy_check_headers(headers: &[BlockHeader]) -> bool {
     true
 }
 
-impl<E> HeaderDownload<E>
-where
-    E: EnvironmentKind,
-{
+impl HeaderDownload {
     const BACK_OFF: Duration = Duration::from_secs(5);
 
     fn prepare_requests(
@@ -363,7 +360,7 @@ where
         }
     }
 
-    async fn update_head<'tx>(
+    async fn update_head<'tx, E: EnvironmentKind>(
         &self,
         txn: &'tx mut MdbxTransaction<'_, RW, E>,
         height: BlockNumber,

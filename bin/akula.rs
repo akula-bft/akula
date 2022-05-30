@@ -235,7 +235,7 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 let mut builder = NodeBuilder::default()
-                    .set_env(db.clone())
+                    .set_stash(db.clone())
                     .set_config(chain_config.clone());
                 for sentry_api_addr in sentries {
                     builder = builder.add_sentry(sentry_api_addr);

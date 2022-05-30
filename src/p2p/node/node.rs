@@ -1,9 +1,7 @@
 #![allow(unreachable_code)]
 
-use super::stream::*;
+use super::{stash::Stash, stream::*};
 use crate::{
-    accessors::chain,
-    kv::{mdbx::EnvironmentKind, tables, MdbxWithDirHandle},
     models::{BlockNumber, ChainConfig, MessageWithSignature, H256},
     p2p::{node::NodeBuilder, types::*},
 };
@@ -34,12 +32,8 @@ pub(crate) struct BlockCaches {
 }
 
 #[derive(Debug)]
-pub struct Node<E>
-where
-    E: EnvironmentKind,
-{
-    pub(crate) env: Option<Arc<MdbxWithDirHandle<E>>>,
-
+pub struct Node {
+    pub(crate) stash: Arc<dyn Stash>,
     /// The sentry clients.
     pub(crate) sentries: Vec<Sentry>,
     /// The current Node status message.
@@ -54,20 +48,14 @@ where
     pub(crate) forks: Vec<u64>,
 }
 
-impl<E> Node<E>
-where
-    E: EnvironmentKind,
-{
+impl Node {
     /// Node builder.
-    pub fn builder() -> NodeBuilder<E> {
+    pub fn builder() -> NodeBuilder {
         NodeBuilder::default()
     }
 }
 
-impl<E> Node<E>
-where
-    E: EnvironmentKind,
-{
+impl Node {
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
     /// Start node synchronization.
@@ -213,125 +201,44 @@ where
             }
         });
 
-        if let Some(ref env) = self.env {
-            let collect_bodies = {
-                let env = env.clone();
+        tasks.spawn({
+            let handler = self.clone();
+            let mut stream = handler
+                .stream_by_predicate([
+                    ethereum_interfaces::sentry::MessageId::GetBlockBodies66 as i32,
+                    ethereum_interfaces::sentry::MessageId::GetBlockHeaders66 as i32,
+                ])
+                .await;
 
-                move |hashes: Vec<H256>| {
-                    let txn = env.begin().expect("Failed to begin transaction");
+            async move {
+                while let Some(msg) = stream.next().await {
+                    let peer_id = msg.peer_id;
 
-                    hashes
-                        .into_iter()
-                        .filter_map(|hash| {
-                            txn.get(tables::HeaderNumber, hash)
-                                .unwrap_or(None)
-                                .map(|number| (hash, number))
-                        })
-                        .filter_map(|(hash, number)| {
-                            chain::block_body::read_without_senders(&txn, hash, number)
-                                .unwrap_or(None)
-                        })
-                        .collect::<Vec<_>>()
-                }
-            };
+                    match msg.msg {
+                        Message::GetBlockHeaders(inner) => {
+                            let msg = Message::BlockHeaders(BlockHeaders {
+                                request_id: inner.request_id,
+                                headers: self.stash.get_headers(inner.params).unwrap_or_default(),
+                            });
 
-            let collect_headers = {
-                let env = env.clone();
-
-                move |params: GetBlockHeadersParams| {
-                    let txn = env.begin().expect("Failed to begin transaction");
-
-                    let limit = std::cmp::min(params.limit, 1024);
-                    let reverse = params.reverse == 1;
-
-                    let mut add_op = if params.skip == 0 {
-                        1
-                    } else {
-                        params.skip as i64 + 1
-                    };
-                    if reverse {
-                        add_op = -add_op;
-                    }
-
-                    let mut headers = Vec::with_capacity(limit as usize);
-                    let mut number_cursor = txn
-                        .cursor(tables::HeaderNumber)
-                        .expect("Failed to open cursor, likely a DB corruption");
-                    let mut canonical_cursor = txn
-                        .cursor(tables::CanonicalHeader)
-                        .expect("Failed to open cursor, likely a DB corruption");
-                    let mut header_cursor = txn
-                        .cursor(tables::Header)
-                        .expect("Failed to open cursor, likely a DB corruption");
-
-                    let mut next_number = match params.start {
-                        BlockId::Hash(hash) => number_cursor.seek_exact(hash)?.map(|(_, k)| k),
-                        BlockId::Number(number) => Some(number),
-                    };
-
-                    for _ in 0..limit {
-                        match next_number {
-                            Some(block_number) => {
-                                if let Some(header_key) =
-                                    canonical_cursor.seek_exact(block_number)?
-                                {
-                                    if let Some((_, header)) =
-                                        header_cursor.seek_exact(header_key)?
-                                    {
-                                        headers.push(header);
-                                    }
-                                }
-                                next_number = u64::try_from(block_number.0 as i64 + add_op)
-                                    .ok()
-                                    .map(BlockNumber);
-                            }
-                            None => break,
-                        };
-                    }
-
-                    Ok::<_, anyhow::Error>(headers)
-                }
-            };
-
-            tasks.spawn({
-                let handler = self.clone();
-                let mut stream = handler
-                    .stream_by_predicate([
-                        ethereum_interfaces::sentry::MessageId::GetBlockBodies66 as i32,
-                        ethereum_interfaces::sentry::MessageId::GetBlockHeaders66 as i32,
-                    ])
-                    .await;
-
-                async move {
-                    while let Some(msg) = stream.next().await {
-                        let peer_id = msg.peer_id;
-
-                        match msg.msg {
-                            Message::GetBlockHeaders(inner) => {
-                                let msg = Message::BlockHeaders(BlockHeaders {
-                                    request_id: inner.request_id,
-                                    headers: collect_headers(inner.params).unwrap_or_default(),
-                                });
-
-                                self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
-                            }
-                            Message::GetBlockBodies(inner) => {
-                                let msg = Message::BlockBodies(BlockBodies {
-                                    request_id: inner.request_id,
-                                    bodies: collect_bodies(inner.hashes),
-                                });
-
-                                self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
-                            }
-                            _ => unreachable!(),
+                            self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
                         }
-                    }
+                        Message::GetBlockBodies(inner) => {
+                            let msg = Message::BlockBodies(BlockBodies {
+                                request_id: inner.request_id,
+                                bodies: self.stash.get_bodies(inner.hashes).unwrap_or_default(),
+                            });
 
-                    Ok::<(), anyhow::Error>(())
+                            self.send_message(msg, PeerFilter::PeerId(peer_id)).await?;
+                        }
+                        _ => unreachable!(),
+                    }
                 }
-                .instrument(span!(Level::DEBUG, "inbound handler"))
-            });
-        }
+
+                Ok::<(), anyhow::Error>(())
+            }
+            .instrument(span!(Level::DEBUG, "inbound handler"))
+        });
 
         pending::<()>().await;
 
@@ -647,10 +554,7 @@ where
     }
 }
 
-impl<E> Node<E>
-where
-    E: EnvironmentKind,
-{
+impl Node {
     async fn send_raw(
         &self,
         data: impl Into<grpc_sentry::OutboundMessageData>,
