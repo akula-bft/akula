@@ -135,7 +135,7 @@ async fn download_headers(
 
     let node = Arc::new(
         NodeBuilder::default()
-            .set_env(env.clone())
+            .set_stash(env.clone())
             .add_sentry(uri)
             .build()?,
     );
