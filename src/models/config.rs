@@ -14,7 +14,6 @@ pub struct ChainConfig {
 }
 
 impl From<ChainSpec> for ChainConfig {
-    #[inline(always)]
     fn from(chain_spec: ChainSpec) -> Self {
         let genesis = GenesisState::new(chain_spec.clone());
         Self {
@@ -25,7 +24,6 @@ impl From<ChainSpec> for ChainConfig {
 }
 
 impl ChainConfig {
-    #[inline(always)]
     pub fn new(name: &str) -> anyhow::Result<Self> {
         match name.to_lowercase().as_ref() {
             "mainnet" | "ethereum" => Ok(ChainConfig::from(chainspec::MAINNET.clone())),
@@ -38,23 +36,27 @@ impl ChainConfig {
             )),
         }
     }
-    #[inline(always)]
+
     pub const fn network_id(&self) -> NetworkId {
         self.chain_spec.params.network_id
     }
-    #[inline(always)]
+
     pub fn chain_name(&self) -> &str {
         &self.chain_spec.name
     }
-    #[inline(always)]
+
     pub fn forks(&self) -> Vec<BlockNumber> {
         self.chain_spec
             .gather_forks()
             .into_iter()
             .collect::<Vec<_>>()
     }
-    #[inline(always)]
+
     pub fn bootnodes(&self) -> Vec<String> {
         self.chain_spec.p2p.bootnodes.clone()
+    }
+
+    pub fn dns(&self) -> Option<String> {
+        self.chain_spec.p2p.dns.clone()
     }
 }

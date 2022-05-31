@@ -210,7 +210,7 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     let max_peers = opt.sentry_opts.max_peers;
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
-                    let swarm = akula::sentry::run(opt.sentry_opts).await?;
+                    let swarm = akula::sentry::run(opt.sentry_opts, chain_config.dns()).await?;
 
                     let current_stage = staged_sync.current_stage();
 

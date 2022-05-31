@@ -1,5 +1,8 @@
 #![allow(dead_code, clippy::upper_case_acronyms)]
-use akula::akula_tracing::{self, Component};
+use akula::{
+    akula_tracing::{self, Component},
+    models::ChainConfig,
+};
 use clap::Parser;
 use educe::Educe;
 use std::time::Duration;
@@ -16,6 +19,8 @@ use tracing_subscriber::prelude::*;
 pub struct Opts {
     #[clap(flatten)]
     pub sentry_opts: akula::sentry::Opts,
+    #[clap(long, takes_value = false)]
+    pub chain: Option<String>,
 }
 
 #[tokio::main]
@@ -25,8 +30,17 @@ async fn main() -> anyhow::Result<()> {
 
     akula_tracing::build_subscriber(Component::Sentry).init();
 
+    let chain_config = opts
+        .chain
+        .map(|chain| ChainConfig::new(&chain))
+        .transpose()?;
+
     let max_peers = opts.sentry_opts.max_peers;
-    let swarm = akula::sentry::run(opts.sentry_opts).await?;
+    let swarm = akula::sentry::run(
+        opts.sentry_opts,
+        chain_config.map_or_else(|| None, |config| config.dns()),
+    )
+    .await?;
 
     loop {
         info!(
