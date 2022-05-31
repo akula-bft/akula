@@ -225,8 +225,6 @@ impl HeaderDownload {
 
         let is_bounded = |block_number: BlockNumber| block_number >= start && block_number <= end;
 
-        let mut took = Instant::now();
-
         {
             let _g = TaskGuard(tokio::task::spawn({
                 let node = self.node.clone();
@@ -290,13 +288,7 @@ impl HeaderDownload {
             }
         }
 
-        info!(
-            "Downloaded {} headers, elapsed={:?}... Starting to build canonical chain...",
-            self.graph.len(),
-            took.elapsed(),
-        );
-
-        took = Instant::now();
+        let took = Instant::now();
 
         let tail = self.graph.dfs().expect("unreachable");
         let mut headers = self.graph.backtrack(&tail);

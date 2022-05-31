@@ -63,6 +63,7 @@ pub mod collections {
             self.raw.clear();
             self.skip_list.clear();
             self.chains.clear();
+            self.q.clear();
         }
 
         #[inline]
