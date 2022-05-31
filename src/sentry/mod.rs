@@ -372,8 +372,8 @@ pub struct Opts {
     pub cidr: Option<IpCidr>,
     #[clap(long, default_value = "127.0.0.1:8000")]
     pub sentry_addr: SocketAddr,
-    #[clap(long, default_value = "all.mainnet.ethdisco.net")]
-    pub dnsdisc_address: String,
+    #[clap(long)]
+    pub dnsdisc_address: Option<String>,
     #[clap(long, default_value = "30303")]
     pub discv4_port: u16,
     #[clap(long)]
@@ -394,11 +394,12 @@ pub struct Opts {
     /// Disable DNS discovery
     #[clap(long, takes_value = false)]
     pub no_dns_discovery: bool,
-    #[clap(long, takes_value = false)]
-    pub tokio_console: bool,
 }
 
-pub async fn run(opts: Opts) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
+pub async fn run(
+    opts: Opts,
+    dns_addr: Option<String>,
+) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
     let secret_key;
     if let Some(node_key) = opts.node_key {
         secret_key = SecretKey::from_slice(&hex::decode(node_key)?)?;
@@ -436,10 +437,13 @@ pub async fn run(opts: Opts) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>>
         opts.discv4_bootnodes
     };
 
+    let dns_addr = opts.dnsdisc_address.or(dns_addr);
+    let no_dns_discovery = opts.no_dns_discovery || dns_addr.is_none();
+
     if !opts.no_discovery {
-        if !opts.no_dns_discovery {
+        if !no_dns_discovery {
             let task_opts = OptsDnsDisc {
-                address: opts.dnsdisc_address,
+                address: dns_addr.unwrap(),
             };
             let task = task_opts.make_task()?;
             discovery_tasks.insert("dnsdisc".to_string(), Box::pin(task));
