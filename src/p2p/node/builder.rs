@@ -1,4 +1,4 @@
-use super::{BlockCaches, Node, Sentry};
+use super::{stash::Stash, BlockCaches, Node, Sentry};
 use crate::{
     models::{BlockNumber, ChainConfig, H256, U256},
     p2p::types::Status,
@@ -6,11 +6,13 @@ use crate::{
 use hashlink::LruCache;
 use http::Uri;
 use parking_lot::{Mutex, RwLock};
+use std::sync::Arc;
 use tonic::transport::Channel;
 
-#[derive(Default, Debug)]
+#[derive(Debug, Default)]
 pub struct NodeBuilder {
     sentries: Vec<Sentry>,
+    stash: Option<Arc<dyn Stash>>,
     config: Option<ChainConfig>,
     status: Option<Status>,
 }
@@ -37,7 +39,13 @@ impl NodeBuilder {
         self
     }
 
+    pub fn set_stash(mut self, stash: Arc<dyn Stash>) -> Self {
+        self.stash = Some(stash);
+        self
+    }
+
     pub fn build(self) -> anyhow::Result<Node> {
+        let stash = self.stash.unwrap_or_else(|| Arc::new(()));
         let sentries = self.sentries;
         if sentries.is_empty() {
             anyhow::bail!("No sentries");
@@ -50,6 +58,7 @@ impl NodeBuilder {
         let forks = config.forks().into_iter().map(|f| *f).collect::<Vec<_>>();
 
         Ok(Node {
+            stash,
             sentries,
             status,
             config,

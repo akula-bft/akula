@@ -378,21 +378,21 @@ where
             }
             OpCode::ORIGIN => state
                 .stack
-                .push(address_to_u256(host.get_tx_context().tx_origin)),
+                .push(address_to_u256(host.get_tx_context()?.tx_origin)),
             OpCode::COINBASE => state
                 .stack
-                .push(address_to_u256(host.get_tx_context().block_coinbase)),
-            OpCode::GASPRICE => state.stack.push(host.get_tx_context().tx_gas_price),
+                .push(address_to_u256(host.get_tx_context()?.block_coinbase)),
+            OpCode::GASPRICE => state.stack.push(host.get_tx_context()?.tx_gas_price),
             OpCode::TIMESTAMP => state
                 .stack
-                .push(host.get_tx_context().block_timestamp.into()),
-            OpCode::NUMBER => state.stack.push(host.get_tx_context().block_number.into()),
-            OpCode::DIFFICULTY => state.stack.push(host.get_tx_context().block_difficulty),
+                .push(host.get_tx_context()?.block_timestamp.into()),
+            OpCode::NUMBER => state.stack.push(host.get_tx_context()?.block_number.into()),
+            OpCode::DIFFICULTY => state.stack.push(host.get_tx_context()?.block_difficulty),
             OpCode::GASLIMIT => state
                 .stack
-                .push(host.get_tx_context().block_gas_limit.into()),
-            OpCode::CHAINID => state.stack.push(host.get_tx_context().chain_id),
-            OpCode::BASEFEE => state.stack.push(host.get_tx_context().block_base_fee),
+                .push(host.get_tx_context()?.block_gas_limit.into()),
+            OpCode::CHAINID => state.stack.push(host.get_tx_context()?.chain_id),
+            OpCode::BASEFEE => state.stack.push(host.get_tx_context()?.block_base_fee),
             OpCode::SELFBALANCE => {
                 external::selfbalance(state, host);
             }

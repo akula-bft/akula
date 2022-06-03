@@ -16,7 +16,7 @@ use secp256k1::{
 };
 use serde::*;
 use sha3::*;
-use std::{borrow::Cow, cmp::min};
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TxType {
@@ -858,16 +858,15 @@ impl Message {
         }
     }
 
-    pub(crate) fn priority_fee_per_gas(&self, base_fee_per_gas: U256) -> U256 {
-        assert!(self.max_fee_per_gas() >= base_fee_per_gas);
-        min(
-            self.max_priority_fee_per_gas(),
-            self.max_fee_per_gas() - base_fee_per_gas,
-        )
+    pub(crate) fn priority_fee_per_gas(&self, base_fee_per_gas: U256) -> Option<U256> {
+        self.max_fee_per_gas()
+            .checked_sub(base_fee_per_gas)
+            .map(|v| std::cmp::min(self.max_priority_fee_per_gas(), v))
     }
 
-    pub(crate) fn effective_gas_price(&self, base_fee_per_gas: U256) -> U256 {
-        self.priority_fee_per_gas(base_fee_per_gas) + base_fee_per_gas
+    pub(crate) fn effective_gas_price(&self, base_fee_per_gas: U256) -> Option<U256> {
+        self.priority_fee_per_gas(base_fee_per_gas)
+            .map(|v| v + base_fee_per_gas)
     }
 }
 

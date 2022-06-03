@@ -663,12 +663,11 @@ impl<C: CapabilityServer> Swarm<C> {
                             async move {
                                 loop {
                                     if !no_new_peers.load(Ordering::SeqCst) {
-                                        trace!("Waiting for next peer from discovery");
                                         let next_peer = discovery_tasks.lock().await.next().await;
                                         match next_peer {
                                             None => (),
                                             Some((disc_id, Err(e))) => {
-                                                warn!("Failed to get new peer: {e} ({disc_id})")
+                                                debug!("Failed to get new peer: {e} ({disc_id})")
                                             }
                                             Some((disc_id, Ok(NodeRecord { id, addr }))) => {
                                                 let now = Instant::now();

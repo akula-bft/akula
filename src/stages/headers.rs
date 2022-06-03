@@ -1,3 +1,5 @@
+#![allow(unreachable_code)]
+
 use crate::{
     consensus::Consensus,
     kv::{mdbx::*, tables},
@@ -8,19 +10,22 @@ use crate::{
         types::{BlockId, HeaderRequest, Message, Status},
     },
     stagedsync::{stage::*, stages::HEADERS},
+    TaskGuard,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use hashbrown::HashMap;
+use ethereum_types::H512;
+use parking_lot::Mutex;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
+    collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
 };
-use tokio::time::Instant;
+use tokio::{sync::mpsc, time::Instant};
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -169,6 +174,18 @@ where
     }
 }
 
+#[inline]
+fn dummy_check_headers(headers: &[BlockHeader]) -> bool {
+    let mut block_num = headers[0].number;
+    for header in headers.iter().skip(1) {
+        if header.number != block_num + 1 {
+            return false;
+        }
+        block_num += 1u8;
+    }
+    true
+}
+
 impl HeaderDownload {
     const BACK_OFF: Duration = Duration::from_secs(5);
 
@@ -178,23 +195,23 @@ impl HeaderDownload {
     ) -> HashMap<BlockNumber, HeaderRequest> {
         assert!(starting_block < target);
 
-        let cap = (target.0 - starting_block.0) as usize / HEADERS_UPPER_BOUND;
-        let mut requests = HashMap::with_capacity(cap + 1);
-        for start in (starting_block..target).step_by(HEADERS_UPPER_BOUND) {
-            let limit = if start + HEADERS_UPPER_BOUND < target {
-                HEADERS_UPPER_BOUND as u64
-            } else {
-                *target - *start
-            };
+        (starting_block..target)
+            .step_by(HEADERS_UPPER_BOUND)
+            .map(|start| {
+                let limit = if start + HEADERS_UPPER_BOUND < target {
+                    HEADERS_UPPER_BOUND as u64
+                } else {
+                    *target - *start
+                };
 
-            let request = HeaderRequest {
-                start: BlockId::Number(start),
-                limit,
-                ..Default::default()
-            };
-            requests.insert(start, request);
-        }
-        requests
+                let request = HeaderRequest {
+                    start: BlockId::Number(start),
+                    limit,
+                    ..Default::default()
+                };
+                (start, request)
+            })
+            .collect()
     }
 
     pub async fn download_headers(
@@ -202,70 +219,76 @@ impl HeaderDownload {
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
-        let mut requests = Self::prepare_requests(start, end);
+        let requests = Arc::new(Mutex::new(Self::prepare_requests(start, end)));
 
         let mut stream = self.node.stream_headers().await;
 
         let is_bounded = |block_number: BlockNumber| block_number >= start && block_number <= end;
 
-        let mut took = Instant::now();
-        let mut instant = Instant::now();
+        {
+            let _g = TaskGuard(tokio::task::spawn({
+                let node = self.node.clone();
+                let requests = requests.clone();
 
-        let mut ticker = tokio::time::interval(Self::BACK_OFF);
+                async move {
+                    loop {
+                        let reqs = requests.lock().values().copied().collect::<Vec<_>>();
+                        node.clone().send_many_header_requests(reqs).await?;
+                        tokio::time::sleep(Self::BACK_OFF).await;
+                    }
 
-        while !requests.is_empty() {
-            let mut message_processed = false;
+                    Ok::<_, anyhow::Error>(())
+                }
+            }));
 
-            tokio::select! {
-                Some(msg) = stream.next() => {
+            let (penalization_tx, mut penalization_rx) = mpsc::channel::<H512>(128);
+
+            let _guard = TaskGuard(tokio::task::spawn({
+                let node = self.node.clone();
+                async move {
+                    while let Some(penalty) = penalization_rx.recv().await {
+                        node.penalize_peer(penalty).await?;
+                    }
+
+                    Ok::<_, anyhow::Error>(())
+                }
+            }));
+
+            while !requests.lock().is_empty() {
+                if let Some(msg) = stream.next().await {
+                    let peer_id = msg.peer_id;
+
                     if let Message::BlockHeaders(inner) = msg.msg {
                         if inner.headers.is_empty() {
-                            self.node.penalize_peer(msg.peer_id).await?;
                             continue;
                         }
 
-                        let num = inner.headers[0].number;
-                        let last_hash = inner.headers[inner.headers.len() - 1].hash();
-                        if requests.contains_key(&num) || (is_bounded(num) && !self.graph.contains(last_hash)) {
-                            requests.remove(&num);
-                            debug!(
-                                "Received={} headers, Graph={}",
-                                inner.headers.len(),
-                                self.graph.len()
-                            );
-                            self.graph.extend(inner.headers);
-                            message_processed = true;
+                        let is_valid = dummy_check_headers(&inner.headers);
+                        if is_valid {
+                            let num = inner.headers[0].number;
+                            let last_hash = inner.headers[inner.headers.len() - 1].hash();
+
+                            let mut requests = requests.lock();
+                            if let Entry::Occupied(entry) = requests.entry(num) {
+                                let limit = entry.get().limit as usize;
+
+                                if inner.headers.len() == limit {
+                                    entry.remove();
+                                    self.graph.extend(inner.headers);
+                                }
+                            } else if !self.graph.contains(&last_hash) && is_bounded(num) {
+                                self.graph.extend(inner.headers);
+                            }
+                        } else {
+                            penalization_tx.send(peer_id).await?;
+                            continue;
                         }
                     }
                 }
-                _ = ticker.tick() => {}
-            }
-
-            if instant.elapsed() > Duration::from_secs(30) {
-                instant = Instant::now();
-                let all = (*end - *start) as usize;
-                info!(
-                    "Downloading headers... left={} out of {}",
-                    all - self.graph.len(),
-                    all
-                );
-            }
-
-            if !message_processed {
-                self.node
-                    .clone()
-                    .send_many_header_requests(requests.values().copied())
-                    .await?;
             }
         }
 
-        info!(
-            "Downloaded {} headers, elapsed={:?}... Starting to build canonical chain...",
-            self.graph.len(),
-            took.elapsed(),
-        );
-
-        took = Instant::now();
+        let took = Instant::now();
 
         let tail = self.graph.dfs().expect("unreachable");
         let mut headers = self.graph.backtrack(&tail);

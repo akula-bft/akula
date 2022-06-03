@@ -121,19 +121,85 @@ struct PingMessageD {
     expire: u64,
 }
 
+#[derive(RlpDecodable)]
+struct PingMessageDEnr {
+    version: u64,
+    from: Endpoint,
+    to: Endpoint,
+    expire: u64,
+    enr_seq: u64,
+}
+
 impl Decodable for PingMessage {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
-        let PingMessageD {
-            from, to, expire, ..
-        } = PingMessageD::decode(buf)?;
+        let (from, to, expire) = {
+            PingMessageD::decode(buf)
+                .map(
+                    |PingMessageD {
+                         from, to, expire, ..
+                     }| (from, to, expire),
+                )
+                .or_else(|e| {
+                    if let DecodeError::ListLengthMismatch { .. } = e {
+                        PingMessageDEnr::decode(buf).map(
+                            |PingMessageDEnr {
+                                 from, to, expire, ..
+                             }| (from, to, expire),
+                        )
+                    } else {
+                        Err(e)
+                    }
+                })?
+        };
 
         Ok(Self { from, to, expire })
     }
 }
 
-#[derive(Debug, Clone, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, RlpEncodable)]
 pub struct PongMessage {
     pub to: Endpoint,
     pub echo: H256,
     pub expire: u64,
+}
+
+#[derive(RlpDecodable)]
+struct PongMessageD {
+    to: Endpoint,
+    echo: H256,
+    expire: u64,
+}
+
+#[derive(RlpDecodable)]
+struct PongMessageDEnr {
+    to: Endpoint,
+    echo: H256,
+    expire: u64,
+    enr_seq: u64,
+}
+
+impl Decodable for PongMessage {
+    fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+        let (to, echo, expire) = {
+            PongMessageD::decode(buf)
+                .map(
+                    |PongMessageD {
+                         to, echo, expire, ..
+                     }| (to, echo, expire),
+                )
+                .or_else(|e| {
+                    if let DecodeError::ListLengthMismatch { .. } = e {
+                        PongMessageDEnr::decode(buf).map(
+                            |PongMessageDEnr {
+                                 to, echo, expire, ..
+                             }| (to, echo, expire),
+                        )
+                    } else {
+                        Err(e)
+                    }
+                })?
+        };
+
+        Ok(Self { to, echo, expire })
+    }
 }

@@ -7,20 +7,10 @@ use crate::sentry::{
 };
 use anyhow::format_err;
 use derive_more::FromStr;
-use educe::Educe;
 use secp256k1::SecretKey;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tracing::info;
 use trust_dns_resolver::TokioAsyncResolver;
-
-pub const DNS_DISC_ADDRESS: &str = "all.mainnet.ethdisco.net";
-
-#[derive(Debug, Educe)]
-#[educe(Default)]
-pub struct DnsDiscConfig {
-    #[educe(Default("all.mainnet.ethdisco.net"))]
-    pub address: String,
-}
 
 #[derive(Debug, FromStr)]
 pub struct NR(pub NodeRecord);

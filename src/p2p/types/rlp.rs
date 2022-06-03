@@ -9,7 +9,6 @@ impl Decodable for BlockId {
         if buf.len() == 32 {
             Ok(BlockId::Hash(<H256 as Decodable>::decode(buf)?))
         } else {
-            debug_assert!(buf.len() <= 8);
             Ok(BlockId::Number(<BlockNumber as Decodable>::decode(buf)?))
         }
     }
@@ -34,6 +33,9 @@ impl Encodable for Message {
             Message::BlockHeaders(ref value) => value.encode(out),
             Message::NewBlock(ref value) => value.encode(out),
             Message::NewPooledTransactionHashes(ref value) => value.encode(out),
+            Message::Transactions(ref value) => value.encode(out),
+            Message::GetPooledTransactions(ref value) => value.encode(out),
+            Message::PooledTransactions(ref value) => value.encode(out),
         }
     }
 }

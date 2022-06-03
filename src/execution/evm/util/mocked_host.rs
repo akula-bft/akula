@@ -244,8 +244,8 @@ impl Host for MockedHost {
         self.call_result.clone()
     }
 
-    fn get_tx_context(&mut self) -> TxContext {
-        self.tx_context.clone()
+    fn get_tx_context(&mut self) -> Result<TxContext, StatusCode> {
+        Ok(self.tx_context.clone())
     }
 
     fn get_block_hash(&mut self, block_number: u64) -> U256 {
