@@ -152,7 +152,7 @@ pub fn switch_is_active(switch: Option<BlockNumber>, block_number: BlockNumber) 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum SealVerificationParams {
     Clique {
-        #[serde(deserialize_with = "deserialize_period_as_duration")]
+        #[serde(with = "duration_as_millis")]
         period: Duration,
         epoch: u64,
     },
@@ -385,30 +385,6 @@ pub struct P2PParams {
     pub bootnodes: Vec<NodeUrl>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dns: Option<String>,
-}
-
-struct DeserializePeriodAsDuration;
-
-impl<'de> de::Visitor<'de> for DeserializePeriodAsDuration {
-    type Value = Duration;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("an u64")
-    }
-
-    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        Ok(Duration::from_millis(v))
-    }
-}
-
-fn deserialize_period_as_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    deserializer.deserialize_any(DeserializePeriodAsDuration)
 }
 
 fn deserialize_str_as_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
