@@ -77,8 +77,7 @@ pub mod collections {
         }
 
         #[inline]
-        pub fn insert(&mut self, header: BlockHeader) {
-            let hash = header.hash();
+        pub fn insert_with_hash(&mut self, hash: H256, header: BlockHeader) {
             if self.q.contains_key(&hash) {
                 return;
             }
@@ -89,6 +88,12 @@ pub mod collections {
                 .insert(hash);
             self.raw.insert(hash, header);
             self.q.insert(hash, ());
+        }
+
+        #[inline]
+        pub fn insert(&mut self, header: BlockHeader) {
+            let hash = header.hash();
+            self.insert_with_hash(hash, header);
         }
 
         pub fn dfs(&mut self) -> Option<H256> {
@@ -165,6 +170,17 @@ pub mod collections {
         {
             for header in iter {
                 self.insert(header);
+            }
+        }
+    }
+
+    impl Extend<(H256, BlockHeader)> for Graph {
+        fn extend<T>(&mut self, iter: T)
+        where
+            T: IntoIterator<Item = (H256, BlockHeader)>,
+        {
+            for (hash, header) in iter {
+                self.insert_with_hash(hash, header);
             }
         }
     }

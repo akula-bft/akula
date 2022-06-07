@@ -6,6 +6,7 @@ use crate::{
     p2p::{node::NodeBuilder, types::*},
 };
 use bytes::{BufMut, BytesMut};
+use dashmap::DashSet;
 use ethereum_interfaces::{sentry as grpc_sentry, sentry::sentry_client::SentryClient};
 use fastrlp::*;
 use futures::stream::FuturesUnordered;
@@ -23,8 +24,6 @@ pub type RequestId = u64;
 
 #[derive(Debug)]
 pub(crate) struct BlockCaches {
-    /// Table of block hashes of the blocks known to not belong to the canonical chain.
-    pub(crate) bad_blocks: LruCache<H256, ()>,
     /// Mapping from the child hash to it's parent.
     pub(crate) parent_cache: LruCache<H256, H256>,
     /// Mapping from the block hash to it's number.
@@ -44,6 +43,8 @@ pub struct Node {
     pub(crate) chain_tip: RwLock<(BlockNumber, H256)>,
     /// Block caches
     pub(crate) block_caches: Mutex<BlockCaches>,
+    /// Table of block hashes of the blocks known to not belong to the canonical chain.
+    pub(crate) bad_blocks: DashSet<H256>,
     /// Chain forks.
     pub(crate) forks: Vec<u64>,
 }
@@ -247,14 +248,13 @@ impl Node {
 
     /// Marks block with given hash as non-canonical.
     pub fn mark_bad_block(&self, hash: H256) {
-        self.block_caches.lock().bad_blocks.insert(hash, ());
+        self.bad_blocks.insert(hash);
     }
 
     /// Finds first bad block if any, and returns it's index in given iterable.
     #[inline]
     pub fn position_bad_block<'a, T: Iterator<Item = &'a H256>>(&self, iter: T) -> Option<usize> {
-        let mut g = self.block_caches.lock();
-        iter.into_iter().position(|h| g.bad_blocks.contains_key(h))
+        iter.into_iter().position(|h| self.bad_blocks.contains(h))
     }
 
     /// Updates current node status.

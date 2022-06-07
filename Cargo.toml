@@ -134,6 +134,7 @@ hashbrown = { version = "0.12.0", features = [
     "nightly",
     "ahash-compile-time-rng",
 ] }
+dashmap = "5.3"
 
 [features]
 default = []
