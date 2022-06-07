@@ -242,6 +242,10 @@ impl CliqueState {
         }
     }
 
+    fn set_signers(&mut self, signers: Vec<Address>) {
+        self.signers = Signers(signers);
+    }
+
     fn is_epoch(&self, number: BlockNumber) -> bool {
         number.0 % self.epoch == 0
     }
@@ -341,10 +345,13 @@ impl Clique {
         eip1559_block: Option<BlockNumber>,
         period: Duration,
         epoch: u64,
+        initial_signers: Vec<Address>,
     ) -> Self {
+        let mut state = CliqueState::new(epoch);
+        state.set_signers(initial_signers);
         Self {
             base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000, false),
-            state: Mutex::new(CliqueState::new(epoch)),
+            state: Mutex::new(state),
             period: period.as_secs(),
         }
     }

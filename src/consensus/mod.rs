@@ -5,6 +5,7 @@ mod ethash;
 
 pub use self::{base::*, blockchain::*, ethash::*};
 use crate::{consensus::clique::Clique, models::*, BlockState};
+use anyhow::bail;
 use derive_more::{Display, From};
 use std::fmt::{Debug, Display};
 
@@ -248,11 +249,22 @@ pub fn engine_factory(chain_config: ChainSpec) -> anyhow::Result<Box<dyn Consens
             difficulty_bomb,
             skip_pow_verification,
         )),
-        SealVerificationParams::Clique { period, epoch } => Box::new(Clique::new(
-            chain_config.params.chain_id,
-            chain_config.consensus.eip1559_block,
-            period,
-            epoch,
-        )),
+        SealVerificationParams::Clique { period, epoch } => {
+            let initial_signers = match chain_config.genesis.seal {
+                Seal::Clique {
+                    vanity: _,
+                    score: _,
+                    signers,
+                } => signers.clone(),
+                _ => bail!("Genesis seal does not match, expected Clique seal."),
+            };
+            Box::new(Clique::new(
+                chain_config.params.chain_id,
+                chain_config.consensus.eip1559_block,
+                period,
+                epoch,
+                initial_signers,
+            ))
+        }
     })
 }
