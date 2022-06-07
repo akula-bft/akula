@@ -9,6 +9,17 @@ Look at Mgas/s.
 
 ![](./src/res/readme-screenshot.png)
 
+### Erigon Comparison
+
+Hardware Raspberry Pi 4, 8GB RAM, 2.0 Ghz (overclocked) ARM.
+
+Erigon:
+
+![](https://gateway.pinata.cloud/ipfs/QmWL3xXPPghxnHCsNpfHsURZCBqnwGdk8kxpPYqToAjPX6)
+
+Akula:
+
+// TODO
 
 ## Building the source
 
