@@ -326,11 +326,11 @@ impl HeaderDownload {
 
         self.requests.clear();
 
-        for start in (starting_block..target).step_by(HEADERS_UPPER_BOUND) {
+        for start in (starting_block..=target).step_by(HEADERS_UPPER_BOUND) {
             let limit = if start + HEADERS_UPPER_BOUND < target {
                 HEADERS_UPPER_BOUND as u64
             } else {
-                *target - *start
+                (*target - *start) + 1_u64
             };
 
             let request = HeaderRequest {
