@@ -255,7 +255,7 @@ pub fn engine_factory(chain_config: ChainSpec) -> anyhow::Result<Box<dyn Consens
                     vanity: _,
                     score: _,
                     signers,
-                } => signers.clone(),
+                } => signers,
                 _ => bail!("Genesis seal does not match, expected Clique seal."),
             };
             Box::new(Clique::new(
