@@ -293,9 +293,10 @@ impl BodyDownload {
         starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<HashMap<(H256, H256), (BlockNumber, H256)>> {
-        assert!(target >= starting_block);
-
-        let cap = (target.0 - starting_block.0) as usize + 1;
+        let cap = match target.0.saturating_sub(starting_block.0) {
+            0 => return Ok(HashMap::new()),
+            cap => cap as usize + 1,
+        };
         let mut map = HashMap::with_capacity(cap);
 
         let mut canonical_cursor = txn
