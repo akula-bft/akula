@@ -8,7 +8,7 @@ use akula::{
         traits::*,
     },
     models::*,
-    p2p::{collections::Graph, node::NodeBuilder},
+    p2p::node::NodeBuilder,
     stagedsync,
     stages::*,
 };
@@ -151,8 +151,9 @@ async fn download_headers(
         HeaderDownload {
             node,
             consensus,
+            requests: Default::default(),
             max_block: u64::MAX.into(),
-            graph: Graph::new(),
+            graph: Default::default(),
         },
         false,
     );

@@ -3,7 +3,7 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
     models::*,
-    p2p::{collections::Graph, node::NodeBuilder},
+    p2p::node::NodeBuilder,
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
         otterscan::OtterscanApiServerImpl,
@@ -253,8 +253,9 @@ fn main() -> anyhow::Result<()> {
                     HeaderDownload {
                         node: node.clone(),
                         consensus: consensus.clone(),
+                        requests: Default::default(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
-                        graph: Graph::new(),
+                        graph: Default::default(),
                     },
                     false,
                 );

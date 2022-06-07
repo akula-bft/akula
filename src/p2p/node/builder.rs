@@ -63,8 +63,8 @@ impl NodeBuilder {
             status,
             config,
             chain_tip: Default::default(),
+            bad_blocks: Default::default(),
             block_caches: Mutex::new(BlockCaches {
-                bad_blocks: LruCache::new(1 << 12),
                 parent_cache: LruCache::new(1 << 7),
                 block_cache: LruCache::new(1 << 10),
             }),

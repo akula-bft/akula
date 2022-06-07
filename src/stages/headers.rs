@@ -7,25 +7,25 @@ use crate::{
     p2p::{
         collections::Graph,
         node::Node,
-        types::{BlockId, HeaderRequest, Message, Status},
+        types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
     },
     stagedsync::{stage::*, stages::HEADERS},
     TaskGuard,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use ethereum_types::H512;
 use parking_lot::Mutex;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
-    collections::{hash_map::Entry, HashMap},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
 };
-use tokio::{sync::mpsc, time::Instant};
+use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -38,8 +38,9 @@ const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 pub struct HeaderDownload {
     pub node: Arc<Node>,
     pub consensus: Arc<dyn Consensus>,
+    pub requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
     pub max_block: BlockNumber,
-    pub graph: Graph,
+    pub graph: Arc<Mutex<Graph>>,
 }
 
 #[async_trait]
@@ -151,7 +152,7 @@ where
     where
         'db: 'tx,
     {
-        self.graph.clear();
+        self.graph.lock().clear();
         let mut cur = txn.cursor(tables::CanonicalHeader)?;
 
         if let Some(bad_block) = input.bad_block {
@@ -174,65 +175,32 @@ where
     }
 }
 
-#[inline]
-fn dummy_check_headers(headers: &[BlockHeader]) -> bool {
-    let mut block_num = headers[0].number;
-    for header in headers.iter().skip(1) {
-        if header.number != block_num + 1 {
-            return false;
-        }
-        block_num += 1u8;
-    }
-    true
-}
-
 impl HeaderDownload {
     const BACK_OFF: Duration = Duration::from_secs(5);
 
-    fn prepare_requests(
-        starting_block: BlockNumber,
-        target: BlockNumber,
-    ) -> HashMap<BlockNumber, HeaderRequest> {
-        assert!(starting_block < target);
-
-        (starting_block..target)
-            .step_by(HEADERS_UPPER_BOUND)
-            .map(|start| {
-                let limit = if start + HEADERS_UPPER_BOUND < target {
-                    HEADERS_UPPER_BOUND as u64
-                } else {
-                    *target - *start
-                };
-
-                let request = HeaderRequest {
-                    start: BlockId::Number(start),
-                    limit,
-                    ..Default::default()
-                };
-                (start, request)
-            })
-            .collect()
-    }
-
     pub async fn download_headers(
-        &mut self,
+        &self,
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
-        let requests = Arc::new(Mutex::new(Self::prepare_requests(start, end)));
+        self.prepare_requests(start, end);
 
         let mut stream = self.node.stream_headers().await;
-
         let is_bounded = |block_number: BlockNumber| block_number >= start && block_number <= end;
 
         {
+            let mut tasks = Vec::new();
+
             let _g = TaskGuard(tokio::task::spawn({
                 let node = self.node.clone();
-                let requests = requests.clone();
+                let requests = self.requests.clone();
 
                 async move {
                     loop {
-                        let reqs = requests.lock().values().copied().collect::<Vec<_>>();
+                        let reqs = requests
+                            .iter()
+                            .map(|entry_ref| *entry_ref.value())
+                            .collect::<Vec<_>>();
                         node.clone().send_many_header_requests(reqs).await?;
                         tokio::time::sleep(Self::BACK_OFF).await;
                     }
@@ -241,20 +209,7 @@ impl HeaderDownload {
                 }
             }));
 
-            let (penalization_tx, mut penalization_rx) = mpsc::channel::<H512>(128);
-
-            let _guard = TaskGuard(tokio::task::spawn({
-                let node = self.node.clone();
-                async move {
-                    while let Some(penalty) = penalization_rx.recv().await {
-                        node.penalize_peer(penalty).await?;
-                    }
-
-                    Ok::<_, anyhow::Error>(())
-                }
-            }));
-
-            while !requests.lock().is_empty() {
+            while !self.requests.is_empty() {
                 if let Some(msg) = stream.next().await {
                     let peer_id = msg.peer_id;
 
@@ -263,25 +218,21 @@ impl HeaderDownload {
                             continue;
                         }
 
-                        let is_valid = dummy_check_headers(&inner.headers);
-                        if is_valid {
-                            let num = inner.headers[0].number;
-                            let last_hash = inner.headers[inner.headers.len() - 1].hash();
+                        if is_bounded(inner.headers[0].number) {
+                            tasks.push(TaskGuard(tokio::task::spawn({
+                                let (node, requests, graph, peer_id) = (
+                                    self.node.clone(),
+                                    self.requests.clone(),
+                                    self.graph.clone(),
+                                    peer_id,
+                                );
 
-                            let mut requests = requests.lock();
-                            if let Entry::Occupied(entry) = requests.entry(num) {
-                                let limit = entry.get().limit as usize;
-
-                                if inner.headers.len() == limit {
-                                    entry.remove();
-                                    self.graph.extend(inner.headers);
+                                async move {
+                                    Self::handle_response(node, requests, graph, peer_id, inner)
+                                        .await?;
+                                    Ok::<_, anyhow::Error>(())
                                 }
-                            } else if !self.graph.contains(&last_hash) && is_bounded(num) {
-                                self.graph.extend(inner.headers);
-                            }
-                        } else {
-                            penalization_tx.send(peer_id).await?;
-                            continue;
+                            })));
                         }
                     }
                 }
@@ -290,8 +241,9 @@ impl HeaderDownload {
 
         let took = Instant::now();
 
-        let tail = self.graph.dfs().expect("unreachable");
-        let mut headers = self.graph.backtrack(&tail);
+        let mut graph = self.graph.lock();
+        let tail = graph.dfs().expect("unreachable");
+        let mut headers = graph.backtrack(&tail);
 
         info!(
             "Built canonical chain with={} headers, elapsed={:?}",
@@ -320,6 +272,100 @@ impl HeaderDownload {
         Ok(headers)
     }
 
+    async fn handle_response(
+        node: Arc<Node>,
+        requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
+        graph: Arc<Mutex<Graph>>,
+        peer_id: H512,
+        response: BlockHeaders,
+    ) -> anyhow::Result<()> {
+        let cur_size = response.headers.len();
+        let headers = Self::check_headers(&node, response.headers);
+        if cur_size != headers.len() {
+            node.penalize_peer(peer_id).await?;
+        } else {
+            let key = headers[0].1.number;
+            let last_hash = headers[headers.len() - 1].0;
+
+            let mut graph = graph.lock();
+
+            if let dashmap::mapref::entry::Entry::Occupied(entry) = requests.entry(key) {
+                let limit = entry.get().limit as usize;
+
+                if headers.len() == limit {
+                    entry.remove();
+                    graph.extend(headers);
+                }
+            } else if !graph.contains(last_hash) {
+                graph.extend(headers);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn update_head<'tx, E: EnvironmentKind>(
+        &self,
+        txn: &'tx mut MdbxTransaction<'_, RW, E>,
+        height: BlockNumber,
+    ) -> anyhow::Result<()> {
+        let hash = txn.get(tables::CanonicalHeader, height)?.unwrap();
+        let td = txn
+            .get(tables::HeadersTotalDifficulty, (height, hash))?
+            .unwrap();
+        let status = Status::new(height, hash, td);
+        self.node.update_chain_head(Some(status)).await?;
+
+        Ok(())
+    }
+}
+
+impl HeaderDownload {
+    fn prepare_requests(&self, starting_block: BlockNumber, target: BlockNumber) {
+        assert!(starting_block < target);
+
+        self.requests.clear();
+
+        for start in (starting_block..target).step_by(HEADERS_UPPER_BOUND) {
+            let limit = if start + HEADERS_UPPER_BOUND < target {
+                HEADERS_UPPER_BOUND as u64
+            } else {
+                *target - *start
+            };
+
+            let request = HeaderRequest {
+                start: BlockId::Number(start),
+                limit,
+                ..Default::default()
+            };
+
+            self.requests.insert(start, request);
+        }
+    }
+
+    #[inline]
+    fn check_headers(node: &Node, headers: Vec<BlockHeader>) -> Vec<(H256, BlockHeader)> {
+        let mut headers = headers
+            .into_iter()
+            .map(|h| (h.hash(), h))
+            .collect::<Vec<_>>();
+
+        if let Some(valid_till) =
+            headers
+                .iter()
+                .skip(1)
+                .enumerate()
+                .position(|(i, (hash, header))| {
+                    header.parent_hash != headers[i].0
+                        || header.number != headers[i].1.number + 1u8
+                        || node.bad_blocks.contains(hash)
+                })
+        {
+            headers.truncate(valid_till);
+        }
+        headers
+    }
+
     fn verify_seal(&self, headers: &mut Vec<(H256, BlockHeader)>) {
         let valid_till = AtomicUsize::new(0);
 
@@ -346,24 +392,5 @@ impl HeaderDownload {
         if valid_till != 0 {
             headers.truncate(valid_till);
         }
-
-        if let Some(index) = self.node.position_bad_block(headers.iter().map(|(h, _)| h)) {
-            headers.truncate(index);
-        }
-    }
-
-    async fn update_head<'tx, E: EnvironmentKind>(
-        &self,
-        txn: &'tx mut MdbxTransaction<'_, RW, E>,
-        height: BlockNumber,
-    ) -> anyhow::Result<()> {
-        let hash = txn.get(tables::CanonicalHeader, height)?.unwrap();
-        let td = txn
-            .get(tables::HeadersTotalDifficulty, (height, hash))?
-            .unwrap();
-        let status = Status::new(height, hash, td);
-        self.node.update_chain_head(Some(status)).await?;
-
-        Ok(())
     }
 }
