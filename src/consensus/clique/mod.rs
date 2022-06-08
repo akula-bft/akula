@@ -2,12 +2,16 @@ use crate::{
     consensus::{
         CliqueError, Consensus, ConsensusEngineBase, DuoError, FinalizationChange, ValidationError,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainId, PartialHeader, Revision},
+    models::{
+        Block, BlockHeader, BlockNumber, ChainId, PartialHeader, Revision, EMPTY_LIST_HASH,
+        EMPTY_ROOT,
+    },
     BlockState,
 };
 use bytes::Bytes;
 use ethereum_types::Address;
 use ethnum::U256;
+use primitive_types::H256;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
@@ -224,7 +228,6 @@ impl History {
 
 #[derive(Debug)]
 struct CliqueState {
-    validated: BTreeMap<BlockNumber, CliqueBlock>,
     signers: Signers,
     history: History,
     votes: Votes,
@@ -234,7 +237,6 @@ struct CliqueState {
 impl CliqueState {
     fn new(epoch: u64) -> Self {
         Self {
-            validated: BTreeMap::new(),
             signers: Signers::new(),
             history: History::new(),
             votes: Votes::new(0),
@@ -250,7 +252,7 @@ impl CliqueState {
         number.0 % self.epoch == 0
     }
 
-    fn validate(&mut self, block: CliqueBlock) -> Result<(), DuoError> {
+    fn validate(&mut self, block: &CliqueBlock) -> Result<(), DuoError> {
         let candidate = block.signer;
 
         let index = match self.signers.find(candidate) {
@@ -279,15 +281,13 @@ impl CliqueState {
             if !self.signers.compare_checkpoint(&block.checkpoint) {
                 return Err(CliqueError::CheckpointMismatch {
                     expected: self.signers.0.clone(),
-                    got: block.checkpoint,
+                    got: block.checkpoint.clone(),
                 }
                 .into());
             }
         } else if !block.checkpoint.is_empty() {
             return Err(CliqueError::CheckpointInNonEpochBlock.into());
         }
-
-        self.validated.insert(block.number, block);
 
         Ok(())
     }
@@ -317,12 +317,8 @@ impl CliqueState {
         self.votes.set_threshold(self.signers.limit());
     }
 
-    fn finalize(&mut self, number: BlockNumber) -> anyhow::Result<()> {
-        let block = self.validated.remove(&number).ok_or_else(|| {
-            anyhow::Error::msg("Block to be finalized not found in validated list.")
-        })?;
-
-        if number == 0 {
+    fn finalize(&mut self, block: CliqueBlock) -> anyhow::Result<()> {
+        if block.number == 0 {
             self.apply_genesis_block(&block);
         } else {
             self.apply_non_genesis_block(&block);
@@ -337,6 +333,7 @@ pub struct Clique {
     base: ConsensusEngineBase,
     state: Mutex<CliqueState>,
     period: u64,
+    tx_roots: Mutex<BTreeMap<BlockNumber, H256>>,
 }
 
 impl Clique {
@@ -353,13 +350,19 @@ impl Clique {
             base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000, false),
             state: Mutex::new(state),
             period: period.as_secs(),
+            tx_roots: Mutex::new(BTreeMap::new()),
         }
     }
 }
 
 impl Consensus for Clique {
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError> {
-        self.base.pre_validate_block(block, state)
+        self.base.pre_validate_block(block, state)?;
+        self.tx_roots
+            .lock()
+            .unwrap()
+            .insert(block.header.number, block.header.transactions_root);
+        Ok(())
     }
 
     fn validate_block_header(
@@ -379,10 +382,12 @@ impl Consensus for Clique {
             .into());
         };
 
-        self.state
+        self.tx_roots
             .lock()
             .unwrap()
-            .validate(CliqueBlock::from_header(header)?)
+            .insert(header.number, header.transactions_root);
+
+        Ok(())
     }
 
     fn finalize(
@@ -391,7 +396,19 @@ impl Consensus for Clique {
         _ommers: &[BlockHeader],
         _revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
-        self.state.lock().unwrap().finalize(block.number)?;
+        let tx_root = *self
+            .tx_roots
+            .lock()
+            .unwrap()
+            .get(&block.number)
+            .unwrap_or(&EMPTY_ROOT);
+        let header = BlockHeader::new(block.clone(), EMPTY_LIST_HASH, tx_root);
+        let clique_block = CliqueBlock::from_header(&header)?;
+
+        let mut state = self.state.lock().unwrap();
+
+        state.validate(&clique_block)?;
+        state.finalize(clique_block)?;
 
         Ok(vec![])
     }
