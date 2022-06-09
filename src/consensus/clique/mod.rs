@@ -103,6 +103,12 @@ impl Votes {
         self.votes.clear();
     }
 
+    fn clear_votes_for(&mut self, beneficiary: &Address) {
+        for signer_votes in self.votes.values_mut() {
+            signer_votes.remove(beneficiary);
+        }
+    }
+
     fn set_threshold(&mut self, new_threshold: usize) {
         self.threshold = new_threshold;
     }
@@ -309,10 +315,18 @@ impl CliqueState {
             let accepted = self.votes.tally(block.signer, vote);
 
             if accepted {
-                match vote {
-                    Vote::Authorize(address) => self.signers.insert(*address),
-                    Vote::Drop(address) => self.signers.remove(*address),
+                let (target, auth_or_drop) = match vote {
+                    Vote::Authorize(address) => (address, true),
+                    Vote::Drop(address) => (address, false),
+                };
+
+                if auth_or_drop {
+                    self.signers.insert(*target);
+                } else {
+                    self.signers.remove(*target);
                 }
+
+                self.votes.clear_votes_for(target);
                 self.votes.set_threshold(self.signers.limit());
             }
         }
