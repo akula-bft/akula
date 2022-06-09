@@ -71,7 +71,7 @@ impl Vote {
 
 #[derive(Debug)]
 struct Votes {
-    votes: BTreeMap<Address, Vote>,
+    votes: BTreeMap<Address, BTreeMap<Address, bool>>,
     threshold: usize,
 }
 
@@ -84,9 +84,21 @@ impl Votes {
     }
 
     fn tally(&mut self, address: Address, vote: &Vote) -> bool {
-        self.votes.insert(address, vote.clone());
+        let (target, auth_or_drop) = match vote {
+            Vote::Authorize(target) => (target, true),
+            Vote::Drop(target) => (target, false),
+        };
 
-        let count = self.votes.values().filter(|v| v == &vote).count();
+        self.votes
+            .entry(address)
+            .or_insert_with(BTreeMap::new)
+            .insert(*target, auth_or_drop);
+
+        let count = self
+            .votes
+            .values()
+            .filter(|v| v.get(target) == Some(&auth_or_drop))
+            .count();
 
         count >= self.threshold
     }
