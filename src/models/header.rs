@@ -302,6 +302,7 @@ pub struct PartialHeader {
     pub mix_hash: H256,
     pub nonce: H64,
     pub base_fee_per_gas: Option<U256>,
+    pub option_tx_root: Option<H256>,
 }
 
 impl From<BlockHeader> for PartialHeader {
@@ -321,6 +322,7 @@ impl From<BlockHeader> for PartialHeader {
             mix_hash: header.mix_hash,
             nonce: header.nonce,
             base_fee_per_gas: header.base_fee_per_gas,
+            option_tx_root: Some(header.transactions_root),
         }
     }
 }
@@ -343,6 +345,7 @@ impl PartialHeader {
             mix_hash: H256::zero(),
             nonce: H64::zero(),
             base_fee_per_gas: None,
+            option_tx_root: None,
         }
     }
 }
