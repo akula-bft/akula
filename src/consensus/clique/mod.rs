@@ -46,21 +46,29 @@ fn recover_signer(header: &BlockHeader) -> Result<Address, anyhow::Error> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Vote {
-    Authorize(Address),
-    Drop(Address),
+struct Vote {
+    beneficiary: Address,
+    authorize: bool,
 }
 
 impl Vote {
-    fn from_data(address: Address, nonce: u64) -> Result<Option<Vote>, DuoError> {
-        if address.is_zero() {
+    fn new(beneficiary: Address, authorize: bool) -> Self {
+        Self {
+            beneficiary,
+            authorize,
+        }
+    }
+
+    fn from_data(beneficiary: Address, nonce: u64) -> Result<Option<Self>, DuoError> {
+        if beneficiary.is_zero() {
             Ok(None)
         } else {
-            match nonce {
-                NONCE_DROP => Ok(Some(Vote::Drop(address))),
-                NONCE_AUTH => Ok(Some(Vote::Authorize(address))),
-                _ => Err(CliqueError::WrongNonce { nonce }.into()),
-            }
+            let authorize = match nonce {
+                NONCE_AUTH => true,
+                NONCE_DROP => false,
+                _ => return Err(CliqueError::WrongNonce { nonce }.into()),
+            };
+            Ok(Some(Vote::new(beneficiary, authorize)))
         }
     }
 }
@@ -80,20 +88,15 @@ impl Votes {
     }
 
     fn tally(&mut self, address: Address, vote: &Vote) -> bool {
-        let (target, auth_or_drop) = match vote {
-            Vote::Authorize(target) => (target, true),
-            Vote::Drop(target) => (target, false),
-        };
-
         self.votes
             .entry(address)
             .or_insert_with(BTreeMap::new)
-            .insert(*target, auth_or_drop);
+            .insert(vote.beneficiary, vote.authorize);
 
         let count = self
             .votes
             .values()
-            .filter(|v| v.get(target) == Some(&auth_or_drop))
+            .filter(|v| v.get(&vote.beneficiary) == Some(&vote.authorize))
             .count();
 
         count >= self.threshold
@@ -315,18 +318,13 @@ impl CliqueState {
             let accepted = self.votes.tally(block.signer, vote);
 
             if accepted {
-                let (target, auth_or_drop) = match vote {
-                    Vote::Authorize(address) => (address, true),
-                    Vote::Drop(address) => (address, false),
-                };
-
-                if auth_or_drop {
-                    self.signers.insert(*target);
+                if vote.authorize {
+                    self.signers.insert(vote.beneficiary);
                 } else {
-                    self.signers.remove(*target);
+                    self.signers.remove(vote.beneficiary);
                 }
 
-                self.votes.clear_votes_for(target);
+                self.votes.clear_votes_for(&vote.beneficiary);
                 self.votes.set_threshold(self.signers.limit());
             }
         }
