@@ -2,16 +2,12 @@ use crate::{
     consensus::{
         CliqueError, Consensus, ConsensusEngineBase, DuoError, FinalizationChange, ValidationError,
     },
-    models::{
-        Block, BlockHeader, BlockNumber, ChainId, PartialHeader, Revision, EMPTY_LIST_HASH,
-        EMPTY_ROOT,
-    },
+    models::{Block, BlockHeader, BlockNumber, ChainId, PartialHeader, Revision, EMPTY_LIST_HASH},
     BlockState,
 };
 use bytes::Bytes;
 use ethereum_types::Address;
 use ethnum::U256;
-use primitive_types::H256;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
@@ -353,7 +349,6 @@ pub struct Clique {
     base: ConsensusEngineBase,
     state: Mutex<CliqueState>,
     period: u64,
-    tx_roots: Mutex<BTreeMap<BlockNumber, H256>>,
 }
 
 impl Clique {
@@ -370,7 +365,6 @@ impl Clique {
             base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000, false),
             state: Mutex::new(state),
             period: period.as_secs(),
-            tx_roots: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -378,10 +372,6 @@ impl Clique {
 impl Consensus for Clique {
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError> {
         self.base.pre_validate_block(block, state)?;
-        self.tx_roots
-            .lock()
-            .unwrap()
-            .insert(block.header.number, block.header.transactions_root);
         Ok(())
     }
 
@@ -402,11 +392,6 @@ impl Consensus for Clique {
             .into());
         };
 
-        self.tx_roots
-            .lock()
-            .unwrap()
-            .insert(header.number, header.transactions_root);
-
         Ok(())
     }
 
@@ -416,12 +401,7 @@ impl Consensus for Clique {
         _ommers: &[BlockHeader],
         _revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
-        let tx_root = *self
-            .tx_roots
-            .lock()
-            .unwrap()
-            .get(&block.number)
-            .unwrap_or(&EMPTY_ROOT);
+        let tx_root = block.option_tx_root.unwrap();
         let header = BlockHeader::new(block.clone(), EMPTY_LIST_HASH, tx_root);
         let clique_block = CliqueBlock::from_header(&header)?;
 
