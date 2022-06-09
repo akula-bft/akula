@@ -54,11 +54,7 @@ pub(crate) enum Vote {
 impl Vote {
     fn from_data(address: Address, nonce: u64) -> Result<Option<Vote>, DuoError> {
         if address.is_zero() {
-            if nonce == 0 {
-                Ok(None)
-            } else {
-                Err(CliqueError::VoteForZeroAddress.into())
-            }
+            Ok(None)
         } else {
             match nonce {
                 NONCE_DROP => Ok(Some(Vote::Drop(address))),

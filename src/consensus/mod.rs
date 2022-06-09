@@ -85,7 +85,6 @@ pub enum CliqueError {
     WrongNonce {
         nonce: u64,
     },
-    VoteForZeroAddress,
     VoteInEpochBlock,
     CheckpointInNonEpochBlock,
     InvalidCheckpoint,
