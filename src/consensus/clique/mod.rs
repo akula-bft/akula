@@ -20,6 +20,8 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{collections::BTreeMap, sync::Mutex, time::Duration, unreachable};
+use anyhow::bail;
+use crate::kv::tables;
 
 const EPOCH_LENGTH: usize = 30000;
 const BLOCK_PERIOD: u64 = 15;
@@ -156,6 +158,29 @@ impl Signers {
     }
 }
 
+fn parse_checkpoint(extra_data: &[u8]) -> Result<Vec<Address>, DuoError> {
+    let addresses_length = extra_data.len() as isize - (EXTRA_VANITY + EXTRA_SEAL) as isize;
+
+    if addresses_length < 0 || addresses_length % 20 != 0 {
+        return Err(CliqueError::WrongExtraData.into());
+    };
+
+    let mut addresses = vec![];
+
+    for offset in (EXTRA_VANITY..(EXTRA_VANITY + addresses_length as usize)).step_by(20) {
+        let next_address = Address::from_slice(&extra_data[offset..offset + 20]);
+        addresses.push(next_address);
+    }
+
+    for index in 1..addresses.len() {
+        if addresses[index - 1].ge(&addresses[index]) {
+            return Err(CliqueError::InvalidCheckpoint.into());
+        }
+    }
+
+    Ok(addresses)
+}
+
 #[derive(Debug)]
 struct CliqueBlock {
     signer: Address,
@@ -173,26 +198,9 @@ impl CliqueBlock {
     }
 
     fn parse_extra_data(extra_data: &[u8]) -> Result<(Vec<Address>, Vec<u8>, Vec<u8>), DuoError> {
-        let addresses_length = extra_data.len() as isize - (EXTRA_VANITY + EXTRA_SEAL) as isize;
-
-        if addresses_length < 0 || addresses_length % 20 != 0 {
-            return Err(CliqueError::WrongExtraData.into());
-        };
-
+        let addresses = parse_checkpoint(extra_data)?;
         let vanity = extra_data[..EXTRA_VANITY].to_vec();
-        let signature = extra_data[(EXTRA_VANITY + addresses_length as usize)..].to_vec();
-
-        let mut addresses = vec![];
-        for offset in (EXTRA_VANITY..(EXTRA_VANITY + addresses_length as usize)).step_by(20) {
-            let next_address = Address::from_slice(&extra_data[offset..offset + 20]);
-            addresses.push(next_address);
-        }
-
-        for index in 1..addresses.len() {
-            if addresses[index - 1].ge(&addresses[index]) {
-                return Err(CliqueError::InvalidCheckpoint.into());
-            }
-        }
+        let signature = extra_data[(EXTRA_VANITY + 20usize * addresses.len())..].to_vec();
 
         Ok((addresses, vanity, signature))
     }
@@ -350,6 +358,30 @@ impl CliqueState {
     }
 }
 
+pub fn recover_signers_from_epoch_block<T: TransactionKind, E: EnvironmentKind>(
+    tx: &MdbxTransaction<'_, T, E>,
+    current_epoch: BlockNumber,
+) -> anyhow::Result<Vec<Address>> {
+    let mut cursor = tx.cursor(tables::Header)?;
+    let entry = cursor.seek(current_epoch)?;
+
+    let epoch_header = match entry {
+        Some(((height, _), header)) if height == current_epoch => header,
+        _ => bail!("Last epoch header missing from database."),
+    };
+
+    Ok(parse_checkpoint(epoch_header.extra_data.as_ref())?)
+}
+
+pub fn fast_forward_within_epoch<T: TransactionKind, E: EnvironmentKind>(
+    state: &mut CliqueState,
+    tx: &MdbxTransaction<'_, T, E>,
+    latest_epoch: BlockNumber,
+    starting_block: BlockNumber,
+) -> anyhow::Result<()> {
+    unimplemented!("TODO");
+}
+
 pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
     tx: &MdbxTransaction<'_, T, E>,
     genesis: &Genesis,
@@ -358,26 +390,27 @@ pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
 ) -> anyhow::Result<CliqueState> {
     let mut state = CliqueState::new(epoch);
 
-    let initial_signers;
-    let current_epoch = starting_block / epoch;
-    if current_epoch == 0 {
+    let latest_epoch = starting_block / epoch;
+    let begin_of_epoch_signers = if latest_epoch == 0 {
         if let Seal::Clique {
             vanity: _,
             score: _,
             signers,
         } = &genesis.seal
         {
-            initial_signers = signers.clone();
+            signers.clone()
         } else {
-            unreachable!("This should only be called if consensus alg is Clique.");
+            unreachable!("This should only be called if consensus algorithm is Clique.");
         }
     } else {
-        unimplemented!("TODO");
+        recover_signers_from_epoch_block(tx, latest_epoch)?
+    };
+
+    state.set_signers(begin_of_epoch_signers);
+
+    if starting_block > latest_epoch {
+        fast_forward_within_epoch(&mut state, tx, latest_epoch, starting_block)?;
     }
-
-    state.set_signers(initial_signers);
-
-    // TODO fast-forward to current block
 
     Ok(state)
 }
