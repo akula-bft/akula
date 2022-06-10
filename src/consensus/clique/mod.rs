@@ -3,13 +3,17 @@ use crate::{
         CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange,
         ValidationError,
     },
-    kv::mdbx::MdbxTransaction,
+    kv::{
+        mdbx::{MdbxCursor, MdbxTransaction},
+        tables,
+    },
     models::{
         Block, BlockHeader, BlockNumber, ChainId, Genesis, PartialHeader, Revision, Seal,
         EMPTY_LIST_HASH,
     },
     BlockState,
 };
+use anyhow::bail;
 use bytes::Bytes;
 use ethereum_types::Address;
 use ethnum::U256;
@@ -20,8 +24,6 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{collections::BTreeMap, sync::Mutex, time::Duration, unreachable};
-use anyhow::bail;
-use crate::kv::tables;
 
 const EPOCH_LENGTH: usize = 30000;
 const BLOCK_PERIOD: u64 = 15;
@@ -217,7 +219,6 @@ impl CliqueBlock {
         let (checkpoint, vanity, _) = CliqueBlock::parse_extra_data(&header.extra_data)?;
 
         let vote = Vote::from_data(header.beneficiary, header.nonce.to_low_u64_be())?;
-
         let signer = recover_signer(header)?;
 
         Ok(CliqueBlock {
@@ -358,18 +359,22 @@ impl CliqueState {
     }
 }
 
+fn get_header<K: TransactionKind>(
+    cursor: &mut MdbxCursor<'_, K, tables::Header>,
+    height: BlockNumber,
+) -> anyhow::Result<BlockHeader> {
+    Ok(match cursor.seek(height)? {
+        Some(((found_height, _), header)) if found_height == height => header,
+        _ => bail!("Last epoch header missing from database."),
+    })
+}
+
 pub fn recover_signers_from_epoch_block<T: TransactionKind, E: EnvironmentKind>(
     tx: &MdbxTransaction<'_, T, E>,
     current_epoch: BlockNumber,
 ) -> anyhow::Result<Vec<Address>> {
     let mut cursor = tx.cursor(tables::Header)?;
-    let entry = cursor.seek(current_epoch)?;
-
-    let epoch_header = match entry {
-        Some(((height, _), header)) if height == current_epoch => header,
-        _ => bail!("Last epoch header missing from database."),
-    };
-
+    let epoch_header = get_header(&mut cursor, current_epoch)?;
     Ok(parse_checkpoint(epoch_header.extra_data.as_ref())?)
 }
 
@@ -379,7 +384,13 @@ pub fn fast_forward_within_epoch<T: TransactionKind, E: EnvironmentKind>(
     latest_epoch: BlockNumber,
     starting_block: BlockNumber,
 ) -> anyhow::Result<()> {
-    unimplemented!("TODO");
+    let mut cursor = tx.cursor(tables::Header)?;
+
+    for height in latest_epoch..starting_block {
+        state.finalize(CliqueBlock::from_header(&get_header(&mut cursor, height)?)?)?;
+    }
+
+    Ok(())
 }
 
 pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
