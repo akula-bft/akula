@@ -1,19 +1,25 @@
 use crate::{
     consensus::{
-        CliqueError, Consensus, ConsensusEngineBase, DuoError, FinalizationChange, ValidationError,
+        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange,
+        ValidationError,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainId, PartialHeader, Revision, EMPTY_LIST_HASH},
+    kv::mdbx::MdbxTransaction,
+    models::{
+        Block, BlockHeader, BlockNumber, ChainId, Genesis, PartialHeader, Revision, Seal,
+        EMPTY_LIST_HASH,
+    },
     BlockState,
 };
 use bytes::Bytes;
 use ethereum_types::Address;
 use ethnum::U256;
+use mdbx::{EnvironmentKind, TransactionKind};
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use std::{collections::BTreeMap, sync::Mutex, time::Duration};
+use std::{collections::BTreeMap, sync::Mutex, time::Duration, unreachable};
 
 const EPOCH_LENGTH: usize = 30000;
 const BLOCK_PERIOD: u64 = 15;
@@ -240,7 +246,7 @@ impl History {
 }
 
 #[derive(Debug)]
-struct CliqueState {
+pub struct CliqueState {
     signers: Signers,
     history: History,
     votes: Votes,
@@ -344,6 +350,38 @@ impl CliqueState {
     }
 }
 
+pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
+    tx: &MdbxTransaction<'_, T, E>,
+    genesis: &Genesis,
+    epoch: u64,
+    starting_block: BlockNumber,
+) -> anyhow::Result<CliqueState> {
+    let mut state = CliqueState::new(epoch);
+
+    let initial_signers;
+    let current_epoch = starting_block / epoch;
+    if current_epoch == 0 {
+        if let Seal::Clique {
+            vanity: _,
+            score: _,
+            signers,
+        } = &genesis.seal
+        {
+            initial_signers = signers.clone();
+        } else {
+            unreachable!("This should only be called if consensus alg is Clique.");
+        }
+    } else {
+        unimplemented!("TODO");
+    }
+
+    state.set_signers(initial_signers);
+
+    // TODO fast-forward to current block
+
+    Ok(state)
+}
+
 #[derive(Debug)]
 pub struct Clique {
     base: ConsensusEngineBase,
@@ -411,5 +449,13 @@ impl Consensus for Clique {
         state.finalize(clique_block)?;
 
         Ok(vec![])
+    }
+
+    fn set_state(&mut self, state: ConsensusState) {
+        if let ConsensusState::Clique(state) = state {
+            self.state = Mutex::new(state);
+        } else {
+            unreachable!("Expected clique ConsensusState.");
+        }
     }
 }

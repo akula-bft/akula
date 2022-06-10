@@ -3,10 +3,11 @@ mod blockchain;
 mod clique;
 mod ethash;
 
-pub use self::{base::*, blockchain::*, ethash::*};
-use crate::{consensus::clique::Clique, models::*, BlockState};
+pub use self::{base::*, blockchain::*, clique::*, ethash::*};
+use crate::{kv::mdbx::MdbxTransaction, models::*, BlockState};
 use anyhow::bail;
 use derive_more::{Display, From};
+use mdbx::{EnvironmentKind, TransactionKind};
 use std::fmt::{Debug, Display};
 
 #[derive(Debug)]
@@ -16,6 +17,26 @@ pub enum FinalizationChange {
         amount: U256,
         ommer: bool,
     },
+}
+
+pub enum ConsensusState {
+    EthHash,
+    Clique(CliqueState),
+}
+
+impl ConsensusState {
+    pub(crate) fn recover<T: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, T, E>,
+        chainspec: &ChainSpec,
+        starting_block: BlockNumber,
+    ) -> anyhow::Result<ConsensusState> {
+        Ok(match chainspec.consensus.seal_verification {
+            SealVerificationParams::Ethash { .. } => ConsensusState::EthHash,
+            SealVerificationParams::Clique { period: _, epoch } => ConsensusState::Clique(
+                recover_clique_state(tx, &chainspec.genesis, epoch, starting_block)?,
+            ),
+        })
+    }
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
@@ -49,6 +70,11 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn get_beneficiary(&self, header: &BlockHeader) -> Address {
         header.beneficiary
     }
+
+    /// Set state of the consensus engine to given block height
+    ///
+    /// e. g. signer list for PoA engines.
+    fn set_state(&mut self, state: ConsensusState) {}
 }
 
 #[allow(clippy::large_enum_variant)]
