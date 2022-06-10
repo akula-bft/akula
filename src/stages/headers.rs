@@ -93,6 +93,11 @@ where
             reached_tip = true;
         }
 
+        debug!(
+            "Target block for download: {target_block}{}",
+            if reached_tip { ", will reach tip" } else { "" }
+        );
+
         let headers_cap = (target_block.0 - starting_block.0) as usize;
         let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
 
@@ -280,6 +285,7 @@ impl HeaderDownload {
         response: BlockHeaders,
     ) -> anyhow::Result<()> {
         let cur_size = response.headers.len();
+        debug!("Handling response from {peer_id} with {cur_size} headers");
         let headers = Self::check_headers(&node, response.headers);
         if cur_size != headers.len() {
             node.penalize_peer(peer_id).await?;

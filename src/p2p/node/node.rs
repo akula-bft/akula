@@ -305,7 +305,10 @@ impl Node {
             .into_iter()
             .map(|request| {
                 let node = self.clone();
-                tokio::spawn(async move { node.send_header_request(request).await })
+                tokio::spawn(async move {
+                    trace!("Sending header request: {request:?}");
+                    node.send_header_request(request).await
+                })
             })
             .collect::<FuturesUnordered<_>>()
             .map(|_| ())
