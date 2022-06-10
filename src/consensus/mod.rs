@@ -71,9 +71,8 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         header.beneficiary
     }
 
-    /// Set state of the consensus engine to given block height
-    ///
-    /// e. g. signer list for PoA engines.
+    /// To be overriden for stateful consensus engines, e. g. PoA engines with a signer list.
+    #[allow(unused_variables)]
     fn set_state(&mut self, state: ConsensusState) {}
 }
 
