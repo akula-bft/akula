@@ -31,7 +31,7 @@ use tracing::*;
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
 
-const STAGE_UPPER_BOUND: usize = 3 << 15;
+const STAGE_UPPER_BOUND: usize = 90_000;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
