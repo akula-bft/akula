@@ -16,7 +16,7 @@ array-init = "2"
 async-recursion = "1"
 async-stream = "0.3"
 async-trait = "0.1"
-auto_impl = "0.5"
+auto_impl = "1"
 block-padding = "0.3"
 byte-unit = "4"
 byteorder = "1"
@@ -39,7 +39,7 @@ enr = { version = "0.6", default-features = false, features = [
     "rust-secp256k1",
 ] }
 enum-primitive-derive = "0.2"
-ethash = { git = "https://github.com/rust-ethereum/ethash", branch = "ethnum" }
+ethash = { git = "https://github.com/rust-ethereum/ethash" }
 ethereum-forkid = "0.8.0"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
     "remotekv",
