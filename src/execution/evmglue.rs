@@ -112,7 +112,14 @@ where
         }
 
         let nonce = self.state.get_nonce(message.sender)?;
-        self.state.set_nonce(message.sender, nonce + 1)?;
+        if let Some(new_nonce) = nonce.checked_add(1) {
+            self.state.set_nonce(message.sender, new_nonce)?;
+        } else {
+            // EIP-2681: Limit account nonce to 2^64-1
+            // See also https://github.com/ethereum/go-ethereum/blob/v1.10.13/core/vm/evm.go#L426
+            res.status_code = StatusCode::ArgumentOutOfRange;
+            return Ok(res);
+        }
 
         let contract_addr = {
             if let Some(salt) = message.salt {

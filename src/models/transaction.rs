@@ -617,6 +617,21 @@ impl Encodable for MessageWithSignature {
 
 impl Decodable for MessageWithSignature {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
+        let s = Self::rlp_decode(buf)?;
+
+        if s.max_fee_per_gas()
+            .checked_mul(s.gas_limit().into())
+            .is_none()
+        {
+            return Err(DecodeError::Custom("gas limit price product overflow"));
+        }
+
+        Ok(s)
+    }
+}
+
+impl MessageWithSignature {
+    fn rlp_decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
         let h = Header::decode(&mut &**buf)?;
 
         if h.list {
