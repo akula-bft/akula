@@ -274,6 +274,7 @@ impl CliqueState {
 
     fn set_signers(&mut self, signers: Vec<Address>) {
         self.signers = Signers(signers);
+        self.votes.set_threshold(self.signers.limit());
     }
 
     fn is_epoch(&self, number: BlockNumber) -> bool {
@@ -386,7 +387,7 @@ pub fn fast_forward_within_epoch<T: TransactionKind, E: EnvironmentKind>(
 ) -> anyhow::Result<()> {
     let mut cursor = tx.cursor(tables::Header)?;
 
-    for height in latest_epoch..starting_block {
+    for height in latest_epoch + 1..starting_block {
         state.finalize(CliqueBlock::from_header(&get_header(&mut cursor, height)?)?)?;
     }
 
@@ -401,7 +402,9 @@ pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
 ) -> anyhow::Result<CliqueState> {
     let mut state = CliqueState::new(epoch);
 
-    let latest_epoch = starting_block / epoch;
+    let blocks_into_epoch = starting_block % epoch;
+    let latest_epoch = starting_block - blocks_into_epoch;
+
     let begin_of_epoch_signers = if latest_epoch == 0 {
         if let Seal::Clique {
             vanity: _,
@@ -419,7 +422,7 @@ pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
 
     state.set_signers(begin_of_epoch_signers);
 
-    if starting_block > latest_epoch {
+    if blocks_into_epoch > 0 {
         fast_forward_within_epoch(&mut state, tx, latest_epoch, starting_block)?;
     }
 
