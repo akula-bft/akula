@@ -1,11 +1,11 @@
 use anyhow;
 use std::{
     cmp::Ord,
-    fs::File,
     io::{prelude::*, BufReader, BufWriter, SeekFrom},
     path::Path,
 };
-use tempfile::tempfile_in;
+use tempfile::NamedTempFile;
+use tracing::*;
 
 #[derive(Eq, Clone, PartialEq, PartialOrd, Ord)]
 pub struct Entry<Key, Value> {
@@ -20,7 +20,7 @@ impl<Key, Value> Entry<Key, Value> {
 }
 
 pub struct DataProvider {
-    file: BufReader<File>,
+    file: BufReader<NamedTempFile>,
     len: usize,
 }
 
@@ -34,7 +34,8 @@ impl DataProvider {
         Key: AsRef<[u8]>,
         Value: AsRef<[u8]>,
     {
-        let file = tempfile_in(dir)?;
+        let file = NamedTempFile::new_in(dir)?;
+        let path = file.path().to_string_lossy().into_owned();
         let mut w = BufWriter::new(file);
         for entry in &buffer {
             let k = entry.key.as_ref();
@@ -49,6 +50,7 @@ impl DataProvider {
         let mut file = BufReader::new(w.into_inner()?);
         file.seek(SeekFrom::Start(0))?;
         let len = buffer.len();
+        info!("Flushed out {len} bytes into temporary file at {path}");
         Ok(DataProvider { file, len })
     }
 
