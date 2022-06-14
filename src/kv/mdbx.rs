@@ -2,8 +2,10 @@ use crate::kv::{traits::*, *};
 use ::mdbx::{DatabaseFlags, WriteFlags};
 pub use ::mdbx::{EnvironmentKind, Geometry, NoWriteMap, TransactionKind, WriteMap, RO, RW};
 use anyhow::Context;
-use std::{collections::HashMap, marker::PhantomData, ops::Deref, path::Path};
+use e2p_fileflags::{FileFlags, Flags};
+use std::{collections::HashMap, fs::DirBuilder, marker::PhantomData, ops::Deref, path::Path};
 use tables::*;
+use tracing::*;
 
 #[derive(Clone, Debug)]
 struct TableObjectWrapper<T>(T);
@@ -69,6 +71,12 @@ impl<E: EnvironmentKind> MdbxEnvironment<E> {
         path: &Path,
         chart: DatabaseChart,
     ) -> anyhow::Result<Self> {
+        if DirBuilder::new().recursive(true).create(path).is_ok() {
+            if let Err(e) = path.set_flags(Flags::NOCOW) {
+                debug!("Failed to set nocow attribute at {path:?}: {e}");
+            }
+        }
+
         let s = Self::open(b, path, chart.clone(), false)?;
 
         let tx = s.inner.begin_rw_txn()?;

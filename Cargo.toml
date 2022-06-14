@@ -34,6 +34,7 @@ data-encoding = "2"
 derive_more = "0.99"
 digest = "0.10"
 directories = "4.0"
+e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
 educe = { version = "0.4", features = ["Debug", "Default"] }
 enr = { version = "0.6", default-features = false, features = [
     "rust-secp256k1",
