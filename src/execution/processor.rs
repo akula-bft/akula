@@ -408,7 +408,7 @@ where
     pub fn execute_and_write_block(mut self) -> Result<Vec<Receipt>, DuoError> {
         let receipts = self.execute_and_check_block()?;
 
-        self.state.write_to_db(self.header.number)?;
+        self.state.write_to_state(self.header.number)?;
 
         Ok(receipts)
     }
@@ -794,7 +794,7 @@ mod tests {
         // out of gas
         assert!(!receipt.success);
 
-        processor.into_state().write_to_db(block_number).unwrap();
+        processor.into_state().write_to_state(block_number).unwrap();
 
         // only the caller and the miner should change
         assert_eq!(state.read_account(address).unwrap(), Some(account));
@@ -847,7 +847,7 @@ mod tests {
         let receipt = processor.execute_transaction(&message, caller).unwrap();
         assert!(receipt.success);
 
-        processor.into_state().write_to_db(block_number).unwrap();
+        processor.into_state().write_to_state(block_number).unwrap();
 
         // suicide_beneficiary should've been touched and deleted
         assert_eq!(state.read_account(suicide_beneficiary).unwrap(), None);
