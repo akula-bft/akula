@@ -112,10 +112,10 @@ impl<'state> Blockchain<'state> {
             .total_difficulty(
                 current_canonical_block,
                 self.state.canonical_hash(current_canonical_block).unwrap(),
-            )?
+            )
             .unwrap();
 
-        if self.state.total_difficulty(block_number, hash)?.unwrap() > current_total_difficulty {
+        if self.state.total_difficulty(block_number, hash).unwrap() > current_total_difficulty {
             // canonize the new chain
             for i in (ancestor + 1..=current_canonical_block).rev() {
                 self.state.decanonize_block(i);

@@ -9,7 +9,7 @@ use crate::{
     u256_to_h256, BlockReader, HeaderReader, StateReader, StateWriter,
 };
 use bytes::Bytes;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use tokio::pin;
 use tracing::*;
 
@@ -49,7 +49,6 @@ where
 
     // Current block stuff
     block_number: BlockNumber,
-    changed_storage: HashSet<Address>,
 }
 
 impl<'db, 'tx, K, E> Buffer<'db, 'tx, K, E>
@@ -72,7 +71,6 @@ where
             hash_to_code: Default::default(),
             logs: Default::default(),
             block_number: Default::default(),
-            changed_storage: Default::default(),
         }
     }
 
@@ -234,7 +232,6 @@ where
     /// Must be called prior to calling update_account/update_account_code/update_storage.
     fn begin_block(&mut self, block_number: BlockNumber) {
         self.block_number = block_number;
-        self.changed_storage.clear();
     }
 
     fn update_account(
@@ -243,23 +240,14 @@ where
         initial: Option<Account>,
         current: Option<Account>,
     ) {
-        let equal = current == initial;
-        let account_deleted = current.is_none();
+        if initial != current {
+            self.account_changes
+                .entry(self.block_number)
+                .or_default()
+                .insert(address, initial);
 
-        if equal && !account_deleted && !self.changed_storage.contains(&address) {
-            return;
+            self.accounts.insert(address, current);
         }
-
-        self.account_changes
-            .entry(self.block_number)
-            .or_default()
-            .insert(address, initial);
-
-        if equal {
-            return;
-        }
-
-        self.accounts.insert(address, current);
     }
 
     fn update_code(&mut self, code_hash: H256, code: Bytes) -> anyhow::Result<()> {
@@ -275,23 +263,20 @@ where
         initial: U256,
         current: U256,
     ) -> anyhow::Result<()> {
-        if current == initial {
-            return Ok(());
+        if initial != current {
+            self.storage_changes
+                .entry(self.block_number)
+                .or_default()
+                .entry(address)
+                .or_default()
+                .insert(location, initial);
+
+            self.storage
+                .entry(address)
+                .or_default()
+                .slots
+                .insert(location, current);
         }
-
-        self.changed_storage.insert(address);
-        self.storage_changes
-            .entry(self.block_number)
-            .or_default()
-            .entry(address)
-            .or_default()
-            .insert(location, initial);
-
-        self.storage
-            .entry(address)
-            .or_default()
-            .slots
-            .insert(location, current);
 
         Ok(())
     }
