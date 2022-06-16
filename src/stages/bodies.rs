@@ -9,6 +9,7 @@ use crate::{
     stagedsync::{stage::*, stages::BODIES},
     StageId, TaskGuard,
 };
+use anyhow::format_err;
 use async_trait::async_trait;
 use futures::stream::FuturesUnordered;
 use hashbrown::HashMap;
@@ -25,6 +26,7 @@ use std::{
 use tokio_stream::StreamExt;
 use tracing::*;
 
+const STAGE_UPPER_BOUND: usize = 90_000;
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
@@ -52,17 +54,29 @@ where
     where
         'db: 'tx,
     {
-        let prev_progress = input.stage_progress.map(|v| v + 1u8).unwrap_or_default();
-        let starting_block = prev_progress;
-        let target = input.previous_stage.map(|(_, v)| v).unwrap();
+        let prev_progress = input.stage_progress.unwrap_or_default();
+        let prev_stage_progress = input
+            .previous_stage
+            .map(|(_, v)| v)
+            .ok_or_else(|| format_err!("cannot be first stage"))?;
 
-        let mut stream = self.node.stream_bodies().await;
-        self.download_bodies(&mut stream, txn, starting_block, target)
-            .await?;
+        let (target, done) = if prev_stage_progress > prev_progress + STAGE_UPPER_BOUND {
+            (prev_progress + STAGE_UPPER_BOUND, false)
+        } else {
+            (prev_stage_progress, true)
+        };
+
+        if target > prev_progress {
+            let starting_block = prev_progress + 1;
+
+            let mut stream = self.node.stream_bodies().await;
+            self.download_bodies(&mut stream, txn, starting_block, target)
+                .await?;
+        }
 
         Ok(ExecOutput::Progress {
             stage_progress: target,
-            done: true,
+            done,
             reached_tip: true,
         })
     }
@@ -106,7 +120,7 @@ impl BodyDownload {
         &mut self,
         stream: &mut NodeStream,
         txn: &mut MdbxTransaction<'_, RW, E>,
-        mut starting_block: BlockNumber,
+        starting_block: BlockNumber,
         target: BlockNumber,
     ) -> Result<(), StageError> {
         let requests = Arc::new(RwLock::new(Self::prepare_requests(
@@ -124,61 +138,61 @@ impl BodyDownload {
                 let pending_responses = pending_responses.clone();
 
                 async move {
-                loop {
-                    let left_requests = requests
-                        .read()
-                        .iter()
-                        .map(|(_, (_, hash))| *hash)
-                        .collect::<Vec<_>>();
+                    loop {
+                        let left_requests = requests
+                            .read()
+                            .iter()
+                            .map(|(_, (_, hash))| *hash)
+                            .collect::<Vec<_>>();
 
-                    if left_requests.is_empty() {
-                        break;
-                    }
-                    let chunk = 16;
-                    let total_requests = 30 * handler.total_peers().await;
-
-                    info!(
-                        "Sending {} out of {} block bodies requests",
-                        std::cmp::min(total_requests * chunk, left_requests.len()),
-                        left_requests.len()
-                    );
-
-                    pending_responses.fetch_add(total_requests as isize, Ordering::SeqCst);
-
-                    left_requests
-                        .chunks(chunk)
-                        .take(total_requests)
-                        .map(|chunk| {
-                            let handler = handler.clone();
-                            async move {
-                                let _ = tokio::time::timeout(
-                                    REQUEST_INTERVAL,
-                                    handler.send_block_request(chunk),
-                                )
-                                .await;
-                            }
-                        })
-                        .collect::<FuturesUnordered<_>>()
-                        .map(|_| ())
-                        .collect::<()>()
-                        .await;
-
-                    for _ in 0..(REQUEST_INTERVAL.as_secs() as usize * 4) {
-                        let current_pending_responses = pending_responses.load(Ordering::SeqCst);
-                        let next_cycle_threshold = total_requests as isize / 5;
-                        if current_pending_responses < next_cycle_threshold {
+                        if left_requests.is_empty() {
                             break;
                         }
+                        let chunk = 16;
+                        let total_requests = 30 * handler.total_peers().await;
 
-                        trace!("Not enough blocks received for next request cycle ({current_pending_responses} < {next_cycle_threshold})");
+                        info!(
+                            "Sending {} out of {} block bodies requests",
+                            std::cmp::min(total_requests * chunk, left_requests.len()),
+                            left_requests.len()
+                        );
 
-                        tokio::time::sleep(Duration::from_millis(250)).await;
+                        pending_responses.fetch_add(total_requests as isize, Ordering::SeqCst);
+
+                        left_requests
+                            .chunks(chunk)
+                            .take(total_requests)
+                            .map(|chunk| {
+                                let handler = handler.clone();
+                                async move {
+                                    let _ = tokio::time::timeout(
+                                        REQUEST_INTERVAL,
+                                        handler.send_block_request(chunk),
+                                    )
+                                    .await;
+                                }
+                            })
+                            .collect::<FuturesUnordered<_>>()
+                            .map(|_| ())
+                            .collect::<()>()
+                            .await;
+
+                        for _ in 0..(REQUEST_INTERVAL.as_secs() as usize * 4) {
+                            let current_pending_responses = pending_responses.load(Ordering::SeqCst);
+                            let next_cycle_threshold = total_requests as isize / 5;
+                            if current_pending_responses < next_cycle_threshold {
+                                break;
+                            }
+
+                            trace!("Not enough blocks received for next request cycle ({current_pending_responses} < {next_cycle_threshold})");
+
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                        }
+
+                        pending_responses.store(0, Ordering::SeqCst);
                     }
-
-                    pending_responses.store(0, Ordering::SeqCst);
                 }
-            }
-            .instrument(span!(Level::DEBUG, "body downloader requester"))
+                .instrument(span!(Level::DEBUG, "body downloader requester"))
             }));
 
             let mut bodies = HashMap::with_capacity(requests.read().len());
@@ -240,10 +254,6 @@ impl BodyDownload {
             .map(|((_, _), body)| *body.base_tx_id + body.tx_amount)
             .unwrap();
 
-        // Skipping genesis block, because it's already inserted.
-        if *starting_block == 0 {
-            starting_block += 1u8
-        };
         for block_number in starting_block..=target {
             let (hash, body) = bodies.remove(&block_number).unwrap_or_else(|| {
                 let (_, hash) = hash_cur.seek_exact(block_number).unwrap().unwrap();
@@ -293,9 +303,9 @@ impl BodyDownload {
         starting_block: BlockNumber,
         target: BlockNumber,
     ) -> anyhow::Result<HashMap<(H256, H256), (BlockNumber, H256)>> {
-        let cap = match target.0.saturating_sub(starting_block.0) {
+        let cap = match target.0.saturating_sub(starting_block.0) + 1 {
             0 => return Ok(HashMap::new()),
-            cap => cap as usize + 1,
+            cap => cap as usize,
         };
         let mut map = HashMap::with_capacity(cap);
 
