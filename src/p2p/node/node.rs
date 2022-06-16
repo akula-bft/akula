@@ -15,6 +15,7 @@ use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
 use task_group::TaskGroup;
+use tokio::sync::watch;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
@@ -40,7 +41,8 @@ pub struct Node {
     /// Node chain config.
     pub(crate) config: ChainConfig,
     /// Highest persistent chain tip.
-    pub(crate) chain_tip: RwLock<(BlockNumber, H256)>,
+    pub(crate) chain_tip: watch::Receiver<(BlockNumber, H256)>,
+    pub(crate) chain_tip_sender: watch::Sender<(BlockNumber, H256)>,
     /// Block caches
     pub(crate) block_caches: Mutex<BlockCaches>,
     /// Table of block hashes of the blocks known to not belong to the canonical chain.
@@ -75,7 +77,7 @@ impl Node {
                 let mut stream = handler.sync_stream().await;
                 loop {
                     if let Some(msg) = stream.next().await {
-                        let (block_number, _) = *handler.chain_tip.read();
+                        let (block_number, _) = *handler.chain_tip.borrow();
                         let peer_id = msg.peer_id;
 
                         match msg.msg {
@@ -109,7 +111,7 @@ impl Node {
                                 }
 
                                 if header.number > block_number {
-                                    *handler.chain_tip.write() = (header.number, hash);
+                                    let _ = handler.chain_tip_sender.send((header.number, hash));
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::All, hash, skip)).await?;
@@ -134,7 +136,9 @@ impl Node {
                                 }
 
                                 if number > block_number {
-                                    *handler.chain_tip.write() = (inner.block.header.number, hash);
+                                    let _ = handler
+                                        .chain_tip_sender
+                                        .send((inner.block.header.number, hash));
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::All, hash, skip)).await?;
@@ -176,7 +180,7 @@ impl Node {
             let handler = self.clone();
             async move {
                 loop {
-                    let (block_number, _) = *handler.chain_tip.read();
+                    let (block_number, _) = *handler.chain_tip.borrow();
 
                     for skip in 1..4 {
                         let request_id = rand::thread_rng().gen::<u64>();

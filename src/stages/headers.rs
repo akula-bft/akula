@@ -72,12 +72,13 @@ where
             })?;
 
         let mut starting_block: BlockNumber = prev_progress + 1;
+        let mut chain_tip = self.node.chain_tip.clone();
         let current_chain_tip = loop {
-            let n = self.node.chain_tip.read().0;
+            let _ = chain_tip.changed().await;
+            let (n, _) = *chain_tip.borrow();
             if n > starting_block {
                 break n;
             }
-            tokio::time::sleep(Self::BACK_OFF).await;
         };
 
         debug!("Chain tip={}", current_chain_tip);
