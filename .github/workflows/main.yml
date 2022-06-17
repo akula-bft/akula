@@ -15,6 +15,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install libext2fs-dev
+        run: sudo apt-get install -y libext2fs-dev
+
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
