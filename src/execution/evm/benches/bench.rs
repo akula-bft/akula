@@ -9,7 +9,7 @@ use akula::{
 use bytes::Bytes;
 use criterion::{criterion_group, criterion_main, profiler::Profiler, BatchSize, Criterion};
 use ethereum_types::Address;
-use ethnum::*;
+use ethnum::prelude::*;
 use hex_literal::hex;
 use pprof::{flamegraph::Options, ProfilerGuard};
 use serde::Deserialize;
