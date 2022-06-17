@@ -7,6 +7,7 @@ use hashlink::LruCache;
 use http::Uri;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
+use tokio::sync::watch;
 use tonic::transport::Channel;
 
 #[derive(Debug, Default)]
@@ -57,14 +58,17 @@ impl NodeBuilder {
         let status = RwLock::new(self.status.unwrap_or_else(|| Status::from(&config)));
         let forks = config.forks().into_iter().map(|f| *f).collect::<Vec<_>>();
 
+        let (chain_tip_sender, chain_tip) = watch::channel(Default::default());
+
         Ok(Node {
             stash,
             sentries,
             status,
             config,
-            chain_tip: Default::default(),
+            chain_tip,
+            chain_tip_sender,
+            bad_blocks: Default::default(),
             block_caches: Mutex::new(BlockCaches {
-                bad_blocks: LruCache::new(1 << 12),
                 parent_cache: LruCache::new(1 << 7),
                 block_cache: LruCache::new(1 << 10),
             }),

@@ -3,7 +3,7 @@ use akula::{
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus},
     models::*,
-    p2p::{collections::Graph, node::NodeBuilder},
+    p2p::node::NodeBuilder,
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
         otterscan::OtterscanApiServerImpl,
@@ -96,9 +96,13 @@ pub struct Opt {
     #[clap(long, default_value = "0")]
     pub delay_after_sync: u64,
 
-    /// Enable JSONRPC at this address.
+    /// Disable JSONRPC.
     #[clap(long)]
-    pub rpc_listen_address: Option<SocketAddr>,
+    pub no_rpc: bool,
+
+    /// Enable JSONRPC at this address.
+    #[clap(long, default_value = "127.0.0.1:8545")]
+    pub rpc_listen_address: SocketAddr,
 }
 
 #[allow(unreachable_code)]
@@ -155,8 +159,9 @@ fn main() -> anyhow::Result<()> {
 
                 let chain_config = ChainConfig::from(chainspec);
 
-                if let Some(listen_address) = opt.rpc_listen_address {
+                if !opt.no_rpc {
                     let db = db.clone();
+                    let listen_address = opt.rpc_listen_address;
                     tokio::spawn(async move {
                         let server = HttpServerBuilder::default()
                             .build(listen_address)
@@ -253,8 +258,9 @@ fn main() -> anyhow::Result<()> {
                     HeaderDownload {
                         node: node.clone(),
                         consensus: consensus.clone(),
+                        requests: Default::default(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
-                        graph: Graph::new(),
+                        graph: Default::default(),
                     },
                     false,
                 );

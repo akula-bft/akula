@@ -25,7 +25,7 @@ use std::{
 };
 
 pub use ethereum_types::{Address, Bloom, H128, H160, H256, H512, H64, U512, U64};
-pub use ethnum::*;
+pub use ethnum::prelude::*;
 
 pub const KECCAK_LENGTH: usize = H256::len_bytes();
 pub const ADDRESS_LENGTH: usize = Address::len_bytes();

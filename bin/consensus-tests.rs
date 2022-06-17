@@ -38,13 +38,16 @@ pub static BLOCKCHAIN_DIR: Lazy<PathBuf> = Lazy::new(|| Path::new("BlockchainTes
 pub static TRANSACTION_DIR: Lazy<PathBuf> =
     Lazy::new(|| Path::new("TransactionTests").to_path_buf());
 
-pub static IGNORED_TX_EXCEPTIONS: Lazy<HashSet<String>> = Lazy::new(|| {
+pub static IGNORED_TX_EXCEPTIONS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     hashset! {
         // This is not checked for now.
-        "InvalidVRS".to_string(),
+        "InvalidVRS",
 
         // Post-intrinsic gas calculation is part of execution, not pre-validation.
-        "TR_IntrinsicGas".to_string()
+        "TR_IntrinsicGas",
+
+        // Actually fix this when we have a new transaction type.
+        "TR_TypeNotSupported",
     }
 });
 
@@ -125,10 +128,11 @@ enum Network {
     BerlinToLondonAt5,
     EIP2384,
     ArrowGlacier,
+    Merge,
 }
 
 impl FromStr for Network {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
@@ -150,7 +154,8 @@ impl FromStr for Network {
             "BerlinToLondonAt5" => Self::BerlinToLondonAt5,
             "EIP2384" => Self::EIP2384,
             "ArrowGlacier" => Self::ArrowGlacier,
-            _ => return Err(()),
+            "Merge" => Self::Merge,
+            _ => return Err(s.to_string()),
         })
     }
 }
@@ -402,6 +407,22 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
             },
             None,
             10700000,
+        ),
+        (
+            Network::Merge,
+            Upgrades {
+                homestead: Some(0.into()),
+                tangerine: Some(0.into()),
+                spurious: Some(0.into()),
+                byzantium: Some(0.into()),
+                constantinople: Some(0.into()),
+                petersburg: Some(0.into()),
+                istanbul: Some(0.into()),
+                berlin: Some(0.into()),
+                london: Some(0.into()),
+            },
+            None,
+            11_200_000,
         ),
     ]
     .into_iter()
@@ -749,7 +770,7 @@ fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
                         )));
                     }
                     (Ok(_), TransactionTestResult::Incorrect { exception }) => {
-                        if !IGNORED_TX_EXCEPTIONS.contains(&exception) {
+                        if !IGNORED_TX_EXCEPTIONS.contains(&*exception) {
                             bail!(
                                 "Sender recovered for invalid transaction (exception {})",
                                 exception

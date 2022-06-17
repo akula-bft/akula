@@ -6,6 +6,7 @@ use crate::{
     p2p::{node::NodeBuilder, types::*},
 };
 use bytes::{BufMut, BytesMut};
+use dashmap::DashSet;
 use ethereum_interfaces::{sentry as grpc_sentry, sentry::sentry_client::SentryClient};
 use fastrlp::*;
 use futures::stream::FuturesUnordered;
@@ -14,6 +15,7 @@ use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
 use std::{future::pending, sync::Arc, time::Duration};
 use task_group::TaskGroup;
+use tokio::sync::watch;
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
@@ -23,8 +25,6 @@ pub type RequestId = u64;
 
 #[derive(Debug)]
 pub(crate) struct BlockCaches {
-    /// Table of block hashes of the blocks known to not belong to the canonical chain.
-    pub(crate) bad_blocks: LruCache<H256, ()>,
     /// Mapping from the child hash to it's parent.
     pub(crate) parent_cache: LruCache<H256, H256>,
     /// Mapping from the block hash to it's number.
@@ -41,9 +41,12 @@ pub struct Node {
     /// Node chain config.
     pub(crate) config: ChainConfig,
     /// Highest persistent chain tip.
-    pub(crate) chain_tip: RwLock<(BlockNumber, H256)>,
+    pub(crate) chain_tip: watch::Receiver<(BlockNumber, H256)>,
+    pub(crate) chain_tip_sender: watch::Sender<(BlockNumber, H256)>,
     /// Block caches
     pub(crate) block_caches: Mutex<BlockCaches>,
+    /// Table of block hashes of the blocks known to not belong to the canonical chain.
+    pub(crate) bad_blocks: DashSet<H256>,
     /// Chain forks.
     pub(crate) forks: Vec<u64>,
 }
@@ -74,7 +77,7 @@ impl Node {
                 let mut stream = handler.sync_stream().await;
                 loop {
                     if let Some(msg) = stream.next().await {
-                        let (block_number, _) = *handler.chain_tip.read();
+                        let (block_number, _) = *handler.chain_tip.borrow();
                         let peer_id = msg.peer_id;
 
                         match msg.msg {
@@ -108,7 +111,7 @@ impl Node {
                                 }
 
                                 if header.number > block_number {
-                                    *handler.chain_tip.write() = (header.number, hash);
+                                    let _ = handler.chain_tip_sender.send((header.number, hash));
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::All, hash, skip)).await?;
@@ -133,7 +136,9 @@ impl Node {
                                 }
 
                                 if number > block_number {
-                                    *handler.chain_tip.write() = (inner.block.header.number, hash);
+                                    let _ = handler
+                                        .chain_tip_sender
+                                        .send((inner.block.header.number, hash));
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
                                         tx.send((id, PeerFilter::All, hash, skip)).await?;
@@ -175,7 +180,7 @@ impl Node {
             let handler = self.clone();
             async move {
                 loop {
-                    let (block_number, _) = *handler.chain_tip.read();
+                    let (block_number, _) = *handler.chain_tip.borrow();
 
                     for skip in 1..4 {
                         let request_id = rand::thread_rng().gen::<u64>();
@@ -247,14 +252,13 @@ impl Node {
 
     /// Marks block with given hash as non-canonical.
     pub fn mark_bad_block(&self, hash: H256) {
-        self.block_caches.lock().bad_blocks.insert(hash, ());
+        self.bad_blocks.insert(hash);
     }
 
     /// Finds first bad block if any, and returns it's index in given iterable.
     #[inline]
     pub fn position_bad_block<'a, T: Iterator<Item = &'a H256>>(&self, iter: T) -> Option<usize> {
-        let mut g = self.block_caches.lock();
-        iter.into_iter().position(|h| g.bad_blocks.contains_key(h))
+        iter.into_iter().position(|h| self.bad_blocks.contains(h))
     }
 
     /// Updates current node status.
@@ -305,7 +309,10 @@ impl Node {
             .into_iter()
             .map(|request| {
                 let node = self.clone();
-                tokio::spawn(async move { node.send_header_request(request).await })
+                tokio::spawn(async move {
+                    trace!("Sending header request: {request:?}");
+                    node.send_header_request(request).await
+                })
             })
             .collect::<FuturesUnordered<_>>()
             .map(|_| ())

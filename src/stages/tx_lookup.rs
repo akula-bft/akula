@@ -5,8 +5,12 @@ use crate::{
     stagedsync::{stage::*, stages::*},
     StageId,
 };
+use anyhow::format_err;
 use async_trait::async_trait;
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tempfile::TempDir;
 use tokio::pin;
 use tracing::*;
@@ -43,26 +47,45 @@ where
         let walker_block_body = tx.cursor(tables::BlockBody)?.walk(Some(start_block));
         pin!(walker_block_body);
 
+        let mut block_tx_cursor = tx.cursor(tables::BlockTransaction)?;
+
+        let mut last_printed = Instant::now();
+
         while let Some((
             (block_number, _),
             BodyForStorage {
                 base_tx_id,
-                tx_amount,
+                mut tx_amount,
                 ..
             },
         )) = walker_block_body.next().transpose()?
         {
-            let walker_block_txs = tx
-                .cursor(tables::BlockTransaction)?
-                .walk(Some(base_tx_id))
-                .take(tx_amount.try_into().unwrap());
-            pin!(walker_block_txs);
+            let mut first = true;
+            while tx_amount > 0 {
+                let (_, tx) = if first {
+                    first = false;
+                    block_tx_cursor.seek_exact(base_tx_id)?
+                } else {
+                    block_tx_cursor.next()?
+                }
+                .ok_or_else(|| format_err!("unexpected end of block tx table"))?;
 
-            while let Some((_, tx)) = walker_block_txs.next().transpose()? {
+                tx_amount -= 1;
+
                 collector.push(tx.hash(), tables::TruncateStart(block_number));
             }
 
+            let now = Instant::now();
+            if now.duration_since(last_printed) > Duration::from_secs(30) {
+                info!("Block #{block_number}, base tx id {base_tx_id}");
+                last_printed = now;
+            }
+
             highest_block = block_number;
+        }
+
+        if input.first_started_at.0.elapsed() > Duration::from_secs(30) {
+            info!("Loading blocks {start_block} to {highest_block} into database");
         }
 
         collector.load(&mut cursor)?;
