@@ -75,7 +75,7 @@ impl Tracer for StdoutTracer {
         )
     }
 
-    fn capture_end(&mut self, output: &Output) {
+    fn capture_end(&mut self, _: usize, _: u64, output: &Output) {
         let context = self.execution_stack.pop().unwrap();
         let error = match output.status_code {
             StatusCode::Success => None,

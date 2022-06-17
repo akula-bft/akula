@@ -356,7 +356,11 @@ where
 
         let output = analysis.execute(&mut host, msg, revision);
 
-        self.tracer.capture_end(&output);
+        self.tracer.capture_end(
+            msg.depth.try_into().unwrap(),
+            msg.gas.try_into().unwrap(),
+            &output,
+        );
 
         Ok(output)
     }

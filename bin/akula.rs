@@ -6,7 +6,7 @@ use akula::{
     p2p::node::NodeBuilder,
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl,
+        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl,
     },
     stagedsync::{
         self,
@@ -17,7 +17,9 @@ use akula::{
 };
 use anyhow::Context;
 use clap::Parser;
-use ethereum_jsonrpc::{ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer};
+use ethereum_jsonrpc::{
+    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer,
+};
 use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{
@@ -103,6 +105,10 @@ pub struct Opt {
     /// Enable JSONRPC at this address.
     #[clap(long, default_value = "127.0.0.1:8545")]
     pub rpc_listen_address: SocketAddr,
+
+    /// Enable gRPC at this address.
+    #[clap(long, default_value = "127.0.0.1:7545")]
+    pub grpc_listen_address: SocketAddr,
 }
 
 #[allow(unreachable_code)]
@@ -167,31 +173,61 @@ fn main() -> anyhow::Result<()> {
                 let chain_config = ChainConfig::from(chainspec);
 
                 if !opt.no_rpc {
-                    let db = db.clone();
-                    let listen_address = opt.rpc_listen_address;
-                    tokio::spawn(async move {
-                        let server = HttpServerBuilder::default()
-                            .build(listen_address)
+                    tokio::spawn({
+                        let db = db.clone();
+                        let listen_address = opt.rpc_listen_address;
+                        async move {
+                            let server = HttpServerBuilder::default()
+                                .build(listen_address)
+                                .await
+                                .unwrap();
+
+                            let mut api = Methods::new();
+                            api.merge(
+                                EthApiServerImpl {
+                                    db: db.clone(),
+                                    call_gas_limit: 100_000_000,
+                                }
+                                .into_rpc(),
+                            )
+                            .unwrap();
+                            api.merge(NetApiServerImpl.into_rpc()).unwrap();
+                            api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+                                .unwrap();
+                            api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+                                .unwrap();
+                            api.merge(
+                                TraceApiServerImpl {
+                                    db,
+                                    call_gas_limit: 100_000_000,
+                                }
+                                .into_rpc(),
+                            )
+                            .unwrap();
+
+                            let _server_handle = server.start(api).unwrap();
+
+                            pending::<()>().await
+                        }
+                    });
+
+                    tokio::spawn({
+                        let db = db.clone();
+                        let listen_address = opt.grpc_listen_address;
+                        async move {
+                            tonic::transport::Server::builder()
+                            .add_service(
+                                ethereum_interfaces::web3::trace_api_server::TraceApiServer::new(
+                                    TraceApiServerImpl {
+                                        db,
+                                        call_gas_limit: 100_000_000,
+                                    },
+                                ),
+                            )
+                            .serve(listen_address)
                             .await
                             .unwrap();
-
-                        let mut api = Methods::new();
-                        api.merge(
-                            EthApiServerImpl {
-                                db: db.clone(),
-                                call_gas_limit: 100_000_000,
-                            }
-                            .into_rpc(),
-                        )
-                        .unwrap();
-                        api.merge(NetApiServerImpl.into_rpc()).unwrap();
-                        api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
-                            .unwrap();
-                        api.merge(OtterscanApiServerImpl { db }.into_rpc()).unwrap();
-
-                        let _server_handle = server.start(api).unwrap();
-
-                        pending::<()>().await
+                        }
                     });
                 }
 
