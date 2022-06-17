@@ -66,7 +66,7 @@ pub struct Opt {
 
     /// Use incremental staged sync.
     #[clap(long)]
-    pub increment: Option<u64>,
+    pub increment: Option<BlockNumber>,
 
     /// Sender recovery batch size (blocks)
     #[clap(long, default_value = "500000")]
@@ -188,6 +188,14 @@ fn main() -> anyhow::Result<()> {
                     });
                 }
 
+                let increment = opt.increment.or({
+                    if opt.prune {
+                        Some(BlockNumber(90_000))
+                    } else {
+                        None
+                    }
+                });
+
                 // staged sync setup
                 let mut staged_sync = stagedsync::StagedSync::new();
                 staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
@@ -261,6 +269,7 @@ fn main() -> anyhow::Result<()> {
                         requests: Default::default(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
                         graph: Default::default(),
+                        increment,
                     },
                     false,
                 );

@@ -31,7 +31,7 @@ use tracing::*;
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
 
-const STAGE_UPPER_BOUND: usize = 90_000;
+const STAGE_UPPER_BOUND: BlockNumber = BlockNumber(90_000);
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
@@ -41,6 +41,7 @@ pub struct HeaderDownload {
     pub requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
     pub max_block: BlockNumber,
     pub graph: Arc<Mutex<Graph>>,
+    pub increment: Option<BlockNumber>,
 }
 
 #[async_trait]
@@ -83,11 +84,15 @@ where
 
         debug!("Chain tip={}", current_chain_tip);
 
+        let max_increment = self
+            .increment
+            .map(|v| std::cmp::min(v, STAGE_UPPER_BOUND))
+            .unwrap_or(STAGE_UPPER_BOUND);
         let (mut target_block, mut reached_tip) =
-            if starting_block + STAGE_UPPER_BOUND > current_chain_tip {
+            if starting_block + max_increment > current_chain_tip {
                 (current_chain_tip, true)
             } else {
-                (starting_block + STAGE_UPPER_BOUND, false)
+                (starting_block + max_increment, false)
             };
         if target_block >= self.max_block {
             target_block = self.max_block;
@@ -145,7 +150,7 @@ where
 
         Ok(ExecOutput::Progress {
             stage_progress,
-            done: true,
+            done: self.increment.is_some() || reached_tip,
             reached_tip,
         })
     }
