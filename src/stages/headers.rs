@@ -5,7 +5,7 @@ use crate::{
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
-        collections::Graph,
+        collections::ForkChoiceGraph,
         node::Node,
         types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
     },
@@ -40,7 +40,7 @@ pub struct HeaderDownload {
     pub consensus: Arc<dyn Consensus>,
     pub requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
     pub max_block: BlockNumber,
-    pub graph: Arc<Mutex<Graph>>,
+    pub graph: Arc<Mutex<ForkChoiceGraph>>,
     pub increment: Option<BlockNumber>,
 }
 
@@ -288,7 +288,7 @@ impl HeaderDownload {
     async fn handle_response(
         node: Arc<Node>,
         requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
-        graph: Arc<Mutex<Graph>>,
+        graph: Arc<Mutex<ForkChoiceGraph>>,
         peer_id: H512,
         response: BlockHeaders,
     ) -> anyhow::Result<()> {

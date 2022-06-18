@@ -19,7 +19,7 @@ pub mod collections {
     type Ancestor = H256;
 
     #[derive(Debug)]
-    pub struct Graph {
+    pub struct ForkChoiceGraph {
         head: Link,
         chains: LruCache<H256, (U256, Depth, Ancestor)>,
 
@@ -28,13 +28,13 @@ pub mod collections {
         q: LruCache<H256, ()>,
     }
 
-    impl Default for Graph {
+    impl Default for ForkChoiceGraph {
         fn default() -> Self {
             Self::new()
         }
     }
 
-    impl Graph {
+    impl ForkChoiceGraph {
         const CHAINS_CAP: usize = 1 << 8;
         const CACHE_CAP: usize = 3 << 16;
 
@@ -159,7 +159,7 @@ pub mod collections {
         }
     }
 
-    impl Extend<BlockHeader> for Graph {
+    impl Extend<BlockHeader> for ForkChoiceGraph {
         fn extend<T>(&mut self, iter: T)
         where
             T: IntoIterator<Item = BlockHeader>,
@@ -170,7 +170,7 @@ pub mod collections {
         }
     }
 
-    impl Extend<(H256, BlockHeader)> for Graph {
+    impl Extend<(H256, BlockHeader)> for ForkChoiceGraph {
         fn extend<T>(&mut self, iter: T)
         where
             T: IntoIterator<Item = (H256, BlockHeader)>,
@@ -193,12 +193,12 @@ pub mod collections {
             const CANONICAL_EXTRA_DATA: &[u8] = b"canonical";
             const BETTER_CANONICAL_EXTRA_DATA: &[u8] = b"canonical+";
 
-            let mut graph = Graph::new();
+            let mut graph = ForkChoiceGraph::new();
             let mut forked_head = H256::default();
 
             let mut extra_data_cache = HashMap::new();
 
-            let insert_header = |graph: &mut Graph,
+            let insert_header = |graph: &mut ForkChoiceGraph,
                                  extra_data_cache: &mut HashMap<H256, Bytes>,
                                  header: BlockHeader,
                                  chain_parent_hash: &mut H256| {
