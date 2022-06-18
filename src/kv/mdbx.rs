@@ -71,7 +71,7 @@ impl<E: EnvironmentKind> MdbxEnvironment<E> {
     ) -> anyhow::Result<Self> {
         if DirBuilder::new().recursive(true).create(path).is_ok() {
             #[cfg(target_os = "linux")]
-            if let Err(e) = path.set_flags(e2p_fileflags::Flags::NOCOW) {
+            if let Err(e) = e2p_fileflags::FileFlags::set_flags(path, e2p_fileflags::Flags::NOCOW) {
                 tracing::debug!("Failed to set nocow attribute at {path:?}: {e}");
             }
         }
