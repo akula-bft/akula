@@ -136,7 +136,7 @@ hashbrown = { version = "0.12.0", features = [
 ] }
 dashmap = "5.3"
 
-[target.'cfg(linux)'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
 
 [features]
