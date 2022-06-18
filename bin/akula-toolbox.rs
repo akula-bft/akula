@@ -154,6 +154,7 @@ async fn download_headers(
             requests: Default::default(),
             max_block: u64::MAX.into(),
             graph: Default::default(),
+            increment: None,
         },
         false,
     );
