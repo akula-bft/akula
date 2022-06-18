@@ -94,7 +94,8 @@ pub mod collections {
             self.insert_with_hash(hash, header);
         }
 
-        pub fn dfs(&mut self) -> Option<H256> {
+        /// Find chain head using depth-first search algorithm.
+        pub fn chain_head(&mut self) -> Option<H256> {
             let mut roots = HashSet::new();
 
             for (hash, _) in self.q.iter() {
@@ -223,7 +224,7 @@ pub mod collections {
                     &mut forked_head,
                 );
             }
-            assert_eq!(graph.dfs().unwrap(), forked_head);
+            assert_eq!(graph.chain_head().unwrap(), forked_head);
             assert_eq!(extra_data_cache[&forked_head], FORKED_EXTRA_DATA);
             for number in (10..20u64).map(BlockNumber) {
                 (insert_header)(
@@ -239,7 +240,7 @@ pub mod collections {
                     &mut forked_head,
                 );
             }
-            assert_eq!(graph.dfs().unwrap(), forked_head);
+            assert_eq!(graph.chain_head().unwrap(), forked_head);
             assert_eq!(extra_data_cache[&forked_head], FORKED_EXTRA_DATA);
 
             // Insert chain with higher difficulty.
@@ -259,7 +260,7 @@ pub mod collections {
                     &mut canonical_head,
                 );
             }
-            assert_eq!(graph.dfs().unwrap(), canonical_head);
+            assert_eq!(graph.chain_head().unwrap(), canonical_head);
             assert_eq!(extra_data_cache[&canonical_head], CANONICAL_EXTRA_DATA);
 
             // Insert more blocks from the forked chain.
@@ -277,7 +278,7 @@ pub mod collections {
                     &mut forked_head,
                 );
             }
-            assert_eq!(graph.dfs().unwrap(), forked_head);
+            assert_eq!(graph.chain_head().unwrap(), forked_head);
             assert_eq!(extra_data_cache[&forked_head], FORKED_EXTRA_DATA);
 
             let mut better_canonical_head = H256::default();
@@ -295,7 +296,7 @@ pub mod collections {
                     &mut better_canonical_head,
                 );
             }
-            assert_eq!(graph.dfs().unwrap(), better_canonical_head);
+            assert_eq!(graph.chain_head().unwrap(), better_canonical_head);
             assert_eq!(
                 extra_data_cache[&better_canonical_head],
                 BETTER_CANONICAL_EXTRA_DATA

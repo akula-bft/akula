@@ -254,7 +254,7 @@ impl HeaderDownload {
 
         let mut graph = self.graph.lock();
         let tail = graph
-            .dfs()
+            .chain_head()
             .ok_or_else(|| format_err!("difficulty graph failure"))?;
         let mut headers = graph.backtrack(&tail);
 
