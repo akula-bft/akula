@@ -255,12 +255,6 @@ impl Node {
         self.bad_blocks.insert(hash);
     }
 
-    /// Finds first bad block if any, and returns it's index in given iterable.
-    #[inline]
-    pub fn position_bad_block<'a, T: Iterator<Item = &'a H256>>(&self, iter: T) -> Option<usize> {
-        iter.into_iter().position(|h| self.bad_blocks.contains(h))
-    }
-
     /// Updates current node status.
     pub async fn update_chain_head(&self, status: Option<Status>) -> anyhow::Result<()> {
         if let Some(val) = status {
