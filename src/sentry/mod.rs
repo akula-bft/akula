@@ -388,6 +388,8 @@ pub struct Opts {
     pub static_peers_interval: u64,
     #[clap(long, default_value = "50")]
     pub max_peers: NonZeroUsize,
+    #[clap(long, default_value = "10")]
+    pub min_peers: usize,
     /// Disable DNS and UDP discovery, only use static peers.
     #[clap(long, takes_value = false)]
     pub no_discovery: bool,
@@ -485,9 +487,10 @@ pub async fn run(
         .with_task_group(tasks.clone())
         .with_listen_options(ListenOptions::new(
             discovery_tasks,
-             opts.max_peers,
-             listen_addr.parse().unwrap(),
-             opts.cidr,
+            opts.min_peers,
+            opts.max_peers,
+            listen_addr.parse().unwrap(),
+            opts.cidr,
             no_new_peers,
         ))
         .with_client_version(version_string())

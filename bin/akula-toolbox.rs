@@ -151,7 +151,6 @@ async fn download_headers(
         HeaderDownload {
             node,
             consensus,
-            requests: Default::default(),
             max_block: u64::MAX.into(),
             graph: Default::default(),
             increment: None,

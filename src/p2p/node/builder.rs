@@ -1,4 +1,4 @@
-use super::{stash::Stash, BlockCaches, Node, Sentry};
+use super::{stash::Stash, Node, Sentry};
 use crate::{
     models::{BlockNumber, ChainConfig, H256, U256},
     p2p::types::Status,
@@ -68,10 +68,7 @@ impl NodeBuilder {
             chain_tip,
             chain_tip_sender,
             bad_blocks: Default::default(),
-            block_caches: Mutex::new(BlockCaches {
-                parent_cache: LruCache::new(1 << 7),
-                block_cache: LruCache::new(1 << 10),
-            }),
+            block_cache: Mutex::new(LruCache::new(64)),
             forks,
         })
     }

@@ -38,7 +38,6 @@ const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
 pub struct HeaderDownload {
     pub node: Arc<Node>,
     pub consensus: Arc<dyn Consensus>,
-    pub requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
     pub max_block: BlockNumber,
     pub graph: Arc<Mutex<ForkChoiceGraph>>,
     pub increment: Option<BlockNumber>,
@@ -77,7 +76,7 @@ where
         let current_chain_tip = loop {
             let _ = chain_tip.changed().await;
             let (n, _) = *chain_tip.borrow();
-            if n > starting_block {
+            if n >= starting_block {
                 break n;
             }
         };
@@ -99,18 +98,20 @@ where
             reached_tip = true;
         }
 
-        debug!(
+        info!(
             "Target block for download: {target_block}{}",
             if reached_tip { ", will reach tip" } else { "" }
         );
 
-        let headers_cap = (target_block.0 - starting_block.0) as usize;
+        let headers_cap = (target_block.0 - starting_block.0 + 1) as usize;
         let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
 
         while headers.len() < headers_cap {
             if !headers.is_empty() {
-                starting_block = headers.last().map(|(_, h)| h).unwrap().number;
+                starting_block = headers.last().map(|(_, h)| h).unwrap().number + 1;
             }
+
+            info!("Download session {starting_block} to {target_block}");
 
             headers.extend(self.download_headers(starting_block, target_block).await?);
             if let Some((_, h)) = headers.first() {
@@ -194,7 +195,13 @@ impl HeaderDownload {
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
-        self.prepare_requests(start, end);
+        let requests = Arc::new(self.prepare_requests(start, end));
+
+        info!(
+            "Will download {} headers over {} requests",
+            start - end + 1,
+            requests.len()
+        );
 
         let mut stream = self.node.stream_headers().await;
         let is_bounded = |block_number: BlockNumber| block_number >= start && block_number <= end;
@@ -204,7 +211,7 @@ impl HeaderDownload {
 
             let _g = TaskGuard(tokio::task::spawn({
                 let node = self.node.clone();
-                let requests = self.requests.clone();
+                let requests = requests.clone();
 
                 async move {
                     loop {
@@ -212,15 +219,13 @@ impl HeaderDownload {
                             .iter()
                             .map(|entry_ref| *entry_ref.value())
                             .collect::<Vec<_>>();
-                        node.clone().send_many_header_requests(reqs).await?;
+                        node.clone().send_many_header_requests(reqs).await;
                         tokio::time::sleep(Self::BACK_OFF).await;
                     }
-
-                    Ok::<_, anyhow::Error>(())
                 }
             }));
 
-            while !self.requests.is_empty() {
+            while !requests.is_empty() {
                 if let Some(msg) = stream.next().await {
                     let peer_id = msg.peer_id;
 
@@ -233,15 +238,14 @@ impl HeaderDownload {
                             tasks.push(TaskGuard(tokio::task::spawn({
                                 let (node, requests, graph, peer_id) = (
                                     self.node.clone(),
-                                    self.requests.clone(),
+                                    requests.clone(),
                                     self.graph.clone(),
                                     peer_id,
                                 );
 
                                 async move {
                                     Self::handle_response(node, requests, graph, peer_id, inner)
-                                        .await?;
-                                    Ok::<_, anyhow::Error>(())
+                                        .await
                                 }
                             })));
                         }
@@ -291,12 +295,12 @@ impl HeaderDownload {
         graph: Arc<Mutex<ForkChoiceGraph>>,
         peer_id: H512,
         response: BlockHeaders,
-    ) -> anyhow::Result<()> {
+    ) {
         let cur_size = response.headers.len();
         debug!("Handling response from {peer_id} with {cur_size} headers");
         let headers = Self::check_headers(&node, response.headers);
         if cur_size != headers.len() {
-            node.penalize_peer(peer_id).await?;
+            node.penalize_peer(peer_id).await;
         } else {
             let key = headers[0].1.number;
             let last_hash = headers[headers.len() - 1].0;
@@ -314,8 +318,6 @@ impl HeaderDownload {
                 graph.extend(headers);
             }
         }
-
-        Ok(())
     }
 
     async fn update_head<'tx, E: EnvironmentKind>(
@@ -328,32 +330,32 @@ impl HeaderDownload {
             .get(tables::HeadersTotalDifficulty, (height, hash))?
             .unwrap();
         let status = Status::new(height, hash, td);
-        self.node.update_chain_head(Some(status)).await?;
-
+        self.node.update_chain_head(Some(status)).await;
         Ok(())
     }
-}
 
-impl HeaderDownload {
-    fn prepare_requests(&self, starting_block: BlockNumber, target: BlockNumber) {
-        assert!(starting_block < target);
+    fn prepare_requests(
+        &self,
+        starting_block: BlockNumber,
+        target: BlockNumber,
+    ) -> DashMap<BlockNumber, HeaderRequest> {
+        (starting_block..=target)
+            .step_by(HEADERS_UPPER_BOUND)
+            .map(|start| {
+                let limit = std::cmp::max(
+                    std::cmp::min(*target - *start, HEADERS_UPPER_BOUND as u64),
+                    1,
+                );
 
-        self.requests.clear();
+                let request = HeaderRequest {
+                    start: BlockId::Number(start),
+                    limit,
+                    ..Default::default()
+                };
 
-        for start in (starting_block..=target).step_by(HEADERS_UPPER_BOUND) {
-            let limit = std::cmp::max(
-                std::cmp::min(*target - *start, HEADERS_UPPER_BOUND as u64),
-                1,
-            );
-
-            let request = HeaderRequest {
-                start: BlockId::Number(start),
-                limit,
-                ..Default::default()
-            };
-
-            self.requests.insert(start, request);
-        }
+                (start, request)
+            })
+            .collect()
     }
 
     #[inline]
