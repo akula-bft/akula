@@ -17,6 +17,10 @@ Erigon:
 
 ![](https://gateway.pinata.cloud/ipfs/QmWL3xXPPghxnHCsNpfHsURZCBqnwGdk8kxpPYqToAjPX6)
 
+Slower on higher block numbers:
+
+![](https://gateway.pinata.cloud/ipfs/QmUBzVC2DzxepWxfdm6SJFU4zYUFE2nTxm11G2G8cPSKDx)
+
 Akula:
 
 // TODO
