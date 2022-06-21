@@ -156,9 +156,8 @@ where
 
     let block_hash = chain::canonical_hash::read(txn, block_number)?
         .ok_or_else(|| format_err!("no canonical hash for block #{block_number}"))?;
-    let header = chain::header::read(txn, block_hash, block_number)?
-        .ok_or_else(|| format_err!("no header for block #{block_number}"))?
-        .into();
+    let header: BlockHeader = chain::header::read(txn, block_hash, block_number)?
+        .ok_or_else(|| format_err!("no header for block #{block_number}"))?;
     let senders = chain::tx_sender::read(txn, block_hash, block_number)?;
     let messages = chain::block_body::read_without_senders(txn, block_hash, block_number)?
         .ok_or_else(|| format_err!("where's block body"))?
@@ -175,9 +174,13 @@ where
         last_page: false,
     };
 
+    let beneficiary = header.beneficiary; // TODO make this work with all consensus algs
+    let header = header.into();
+
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
         let mut tracer = TouchTracer::new(addr);
+
         let receipt = execute_transaction(
             &mut state,
             &block_spec,
@@ -187,6 +190,7 @@ where
             &mut cumulative_gas_used,
             &transaction.message,
             sender,
+            beneficiary,
         )?;
 
         if tracer.touched() {

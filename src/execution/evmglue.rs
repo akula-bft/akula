@@ -49,6 +49,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: State>(
     block_spec: &BlockExecutionSpec,
     message: &Message,
     sender: Address,
+    beneficiary: Address,
     gas: u64,
 ) -> anyhow::Result<CallResult> {
     let mut evm = Evm {
@@ -59,7 +60,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: State>(
         block_spec,
         message,
         sender,
-        beneficiary: header.beneficiary,
+        beneficiary,
     };
 
     let res = if let TransactionAction::Call(to) = message.action() {
@@ -670,6 +671,7 @@ mod tests {
         gas: u64,
     ) -> CallResult {
         let mut tracer = NoopTracer;
+        let beneficiary = header.beneficiary;
         super::execute(
             state,
             &mut tracer,
@@ -678,6 +680,7 @@ mod tests {
             &MAINNET.collect_block_spec(header.number),
             message,
             sender,
+            beneficiary,
             gas,
         )
         .unwrap()

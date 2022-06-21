@@ -71,6 +71,7 @@ pub fn execute_transaction<'r, S>(
     cumulative_gas_used: &mut u64,
     message: &Message,
     sender: Address,
+    beneficiary: Address,
 ) -> Result<Receipt, DuoError>
 where
     S: State,
@@ -124,6 +125,7 @@ where
         block_spec,
         message,
         sender,
+        beneficiary,
         gas,
     )?;
 
@@ -141,10 +143,7 @@ where
     let priority_fee_per_gas = message
         .priority_fee_per_gas(base_fee_per_gas)
         .ok_or(ValidationError::MaxFeeLessThanBase)?;
-    state.add_to_balance(
-        header.beneficiary,
-        U256::from(gas_used) * priority_fee_per_gas,
-    )?;
+    state.add_to_balance(beneficiary, U256::from(gas_used) * priority_fee_per_gas)?;
 
     state.destruct_selfdestructs()?;
     if rev >= Revision::Spurious {
@@ -288,6 +287,8 @@ where
         sender: Address,
     ) -> Result<Receipt, DuoError> {
         let header = PartialHeader::from(self.header.clone());
+        let beneficiary = self.engine.get_beneficiary(self.header);
+
         execute_transaction(
             &mut self.state,
             self.block_spec,
@@ -297,6 +298,7 @@ where
             &mut self.cumulative_gas_used,
             message,
             sender,
+            beneficiary,
         )
     }
 

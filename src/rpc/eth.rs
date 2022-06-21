@@ -88,6 +88,7 @@ where
 
         let mut tracer = NoopTracer;
 
+        let beneficiary = header.beneficiary; // TODO make this work for all consensus algs
         Ok(evmglue::execute(
             &mut state,
             &mut tracer,
@@ -96,6 +97,7 @@ where
             &block_spec,
             &message,
             sender,
+            beneficiary,
             gas_limit,
         )?
         .output_data
@@ -137,6 +139,7 @@ where
         let mut tracer = NoopTracer;
         let gas_limit = header.gas_limit;
 
+        let beneficiary = header.beneficiary; // TODO make this work with all consensus algs
         Ok(U64::from(
             gas_limit as i64
                 - evmglue::execute(
@@ -147,6 +150,7 @@ where
                     &block_spec,
                     &message,
                     sender,
+                    beneficiary,
                     gas_limit,
                 )?
                 .gas_left,
