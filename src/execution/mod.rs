@@ -22,13 +22,16 @@ pub fn execute_block<S: State>(
     let mut analysis_cache = AnalysisCache::default();
     let mut engine = consensus::engine_factory(config.clone())?;
     let mut tracer = NoopTracer;
+
+    let header = BlockHeader::new(header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
+
     let config = config.collect_block_spec(header.number);
     ExecutionProcessor::new(
         state,
         &mut tracer,
         &mut analysis_cache,
         &mut *engine,
-        header,
+        &header,
         block,
         &config,
     )

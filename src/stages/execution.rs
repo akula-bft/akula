@@ -67,8 +67,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
         let header = tx
             .get(tables::Header, (block_number, block_hash))?
-            .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?
-            .into();
+            .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?;
         let block = accessors::chain::block_body::read_with_senders(tx, block_hash, block_number)?
             .ok_or_else(|| {
                 format_err!("Block body not found: {}/{:?}", block_number, block_hash)

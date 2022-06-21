@@ -370,11 +370,9 @@ where
         if let Some(block_number) = chain::tl::read(&txn, hash)? {
             let block_hash = chain::canonical_hash::read(&txn, block_number)?
                 .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
-            let header = PartialHeader::from(
-                chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
-                    format_err!("header not found for block #{block_number}/{block_hash}")
-                })?,
-            );
+            let header = chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
+                format_err!("header not found for block #{block_number}/{block_hash}")
+            })?;
             let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)?
                 .ok_or_else(|| {
                     format_err!("body not found for block #{block_number}/{block_hash}")

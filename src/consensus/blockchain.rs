@@ -146,12 +146,15 @@ impl<'state> Blockchain<'state> {
 
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
+
+        let header = BlockHeader::new(block.header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
+
         let processor = ExecutionProcessor::new(
             self.state,
             &mut tracer,
             &mut analysis_cache,
             &mut *self.engine,
-            &block.header,
+            &header,
             &body,
             &block_spec,
         );

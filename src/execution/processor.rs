@@ -23,7 +23,7 @@ where
     tracer: &'tracer mut dyn Tracer,
     analysis_cache: &'analysis mut AnalysisCache,
     engine: &'e mut dyn Consensus,
-    header: &'h PartialHeader,
+    header: &'h BlockHeader,
     block: &'b BlockBodyWithSenders,
     block_spec: &'c BlockExecutionSpec,
     cumulative_gas_used: u64,
@@ -186,7 +186,7 @@ where
         tracer: &'tracer mut dyn Tracer,
         analysis_cache: &'analysis mut AnalysisCache,
         engine: &'e mut dyn Consensus,
-        header: &'h PartialHeader,
+        header: &'h BlockHeader,
         block: &'b BlockBodyWithSenders,
         block_spec: &'c BlockExecutionSpec,
     ) -> Self {
@@ -287,10 +287,11 @@ where
         message: &Message,
         sender: Address,
     ) -> Result<Receipt, DuoError> {
+        let header = PartialHeader::from(self.header.clone());
         execute_transaction(
             &mut self.state,
             self.block_spec,
-            self.header,
+            &header,
             self.tracer,
             self.analysis_cache,
             &mut self.cumulative_gas_used,
@@ -324,9 +325,10 @@ where
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
-        for change in
-            self.engine
-                .finalize(self.header, &self.block.ommers, self.block_spec.revision)?
+        let header = PartialHeader::from(self.header.clone());
+        for change in self
+            .engine
+            .finalize(&header, &self.block.ommers, self.block_spec.revision)?
         {
             match change {
                 FinalizationChange::Reward {
