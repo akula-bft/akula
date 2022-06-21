@@ -417,12 +417,13 @@ mod tests {
 
     #[test]
     fn zero_gas_price() {
-        let header = PartialHeader {
+        let partial_header = PartialHeader {
             number: 2_687_232.into(),
             gas_limit: 3_303_221,
             beneficiary: hex!("4bb96091ee9d802ed039c4d1a5f6216f90f81b01").into(),
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(partial_header, EMPTY_LIST_HASH, EMPTY_ROOT);
         let block = Default::default();
 
         // The sender does not exist
@@ -459,11 +460,12 @@ mod tests {
 
     #[test]
     fn eip3607_reject_transactions_from_senders_with_deployed_code() {
-        let header = PartialHeader {
+        let partial_header = PartialHeader {
             number: 1.into(),
             gas_limit: 3_000_000,
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(partial_header, EMPTY_LIST_HASH, EMPTY_ROOT);
 
         let message = Message::Legacy {
             chain_id: None,
@@ -511,12 +513,14 @@ mod tests {
 
     #[test]
     fn no_refund_on_error() {
-        let header = PartialHeader {
+        let partial_header = PartialHeader {
             number: 10_050_107.into(),
             gas_limit: 328_646,
             beneficiary: hex!("5146556427ff689250ed1801a783d12138c3dd5e").into(),
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(partial_header, EMPTY_LIST_HASH, EMPTY_ROOT);
+
         let block = Default::default();
         let caller = hex!("834e9b529ac9fa63b39a06f8d8c9b0d6791fa5df").into();
         let nonce = 3;
@@ -603,12 +607,14 @@ mod tests {
 
     #[test]
     fn selfdestruct() {
-        let header = PartialHeader {
+        let partial_header = PartialHeader {
             number: 1_487_375.into(),
             gas_limit: 4_712_388,
             beneficiary: hex!("61c808d82a3ac53231750dadc13c777b59310bd9").into(),
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(partial_header, EMPTY_LIST_HASH, EMPTY_ROOT);
+
         let block = Default::default();
         let suicidal_address = hex!("6d20c1c07e56b7098eb8c50ee03ba0f6f498a91d").into();
         let caller_address = hex!("4bf2054ffae7a454a35fd8cf4be21b23b1f25a6f").into();
@@ -728,12 +734,15 @@ mod tests {
     #[test]
     fn out_of_gas_during_account_recreation() {
         let block_number = 2_081_788.into();
-        let header = PartialHeader {
+
+        let partial_header = PartialHeader {
             number: block_number,
             gas_limit: 4_712_388,
             beneficiary: hex!("a42af2c70d316684e57aefcc6e393fecb1c7e84e").into(),
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(partial_header, EMPTY_LIST_HASH, EMPTY_ROOT);
+
         let block = Default::default();
         let caller = hex!("c789e5aba05051b1468ac980e30068e19fad8587").into();
 
@@ -792,12 +801,15 @@ mod tests {
     #[test]
     fn empty_suicide_beneficiary() {
         let block_number = 2_687_389.into();
-        let header = PartialHeader {
+
+        let partial_header = PartialHeader {
             number: block_number,
             gas_limit: 4_712_388,
             beneficiary: hex!("2a65aca4d5fc5b5c859090a6c34d164135398226").into(),
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(partial_header, EMPTY_LIST_HASH, EMPTY_ROOT);
+
         let block = Default::default();
         let caller = hex!("5ed8cee6b63b1c6afce3ad7c92f4fd7e1b8fad9f").into();
         let suicide_beneficiary = hex!("ee098e6c2a43d9e2c04f08f0c3a87b0ba59079d5").into();
