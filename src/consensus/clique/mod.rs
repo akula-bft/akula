@@ -500,4 +500,8 @@ impl Consensus for Clique {
             unreachable!("Expected clique ConsensusState.");
         }
     }
+
+    fn get_beneficiary(&self, header: &BlockHeader) -> Address {
+        recover_signer(header).unwrap()
+    }
 }
