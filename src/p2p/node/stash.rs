@@ -1,13 +1,11 @@
-use std::fmt::Debug;
-
-use mdbx::EnvironmentKind;
-
 use crate::{
     accessors::chain,
     kv::{tables, MdbxWithDirHandle},
     models::{BlockBody, BlockHeader, BlockNumber, H256},
     p2p::types::{BlockId, GetBlockHeadersParams},
 };
+use mdbx::EnvironmentKind;
+use std::fmt::Debug;
 
 pub trait Stash: Send + Sync + Debug {
     fn get_headers(&self, _: GetBlockHeadersParams) -> anyhow::Result<Vec<BlockHeader>>;
