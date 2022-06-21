@@ -139,7 +139,6 @@ mod tests {
             mix_hash: hex!("b26583e11ffc5d412b46d1ddb74e78c775fb54b049dc0cf0689e8430a45d9186").into(),
             nonce: hex!("596b98b5d0f8cc56").into(),
             base_fee_per_gas: Some(0x18aac2ec3d_u64.into()),
-            option_tx_root: None,
         };
 
         let ommers = vec![];
