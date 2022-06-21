@@ -7,10 +7,7 @@ use crate::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
-    models::{
-        Block, BlockHeader, BlockNumber, ChainId, Genesis, PartialHeader, Revision, Seal,
-        EMPTY_LIST_HASH,
-    },
+    models::{Block, BlockHeader, BlockNumber, ChainId, Genesis, Revision, Seal},
     BlockState,
 };
 use anyhow::bail;
@@ -482,13 +479,11 @@ impl Consensus for Clique {
 
     fn finalize(
         &self,
-        block: &PartialHeader,
+        block: &BlockHeader,
         _ommers: &[BlockHeader],
         _revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
-        let tx_root = block.option_tx_root.unwrap();
-        let header = BlockHeader::new(block.clone(), EMPTY_LIST_HASH, tx_root);
-        let clique_block = CliqueBlock::from_header(&header)?;
+        let clique_block = CliqueBlock::from_header(block)?;
 
         let mut state = self.state.lock().unwrap();
 

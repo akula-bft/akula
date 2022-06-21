@@ -123,7 +123,7 @@ impl Consensus for Ethash {
     }
     fn finalize(
         &self,
-        header: &PartialHeader,
+        header: &BlockHeader,
         ommers: &[BlockHeader],
         revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>> {

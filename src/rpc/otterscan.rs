@@ -60,7 +60,7 @@ where
             .ok_or_else(|| format_err!("no chainspec found"))?;
         let revision = chainspec.collect_block_spec(block_number).revision;
         let finalization_changes =
-            engine_factory(chainspec)?.finalize(&header.into(), &ommers, revision)?;
+            engine_factory(chainspec)?.finalize(&header, &ommers, revision)?;
 
         let mut block_reward = U256::ZERO;
         let mut uncle_reward = U256::ZERO;

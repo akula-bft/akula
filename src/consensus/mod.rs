@@ -61,7 +61,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// NOTE: For Ethash See YP Section 11.3 "Reward Application".
     fn finalize(
         &self,
-        block: &PartialHeader,
+        block: &BlockHeader,
         ommers: &[BlockHeader],
         revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>>;

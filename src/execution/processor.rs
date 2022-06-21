@@ -325,10 +325,9 @@ where
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
-        let header = PartialHeader::from(self.header.clone());
-        for change in self
-            .engine
-            .finalize(&header, &self.block.ommers, self.block_spec.revision)?
+        for change in
+            self.engine
+                .finalize(self.header, &self.block.ommers, self.block_spec.revision)?
         {
             match change {
                 FinalizationChange::Reward {
