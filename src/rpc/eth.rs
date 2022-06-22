@@ -133,13 +133,13 @@ where
             input: call_data.data.unwrap_or_default().into(),
         };
         let mut cache = AnalysisCache::default();
-        let block_spec = chain::chain_config::read(&txn)?
-            .ok_or_else(|| format_err!("no chainspec found"))?
-            .collect_block_spec(block_number);
+        let chain_spec = chain::chain_config::read(&txn)?
+            .ok_or_else(|| format_err!("no chainspec found"))?;
+        let block_spec = chain_spec.collect_block_spec(block_number);
         let mut tracer = NoopTracer;
         let gas_limit = header.gas_limit;
 
-        let beneficiary = header.beneficiary; // TODO make this work with all consensus algs
+        let beneficiary = engine_factory(chain_spec)?.get_beneficiary(&header);
         Ok(U64::from(
             gas_limit as i64
                 - evmglue::execute(
