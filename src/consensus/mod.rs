@@ -4,12 +4,12 @@ mod clique;
 mod ethash;
 
 pub use self::{base::*, blockchain::*, clique::*, ethash::*};
-use crate::{BlockState, kv::mdbx::MdbxTransaction, models::*};
+use crate::{kv::mdbx::MdbxTransaction, models::*, BlockState};
 use anyhow::bail;
+use clique::state::CliqueState;
 use derive_more::{Display, From};
 use mdbx::{EnvironmentKind, TransactionKind};
 use std::fmt::{Debug, Display};
-use clique::state::CliqueState;
 
 #[derive(Debug)]
 pub enum FinalizationChange {

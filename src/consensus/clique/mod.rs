@@ -1,16 +1,16 @@
 pub mod state;
 
 use crate::{
-    BlockState,
     consensus::{
-        CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange,
-        ValidationError,
+        state::CliqueBlock, CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
+        FinalizationChange, ValidationError,
     },
     kv::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
     models::{Block, BlockHeader, BlockNumber, ChainId, Genesis, Revision, Seal},
+    BlockState,
 };
 use anyhow::bail;
 use bytes::Bytes;
@@ -21,9 +21,8 @@ use secp256k1::{
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use std::{sync::Mutex, time::Duration, unreachable};
 use state::CliqueState;
-use crate::consensus::state::CliqueBlock;
+use std::{sync::Mutex, time::Duration, unreachable};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;

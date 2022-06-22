@@ -1,9 +1,10 @@
-use std::collections::BTreeMap;
+use crate::{
+    consensus::{clique, clique::EXTRA_VANITY, CliqueError, DuoError, ValidationError},
+    models::{BlockHeader, BlockNumber},
+};
 use ethereum_types::Address;
 use ethnum::U256;
-use crate::consensus::{clique, CliqueError, DuoError, ValidationError};
-use crate::consensus::clique::EXTRA_VANITY;
-use crate::models::{BlockHeader, BlockNumber};
+use std::collections::BTreeMap;
 
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
 const NONCE_DROP: u64 = 0x0000000000000000;
@@ -131,7 +132,7 @@ pub struct CliqueBlock {
 }
 
 impl CliqueBlock {
-     fn parse_extra_data(extra_data: &[u8]) -> Result<(Vec<Address>, Vec<u8>, Vec<u8>), DuoError> {
+    fn parse_extra_data(extra_data: &[u8]) -> Result<(Vec<Address>, Vec<u8>, Vec<u8>), DuoError> {
         let addresses = clique::parse_checkpoint(extra_data)?;
         let vanity = extra_data[..EXTRA_VANITY].to_vec();
         let signature = extra_data[(EXTRA_VANITY + 20usize * addresses.len())..].to_vec();

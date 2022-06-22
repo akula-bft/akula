@@ -191,7 +191,7 @@ impl<'state> Blockchain<'state> {
             let header = self.state.read_header(block_number, hash)?.unwrap();
 
             let block = BlockWithSenders {
-                header: header.into(),
+                header,
                 transactions: body.transactions,
                 ommers: body.ommers,
             };
@@ -232,7 +232,7 @@ impl<'state> Blockchain<'state> {
                 .state
                 .read_body_with_senders(block_number, hash)?
                 .unwrap();
-            let header = self.state.read_header(block_number, hash)?.unwrap().into();
+            let header = self.state.read_header(block_number, hash)?.unwrap();
 
             let block = WithHash {
                 inner: BlockWithSenders {

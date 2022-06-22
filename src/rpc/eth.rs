@@ -133,8 +133,8 @@ where
             input: call_data.data.unwrap_or_default().into(),
         };
         let mut cache = AnalysisCache::default();
-        let chain_spec = chain::chain_config::read(&txn)?
-            .ok_or_else(|| format_err!("no chainspec found"))?;
+        let chain_spec =
+            chain::chain_config::read(&txn)?.ok_or_else(|| format_err!("no chainspec found"))?;
         let block_spec = chain_spec.collect_block_spec(block_number);
         let mut tracer = NoopTracer;
         let gas_limit = header.gas_limit;

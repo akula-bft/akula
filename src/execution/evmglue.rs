@@ -672,11 +672,12 @@ mod tests {
     ) -> CallResult {
         let mut tracer = NoopTracer;
         let beneficiary = header.beneficiary;
+        let header = BlockHeader::new(header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
         super::execute(
             state,
             &mut tracer,
             &mut AnalysisCache::default(),
-            header,
+            &header,
             &MAINNET.collect_block_spec(header.number),
             message,
             sender,
