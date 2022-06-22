@@ -23,7 +23,6 @@ use sha3::{Digest, Keccak256};
 use std::{collections::BTreeMap, sync::Mutex, time::Duration, unreachable};
 
 const EPOCH_LENGTH: usize = 30000;
-const BLOCK_PERIOD: u64 = 15;
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
