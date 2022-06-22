@@ -32,7 +32,7 @@ where
 fn refund_gas<'r, S>(
     state: &mut IntraBlockState<'r, S>,
     block_spec: &BlockExecutionSpec,
-    header: &PartialHeader,
+    header: &BlockHeader,
     message: &Message,
     sender: Address,
     mut gas_left: u64,
@@ -65,7 +65,7 @@ where
 pub fn execute_transaction<'r, S>(
     state: &mut IntraBlockState<'r, S>,
     block_spec: &BlockExecutionSpec,
-    header: &PartialHeader,
+    header: &BlockHeader,
     tracer: &mut dyn Tracer,
     analysis_cache: &mut AnalysisCache,
     cumulative_gas_used: &mut u64,
@@ -286,13 +286,12 @@ where
         message: &Message,
         sender: Address,
     ) -> Result<Receipt, DuoError> {
-        let header = PartialHeader::from(self.header.clone());
         let beneficiary = self.engine.get_beneficiary(self.header);
 
         execute_transaction(
             &mut self.state,
             self.block_spec,
-            &header,
+            self.header,
             self.tracer,
             self.analysis_cache,
             &mut self.cumulative_gas_used,

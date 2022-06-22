@@ -175,7 +175,6 @@ where
     };
 
     let beneficiary = engine_factory(chain_spec.clone())?.get_beneficiary(&header);
-    let header = header.into();
 
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
