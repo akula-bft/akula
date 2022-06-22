@@ -253,12 +253,12 @@ impl CliqueState {
         Ok(())
     }
 
-    fn apply_non_genesis_block(&mut self, block: &CliqueBlock) {
+    pub(crate) fn finalize(&mut self, block: CliqueBlock) {
         self.history.insert(block.signer, block.number);
 
         if self.is_epoch(block.number) {
             self.votes.clear();
-        } else if let Some(ref vote) = block.vote {
+        } else if let Some(ref vote) = &block.vote {
             let accepted = self.votes.tally(block.signer, vote);
 
             if accepted {
@@ -272,22 +272,5 @@ impl CliqueState {
                 self.votes.set_threshold(self.signers.limit());
             }
         }
-    }
-
-    fn apply_genesis_block(&mut self, genesis: &CliqueBlock) {
-        for signer in &genesis.checkpoint {
-            self.signers.insert(*signer);
-        }
-        self.votes.set_threshold(self.signers.limit());
-    }
-
-    pub(crate) fn finalize(&mut self, block: CliqueBlock) -> anyhow::Result<()> {
-        if block.number == 0 {
-            self.apply_genesis_block(&block);
-        } else {
-            self.apply_non_genesis_block(&block);
-        }
-
-        Ok(())
     }
 }

@@ -96,7 +96,7 @@ pub fn fast_forward_within_epoch<T: TransactionKind, E: EnvironmentKind>(
     let mut cursor = tx.cursor(tables::Header)?;
 
     for height in latest_epoch + 1..starting_block {
-        state.finalize(CliqueBlock::from_header(&get_header(&mut cursor, height)?)?)?;
+        state.finalize(CliqueBlock::from_header(&get_header(&mut cursor, height)?)?);
     }
 
     Ok(())
@@ -199,7 +199,7 @@ impl Consensus for Clique {
         let mut state = self.state.lock().unwrap();
 
         state.validate(&clique_block)?;
-        state.finalize(clique_block)?;
+        state.finalize(clique_block);
 
         Ok(vec![])
     }
