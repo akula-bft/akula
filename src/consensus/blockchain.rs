@@ -147,14 +147,12 @@ impl<'state> Blockchain<'state> {
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
 
-        let header = BlockHeader::new(block.header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
-
         let processor = ExecutionProcessor::new(
             self.state,
             &mut tracer,
             &mut analysis_cache,
             &mut *self.engine,
-            &header,
+            &block.header,
             &body,
             &block_spec,
         );
@@ -257,7 +255,7 @@ impl<'state> Blockchain<'state> {
 
     fn canonical_ancestor(
         &self,
-        header: &PartialHeader,
+        header: &BlockHeader,
         hash: H256,
     ) -> Result<BlockNumber, DuoError> {
         if let Some(canonical_hash) = self.state.canonical_hash(header.number) {
@@ -272,6 +270,6 @@ impl<'state> Blockchain<'state> {
                 number: header.number,
                 parent_hash: header.parent_hash,
             })?;
-        self.canonical_ancestor(&parent.into(), header.parent_hash)
+        self.canonical_ancestor(&parent, header.parent_hash)
     }
 }

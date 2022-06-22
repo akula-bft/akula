@@ -38,7 +38,7 @@ impl Block {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockWithSenders {
-    pub header: PartialHeader,
+    pub header: BlockHeader,
     pub transactions: Vec<MessageWithSender>,
     pub ommers: Vec<BlockHeader>,
 }
@@ -59,7 +59,7 @@ impl From<Block> for BlockWithSenders {
             .collect();
 
         Self {
-            header: block.header.into(),
+            header: block.header,
             transactions,
             ommers: block.ommers,
         }
