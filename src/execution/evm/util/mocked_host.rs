@@ -6,7 +6,7 @@ use hex_literal::hex;
 use std::{cmp::min, collections::HashMap};
 
 /// LOG record.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogRecord {
     /// The address of the account which created the log.
     pub creator: Address,
@@ -18,7 +18,7 @@ pub struct LogRecord {
     pub topics: Vec<U256>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelfdestructRecord {
     /// The address of the account which has self-destructed.
     pub selfdestructed: Address,

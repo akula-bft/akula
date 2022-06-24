@@ -261,13 +261,12 @@ impl<K: EnrKeyUnambiguous> FromStr for DnsRecord<K> {
 
         if let Some(link) = s.strip_prefix(LINK_PREFIX) {
             let mut it = link.split('@');
-            let public_key = K::decode_public(
-                &BASE32_NOPAD.decode(
+            let public_key =
+                K::decode_public(&BASE32_NOPAD.decode(
                     it.next()
                         .ok_or_else(|| anyhow!("Public key not found"))?
                         .as_bytes(),
-                )?,
-            )?;
+                )?)?;
             let domain = it
                 .next()
                 .ok_or_else(|| anyhow!("Domain not found"))?

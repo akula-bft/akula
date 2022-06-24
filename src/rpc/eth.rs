@@ -12,7 +12,10 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use ethereum_jsonrpc::{types, EthApiServer};
+use ethereum_jsonrpc::{
+    types::{self, TransactionLog},
+    EthApiServer, LogFilter,
+};
 use jsonrpsee::core::RpcResult;
 use std::sync::Arc;
 
@@ -37,6 +40,11 @@ where
                 .unwrap_or(BlockNumber(0))
                 .0,
         ))
+    }
+
+    async fn get_logs(&self, filter: LogFilter) -> RpcResult<TransactionLog> {
+        let _ = filter;
+        Err(format_err!("not implemented").into())
     }
 
     async fn chain_id(&self) -> RpcResult<U64> {

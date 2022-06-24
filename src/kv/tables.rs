@@ -359,7 +359,7 @@ impl TableEncode for Address {
 impl TableDecode for Address {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
         match b.len() {
-            ADDRESS_LENGTH => Ok(Address::from_slice(&*b)),
+            ADDRESS_LENGTH => Ok(Address::from_slice(b)),
             other => Err(InvalidLength::<ADDRESS_LENGTH> { got: other }.into()),
         }
     }
@@ -408,7 +408,7 @@ where
 {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
         match b.len() {
-            KECCAK_LENGTH => Ok(H256::from_slice(&*b)),
+            KECCAK_LENGTH => Ok(H256::from_slice(b)),
             other => Err(InvalidLength::<KECCAK_LENGTH> { got: other }.into()),
         }
     }
@@ -614,7 +614,7 @@ impl TableDecode for crate::models::Account {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountChange {
     pub address: Address,
     pub account: Option<crate::models::Account>,
@@ -650,7 +650,7 @@ impl TableDecode for AccountChange {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StorageChangeKey {
     pub block_number: BlockNumber,
     pub address: Address,
@@ -684,7 +684,7 @@ impl TableDecode for StorageChangeKey {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageChange {
     pub location: H256,
     pub value: U256,

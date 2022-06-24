@@ -1,7 +1,7 @@
 use crate::{models::KECCAK_LENGTH, trie::util::assert_subset};
 use ethereum_types::H256;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Node {
     pub state_mask: u16,
     pub tree_mask: u16,

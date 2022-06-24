@@ -8,7 +8,7 @@ use std::{
 
 type NodeUrl = String;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct BlockExecutionSpec {
     pub revision: Revision,
     pub active_transitions: HashSet<Revision>,
@@ -17,7 +17,7 @@ pub struct BlockExecutionSpec {
     pub balance_changes: HashMap<Address, U256>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChainSpec {
     pub name: String,
     pub consensus: ConsensusParams,
@@ -113,7 +113,7 @@ impl ChainSpec {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DifficultyBomb {
     pub delays: BTreeMap<BlockNumber, BlockNumber>,
 }
@@ -134,7 +134,7 @@ impl DifficultyBomb {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConsensusParams {
     pub seal_verification: SealVerificationParams,
     #[serde(
@@ -149,7 +149,7 @@ pub fn switch_is_active(switch: Option<BlockNumber>, block_number: BlockNumber) 
     block_number >= switch.unwrap_or(BlockNumber(u64::MAX))
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SealVerificationParams {
     Clique {
         #[serde(deserialize_with = "deserialize_period_as_duration")]
@@ -209,7 +209,7 @@ impl SealVerificationParams {
 }
 
 // deserialize_str_as_u64
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Upgrades {
     #[serde(
         default,
@@ -267,20 +267,20 @@ pub struct Upgrades {
     pub london: Option<BlockNumber>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Params {
     pub chain_id: ChainId,
     pub network_id: NetworkId,
     pub min_gas_limit: u64,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockScore {
     NoTurn = 1,
     InTurn = 2,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Seal {
     Ethash {
         #[serde(with = "hexbytes")]
@@ -336,7 +336,7 @@ impl Seal {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Genesis {
     pub number: BlockNumber,
     pub author: Address,
@@ -351,7 +351,7 @@ pub struct Genesis {
     pub base_fee_per_gas: Option<U256>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Contract {
     Contract {
         #[serde(with = "hexbytes")]
@@ -360,13 +360,13 @@ pub enum Contract {
     Precompile(Precompile),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModExpVersion {
     ModExp198,
     ModExp2565,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Precompile {
     EcRecover { base: u64, word: u64 },
     Sha256 { base: u64, word: u64 },
@@ -379,7 +379,7 @@ pub enum Precompile {
     Blake2F { gas_per_round: u64 },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct P2PParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bootnodes: Vec<NodeUrl>,

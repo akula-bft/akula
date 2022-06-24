@@ -18,14 +18,14 @@ where
     require_tip: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StageExecutionReceipt {
     pub stage_id: StageId,
     pub progress: BlockNumber,
     pub duration: Duration,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StagedSyncStatus {
     pub maximum_progress: Option<BlockNumber>,
     pub minimum_progress: Option<BlockNumber>,

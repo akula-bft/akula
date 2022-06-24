@@ -4,7 +4,7 @@ use ethnum::{AsU256, U256};
 use std::ops::{Add, Mul};
 
 /// EVM bytecode builder.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bytecode {
     inner: Vec<u8>,
 }

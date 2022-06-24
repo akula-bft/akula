@@ -93,31 +93,31 @@ impl From<MessageId> for grpc_sentry::MessageId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodableWrapper, RlpDecodableWrapper)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct NewPooledTransactionHashes(pub Vec<H256>);
 
-#[derive(Debug, Clone, Eq, PartialEq, RlpEncodableWrapper, RlpDecodableWrapper)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct Transactions(pub Vec<MessageWithSignature>);
 
-#[derive(Debug, Clone, Eq, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct GetPooledTransactions {
     pub request_id: u64,
     pub hashes: Vec<H256>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct PooledTransactions {
     pub request_id: u64,
     pub transactions: Vec<MessageWithSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct BlockBodies {
     pub request_id: u64,
     pub bodies: Vec<BlockBody>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Message {
     NewBlockHashes(NewBlockHashes),
     GetBlockHeaders(GetBlockHeaders),
@@ -174,7 +174,7 @@ impl From<Vec<H256>> for Message {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundMessage {
     pub msg: Message,
     pub peer_id: PeerId,

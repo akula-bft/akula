@@ -58,7 +58,7 @@ pub struct TxContext {
     pub block_base_fee: U256,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Call<'a> {
     Call(&'a InterpreterMessage),
     Create(&'a CreateMessage),

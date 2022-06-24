@@ -10,7 +10,7 @@ pub use self::{block::*, header::*, message::*, penalty::*, rlp::*, status::*};
 use super::node::SentryId;
 use crate::sentry::devp2p::PeerId;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PeerFilter {
     All,
     Random(u64),
