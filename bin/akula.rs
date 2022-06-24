@@ -123,8 +123,10 @@ fn main() -> anyhow::Result<()> {
             rt.block_on(async move {
                 info!("Starting Akula ({})", version_string());
 
+                let mut bundled_chain_spec = false;
                 let chain_config = if let Some(chain) = opt.chain {
                     let chain_config = ChainConfig::new(&chain)?;
+                    bundled_chain_spec = true;
                     Some(chain_config.chain_spec)
                 } else if let Some(chain_path) = opt.chain_spec_file {
                     Some(ron::de::from_reader(File::open(chain_path)?)?)
@@ -146,8 +148,12 @@ fn main() -> anyhow::Result<()> {
                     let span = span!(Level::INFO, "", " Genesis initialization ");
                     let _g = span.enter();
                     let txn = db.begin_mutable()?;
-                    let (chainspec, initialized) =
-                        akula::genesis::initialize_genesis(&txn, &*etl_temp_dir, chain_config)?;
+                    let (chainspec, initialized) = akula::genesis::initialize_genesis(
+                        &txn,
+                        &*etl_temp_dir,
+                        bundled_chain_spec,
+                        chain_config,
+                    )?;
                     if initialized {
                         txn.commit()?;
                     }

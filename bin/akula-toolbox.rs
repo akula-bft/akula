@@ -128,6 +128,7 @@ async fn download_headers(
     akula::genesis::initialize_genesis(
         &txn,
         &*Arc::new(tempfile::tempdir_in(etl_temp_path).context("failed to create ETL temp dir")?),
+        true,
         Some(chain_config.chain_spec.clone()),
     )?;
 
