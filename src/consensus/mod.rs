@@ -99,7 +99,7 @@ pub enum BadTransactionError {
     }, // Tg > BHl - l(BR)u
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CliqueError {
     UnknownSigner {
         signer: Address,

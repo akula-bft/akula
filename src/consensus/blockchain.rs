@@ -146,7 +146,6 @@ impl<'state> Blockchain<'state> {
 
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
-
         let processor = ExecutionProcessor::new(
             self.state,
             &mut tracer,
