@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 use task_group::TaskGroup;
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
 use tokio_stream::StreamExt;
 use tonic::transport::Channel;
 use tracing::*;
@@ -50,6 +50,7 @@ pub struct Node {
     pub chain_tip_sender: watch::Sender<(BlockNumber, H256)>,
     /// Block cache
     pub block_cache: Mutex<LruCache<H256, (SentryId, PeerId, crate::models::Block)>>,
+    pub block_cache_notify: Notify,
     /// Table of block hashes of the blocks known to not belong to the canonical chain.
     pub bad_blocks: DashSet<H256>,
     /// Chain forks.
@@ -137,6 +138,7 @@ impl Node {
                                     .block_cache
                                     .lock()
                                     .insert(hash, (sentry_id, peer_id, inner.block));
+                                handler.block_cache_notify.notify_one();
 
                                 if number > block_number {
                                     let _ = handler.chain_tip_sender.send((number, hash));

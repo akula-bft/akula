@@ -17,8 +17,15 @@ use mdbx::{EnvironmentKind, RW};
 use parking_lot::{Mutex, RwLock};
 use rand::prelude::*;
 use rayon::iter::{ParallelDrainRange, ParallelIterator};
-use std::{collections::HashSet, sync::Arc, time::Duration};
-use tokio::select;
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+use tokio::{select, sync::watch};
 use tokio_stream::StreamExt;
 use tracing::*;
 
@@ -112,32 +119,51 @@ where
     }
 }
 
-#[derive(Default)]
+#[derive(Debug)]
 pub struct PendingResponses {
     inner: HashSet<u64>,
+    watch_sender: watch::Sender<usize>,
 }
 
 impl PendingResponses {
+    pub fn new() -> (Self, watch::Receiver<usize>) {
+        let (watch_sender, receiver) = watch::channel(0);
+        (
+            Self {
+                inner: Default::default(),
+                watch_sender,
+            },
+            receiver,
+        )
+    }
+
+    pub fn notify(&mut self) {
+        let _ = self.watch_sender.send(self.inner.len());
+    }
+
     pub fn get_id(&mut self) -> u64 {
         loop {
             let id = rand::thread_rng().gen::<u64>();
 
             if self.inner.insert(id) {
+                self.notify();
                 return id;
             }
         }
     }
 
-    pub fn remove(&mut self, request_id: u64) -> bool {
-        self.inner.remove(&request_id)
+    pub fn remove(&mut self, request_id: u64) {
+        self.inner.remove(&request_id);
+        self.notify();
     }
 
-    pub fn count(&self) -> usize {
+    pub fn count(&mut self) -> usize {
         self.inner.len()
     }
 
     pub fn clear(&mut self) {
-        self.inner.clear()
+        self.inner.clear();
+        self.notify();
     }
 }
 
@@ -155,7 +181,8 @@ impl BodyDownload {
             starting_block,
             target,
         )?));
-        let pending_responses = Arc::new(Mutex::new(PendingResponses::default()));
+        let (pending_responses, mut pending_responses_watch) = PendingResponses::new();
+        let pending_responses = Arc::new(Mutex::new(pending_responses));
         let handler = self.node.clone();
 
         let mut bodies = {
@@ -165,6 +192,9 @@ impl BodyDownload {
                 let pending_responses = pending_responses.clone();
 
                 async move {
+                    let mut send_interval = REQUEST_INTERVAL;
+                    let mut cycles_without_progress = 0;
+                    let mut last_left_requests = requests.read().len();
                     loop {
                         let left_requests = requests
                             .read()
@@ -175,6 +205,21 @@ impl BodyDownload {
                         if left_requests.is_empty() {
                             break;
                         }
+
+                        // Apply additional delay on no progress to prevent busy loop
+                        cycles_without_progress = if left_requests.len() == last_left_requests {
+                            if cycles_without_progress == 3 {
+                                tokio::time::sleep(send_interval).await;
+
+                                // TODO: save already downloaded and contiguous blocks and exit stage
+                                3
+                            } else {
+                                cycles_without_progress + 1
+                            }
+                        } else {
+                            0
+                        };
+                        last_left_requests = left_requests.len();
                         let chunk = 16;
 
                         let mut will_reach_tip_this_cycle = false;
@@ -187,24 +232,27 @@ impl BodyDownload {
                         }
 
                         info!(
-                            "Sending {total_chunks_this_cycle} requests for {} out of {} block bodies",
+                            "Sending {total_chunks_this_cycle} requests for {} out of {} block bodies, will receive for {send_interval:?}",
                             std::cmp::min(total_chunks_this_cycle * chunk, left_requests.len()),
                             left_requests.len()
                         );
 
+                        let total_sent = Arc::new(AtomicUsize::new(total_chunks_this_cycle));
                         left_requests
                             .chunks(chunk)
                             .take(total_chunks_this_cycle)
                             .map(|chunk| {
                                 let handler = handler.clone();
                                 let pending_responses = pending_responses.clone();
+                                let total_sent = total_sent.clone();
                                 async move {
                                     let _ = tokio::time::timeout(
-                                        REQUEST_INTERVAL,
+                                        send_interval,
                                         async move {
                                             let request_id = pending_responses.lock().get_id();
                                             if handler.send_block_request(request_id, chunk, will_reach_tip_this_cycle).await.is_none() {
                                                 pending_responses.lock().remove(request_id);
+                                                total_sent.fetch_sub(1, Ordering::SeqCst);
                                             } else {
                                                 debug!("Sent block request with id {request_id}");
                                             }
@@ -218,16 +266,31 @@ impl BodyDownload {
                             .collect::<()>()
                             .await;
 
-                        for _ in 0..(REQUEST_INTERVAL.as_secs() as usize * 2) {
-                            let current_pending_responses = pending_responses.lock().count();
-                            let next_cycle_threshold = total_chunks_this_cycle / 5;
-                            if current_pending_responses < next_cycle_threshold {
-                                break;
+                        let mut send_cycle_successful = false;
+
+                        let timeout = tokio::time::sleep(send_interval);
+                        tokio::pin!(timeout);
+                        loop {
+                            tokio::select! {
+                                _ = pending_responses_watch.changed() => {
+                                    let next_cycle_threshold = total_sent.load(Ordering::SeqCst) / 5;
+                                    if *pending_responses_watch.borrow() < next_cycle_threshold {
+                                        send_cycle_successful = true;
+                                        break;
+                                    }
+                                }
+                                _ = &mut timeout => {
+                                    break;
+                                }
                             }
+                        }
 
-                            trace!("Not enough blocks received for next request cycle ({current_pending_responses} >= {next_cycle_threshold})");
-
-                            tokio::time::sleep(Duration::from_millis(250)).await;
+                        if send_cycle_successful && send_interval > Duration::from_secs(2) {
+                            send_interval -= Duration::from_millis(250);
+                            debug!("Request cycle interval lowered to {send_interval:?}");
+                        } else if send_interval < Duration::from_secs(60) {
+                            send_interval += Duration::from_millis(250);
+                            debug!("Request cycle interval increased to {send_interval:?}");
                         }
 
                         pending_responses.lock().clear();
@@ -237,6 +300,9 @@ impl BodyDownload {
             }));
 
             let mut bodies = HashMap::with_capacity(requests.read().len());
+            let mut stats = VecDeque::new();
+            let mut total_received = 0;
+            let started_at = Instant::now();
             loop {
                 let requests_length = requests.read().len();
                 if requests_length == 0 {
@@ -249,83 +315,105 @@ impl BodyDownload {
 
                 let mut pending_bodies = Vec::with_capacity(batch_size);
 
-                let mut skip_wait = false;
-                if will_reach_tip {
-                    for (
-                        _,
-                        (
-                            _,
-                            _,
-                            Block {
-                                transactions,
-                                ommers,
-                                ..
-                            },
-                        ),
-                    ) in handler.block_cache.lock().drain()
-                    {
-                        pending_bodies.push(vec![BlockBody {
-                            transactions,
-                            ommers,
-                        }]);
-                        skip_wait = true;
-                    }
-                }
+                let s = stream.filter_map(|msg| match msg.msg {
+                    Message::BlockBodies(msg) => Some(msg),
+                    _ => None,
+                });
+                tokio::pin!(s);
 
-                if !skip_wait {
-                    let s = stream.filter_map(|msg| match msg.msg {
-                        Message::BlockBodies(msg) => Some(msg),
-                        _ => None,
-                    });
-                    tokio::pin!(s);
+                let receive_window = tokio::time::sleep(Duration::from_secs(1));
+                tokio::pin!(receive_window);
 
-                    let receive_window = tokio::time::sleep(Duration::from_secs(2));
-                    tokio::pin!(receive_window);
+                let notified = handler.block_cache_notify.notified();
+                tokio::pin!(notified);
 
-                    loop {
-                        select! {
-                            res = s.next() => {
-                                if let Some(BlockBodies { request_id, bodies }) = res {
-                                    let mut pending_responses = pending_responses.lock();
-                                    if pending_responses.remove(request_id) {
-                                        debug!("Accepted block bodies with id {request_id}");
-                                        pending_bodies.push(bodies);
+                loop {
+                    select! {
+                        res = s.next() => {
+                            if let Some(BlockBodies { request_id, bodies }) = res {
+                                let mut pending_responses = pending_responses.lock();
+                                pending_responses.remove(request_id);
+                                debug!("Accepted block bodies with id {request_id}");
+                                pending_bodies.push(bodies);
 
-                                        if pending_responses.count() == 0 {
-                                            break;
-                                        }
-                                    } else {
-                                        debug!("Ignoring block response with unknown id: {request_id}");
-                                    }
-                                } else {
+                                if pending_responses.count() == 0 {
                                     break;
                                 }
+                            } else {
+                                break;
                             }
-                            _ = &mut receive_window => break,
+                        }
+                        _ = &mut notified, if will_reach_tip => {
+                            let cached_blocks: Vec<BlockBody> = handler.block_cache.lock().drain().map(|(
+                                _,
+                                (
+                                    _,
+                                    _,
+                                    Block {
+                                        transactions,
+                                        ommers,
+                                        ..
+                                    },
+                                ),
+                            )| BlockBody {
+                                transactions,
+                                ommers,
+                            }).collect();
+
+                            if !cached_blocks.is_empty() {
+                                pending_bodies.push(cached_blocks);
+                            }
+                            break;
+                        }
+
+                        _ = &mut receive_window => {
+                            break;
                         }
                     }
                 }
 
-                let tmp = pending_bodies
-                    .par_drain(..)
-                    .flatten()
-                    .map(|body| ((body.ommers_hash(), body.transactions_root()), body))
-                    .collect::<Vec<_>>();
+                let mut received = 0;
+                if !pending_bodies.is_empty() {
+                    let tmp = pending_bodies
+                        .par_drain(..)
+                        .flatten()
+                        .map(|body| ((body.ommers_hash(), body.transactions_root()), body))
+                        .collect::<Vec<_>>();
 
-                let mut downloaded = 0;
-                let mut requests = requests.write();
-                for (key, value) in tmp {
-                    if let Some((number, hash)) = requests.remove(&key) {
-                        bodies.insert(number, (hash, value));
-                        downloaded += 1;
-                    } else {
-                        debug!("Block {key:?} was not requested, ignored");
+                    let mut requests = requests.write();
+                    for (key, value) in tmp {
+                        if let Some((number, hash)) = requests.remove(&key) {
+                            bodies.insert(number, (hash, value));
+                            received += 1;
+                        } else {
+                            trace!("Block {key:?} was not requested, ignored");
+                        }
                     }
                 }
 
-                if downloaded > 0 {
-                    info!("Downloaded {downloaded} block bodies");
+                total_received += received;
+                let elapsed = started_at.elapsed().as_secs();
+                stats.push_back((total_received, elapsed));
+
+                if stats.len() > 20 {
+                    stats.pop_front();
                 }
+
+                let (total_received_sum, elapsed_sum) = stats.iter().fold(
+                    (0, 0),
+                    |(total_received_sum, elapsed_sum), &(total_received, elapsed)| {
+                        (total_received_sum + total_received, elapsed_sum + elapsed)
+                    },
+                );
+
+                info!(
+                    "Received {received} block bodies{}",
+                    if elapsed_sum > 0 {
+                        format!(" ({} blk/sec)", total_received_sum / elapsed_sum)
+                    } else {
+                        String::new()
+                    }
+                );
             }
             bodies
         };
