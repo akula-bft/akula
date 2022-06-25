@@ -199,7 +199,7 @@ impl HeaderDownload {
 
         info!(
             "Will download {} headers over {} requests",
-            start - end + 1,
+            end - start + 1,
             requests.len()
         );
 
