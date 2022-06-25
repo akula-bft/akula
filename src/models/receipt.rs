@@ -4,7 +4,7 @@ use bytes::{Buf, BufMut};
 use fastrlp::*;
 use serde::*;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Receipt {
     pub tx_type: TxType,
     pub success: bool,

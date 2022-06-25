@@ -6,7 +6,7 @@ use strum_macros::Display;
 
 /// Message status code.
 #[must_use]
-#[derive(Clone, Copy, Debug, Display, PartialEq)]
+#[derive(Clone, Copy, Debug, Display, PartialEq, Eq)]
 pub enum StatusCode {
     /// Execution finished with success.
     #[strum(serialize = "success")]
@@ -103,7 +103,7 @@ pub enum CallKind {
 
 /// The message describing an EVM call,
 /// including a zero-depth call from transaction origin.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InterpreterMessage {
     /// The kind of the call. For zero-depth calls `CallKind::Call` SHOULD be used.
     pub kind: CallKind,
@@ -136,7 +136,7 @@ pub struct InterpreterMessage {
     pub code_address: Address,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CreateMessage {
     pub salt: Option<U256>,
     pub gas: i64,
@@ -167,7 +167,7 @@ impl From<CreateMessage> for InterpreterMessage {
 }
 
 /// Output of EVM execution.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Output {
     /// EVM exited with this status code.
     pub status_code: StatusCode,
@@ -180,7 +180,7 @@ pub struct Output {
 }
 
 /// EVM execution output if no error has occurred.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SuccessfulOutput {
     /// Indicates if revert was requested.
     pub reverted: bool,

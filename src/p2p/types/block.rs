@@ -1,7 +1,7 @@
 use crate::models::{Block, BlockNumber, H256};
 use fastrlp::*;
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct GetBlockBodies {
     pub request_id: u64,
     pub hashes: Vec<H256>,
@@ -27,7 +27,7 @@ impl From<H256> for BlockId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodableWrapper, RlpDecodableWrapper)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodableWrapper, RlpDecodableWrapper)]
 pub struct NewBlockHashes(pub Vec<BlockHashAndNumber>);
 
 impl NewBlockHashes {
@@ -48,7 +48,7 @@ pub struct BlockHashAndNumber {
     pub number: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct NewBlock {
     pub block: Block,
     pub total_difficulty: u128,

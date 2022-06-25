@@ -78,7 +78,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BadTransactionError {
     SenderNoEOA {
         sender: Address,
@@ -121,7 +121,7 @@ pub enum CliqueError {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ValidationError {
     FutureBlock {
         now: u64,

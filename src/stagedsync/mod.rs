@@ -4,6 +4,7 @@ pub mod util;
 
 use self::stage::{Stage, StageInput, UnwindInput};
 use crate::{kv::mdbx::*, models::*, stagedsync::stage::*, StageId};
+use futures::future::BoxFuture;
 use std::time::{Duration, Instant};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
 use tracing::*;
@@ -15,6 +16,20 @@ where
     stage: Box<dyn Stage<'db, E>>,
     unwind_priority: usize,
     require_tip: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StageExecutionReceipt {
+    pub stage_id: StageId,
+    pub progress: BlockNumber,
+    pub duration: Duration,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StagedSyncStatus {
+    pub maximum_progress: Option<BlockNumber>,
+    pub minimum_progress: Option<BlockNumber>,
+    pub stage_execution_receipts: Vec<StageExecutionReceipt>,
 }
 
 /// Staged synchronization framework
@@ -42,6 +57,8 @@ where
     start_with_unwind: Option<BlockNumber>,
     exit_after_sync: bool,
     delay_after_sync: Option<Duration>,
+    post_cycle_callback:
+        Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static>>,
 }
 
 impl<'db, E> Default for StagedSync<'db, E>
@@ -69,6 +86,7 @@ where
             start_with_unwind: None,
             exit_after_sync: false,
             delay_after_sync: None,
+            post_cycle_callback: None,
         }
     }
 
@@ -115,6 +133,14 @@ where
 
     pub fn start_with_unwind(&mut self, v: Option<BlockNumber>) -> &mut Self {
         self.start_with_unwind = v;
+        self
+    }
+
+    pub fn set_post_cycle_callback(
+        &mut self,
+        f: impl Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static,
+    ) -> &mut Self {
+        self.post_cycle_callback = Some(Box::new(f));
         self
     }
 
@@ -219,7 +245,7 @@ where
                 // Now that we're done with unwind, let's roll.
 
                 let mut previous_stage = None;
-                let mut timings = vec![];
+                let mut receipts = Vec::with_capacity(num_stages);
 
                 let mut reached_tip_flag = true;
 
@@ -417,18 +443,26 @@ where
                             }
                         }
                     };
-                    timings.push((stage_id, Instant::now() - start_time));
+                    receipts.push(StageExecutionReceipt {
+                        stage_id,
+                        progress: done_progress,
+                        duration: Instant::now() - start_time,
+                    });
 
                     previous_stage = Some((stage_id, done_progress))
                 }
 
                 self.current_stage_sender.send(None).unwrap();
 
-                let t = timings
-                    .into_iter()
-                    .fold(String::new(), |acc, (stage_id, time)| {
-                        format!("{} {}={}", acc, stage_id, format_duration(time, true))
-                    });
+                let t = receipts.iter().fold(
+                    String::new(),
+                    |acc,
+                     StageExecutionReceipt {
+                         stage_id, duration, ..
+                     }| {
+                        format!("{} {}={}", acc, stage_id, format_duration(*duration, true))
+                    },
+                );
                 info!("Staged sync complete.{}", t);
 
                 if let Some(minimum_progress) = minimum_progress {
@@ -494,6 +528,15 @@ where
                 }
 
                 tx.commit()?;
+
+                if let Some(cb) = &self.post_cycle_callback {
+                    (cb)(StagedSyncStatus {
+                        maximum_progress,
+                        minimum_progress,
+                        stage_execution_receipts: receipts,
+                    })
+                    .await
+                }
 
                 if let Some(minimum_progress) = minimum_progress {
                     if let Some(max_block) = self.max_block {

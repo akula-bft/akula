@@ -8,7 +8,7 @@ use modular_bitfield::prelude::*;
 use serde::*;
 use std::collections::HashMap;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Account {
     pub nonce: u64,
     pub balance: U256,

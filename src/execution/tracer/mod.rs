@@ -15,13 +15,13 @@ use std::{
 
 use super::evm::Output;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CodeKind {
     Precompile,
     Bytecode(Option<Bytes>),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CallKind {
     Call,
     CallCode,
@@ -29,7 +29,7 @@ pub enum CallKind {
     StaticCall,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MessageKind {
     Create {
         salt: Option<U256>,

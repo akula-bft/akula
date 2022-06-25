@@ -4,7 +4,7 @@ use crate::{
 };
 use fastrlp::*;
 
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeaderRequest {
     pub start: BlockId,
     pub limit: u64,
@@ -29,13 +29,13 @@ pub struct Announce {
     pub number: BlockNumber,
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct GetBlockHeaders {
     pub request_id: u64,
     pub params: GetBlockHeadersParams,
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct GetBlockHeadersParams {
     pub start: BlockId,
     pub limit: u64,
@@ -54,7 +54,7 @@ impl From<HeaderRequest> for GetBlockHeadersParams {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, RlpEncodable, RlpDecodable)]
+#[derive(Debug, Clone, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct BlockHeaders {
     pub request_id: u64,
     pub headers: Vec<BlockHeader>,

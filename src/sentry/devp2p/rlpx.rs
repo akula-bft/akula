@@ -13,7 +13,6 @@ use educe::Educe;
 use futures::sink::SinkExt;
 use lru::LruCache;
 use parking_lot::Mutex;
-use rand::prelude::*;
 use secp256k1::SecretKey;
 use std::{
     collections::{hash_map::Entry, BTreeMap, HashMap},
@@ -541,6 +540,7 @@ impl SwarmBuilder {
 pub struct ListenOptions {
     #[educe(Debug(ignore))]
     discovery_tasks: Arc<AsyncMutex<StreamMap<String, Discovery>>>,
+    min_peers: usize,
     max_peers: NonZeroUsize,
     addr: SocketAddr,
     cidr: Option<IpCidr>,
@@ -550,6 +550,7 @@ pub struct ListenOptions {
 impl ListenOptions {
     pub fn new(
         discovery_tasks: StreamMap<String, Discovery>,
+        min_peers: usize,
         max_peers: NonZeroUsize,
         addr: SocketAddr,
         cidr: Option<IpCidr>,
@@ -557,6 +558,7 @@ impl ListenOptions {
     ) -> Self {
         Self {
             discovery_tasks: Arc::new(AsyncMutex::new(discovery_tasks)),
+            min_peers,
             max_peers,
             addr,
             cidr,
@@ -662,47 +664,49 @@ impl<C: CapabilityServer> Swarm<C> {
                             let no_new_peers = options.no_new_peers.clone();
                             async move {
                                 loop {
-                                    if !no_new_peers.load(Ordering::SeqCst) {
-                                        let next_peer = discovery_tasks.lock().await.next().await;
-                                        match next_peer {
-                                            None => (),
-                                            Some((disc_id, Err(e))) => {
-                                                debug!("Failed to get new peer: {e} ({disc_id})")
-                                            }
-                                            Some((disc_id, Ok(NodeRecord { id, addr }))) => {
-                                                let now = Instant::now();
-                                                if let Some(banned_timestamp) =
-                                                    banlist.lock().get_mut(&id).copied()
-                                                {
-                                                    let time_since_ban: Duration =
-                                                        now - banned_timestamp;
-                                                    if time_since_ban <= Duration::from_secs(20) {
-                                                        let secs_since_ban = time_since_ban.as_secs();
-                                                        debug!(
-                                                            "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
-                                                        );
-                                                        continue;
-                                                    }
+                                    while let Some(num_peers) = server.upgrade().map(|server| server.num_peers()) {
+                                        if !no_new_peers.load(Ordering::SeqCst) && (num_peers < options.min_peers || worker == 1) && num_peers < max_peers {
+                                            let next_peer = discovery_tasks.lock().await.next().await;
+                                            match next_peer {
+                                                None => (),
+                                                Some((disc_id, Err(e))) => {
+                                                    debug!("Failed to get new peer: {e} ({disc_id})")
                                                 }
-
-                                                if let Some(server) = server.upgrade() {
-                                                    debug!("Dialing peer {id:?}@{addr} ({disc_id})");
-                                                    if server
-                                                        .add_peer_inner(addr, id, true)
-                                                        .await
-                                                        .is_err()
+                                                Some((disc_id, Ok(NodeRecord { id, addr }))) => {
+                                                    let now = Instant::now();
+                                                    if let Some(banned_timestamp) =
+                                                        banlist.lock().get_mut(&id).copied()
                                                     {
-                                                        banlist.lock().put(id, Instant::now());
+                                                        let time_since_ban: Duration =
+                                                            now - banned_timestamp;
+                                                        if time_since_ban <= Duration::from_secs(300) {
+                                                            let secs_since_ban = time_since_ban.as_secs();
+                                                            debug!(
+                                                                "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
+                                                            );
+                                                            continue;
+                                                        }
                                                     }
-                                                } else {
-                                                    break;
+
+                                                    if let Some(server) = server.upgrade() {
+                                                        debug!("Dialing peer {id:?}@{addr} ({disc_id})");
+                                                        if server
+                                                            .add_peer_inner(addr, id, true)
+                                                            .await
+                                                            .is_err()
+                                                        {
+                                                            banlist.lock().put(id, Instant::now());
+                                                        }
+                                                    } else {
+                                                        break;
+                                                    }
                                                 }
                                             }
+                                        } else {
+                                            let delay = 2000;
+                                            debug!("Not accepting peers, delaying dial for {delay}ms");
+                                            sleep(Duration::from_millis(delay)).await;
                                         }
-                                    } else {
-                                        let delay = thread_rng().gen_range(0..2000 * options.max_peers.get()) as u64;
-                                        debug!("Not accepting peers, delaying dial for {delay}ms");
-                                        sleep(Duration::from_millis(delay)).await;
                                     }
                                 }
 
@@ -887,6 +891,11 @@ impl<C: CapabilityServer> Swarm<C> {
     /// Returns the number of peers we're currently dialing
     pub fn dialing(&self) -> usize {
         self.currently_connecting.load(Ordering::SeqCst)
+    }
+
+    /// All peers
+    pub fn num_peers(&self) -> usize {
+        self.streams.lock().mapping.len()
     }
 }
 

@@ -266,7 +266,6 @@ fn main() -> anyhow::Result<()> {
                     HeaderDownload {
                         node: node.clone(),
                         consensus: consensus.clone(),
-                        requests: Default::default(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
                         graph: Default::default(),
                         increment,
