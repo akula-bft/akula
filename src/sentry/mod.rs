@@ -386,9 +386,9 @@ pub struct Opts {
     pub static_peers: Vec<NR>,
     #[clap(long, default_value = "5000")]
     pub static_peers_interval: u64,
-    #[clap(long, default_value = "50")]
+    #[clap(long, default_value = "100")]
     pub max_peers: NonZeroUsize,
-    #[clap(long, default_value = "10")]
+    #[clap(long, default_value = "25")]
     pub min_peers: usize,
     /// Disable DNS and UDP discovery, only use static peers.
     #[clap(long, takes_value = false)]
