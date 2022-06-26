@@ -4,6 +4,7 @@ use crate::{
 };
 use ethereum_types::Address;
 use ethnum::U256;
+use primitive_types::H256;
 use std::collections::BTreeMap;
 
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
@@ -192,6 +193,7 @@ pub struct CliqueState {
     signers: Signers,
     history: History,
     votes: Votes,
+    block_hash: Option<H256>,
     epoch: u64,
 }
 
@@ -201,8 +203,20 @@ impl CliqueState {
             signers: Signers::new(),
             history: History::new(),
             votes: Votes::new(0),
+            block_hash: None,
             epoch,
         }
+    }
+
+    pub(crate) fn match_block_hash(&self, hash: H256) -> bool {
+        match self.block_hash {
+            Some(expected_hash) => expected_hash == hash,
+            None => false,
+        }
+    }
+
+    pub(crate) fn set_block_hash(&mut self, hash: H256) {
+        self.block_hash = Some(hash);
     }
 
     pub(crate) fn set_signers(&mut self, signers: Vec<Address>) {

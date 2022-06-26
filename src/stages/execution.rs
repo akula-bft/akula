@@ -75,6 +75,10 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
 
         let block_spec = chain_config.collect_block_spec(block_number);
 
+        if !consensus_engine.is_state_valid(&header) {
+            consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
+        }
+
         let mut call_tracer = CallTracer::default();
         let receipts = ExecutionProcessor::new(
             &mut buffer,

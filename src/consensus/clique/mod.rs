@@ -9,7 +9,7 @@ use crate::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainId, Genesis, Revision, Seal},
+    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Revision, Seal},
     BlockState,
 };
 use anyhow::bail;
@@ -103,7 +103,7 @@ pub fn fast_forward_within_epoch<T: TransactionKind, E: EnvironmentKind>(
 
 pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
     tx: &MdbxTransaction<'_, T, E>,
-    genesis: &Genesis,
+    chain_spec: &ChainSpec,
     epoch: u64,
     starting_block: BlockNumber,
 ) -> anyhow::Result<CliqueState> {
@@ -117,7 +117,7 @@ pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
             vanity: _,
             score: _,
             signers,
-        } = &genesis.seal
+        } = &chain_spec.genesis.seal
         {
             signers.clone()
         } else {
@@ -132,6 +132,15 @@ pub fn recover_clique_state<T: TransactionKind, E: EnvironmentKind>(
     if blocks_into_epoch > 0 {
         fast_forward_within_epoch(&mut state, tx, latest_epoch, starting_block)?;
     }
+
+    if starting_block > 1 {
+        let mut cursor = tx.cursor(tables::Header)?;
+        let header = get_header(&mut cursor, starting_block - BlockNumber(1))?;
+        state.set_block_hash(header.hash());
+    } else {
+        let config = ChainConfig::from(chain_spec.clone());
+        state.set_block_hash(config.genesis_hash);
+    };
 
     Ok(state)
 }
@@ -200,6 +209,8 @@ impl Consensus for Clique {
         state.validate(&clique_block)?;
         state.finalize(clique_block);
 
+        state.set_block_hash(block.hash());
+
         Ok(vec![])
     }
 
@@ -209,6 +220,13 @@ impl Consensus for Clique {
         } else {
             unreachable!("Expected clique ConsensusState.");
         }
+    }
+
+    fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .match_block_hash(next_header.parent_hash)
     }
 
     fn get_beneficiary(&self, header: &BlockHeader) -> Address {

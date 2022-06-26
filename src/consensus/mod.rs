@@ -33,9 +33,9 @@ impl ConsensusState {
     ) -> anyhow::Result<ConsensusState> {
         Ok(match chainspec.consensus.seal_verification {
             SealVerificationParams::Ethash { .. } => ConsensusState::EthHash,
-            SealVerificationParams::Clique { period: _, epoch } => ConsensusState::Clique(
-                recover_clique_state(tx, &chainspec.genesis, epoch, starting_block)?,
-            ),
+            SealVerificationParams::Clique { period: _, epoch } => {
+                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
+            }
         })
     }
 }
@@ -72,9 +72,17 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         header.beneficiary
     }
 
-    /// To be overriden for stateful consensus engines, e. g. PoA engines with a signer list.
+    /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
     #[allow(unused_variables)]
     fn set_state(&mut self, state: ConsensusState) {}
+
+    /// To be overridden for stateful consensus engines.
+    ///
+    /// Should return false if the state needs to be recovered, e. g. in case of a reorg.
+    #[allow(unused_variables)]
+    fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
+        true
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
