@@ -88,6 +88,9 @@ impl BlockTracker {
                 }
             }
             HashMapEntry::Occupied(mut e) => {
+                if *e.get() > block {
+                    return;
+                }
                 let old_block = std::mem::replace(e.get_mut(), block);
                 if let Entry::Occupied(mut entry) = self.peers_by_block.entry(old_block) {
                     entry.get_mut().remove(&peer);
