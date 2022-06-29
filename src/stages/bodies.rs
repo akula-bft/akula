@@ -406,14 +406,16 @@ impl BodyDownload {
                     },
                 );
 
-                info!(
-                    "Received {received} block bodies{}",
-                    if elapsed_sum > 0 {
-                        format!(" ({} blk/sec)", total_received_sum / elapsed_sum)
-                    } else {
-                        String::new()
-                    }
-                );
+                if received > 0 {
+                    info!(
+                        "Received {received} block bodies{}",
+                        if elapsed_sum > 0 {
+                            format!(" ({} blk/sec)", total_received_sum / elapsed_sum)
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
             }
             bodies
         };
