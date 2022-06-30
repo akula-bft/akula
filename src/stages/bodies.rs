@@ -276,7 +276,6 @@ impl BodyDownload {
                                     let next_cycle_threshold = total_sent.load(Ordering::SeqCst) / 5;
                                     if *pending_responses_watch.borrow() < next_cycle_threshold {
                                         send_cycle_successful = true;
-                                        break;
                                     }
                                 }
                                 _ = &mut timeout => {
