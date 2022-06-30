@@ -50,10 +50,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features
 
-      - uses: actions-rs/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: actions/checkout@v2
         with:
           repository: ethereum/tests
