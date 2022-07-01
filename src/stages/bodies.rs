@@ -30,7 +30,7 @@ use tokio_stream::StreamExt;
 use tracing::*;
 
 const STAGE_UPPER_BOUND: usize = 90_000;
-const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
+const REQUEST_INTERVAL: Duration = Duration::from_secs(2);
 const INTERVAL_TWEAK_STEP: Duration = Duration::from_secs(2);
 const MIN_SEND_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_SEND_INTERVAL: Duration = Duration::from_secs(60);
