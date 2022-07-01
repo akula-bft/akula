@@ -267,7 +267,6 @@ impl Node {
 
                 Ok::<(), anyhow::Error>(())
             }
-            .instrument(span!(Level::DEBUG, "inbound handler"))
         });
 
         pending::<()>().await;
