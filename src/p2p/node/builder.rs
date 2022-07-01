@@ -7,7 +7,7 @@ use hashlink::LruCache;
 use http::Uri;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
 use tonic::transport::Channel;
 
 #[derive(Debug, Default)]
@@ -69,6 +69,7 @@ impl NodeBuilder {
             chain_tip_sender,
             bad_blocks: Default::default(),
             block_cache: Mutex::new(LruCache::new(64)),
+            block_cache_notify: Notify::new(),
             forks,
         })
     }

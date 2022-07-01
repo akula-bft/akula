@@ -88,6 +88,9 @@ impl BlockTracker {
                 }
             }
             HashMapEntry::Occupied(mut e) => {
+                if *e.get() > block {
+                    return;
+                }
                 let old_block = std::mem::replace(e.get_mut(), block);
                 if let Entry::Occupied(mut entry) = self.peers_by_block.entry(old_block) {
                     entry.get_mut().remove(&peer);
@@ -386,9 +389,9 @@ pub struct Opts {
     pub static_peers: Vec<NR>,
     #[clap(long, default_value = "5000")]
     pub static_peers_interval: u64,
-    #[clap(long, default_value = "50")]
+    #[clap(long, default_value = "100")]
     pub max_peers: NonZeroUsize,
-    #[clap(long, default_value = "10")]
+    #[clap(long, default_value = "25")]
     pub min_peers: usize,
     /// Disable DNS and UDP discovery, only use static peers.
     #[clap(long, takes_value = false)]

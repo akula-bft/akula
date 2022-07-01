@@ -71,7 +71,7 @@ where
                 StageError::Internal(format_err!("no canonical hash for block #{prev_progress}"))
             })?;
 
-        let mut starting_block: BlockNumber = prev_progress + 1;
+        let starting_block: BlockNumber = prev_progress + 1;
         let mut chain_tip = self.node.chain_tip.clone();
         let current_chain_tip = loop {
             let _ = chain_tip.changed().await;
@@ -107,19 +107,38 @@ where
         let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
 
         while headers.len() < headers_cap {
-            if !headers.is_empty() {
-                starting_block = headers.last().map(|(_, h)| h).unwrap().number + 1;
-            }
+            let starting_block = if let Some((_, last_buffered_header)) = headers.last() {
+                last_buffered_header.number + 1
+            } else {
+                starting_block
+            };
 
             info!("Download session {starting_block} to {target_block}");
 
-            headers.extend(self.download_headers(starting_block, target_block).await?);
-            if let Some((_, h)) = headers.first() {
-                if h.parent_hash != prev_progress_hash {
-                    return Ok(ExecOutput::Unwind {
-                        unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
-                    });
+            if let Some(mut downloaded) =
+                self.download_headers(starting_block, target_block).await?
+            {
+                // Check that downloaded headers attach to present chain
+                if let Some((_, first_downloaded)) = downloaded.first() {
+                    if let Some((_, last_buffered)) = headers.last() {
+                        if last_buffered.hash() != first_downloaded.parent_hash {
+                            // Does not attach to buffered chain, just pop last header and download again
+                            headers.pop();
+                            continue;
+                        }
+                    } else if prev_progress_hash != first_downloaded.parent_hash {
+                        // Does not attach to chain in database, unwind and start over
+                        return Ok(ExecOutput::Unwind {
+                            unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
+                        });
+                    }
                 }
+
+                headers.append(&mut downloaded);
+            } else {
+                return Ok(ExecOutput::Unwind {
+                    unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
+                });
             }
         }
         let mut stage_progress = prev_progress;
@@ -194,7 +213,7 @@ impl HeaderDownload {
         &self,
         start: BlockNumber,
         end: BlockNumber,
-    ) -> anyhow::Result<Vec<(H256, BlockHeader)>> {
+    ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
         let requests = Arc::new(self.prepare_requests(start, end));
 
         info!(
@@ -257,9 +276,12 @@ impl HeaderDownload {
         let took = Instant::now();
 
         let mut graph = self.graph.lock();
-        let tail = graph
-            .chain_head()
-            .ok_or_else(|| format_err!("difficulty graph failure"))?;
+        let tail = if let Some(v) = graph.chain_head() {
+            v
+        } else {
+            info!("Difficulty graph failure, will unwind");
+            return Ok(None);
+        };
         let mut headers = graph.backtrack(&tail);
 
         info!(
@@ -286,7 +308,7 @@ impl HeaderDownload {
             );
         }
 
-        Ok(headers)
+        Ok(Some(headers))
     }
 
     async fn handle_response(
