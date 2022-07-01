@@ -20,6 +20,7 @@ Erigon:
 Slower on higher block numbers:
 
 ![](https://gateway.pinata.cloud/ipfs/QmUBzVC2DzxepWxfdm6SJFU4zYUFE2nTxm11G2G8cPSKDx)
+![](https://gateway.pinata.cloud/ipfs/QmSDoB8CUvjGwkGj6X7hhk7uwot63Eb5tvjaTEn88BkiRf)
 
 Akula:
 
