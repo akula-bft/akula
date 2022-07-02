@@ -68,7 +68,7 @@ impl Node {
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
     /// Start node synchronization.
-    pub async fn start_sync(self: Arc<Self>) -> anyhow::Result<()> {
+    pub async fn start_sync(self: Arc<Self>, tip_discovery: bool) -> anyhow::Result<()> {
         let tasks = TaskGroup::new();
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(128);
@@ -82,7 +82,6 @@ impl Node {
                 let mut stream = handler.sync_stream().await;
                 loop {
                     if let Some(msg) = stream.next().await {
-                        let (block_number, _) = *handler.chain_tip.borrow();
                         let peer_id = msg.peer_id;
                         let sentry_id = msg.sentry_id;
 
@@ -90,7 +89,7 @@ impl Node {
                             Message::NewBlockHashes(ref blocks) => {
                                 let mut max_block = None;
                                 for b in &blocks.0 {
-                                    if b.number > block_number {
+                                    if tip_discovery && b.number > handler.chain_tip.borrow().0 {
                                         let id = thread_rng().gen::<u64>();
                                         tx.send((
                                             id,
@@ -127,13 +126,14 @@ impl Node {
                                         .await;
                                 }
 
-                                if requested.lock().remove(&headers.request_id).is_some()
+                                if tip_discovery
+                                    && requested.lock().remove(&headers.request_id).is_some()
                                     && headers.headers.len() == 1
                                 {
                                     let header = &headers.headers[0];
                                     let hash = header.hash();
 
-                                    if header.number > block_number {
+                                    if header.number > handler.chain_tip.borrow().0 {
                                         let _ =
                                             handler.chain_tip_sender.send((header.number, hash));
                                         for skip in 1..4_u64 {
@@ -154,7 +154,7 @@ impl Node {
                                     .insert(hash, (sentry_id, peer_id, inner.block));
                                 handler.block_cache_notify.notify_one();
 
-                                if number > block_number {
+                                if tip_discovery && number > handler.chain_tip.borrow().0 {
                                     let _ = handler.chain_tip_sender.send((number, hash));
                                     for skip in 1..4_u64 {
                                         let id = rand::thread_rng().gen::<u64>();
@@ -193,35 +193,37 @@ impl Node {
             }
         });
 
-        let _ = tasks.spawn({
-            let handler = self.clone();
-            async move {
-                loop {
-                    let (block_number, _) = *handler.chain_tip.borrow();
+        if tip_discovery {
+            let _ = tasks.spawn({
+                let handler = self.clone();
+                async move {
+                    loop {
+                        let (block_number, _) = *handler.chain_tip.borrow();
 
-                    for skip in 1..4 {
-                        let request_id = rand::thread_rng().gen::<u64>();
-                        requested.lock().insert(request_id, ());
+                        for skip in 1..4 {
+                            let request_id = rand::thread_rng().gen::<u64>();
+                            requested.lock().insert(request_id, ());
 
-                        let msg = Message::GetBlockHeaders(GetBlockHeaders {
-                            request_id,
-                            params: HeaderRequest {
-                                start: BlockId::Number(block_number),
-                                limit: 1,
-                                reverse: false,
-                                skip,
-                            }
-                            .into(),
-                        });
+                            let msg = Message::GetBlockHeaders(GetBlockHeaders {
+                                request_id,
+                                params: HeaderRequest {
+                                    start: BlockId::Number(block_number),
+                                    limit: 1,
+                                    reverse: false,
+                                    skip,
+                                }
+                                .into(),
+                            });
 
-                        let _ = handler.send_message(msg, PeerFilter::All).await;
+                            let _ = handler.send_message(msg, PeerFilter::All).await;
+                        }
+
+                        tokio::time::sleep(Self::SYNC_INTERVAL).await;
                     }
-
-                    tokio::time::sleep(Self::SYNC_INTERVAL).await;
+                    Ok::<(), anyhow::Error>(())
                 }
-                Ok::<(), anyhow::Error>(())
-            }
-        });
+            });
+        }
 
         tasks.spawn({
             let handler = self.clone();
@@ -309,6 +311,7 @@ impl Node {
         msg: Message,
         pred: PeerFilter,
     ) -> HashSet<(SentryId, PeerId)> {
+        debug!("Sending message: {msg:?} to peers {pred:?}");
         let id = grpc_sentry::MessageId::from(msg.id()) as i32;
         let data = || -> bytes::Bytes {
             let mut buf = BytesMut::new();
@@ -333,7 +336,7 @@ impl Node {
                 let node = self.clone();
                 tokio::spawn(async move {
                     trace!("Sending header request: {request:?}");
-                    node.send_header_request(request).await
+                    node.send_header_request(None, request, None).await
                 })
             })
             .collect::<FuturesUnordered<_>>()
@@ -345,8 +348,24 @@ impl Node {
             .collect()
     }
 
-    pub async fn send_header_request(&self, request: HeaderRequest) -> HashSet<(SentryId, PeerId)> {
-        self.send_message(request.into(), PeerFilter::All).await
+    pub async fn send_header_request(
+        &self,
+        request_id: Option<u64>,
+        request: HeaderRequest,
+        max_block: Option<BlockNumber>,
+    ) -> HashSet<(SentryId, PeerId)> {
+        self.send_message(
+            Message::GetBlockHeaders(GetBlockHeaders {
+                request_id: request_id.unwrap_or_else(|| rand::thread_rng().gen::<u64>()),
+                params: request.into(),
+            }),
+            if let Some(max_block) = max_block {
+                PeerFilter::MinBlock(max_block.0)
+            } else {
+                PeerFilter::All
+            },
+        )
+        .await
     }
 
     /// Sends a block bodies request to other peers.

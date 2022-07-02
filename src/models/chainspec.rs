@@ -18,6 +18,7 @@ pub struct BlockExecutionSpec {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ChainSpec {
     pub name: String,
     pub consensus: ConsensusParams,
@@ -38,6 +39,7 @@ impl ChainSpec {
         let mut revision = Revision::Frontier;
         let mut active_transitions = HashSet::new();
         for (fork, r) in [
+            (self.upgrades.paris, Revision::Paris),
             (self.upgrades.london, Revision::London),
             (self.upgrades.berlin, Revision::Berlin),
             (self.upgrades.istanbul, Revision::Istanbul),
@@ -97,6 +99,7 @@ impl ChainSpec {
             self.upgrades.istanbul,
             self.upgrades.berlin,
             self.upgrades.london,
+            // self.upgrades.paris,
         ]
         .iter()
         .copied()
@@ -105,6 +108,7 @@ impl ChainSpec {
         .chain(self.consensus.seal_verification.gather_forks())
         .chain(self.contracts.keys().copied())
         .chain(self.balances.keys().copied())
+        .chain(self.params.additional_forks.iter().copied())
         .collect::<BTreeSet<BlockNumber>>();
 
         forks.remove(&BlockNumber(0));
@@ -180,6 +184,28 @@ pub enum SealVerificationParams {
         #[serde(default)]
         skip_pow_verification: bool,
     },
+    Beacon {
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "::serde_with::rust::unwrap_or_skip"
+        )]
+        terminal_total_difficulty: Option<U256>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "::serde_with::rust::unwrap_or_skip"
+        )]
+        terminal_block_hash: Option<H256>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "::serde_with::rust::unwrap_or_skip"
+        )]
+        terminal_block_number: Option<BlockNumber>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        block_reward: BTreeMap<BlockNumber, U256>,
+    },
 }
 
 impl SealVerificationParams {
@@ -203,6 +229,7 @@ impl SealVerificationParams {
                         .unwrap_or_default(),
                 )
                 .collect(),
+            SealVerificationParams::Beacon { .. } => BTreeSet::new(),
             _ => BTreeSet::new(),
         }
     }
@@ -265,6 +292,12 @@ pub struct Upgrades {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub london: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub paris: Option<BlockNumber>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +305,8 @@ pub struct Params {
     pub chain_id: ChainId,
     pub network_id: NetworkId,
     pub min_gas_limit: u64,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub additional_forks: BTreeSet<BlockNumber>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -447,11 +482,13 @@ mod tests {
                     istanbul: Some(5435345.into()),
                     berlin: Some(8290928.into()),
                     london: Some(8897988.into()),
+                    paris: None,
                 },
                 params: Params {
                     chain_id: ChainId(4),
                     network_id: NetworkId(4),
                     min_gas_limit: 5000,
+                    additional_forks: BTreeSet::new(),
                 },
                 genesis: Genesis {
                     number: BlockNumber(0),

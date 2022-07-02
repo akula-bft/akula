@@ -24,7 +24,7 @@ impl<'state> Blockchain<'state> {
     ) -> anyhow::Result<Blockchain<'state>> {
         Self::new_with_consensus(
             state,
-            engine_factory(config.clone())?,
+            engine_factory(None, config.clone())?,
             config,
             genesis_block,
         )

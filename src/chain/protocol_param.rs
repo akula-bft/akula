@@ -26,14 +26,8 @@ pub mod fee {
 } // namespace fee
 
 pub mod param {
-    use crate::models::*;
-
     // https://eips.ethereum.org/EIPS/eip-170
     pub const MAX_CODE_SIZE: usize = 0x6000;
-
-    pub const BLOCK_REWARD_FRONTIER: u128 = 5 * ETHER;
-    pub const BLOCK_REWARD_BYZANTIUM: u128 = 3 * ETHER;
-    pub const BLOCK_REWARD_CONSTANTINOPLE: u128 = 2 * ETHER;
 
     pub const G_QUAD_DIVISOR_BYZANTIUM: u64 = 20; // EIP-198
     pub const G_QUAD_DIVISOR_BERLIN: u64 = 3; // EIP-2565

@@ -369,7 +369,7 @@ where
             Revision::Byzantium | Revision::Constantinople | Revision::Petersburg => {
                 precompiled::NUM_OF_BYZANTIUM_CONTRACTS as u8
             }
-            Revision::Istanbul | Revision::Berlin | Revision::London | Revision::Shanghai => {
+            Revision::Istanbul | Revision::Berlin | Revision::London | Revision::Paris => {
                 precompiled::NUM_OF_ISTANBUL_CONTRACTS as u8
             }
         }
@@ -595,7 +595,11 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: State> Host
         let block_number = self.inner.header.number.0;
         let block_timestamp = self.inner.header.timestamp;
         let block_gas_limit = self.inner.header.gas_limit;
-        let block_difficulty = self.inner.header.difficulty;
+        let block_difficulty = if self.inner.block_spec.revision >= Revision::Paris {
+            h256_to_u256(self.inner.header.mix_hash)
+        } else {
+            self.inner.header.difficulty
+        };
         let chain_id = self.inner.block_spec.params.chain_id.0.into();
         let block_base_fee = base_fee_per_gas;
 

@@ -20,7 +20,7 @@ pub fn execute_block<S: State>(
     block: &BlockBodyWithSenders,
 ) -> Result<Vec<Receipt>, DuoError> {
     let mut analysis_cache = AnalysisCache::default();
-    let mut engine = consensus::engine_factory(config.clone())?;
+    let mut engine = consensus::engine_factory(None, config.clone())?;
     let mut tracer = NoopTracer;
     let config = config.collect_block_spec(header.number);
     ExecutionProcessor::new(
@@ -38,9 +38,7 @@ pub fn execute_block<S: State>(
 #[cfg(test)]
 mod tests {
     use super::{address::create_address, *};
-    use crate::{
-        chain::protocol_param::param, res::chainspec::MAINNET, trie::root_hash, InMemoryState,
-    };
+    use crate::{res::chainspec::MAINNET, trie::root_hash, InMemoryState};
     use hex_literal::hex;
     use sha3::{Digest, Keccak256};
 
@@ -72,6 +70,8 @@ mod tests {
 
     #[test]
     fn execute_two_blocks() {
+        const BLOCK_REWARD_CONSTANTINOPLE: u128 = 2 * ETHER;
+
         // ---------------------------------------
         // Prepare
         // ---------------------------------------
@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(storage1, 0x01c9);
 
         let miner_account = state.read_account(miner).unwrap().unwrap();
-        assert_eq!(miner_account.balance, param::BLOCK_REWARD_CONSTANTINOPLE);
+        assert_eq!(miner_account.balance, BLOCK_REWARD_CONSTANTINOPLE);
 
         // ---------------------------------------
         // Execute second block
@@ -205,7 +205,7 @@ mod tests {
         assert_eq!(storage0, new_val);
 
         let miner_account = state.read_account(miner).unwrap().unwrap();
-        assert!(miner_account.balance > 2 * param::BLOCK_REWARD_CONSTANTINOPLE);
-        assert!(miner_account.balance < 3 * param::BLOCK_REWARD_CONSTANTINOPLE);
+        assert!(miner_account.balance > 2 * BLOCK_REWARD_CONSTANTINOPLE);
+        assert!(miner_account.balance < 3 * BLOCK_REWARD_CONSTANTINOPLE);
     }
 }

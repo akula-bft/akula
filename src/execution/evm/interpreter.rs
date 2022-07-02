@@ -157,8 +157,8 @@ impl AnalyzedCode {
             (true, Revision::London) => {
                 execute_message::<H, true, { Revision::London }>(self, &mut state, host)
             }
-            (true, Revision::Shanghai) => {
-                execute_message::<H, true, { Revision::Shanghai }>(self, &mut state, host)
+            (true, Revision::Paris) => {
+                execute_message::<H, true, { Revision::Paris }>(self, &mut state, host)
             }
             (false, Revision::Frontier) => {
                 execute_message::<H, false, { Revision::Frontier }>(self, &mut state, host)
@@ -190,8 +190,8 @@ impl AnalyzedCode {
             (false, Revision::London) => {
                 execute_message::<H, false, { Revision::London }>(self, &mut state, host)
             }
-            (false, Revision::Shanghai) => {
-                execute_message::<H, false, { Revision::Shanghai }>(self, &mut state, host)
+            (false, Revision::Paris) => {
+                execute_message::<H, false, { Revision::Paris }>(self, &mut state, host)
             }
         };
 

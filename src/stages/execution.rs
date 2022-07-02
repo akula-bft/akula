@@ -43,7 +43,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
     first_started_at: (Instant, Option<BlockNumber>),
 ) -> Result<BlockNumber, StageError> {
     let mut buffer = Buffer::new(tx, None);
-    let mut consensus_engine = engine_factory(chain_config.clone())?;
+    let mut consensus_engine = engine_factory(None, chain_config.clone())?;
     let mut analysis_cache = AnalysisCache::default();
 
     let mut block_number = starting_block;

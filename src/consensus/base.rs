@@ -1,7 +1,6 @@
 use super::*;
 use crate::{chain::protocol_param::param, models::*, state::*, trie::root_hash};
-use anyhow::Context;
-use std::time::SystemTime;
+use std::{collections::BTreeMap, time::SystemTime};
 
 #[derive(Debug)]
 pub struct ConsensusEngineBase {
@@ -59,7 +58,7 @@ impl ConsensusEngineBase {
             return Err(ValidationError::ExtraDataTooLong.into());
         }
 
-        if header.timestamp <= parent.timestamp {
+        if header.timestamp < parent.timestamp {
             return Err(ValidationError::InvalidTimestamp {
                 parent: parent.timestamp,
                 current: header.timestamp,
@@ -96,7 +95,7 @@ impl ConsensusEngineBase {
     }
 
     // See [YP] Section 11.1 "Ommer Validation"
-    fn is_kin(
+    pub fn is_kin(
         &self,
         branch_header: &BlockHeader,
         mainline_header: &BlockHeader,
@@ -182,11 +181,7 @@ impl ConsensusEngineBase {
         None
     }
 
-    pub fn pre_validate_block(
-        &self,
-        block: &Block,
-        state: &dyn BlockState,
-    ) -> Result<(), DuoError> {
+    pub fn pre_validate_block(&self, block: &Block) -> Result<(), DuoError> {
         let expected_ommers_hash = Block::ommers_hash(&block.ommers);
         if block.header.ommers_hash != expected_ommers_hash {
             return Err(ValidationError::WrongOmmersHash {
@@ -205,56 +200,28 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        if block.ommers.len() > 2 {
-            return Err(ValidationError::TooManyOmmers.into());
-        }
-
-        if block.ommers.len() == 2 && block.ommers[0] == block.ommers[1] {
-            return Err(ValidationError::DuplicateOmmer.into());
-        }
-
-        let parent =
-            state
-                .read_parent_header(&block.header)?
-                .ok_or(ValidationError::UnknownParent {
-                    number: block.header.number,
-                    parent_hash: block.header.parent_hash,
-                })?;
-
-        for ommer in &block.ommers {
-            let ommer_parent =
-                state
-                    .read_parent_header(ommer)?
-                    .ok_or(ValidationError::OmmerUnknownParent {
-                        number: ommer.number,
-                        parent_hash: ommer.parent_hash,
-                    })?;
-
-            self.validate_block_header(ommer, &ommer_parent, false)
-                .context(ValidationError::InvalidOmmerHeader)?;
-            let mut old_ommers = vec![];
-            if !self.is_kin(
-                ommer,
-                &parent,
-                block.header.parent_hash,
-                6,
-                state,
-                &mut old_ommers,
-            )? {
-                return Err(ValidationError::NotAnOmmer.into());
-            }
-            for oo in old_ommers {
-                if oo == *ommer {
-                    return Err(ValidationError::DuplicateOmmer.into());
-                }
-            }
-        }
-
         for txn in &block.transactions {
             pre_validate_transaction(txn, self.chain_id, block.header.base_fee_per_gas)?;
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BlockRewardSchedule(pub BTreeMap<BlockNumber, U256>);
+
+impl BlockRewardSchedule {
+    pub fn for_block(&self, block_number: BlockNumber) -> U256 {
+        let mut v = U256::ZERO;
+        for (&reward_since, &reward) in &self.0 {
+            if reward_since <= block_number {
+                v = reward;
+            } else {
+                break;
+            }
+        }
+        v
     }
 }
 
