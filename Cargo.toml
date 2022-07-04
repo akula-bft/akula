@@ -28,7 +28,6 @@ cidr = "0.2"
 cipher = { version = "0.4", features = ["block-padding"] }
 clap = { version = "3", features = ["derive"] }
 croaring = { git = "https://github.com/saulius/croaring-rs" }
-crossterm = { version = "0.23", optional = true }
 ctr = "0.9"
 data-encoding = "2"
 derive_more = "0.99"
