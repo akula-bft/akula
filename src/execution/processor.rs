@@ -10,7 +10,7 @@ use crate::{
     models::*,
     state::IntraBlockState,
     trie::root_hash,
-    BlockReader, State, StateReader,
+    HeaderReader, State, StateReader,
 };
 use std::cmp::min;
 use TransactionAction;
@@ -73,7 +73,7 @@ pub fn execute_transaction<'r, S>(
     sender: Address,
 ) -> Result<Receipt, DuoError>
 where
-    S: BlockReader + StateReader,
+    S: HeaderReader + StateReader,
 {
     let rev = block_spec.revision;
 
@@ -179,7 +179,7 @@ impl From<anyhow::Error> for TransactionValidationError {
 impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
     ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
 where
-    S: BlockReader + StateReader,
+    S: HeaderReader + StateReader,
 {
     pub fn new(
         state: &'r mut S,

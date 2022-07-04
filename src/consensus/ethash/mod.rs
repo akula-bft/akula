@@ -1,6 +1,6 @@
 use self::difficulty::BlockDifficultyBombData;
 use super::{base::ConsensusEngineBase, *};
-use crate::h256_to_u256;
+use crate::{h256_to_u256, BlockReader};
 use ::ethash::LightDAG;
 use lru::LruCache;
 use parking_lot::Mutex;

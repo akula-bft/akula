@@ -4,7 +4,7 @@ use bytes::Bytes;
 use std::fmt::Debug;
 
 #[auto_impl(&mut, &, Box)]
-pub trait BlockReader: Debug + Send + Sync {
+pub trait HeaderReader: Debug + Send + Sync {
     fn read_header(
         &self,
         block_number: BlockNumber,
@@ -18,7 +18,10 @@ pub trait BlockReader: Debug + Send + Sync {
 
         Ok(None)
     }
+}
 
+#[auto_impl(&mut, &, Box)]
+pub trait BlockReader: HeaderReader {
     fn read_body(
         &self,
         block_number: BlockNumber,
@@ -64,6 +67,6 @@ pub trait StateWriter: Debug + Send + Sync {
     ) -> anyhow::Result<()>;
 }
 
-pub trait State: BlockReader + StateReader + StateWriter {}
+pub trait State: HeaderReader + StateReader + StateWriter {}
 
-impl<T> State for T where T: BlockReader + StateReader + StateWriter {}
+impl<T> State for T where T: HeaderReader + StateReader + StateWriter {}

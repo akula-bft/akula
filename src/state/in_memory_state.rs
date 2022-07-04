@@ -3,7 +3,7 @@ use crate::{
     models::*,
     trie::{unpack_nibbles, HashBuilder},
     util::*,
-    BlockReader, StateReader, StateWriter,
+    BlockReader, HeaderReader, StateReader, StateWriter,
 };
 use bytes::{Bytes, BytesMut};
 use std::{collections::*, convert::TryInto};
@@ -262,7 +262,7 @@ impl InMemoryState {
     }
 }
 
-impl BlockReader for InMemoryState {
+impl HeaderReader for InMemoryState {
     fn read_header(
         &self,
         block_number: BlockNumber,
@@ -274,7 +274,9 @@ impl BlockReader for InMemoryState {
 
         Ok(None)
     }
+}
 
+impl BlockReader for InMemoryState {
     fn read_body(
         &self,
         block_number: BlockNumber,
