@@ -84,7 +84,7 @@ impl Consensus for Ethash {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
 
-    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError> {
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         self.base.pre_validate_block(block)?;
 
         if block.ommers.len() > 2 {

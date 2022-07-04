@@ -101,7 +101,7 @@ impl ConsensusEngineBase {
         mainline_header: &BlockHeader,
         mainline_hash: H256,
         n: usize,
-        state: &dyn BlockState,
+        state: &dyn BlockReader,
         old_ommers: &mut Vec<BlockHeader>,
     ) -> anyhow::Result<bool> {
         if n > 0 && branch_header != mainline_header {

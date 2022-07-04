@@ -551,7 +551,10 @@ enum Status {
 }
 
 #[instrument]
-fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &mut S) {
+fn init_pre_state<S>(pre: &HashMap<Address, AccountState>, state: &mut S)
+where
+    S: State,
+{
     for (address, j) in pre {
         let mut account = Account {
             balance: j.balance,

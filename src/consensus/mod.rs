@@ -8,7 +8,7 @@ pub use self::{base::*, beacon::*, blockchain::*, ethash::*};
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
-    BlockState,
+    BlockReader,
 };
 use anyhow::bail;
 use derive_more::{Display, From};
@@ -46,7 +46,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// See YP Sections 4.3.2 "Holistic Validity", 4.3.4 "Block Header Validity", and 11.1 "Ommer Validation".
     ///
     /// NOTE: Shouldn't be used for genesis block.
-    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError>;
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError>;
 
     /// See YP Section 4.3.4 "Block Header Validity".
     ///

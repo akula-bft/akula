@@ -12,7 +12,7 @@ use crate::{
     },
     h256_to_u256,
     models::*,
-    u256_to_h256, IntraBlockState, State,
+    u256_to_h256, BlockReader, IntraBlockState, StateReader,
 };
 use anyhow::Context;
 use bytes::Bytes;
@@ -29,7 +29,7 @@ pub struct CallResult {
 
 struct Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
-    B: State,
+    B: BlockReader + StateReader,
 {
     state: &'state mut IntraBlockState<'r, B>,
     tracer: &'tracer mut dyn Tracer,
@@ -41,7 +41,7 @@ where
     beneficiary: Address,
 }
 
-pub fn execute<'db, 'tracer, 'analysis, B: State>(
+pub fn execute<'db, 'tracer, 'analysis, B: BlockReader + StateReader>(
     state: &mut IntraBlockState<'db, B>,
     tracer: &'tracer mut dyn Tracer,
     analysis_cache: &'analysis mut AnalysisCache,
@@ -95,7 +95,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: State>(
 impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
     Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
-    B: State,
+    B: BlockReader + StateReader,
 {
     fn create(&mut self, message: &CreateMessage) -> anyhow::Result<Output> {
         let mut res = Output {
@@ -388,12 +388,12 @@ where
 
 struct EvmHost<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B>
 where
-    B: State,
+    B: BlockReader + StateReader,
 {
     inner: &'a mut Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>,
 }
 
-impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: State> Host
+impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: BlockReader + StateReader> Host
     for EvmHost<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B>
 {
     fn trace_instructions(&self) -> bool {
@@ -666,7 +666,7 @@ mod tests {
     use bytes_literal::bytes;
     use hex_literal::hex;
 
-    fn execute<B: State>(
+    fn execute<B: BlockReader + StateReader>(
         state: &mut IntraBlockState<'_, B>,
         header: &PartialHeader,
         message: &Message,

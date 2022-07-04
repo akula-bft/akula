@@ -38,7 +38,9 @@ pub fn execute_block<S: State>(
 #[cfg(test)]
 mod tests {
     use super::{address::create_address, *};
-    use crate::{res::chainspec::MAINNET, trie::root_hash, InMemoryState};
+    use crate::{
+        res::chainspec::MAINNET, trie::root_hash, InMemoryState, StateReader, StateWriter,
+    };
     use hex_literal::hex;
     use sha3::{Digest, Keccak256};
 

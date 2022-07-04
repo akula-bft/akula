@@ -3,7 +3,7 @@ use crate::{
     models::*,
     trie::{unpack_nibbles, HashBuilder},
     util::*,
-    BlockState, State,
+    BlockReader, StateReader, StateWriter,
 };
 use bytes::{Bytes, BytesMut};
 use std::{collections::*, convert::TryInto};
@@ -262,7 +262,7 @@ impl InMemoryState {
     }
 }
 
-impl BlockState for InMemoryState {
+impl BlockReader for InMemoryState {
     fn read_header(
         &self,
         block_number: BlockNumber,
@@ -288,7 +288,7 @@ impl BlockState for InMemoryState {
     }
 }
 
-impl State for InMemoryState {
+impl StateReader for InMemoryState {
     // Readers
 
     fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
@@ -308,7 +308,9 @@ impl State for InMemoryState {
 
         Ok(U256::ZERO)
     }
+}
 
+impl StateWriter for InMemoryState {
     fn erase_storage(&mut self, address: Address) -> anyhow::Result<()> {
         let address_storage = self.storage.remove(&address).unwrap_or_default();
 

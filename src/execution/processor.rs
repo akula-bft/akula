@@ -10,14 +10,14 @@ use crate::{
     models::*,
     state::IntraBlockState,
     trie::root_hash,
-    State,
+    BlockReader, State, StateReader,
 };
 use std::cmp::min;
 use TransactionAction;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
 where
-    S: State,
+    S: StateReader,
 {
     state: IntraBlockState<'r, S>,
     tracer: &'tracer mut dyn Tracer,
@@ -38,7 +38,7 @@ fn refund_gas<'r, S>(
     mut gas_left: u64,
 ) -> Result<u64, DuoError>
 where
-    S: State,
+    S: StateReader,
 {
     let mut refund = state.get_refund();
     if block_spec.revision < Revision::London {
@@ -73,7 +73,7 @@ pub fn execute_transaction<'r, S>(
     sender: Address,
 ) -> Result<Receipt, DuoError>
 where
-    S: State,
+    S: BlockReader + StateReader,
 {
     let rev = block_spec.revision;
 
@@ -179,7 +179,7 @@ impl From<anyhow::Error> for TransactionValidationError {
 impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
     ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
 where
-    S: State,
+    S: BlockReader + StateReader,
 {
     pub fn new(
         state: &'r mut S,
@@ -341,7 +341,7 @@ where
         self.execute_block_no_post_validation_while(|_, _| true)
     }
 
-    pub fn execute_and_write_block(mut self) -> Result<Vec<Receipt>, DuoError> {
+    pub fn execute_and_check_block(&mut self) -> Result<Vec<Receipt>, DuoError> {
         let receipts = self.execute_block_no_post_validation()?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
@@ -367,7 +367,6 @@ where
             .into());
         }
 
-        let block_num = self.header.number;
         let rev = self.block_spec.revision;
 
         if rev >= Revision::Byzantium {
@@ -392,7 +391,19 @@ where
             .into());
         }
 
-        self.state.write_to_db(block_num)?;
+        Ok(receipts)
+    }
+}
+
+impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
+    ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
+where
+    S: State,
+{
+    pub fn execute_and_write_block(mut self) -> Result<Vec<Receipt>, DuoError> {
+        let receipts = self.execute_and_check_block()?;
+
+        self.state.write_to_db(self.header.number)?;
 
         Ok(receipts)
     }
@@ -404,7 +415,7 @@ mod tests {
     use crate::{
         execution::{address::create_address, tracer::NoopTracer},
         res::chainspec::MAINNET,
-        InMemoryState,
+        InMemoryState, StateReader, StateWriter,
     };
     use bytes::Bytes;
     use bytes_literal::bytes;

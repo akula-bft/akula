@@ -4,7 +4,7 @@ use bytes::Bytes;
 use std::fmt::Debug;
 
 #[auto_impl(&mut, &, Box)]
-pub trait BlockState: Debug + Send + Sync {
+pub trait BlockReader: Debug + Send + Sync {
     fn read_header(
         &self,
         block_number: BlockNumber,
@@ -27,13 +27,16 @@ pub trait BlockState: Debug + Send + Sync {
 }
 
 #[auto_impl(&mut, Box)]
-pub trait State: BlockState {
+pub trait StateReader: Debug + Send + Sync {
     fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>>;
 
     fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes>;
 
     fn read_storage(&self, address: Address, location: U256) -> anyhow::Result<U256>;
+}
 
+#[auto_impl(&mut, Box)]
+pub trait StateWriter: Debug + Send + Sync {
     fn erase_storage(&mut self, address: Address) -> anyhow::Result<()>;
 
     /// State changes
@@ -60,3 +63,7 @@ pub trait State: BlockState {
         current: U256,
     ) -> anyhow::Result<()>;
 }
+
+pub trait State: BlockReader + StateReader + StateWriter {}
+
+impl<T> State for T where T: BlockReader + StateReader + StateWriter {}
