@@ -221,14 +221,6 @@ where
         Ok(())
     }
 
-    fn total_difficulty(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<U256>> {
-        accessors::chain::td::read(self.txn, block_hash, block_number)
-    }
-
     /// State changes
     /// Change sets are backward changes of the state, i.e. account/storage values _at the beginning of a block_.
 

@@ -36,12 +36,6 @@ pub trait State: BlockState {
 
     fn erase_storage(&mut self, address: Address) -> anyhow::Result<()>;
 
-    fn total_difficulty(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<U256>>;
-
     /// State changes
     /// Change sets are backward changes of the state, i.e. account/storage values _at the beginning of a block_.
 

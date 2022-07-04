@@ -205,6 +205,18 @@ impl InMemoryState {
         Ok(None)
     }
 
+    pub fn total_difficulty(
+        &self,
+        block_number: BlockNumber,
+        block_hash: H256,
+    ) -> anyhow::Result<Option<U256>> {
+        if let Some(difficulty_map) = self.difficulty.get(block_number.0 as usize) {
+            return Ok(difficulty_map.get(&block_hash).cloned());
+        }
+
+        Ok(None)
+    }
+
     pub fn canonize_block(&mut self, block_number: BlockNumber, block_hash: H256) {
         let block_number = block_number.0 as usize;
 
@@ -314,18 +326,6 @@ impl State for InMemoryState {
         }
 
         Ok(())
-    }
-
-    fn total_difficulty(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<U256>> {
-        if let Some(difficulty_map) = self.difficulty.get(block_number.0 as usize) {
-            return Ok(difficulty_map.get(&block_hash).cloned());
-        }
-
-        Ok(None)
     }
 
     /// State changes
