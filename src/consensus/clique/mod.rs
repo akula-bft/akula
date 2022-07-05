@@ -16,6 +16,7 @@ use anyhow::bail;
 use bytes::Bytes;
 use ethereum_types::Address;
 use mdbx::{EnvironmentKind, TransactionKind};
+use parking_lot::Mutex as PLMutex;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
@@ -23,6 +24,8 @@ use secp256k1::{
 use sha3::{Digest, Keccak256};
 use state::CliqueState;
 use std::{sync::Mutex, time::Duration, unreachable};
+use std::sync::Arc;
+use crate::consensus::fork_choice_graph::ForkChoiceGraph;
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
@@ -150,6 +153,7 @@ pub struct Clique {
     base: ConsensusEngineBase,
     state: Mutex<CliqueState>,
     period: u64,
+    fork_choice_graph: Arc<PLMutex<ForkChoiceGraph>>,
 }
 
 impl Clique {
@@ -166,6 +170,7 @@ impl Clique {
             base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000, false),
             state: Mutex::new(state),
             period: period.as_secs(),
+            fork_choice_graph: Arc::new(PLMutex::new(Default::default())),
         }
     }
 }
@@ -242,6 +247,6 @@ impl Consensus for Clique {
     }
 
     fn fork_choice_mode(&self) -> ForkChoiceMode {
-        todo!()
+        ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
 }
