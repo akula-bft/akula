@@ -3,14 +3,14 @@ pub mod state;
 use crate::{
     consensus::{
         state::CliqueBlock, CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
-        FinalizationChange, ValidationError,
+        FinalizationChange, ForkChoiceMode, ValidationError,
     },
     kv::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
     models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Revision, Seal},
-    BlockState,
+    BlockReader,
 };
 use anyhow::bail;
 use bytes::Bytes;
@@ -171,8 +171,16 @@ impl Clique {
 }
 
 impl Consensus for Clique {
-    fn pre_validate_block(&self, block: &Block, state: &dyn BlockState) -> Result<(), DuoError> {
-        self.base.pre_validate_block(block, state)?;
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
+        self.base.pre_validate_block(block)?;
+
+        if state.read_parent_header(&block.header)?.is_none() {
+            return Err(ValidationError::UnknownParent {
+                number: block.header.number,
+                parent_hash: block.header.parent_hash,
+            }.into());
+        }
+
         Ok(())
     }
 
@@ -200,7 +208,6 @@ impl Consensus for Clique {
         &self,
         block: &BlockHeader,
         _ommers: &[BlockHeader],
-        _revision: Revision,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 
@@ -231,5 +238,9 @@ impl Consensus for Clique {
 
     fn get_beneficiary(&self, header: &BlockHeader) -> Address {
         recover_signer(header).unwrap()
+    }
+
+    fn fork_choice_mode(&self) -> ForkChoiceMode {
+        todo!()
     }
 }

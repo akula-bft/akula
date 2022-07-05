@@ -219,54 +219,6 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        let parent =
-            state
-                .read_parent_header(&block.header)?
-                .ok_or(ValidationError::UnknownParent {
-                    number: block.header.number,
-                    parent_hash: block.header.parent_hash,
-                })?;
-
-        if self.can_have_ommers {
-            if block.ommers.len() > 2 {
-                return Err(ValidationError::TooManyOmmers.into());
-            }
-
-            if block.ommers.len() == 2 && block.ommers[0] == block.ommers[1] {
-                return Err(ValidationError::DuplicateOmmer.into());
-            }
-
-            for ommer in &block.ommers {
-                let ommer_parent = state.read_parent_header(ommer)?.ok_or(
-                    ValidationError::OmmerUnknownParent {
-                        number: ommer.number,
-                        parent_hash: ommer.parent_hash,
-                    },
-                )?;
-
-                self.validate_block_header(ommer, &ommer_parent, false)
-                    .context(ValidationError::InvalidOmmerHeader)?;
-                let mut old_ommers = vec![];
-                if !self.is_kin(
-                    ommer,
-                    &parent,
-                    block.header.parent_hash,
-                    6,
-                    state,
-                    &mut old_ommers,
-                )? {
-                    return Err(ValidationError::NotAnOmmer.into());
-                }
-                for oo in old_ommers {
-                    if oo == *ommer {
-                        return Err(ValidationError::DuplicateOmmer.into());
-                    }
-                }
-            }
-        } else if !block.ommers.is_empty() {
-            return Err(ValidationError::TooManyOmmers.into());
-        }
-
         for txn in &block.transactions {
             pre_validate_transaction(txn, self.chain_id, block.header.base_fee_per_gas)?;
         }

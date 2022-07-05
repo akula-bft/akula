@@ -147,7 +147,7 @@ where
         let mut tracer = NoopTracer;
         let gas_limit = header.gas_limit;
 
-        let beneficiary = engine_factory(chain_spec)?.get_beneficiary(&header);
+        let beneficiary = engine_factory(None, chain_spec)?.get_beneficiary(&header);
         Ok(U64::from(
             gas_limit as i64
                 - evmglue::execute(

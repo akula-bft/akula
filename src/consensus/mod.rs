@@ -5,7 +5,7 @@ mod clique;
 mod ethash;
 
 use self::fork_choice_graph::ForkChoiceGraph;
-pub use self::{base::*, beacon::*, blockchain::*, ethash::*};
+pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*};
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
@@ -32,7 +32,7 @@ pub enum FinalizationChange {
 }
 
 pub enum ConsensusState {
-    EthHash,
+    Stateless,
     Clique(CliqueState),
 }
 
@@ -43,10 +43,11 @@ impl ConsensusState {
         starting_block: BlockNumber,
     ) -> anyhow::Result<ConsensusState> {
         Ok(match chainspec.consensus.seal_verification {
-            SealVerificationParams::Ethash { .. } => ConsensusState::EthHash,
+            SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
             SealVerificationParams::Clique { period: _, epoch } => {
                 ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
             }
+            SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
         })
     }
 }
