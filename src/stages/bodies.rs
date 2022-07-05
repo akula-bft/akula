@@ -30,7 +30,10 @@ use tokio_stream::StreamExt;
 use tracing::*;
 
 const STAGE_UPPER_BOUND: usize = 90_000;
-const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
+const REQUEST_INTERVAL: Duration = Duration::from_secs(2);
+const INTERVAL_TWEAK_STEP: Duration = Duration::from_secs(2);
+const MIN_SEND_INTERVAL: Duration = Duration::from_secs(2);
+const MAX_SEND_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
 pub struct BodyDownload {
@@ -196,11 +199,7 @@ impl BodyDownload {
                     let mut cycles_without_progress = 0;
                     let mut last_left_requests = requests.read().len();
                     loop {
-                        let left_requests = requests
-                            .read()
-                            .values()
-                            .copied()
-                            .collect::<Vec<_>>();
+                        let left_requests = requests.read().values().copied().collect::<Vec<_>>();
 
                         if left_requests.is_empty() {
                             break;
@@ -246,18 +245,23 @@ impl BodyDownload {
                                 let pending_responses = pending_responses.clone();
                                 let total_sent = total_sent.clone();
                                 async move {
-                                    let _ = tokio::time::timeout(
-                                        send_interval,
-                                        async move {
-                                            let request_id = pending_responses.lock().get_id();
-                                            if handler.send_block_request(request_id, chunk, will_reach_tip_this_cycle).await.is_none() {
-                                                pending_responses.lock().remove(request_id);
-                                                total_sent.fetch_sub(1, Ordering::SeqCst);
-                                            } else {
-                                                debug!("Sent block request with id {request_id}");
-                                            }
+                                    let _ = tokio::time::timeout(send_interval, async move {
+                                        let request_id = pending_responses.lock().get_id();
+                                        if handler
+                                            .send_block_request(
+                                                request_id,
+                                                chunk,
+                                                will_reach_tip_this_cycle,
+                                            )
+                                            .await
+                                            .is_none()
+                                        {
+                                            pending_responses.lock().remove(request_id);
+                                            total_sent.fetch_sub(1, Ordering::SeqCst);
+                                        } else {
+                                            debug!("Sent block request with id {request_id}");
                                         }
-                                    )
+                                    })
                                     .await;
                                 }
                             })
@@ -284,18 +288,23 @@ impl BodyDownload {
                             }
                         }
 
-                        if send_cycle_successful && send_interval > Duration::from_secs(2) {
-                            send_interval -= Duration::from_millis(250);
+                        if send_cycle_successful {
+                            send_interval = std::cmp::max(
+                                send_interval.saturating_sub(INTERVAL_TWEAK_STEP),
+                                MIN_SEND_INTERVAL,
+                            );
                             debug!("Request cycle interval lowered to {send_interval:?}");
-                        } else if send_interval < Duration::from_secs(60) {
-                            send_interval += Duration::from_millis(250);
+                        } else {
+                            send_interval = std::cmp::min(
+                                send_interval.saturating_add(INTERVAL_TWEAK_STEP),
+                                MAX_SEND_INTERVAL,
+                            );
                             debug!("Request cycle interval increased to {send_interval:?}");
                         }
 
                         pending_responses.lock().clear();
                     }
                 }
-                .instrument(span!(Level::DEBUG, "body downloader requester"))
             }));
 
             let mut bodies = HashMap::with_capacity(requests.read().len());

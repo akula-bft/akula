@@ -1,7 +1,6 @@
 use super::*;
 use crate::{chain::protocol_param::param, models::*, state::*, trie::root_hash};
-use anyhow::Context;
-use std::time::SystemTime;
+use std::{collections::BTreeMap, time::SystemTime};
 
 #[derive(Debug)]
 pub struct ConsensusEngineBase {
@@ -73,7 +72,7 @@ impl ConsensusEngineBase {
             }
         }
 
-        if header.timestamp <= parent.timestamp {
+        if header.timestamp < parent.timestamp {
             return Err(ValidationError::InvalidTimestamp {
                 parent: parent.timestamp,
                 current: header.timestamp,
@@ -110,13 +109,13 @@ impl ConsensusEngineBase {
     }
 
     // See [YP] Section 11.1 "Ommer Validation"
-    fn is_kin(
+    pub fn is_kin(
         &self,
         branch_header: &BlockHeader,
         mainline_header: &BlockHeader,
         mainline_hash: H256,
         n: usize,
-        state: &dyn BlockState,
+        state: &dyn BlockReader,
         old_ommers: &mut Vec<BlockHeader>,
     ) -> anyhow::Result<bool> {
         if n > 0 && branch_header != mainline_header {
@@ -196,11 +195,7 @@ impl ConsensusEngineBase {
         None
     }
 
-    pub fn pre_validate_block(
-        &self,
-        block: &Block,
-        state: &dyn BlockState,
-    ) -> Result<(), DuoError> {
+    pub fn pre_validate_block(&self, block: &Block) -> Result<(), DuoError> {
         let expected_ommers_hash = if self.can_have_ommers {
             Block::ommers_hash(&block.ommers)
         } else {
@@ -277,6 +272,23 @@ impl ConsensusEngineBase {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BlockRewardSchedule(pub BTreeMap<BlockNumber, U256>);
+
+impl BlockRewardSchedule {
+    pub fn for_block(&self, block_number: BlockNumber) -> U256 {
+        let mut v = U256::ZERO;
+        for (&reward_since, &reward) in &self.0 {
+            if reward_since <= block_number {
+                v = reward;
+            } else {
+                break;
+            }
+        }
+        v
     }
 }
 

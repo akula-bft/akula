@@ -6,7 +6,7 @@ use crate::{
     },
     models::*,
     state::database::*,
-    u256_to_h256, BlockState, State,
+    u256_to_h256, BlockReader, HeaderReader, StateReader, StateWriter,
 };
 use bytes::Bytes;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -84,7 +84,7 @@ where
     }
 }
 
-impl<'db, 'tx, K, E> BlockState for MdbxTransaction<'db, K, E>
+impl<'db, 'tx, K, E> HeaderReader for MdbxTransaction<'db, K, E>
 where
     'db: 'tx,
     K: TransactionKind,
@@ -97,7 +97,14 @@ where
     ) -> anyhow::Result<Option<BlockHeader>> {
         self.get(tables::Header, (block_number, block_hash))
     }
+}
 
+impl<'db, 'tx, K, E> BlockReader for MdbxTransaction<'db, K, E>
+where
+    'db: 'tx,
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
     fn read_body(
         &self,
         block_number: BlockNumber,
@@ -107,7 +114,7 @@ where
     }
 }
 
-impl<'db, 'tx, K, E> BlockState for Buffer<'db, 'tx, K, E>
+impl<'db, 'tx, K, E> HeaderReader for Buffer<'db, 'tx, K, E>
 where
     'db: 'tx,
     K: TransactionKind,
@@ -120,17 +127,9 @@ where
     ) -> anyhow::Result<Option<BlockHeader>> {
         self.txn.read_header(block_number, block_hash)
     }
-
-    fn read_body(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<BlockBody>> {
-        self.txn.read_body(block_number, block_hash)
-    }
 }
 
-impl<'db, 'tx, K, E> State for Buffer<'db, 'tx, K, E>
+impl<'db, 'tx, K, E> StateReader for Buffer<'db, 'tx, K, E>
 where
     'db: 'tx,
     K: TransactionKind,
@@ -167,7 +166,14 @@ where
 
         accessors::state::storage::read(self.txn, address, location, self.historical_block)
     }
+}
 
+impl<'db, 'tx, K, E> StateWriter for Buffer<'db, 'tx, K, E>
+where
+    'db: 'tx,
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
     fn erase_storage(&mut self, address: Address) -> anyhow::Result<()> {
         let mut mark_database_as_discarded = false;
         let overlay_storage = self.storage.entry(address).or_insert_with(|| {
@@ -219,14 +225,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn total_difficulty(
-        &self,
-        block_number: BlockNumber,
-        block_hash: H256,
-    ) -> anyhow::Result<Option<U256>> {
-        accessors::chain::td::read(self.txn, block_hash, block_number)
     }
 
     /// State changes

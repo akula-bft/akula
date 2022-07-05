@@ -1,7 +1,7 @@
 use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
-    consensus::{engine_factory, Consensus},
+    consensus::{engine_factory, Consensus, ForkChoiceMode},
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -161,7 +161,8 @@ fn main() -> anyhow::Result<()> {
                     chainspec
                 };
 
-                let consensus: Arc<dyn Consensus> = engine_factory(chainspec.clone())?.into();
+                let consensus: Arc<dyn Consensus> =
+                    engine_factory(Some(db.clone()), chainspec.clone())?.into();
 
                 let chain_config = ChainConfig::from(chainspec);
 
@@ -261,10 +262,13 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 let node = Arc::new(builder.build()?);
+                let tip_discovery =
+                    !matches!(consensus.fork_choice_mode(), ForkChoiceMode::External(_));
+
                 tokio::spawn({
                     let node = node.clone();
                     async move {
-                        node.start_sync().await.unwrap();
+                        node.start_sync(tip_discovery).await.unwrap();
                     }
                 });
 
@@ -273,7 +277,6 @@ fn main() -> anyhow::Result<()> {
                         node: node.clone(),
                         consensus: consensus.clone(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
-                        graph: Default::default(),
                         increment,
                     },
                     false,

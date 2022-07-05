@@ -384,7 +384,7 @@ const fn gas_costs() -> GasCostTable {
     table[Revision::London as usize] = table[Revision::Berlin as usize];
     table[Revision::London as usize][OpCode::BASEFEE.to_usize()] = 2;
 
-    table[Revision::Shanghai as usize] = table[Revision::London as usize];
+    table[Revision::Paris as usize] = table[Revision::London as usize];
 
     table
 }

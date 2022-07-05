@@ -14,7 +14,7 @@ pub struct Snapshot {
 #[derive(Debug)]
 pub struct IntraBlockState<'db, S>
 where
-    S: State,
+    S: StateReader,
 {
     db: &'db mut S,
 
@@ -38,7 +38,7 @@ where
     pub(crate) accessed_storage_keys: HashMap<Address, HashSet<U256>>,
 }
 
-fn get_object<'m, S: State>(
+fn get_object<'m, S: StateReader>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
     address: Address,
@@ -60,7 +60,7 @@ fn get_object<'m, S: State>(
     })
 }
 
-fn ensure_object<'m: 'j, 'j, S: State>(
+fn ensure_object<'m: 'j, 'j, S: StateReader>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
     journal: &'j mut Vec<Delta>,
@@ -85,7 +85,7 @@ fn ensure_object<'m: 'j, 'j, S: State>(
     Ok(())
 }
 
-fn get_or_create_object<'m: 'j, 'j, S: State>(
+fn get_or_create_object<'m: 'j, 'j, S: StateReader>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
     journal: &'j mut Vec<Delta>,
@@ -95,7 +95,7 @@ fn get_or_create_object<'m: 'j, 'j, S: State>(
     Ok(objects.get_mut(&address).unwrap())
 }
 
-impl<'r, S: State> IntraBlockState<'r, S> {
+impl<'r, S: StateReader> IntraBlockState<'r, S> {
     pub fn new(db: &'r mut S) -> Self {
         Self {
             db,
@@ -448,37 +448,6 @@ impl<'r, S: State> IntraBlockState<'r, S> {
         Ok(())
     }
 
-    pub fn write_to_db(self, block_number: BlockNumber) -> anyhow::Result<()> {
-        self.db.begin_block(block_number);
-
-        for (address, incarnation) in self.incarnations {
-            if incarnation > 0 {
-                self.db.erase_storage(address)?
-            }
-        }
-
-        for (address, storage) in self.storage {
-            if let Some(obj) = self.objects.get(&address) {
-                if obj.current.is_some() {
-                    for (key, val) in &storage.committed {
-                        self.db
-                            .update_storage(address, *key, val.initial, val.original)?;
-                    }
-                }
-            }
-        }
-
-        for (address, obj) in self.objects {
-            self.db.update_account(address, obj.initial, obj.current);
-        }
-
-        for (code_hash, code) in self.new_code {
-            self.db.update_code(code_hash, code)?
-        }
-
-        Ok(())
-    }
-
     pub fn take_snapshot(&self) -> Snapshot {
         Snapshot {
             journal_size: self.journal.len(),
@@ -535,5 +504,41 @@ impl<'r, S: State> IntraBlockState<'r, S> {
 
     pub fn get_refund(&self) -> u64 {
         self.refund
+    }
+}
+
+impl<'r, S> IntraBlockState<'r, S>
+where
+    S: State,
+{
+    pub fn write_to_db(self, block_number: BlockNumber) -> anyhow::Result<()> {
+        self.db.begin_block(block_number);
+
+        for (address, incarnation) in self.incarnations {
+            if incarnation > 0 {
+                self.db.erase_storage(address)?
+            }
+        }
+
+        for (address, storage) in self.storage {
+            if let Some(obj) = self.objects.get(&address) {
+                if obj.current.is_some() {
+                    for (key, val) in &storage.committed {
+                        self.db
+                            .update_storage(address, *key, val.initial, val.original)?;
+                    }
+                }
+            }
+        }
+
+        for (address, obj) in self.objects {
+            self.db.update_account(address, obj.initial, obj.current);
+        }
+
+        for (code_hash, code) in self.new_code {
+            self.db.update_code(code_hash, code)?
+        }
+
+        Ok(())
     }
 }

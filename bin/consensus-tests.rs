@@ -169,7 +169,7 @@ fn testconfig(
     let mut spec = MAINNET.clone();
     spec.name = format!("{:?}", name);
     spec.consensus.eip1559_block = upgrades.london;
-    let SealVerificationParams::Ethash { difficulty_bomb, skip_pow_verification, homestead_formula, byzantium_formula,.. } = &mut spec.consensus.seal_verification else { unreachable!() };
+    let SealVerificationParams::Ethash { block_reward, difficulty_bomb, skip_pow_verification, homestead_formula, byzantium_formula,.. } = &mut spec.consensus.seal_verification else { unreachable!() };
     *difficulty_bomb = Some(DifficultyBomb {
         delays: btreemap! { BlockNumber(0) => bomb_delay },
     });
@@ -177,6 +177,15 @@ fn testconfig(
     *homestead_formula = upgrades.homestead;
     *byzantium_formula = upgrades.byzantium;
     spec.upgrades = upgrades;
+
+    block_reward.clear();
+    block_reward.insert(BlockNumber(0), (5 * ETHER).as_u256());
+    if let Some(block) = spec.upgrades.byzantium {
+        block_reward.insert(block, (3 * ETHER).as_u256());
+    }
+    if let Some(block) = spec.upgrades.constantinople {
+        block_reward.insert(block, (2 * ETHER).as_u256());
+    }
 
     let mainnet_dao_fork_block_num = BlockNumber(1_920_000);
     let dao_data = spec.balances.remove(&mainnet_dao_fork_block_num).unwrap();
@@ -303,6 +312,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
                 istanbul: Some(0.into()),
                 berlin: Some(0.into()),
                 london: Some(0.into()),
+                ..Default::default()
             },
             None,
             9700000,
@@ -373,6 +383,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
                 istanbul: Some(0.into()),
                 berlin: Some(0.into()),
                 london: Some(5.into()),
+                ..Default::default()
             },
             None,
             9700000,
@@ -404,6 +415,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
                 istanbul: Some(0.into()),
                 berlin: Some(0.into()),
                 london: Some(0.into()),
+                ..Default::default()
             },
             None,
             10700000,
@@ -420,6 +432,7 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
                 istanbul: Some(0.into()),
                 berlin: Some(0.into()),
                 london: Some(0.into()),
+                paris: Some(0.into()),
             },
             None,
             11_200_000,
@@ -538,7 +551,10 @@ enum Status {
 }
 
 #[instrument]
-fn init_pre_state<S: State>(pre: &HashMap<Address, AccountState>, state: &mut S) {
+fn init_pre_state<S>(pre: &HashMap<Address, AccountState>, state: &mut S)
+where
+    S: State,
+{
     for (address, j) in pre {
         let mut account = Account {
             balance: j.balance,

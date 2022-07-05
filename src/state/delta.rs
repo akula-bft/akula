@@ -1,5 +1,5 @@
 use super::{intra_block_state::IntraBlockState, object::Object};
-use crate::{models::*, State, Storage};
+use crate::{models::*, StateReader, Storage};
 use std::{collections::hash_map::Entry, fmt::Debug};
 
 /// Reversible change made to `IntraBlockState`.
@@ -49,7 +49,7 @@ pub enum Delta {
 impl Delta {
     pub fn revert<R>(self, state: &mut IntraBlockState<'_, R>)
     where
-        R: State,
+        R: StateReader,
     {
         match self {
             Delta::Create { address } => {

@@ -1,23 +1,16 @@
 (
     name: "Ropsten",
     consensus: (
-        seal_verification: Ethash(
-            duration_limit: 13,
+        seal_verification: Beacon(
+            terminal_total_difficulty: "0xb1a2bc2ec50000",
+            terminal_block_hash: "0x5010949c3acdf1d076c9e4ee8aedbb539aca48ebe19638330bc02c5b1bfb953d",
+            terminal_block_number: 12350712,
             block_reward: {
                 0: "0x4563918244f40000",
                 1700000: "0x29a2241af62c0000",
                 4230000: "0x1bc16d674ec80000",
+                12350713: "0x0",
             },
-            homestead_formula: 0,
-            byzantium_formula: 1700000,
-            difficulty_bomb: DifficultyBomb(
-                delays: {
-                    1700000: 3000000,
-                    4230000: 5000000,
-                    7117117: 9000000,
-                    10499401: 9700000,
-                },
-            ),
         ),
         eip1559_block: 10499401,
     ),
@@ -31,11 +24,13 @@
         istanbul: 6485846,
         berlin: 9812189,
         london: 10499401,
+        paris: 12350713,
     ),
     params: (
         chain_id: 3,
         network_id: 3,
         min_gas_limit: 5000,
+        additional_forks: [7117117],
     ),
     genesis: (
         number: 0,

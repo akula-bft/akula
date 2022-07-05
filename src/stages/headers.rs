@@ -1,12 +1,11 @@
 #![allow(unreachable_code)]
 
 use crate::{
-    consensus::Consensus,
+    consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode},
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
-        collections::ForkChoiceGraph,
-        node::Node,
+        node::{Node, NodeStream},
         types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
     },
     stagedsync::{stage::*, stages::HEADERS},
@@ -17,8 +16,10 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use ethereum_types::H512;
 use parking_lot::Mutex;
+use rand::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
+    collections::BTreeMap,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -39,7 +40,6 @@ pub struct HeaderDownload {
     pub node: Arc<Node>,
     pub consensus: Arc<dyn Consensus>,
     pub max_block: BlockNumber,
-    pub graph: Arc<Mutex<ForkChoiceGraph>>,
     pub increment: Option<BlockNumber>,
 }
 
@@ -61,111 +61,194 @@ where
         'db: 'tx,
     {
         let prev_progress = input.stage_progress.unwrap_or_default();
-        if prev_progress != 0 {
-            self.update_head(txn, prev_progress).await?;
-        }
+        self.update_head(txn, prev_progress).await?;
 
-        let prev_progress_hash = txn
-            .get(tables::CanonicalHeader, prev_progress)?
-            .ok_or_else(|| {
-                StageError::Internal(format_err!("no canonical hash for block #{prev_progress}"))
-            })?;
+        let mut stage_progress = prev_progress;
+        let mut reached_tip = true;
 
-        let starting_block: BlockNumber = prev_progress + 1;
-        let mut chain_tip = self.node.chain_tip.clone();
-        let current_chain_tip = loop {
-            let _ = chain_tip.changed().await;
-            let (n, _) = *chain_tip.borrow();
-            if n >= starting_block {
-                break n;
-            }
-        };
+        if prev_progress < self.max_block {
+            let prev_progress_hash = txn
+                .get(tables::CanonicalHeader, prev_progress)?
+                .ok_or_else(|| {
+                    StageError::Internal(format_err!(
+                        "no canonical hash for block #{prev_progress}"
+                    ))
+                })?;
 
-        debug!("Chain tip={}", current_chain_tip);
+            let headers;
+            (headers, reached_tip) = match self.consensus.fork_choice_mode() {
+                ForkChoiceMode::External(mut chain_tip_watch) => {
+                    // Reverse download mode
 
-        let max_increment = self
-            .increment
-            .map(|v| std::cmp::min(v, STAGE_UPPER_BOUND))
-            .unwrap_or(STAGE_UPPER_BOUND);
-        let (mut target_block, mut reached_tip) =
-            if starting_block + max_increment > current_chain_tip {
-                (current_chain_tip, true)
-            } else {
-                (starting_block + max_increment, false)
-            };
-        if target_block >= self.max_block {
-            target_block = self.max_block;
-            reached_tip = true;
-        }
+                    let prev_progress_block = txn
+                        .get(tables::Header, (prev_progress, prev_progress_hash))?
+                        .ok_or_else(|| {
+                            StageError::Internal(format_err!(
+                                "no header for block #{prev_progress}"
+                            ))
+                        })?;
 
-        info!(
-            "Target block for download: {target_block}{}",
-            if reached_tip { ", will reach tip" } else { "" }
-        );
+                    info!("Awaiting chain tip...");
 
-        let headers_cap = (target_block.0 - starting_block.0 + 1) as usize;
-        let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
+                    let (chain_tip_hash, chain_finalized_hash) = loop {
+                        let _ = chain_tip_watch.changed().await;
 
-        while headers.len() < headers_cap {
-            let starting_block = if let Some((_, last_buffered_header)) = headers.last() {
-                last_buffered_header.number + 1
-            } else {
-                starting_block
-            };
-
-            info!("Download session {starting_block} to {target_block}");
-
-            if let Some(mut downloaded) =
-                self.download_headers(starting_block, target_block).await?
-            {
-                // Check that downloaded headers attach to present chain
-                if let Some((_, first_downloaded)) = downloaded.first() {
-                    if let Some((_, last_buffered)) = headers.last() {
-                        if last_buffered.hash() != first_downloaded.parent_hash {
-                            // Does not attach to buffered chain, just pop last header and download again
-                            headers.pop();
-                            continue;
+                        let fork_choice = *chain_tip_watch.borrow();
+                        if !fork_choice.head_block.is_zero()
+                            && fork_choice.head_block != prev_progress_hash
+                        {
+                            break (fork_choice.head_block, fork_choice.finalized_block);
                         }
-                    } else if prev_progress_hash != first_downloaded.parent_hash {
-                        // Does not attach to chain in database, unwind and start over
-                        return Ok(ExecOutput::Unwind {
-                            unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
-                        });
+                    };
+                    let _ = chain_finalized_hash;
+
+                    info!("Received chain tip hash: {chain_tip_hash}, starting_download");
+
+                    let mut stream = self.node.stream_headers().await;
+
+                    match self
+                        .reverse_download_linear(
+                            &mut stream,
+                            prev_progress_hash,
+                            &prev_progress_block,
+                            chain_tip_hash,
+                            chain_finalized_hash,
+                        )
+                        .await
+                    {
+                        LinearDownloadResult::Done(buffered_headers) => (
+                            Box::new(buffered_headers.into_values())
+                                as Box<dyn Iterator<Item = (H256, BlockHeader)> + Send>,
+                            true,
+                        ),
+                        LinearDownloadResult::DoesNotAttach => {
+                            return Ok(ExecOutput::Unwind {
+                                unwind_to: prev_progress
+                                    .checked_sub(1)
+                                    .ok_or_else(|| format_err!("Attempting to reorg past genesis"))?
+                                    .into(),
+                            })
+                        }
+                        LinearDownloadResult::NoResponse => {
+                            return Ok(ExecOutput::Progress {
+                                stage_progress: prev_progress,
+                                done: false,
+                                reached_tip: false,
+                            });
+                        }
                     }
                 }
+                ForkChoiceMode::Difficulty(fork_choice_graph) => {
+                    // Forward download mode
+                    let starting_block: BlockNumber = prev_progress + 1;
+                    let mut chain_tip = self.node.chain_tip.clone();
+                    let current_chain_tip = loop {
+                        let _ = chain_tip.changed().await;
+                        let (n, _) = *chain_tip.borrow();
+                        if n >= starting_block {
+                            break n;
+                        }
+                    };
 
-                headers.append(&mut downloaded);
-            } else {
-                return Ok(ExecOutput::Unwind {
-                    unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
-                });
+                    debug!("Chain tip={}", current_chain_tip);
+
+                    let max_increment = self
+                        .increment
+                        .map(|v| std::cmp::min(v, STAGE_UPPER_BOUND))
+                        .unwrap_or(STAGE_UPPER_BOUND);
+                    let (mut target_block, mut reached_tip) =
+                        if starting_block + max_increment > current_chain_tip {
+                            (current_chain_tip, true)
+                        } else {
+                            (starting_block + max_increment, false)
+                        };
+                    if target_block >= self.max_block {
+                        target_block = self.max_block;
+                        reached_tip = true;
+                    }
+
+                    info!(
+                        "Target block for download: {target_block}{}",
+                        if reached_tip { ", will reach tip" } else { "" }
+                    );
+
+                    let headers_cap = (target_block.0 - starting_block.0 + 1) as usize;
+                    let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
+
+                    while headers.len() < headers_cap {
+                        let starting_block = if let Some((_, last_buffered_header)) = headers.last()
+                        {
+                            last_buffered_header.number + 1
+                        } else {
+                            starting_block
+                        };
+
+                        info!("Download session {starting_block} to {target_block}");
+
+                        if let Some(mut downloaded) = self
+                            .download_headers(
+                                fork_choice_graph.clone(),
+                                starting_block,
+                                target_block,
+                            )
+                            .await?
+                        {
+                            // Check that downloaded headers attach to present chain
+                            if let Some((_, first_downloaded)) = downloaded.first() {
+                                if let Some((_, last_buffered)) = headers.last() {
+                                    if last_buffered.hash() != first_downloaded.parent_hash {
+                                        // Does not attach to buffered chain, just pop last header and download again
+                                        headers.pop();
+                                        continue;
+                                    }
+                                } else if prev_progress_hash != first_downloaded.parent_hash {
+                                    // Does not attach to chain in database, unwind and start over
+                                    return Ok(ExecOutput::Unwind {
+                                        unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
+                                    });
+                                }
+                            }
+
+                            headers.append(&mut downloaded);
+                        } else {
+                            return Ok(ExecOutput::Unwind {
+                                unwind_to: BlockNumber(prev_progress.saturating_sub(1)),
+                            });
+                        }
+                    }
+
+                    (
+                        Box::new(headers.into_iter())
+                            as Box<dyn Iterator<Item = (H256, BlockHeader)> + Send>,
+                        reached_tip,
+                    )
+                }
+            };
+
+            let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
+            let mut cursor_header = txn.cursor(tables::Header)?;
+            let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
+            let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
+            let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
+
+            for (hash, header) in headers {
+                if header.number == 0 {
+                    continue;
+                }
+                if header.number > self.max_block {
+                    break;
+                }
+
+                let block_number = header.number;
+                td += header.difficulty;
+
+                cursor_header_number.put(hash, block_number)?;
+                cursor_header.put((block_number, hash), header)?;
+                cursor_canonical.put(block_number, hash)?;
+                cursor_td.put((block_number, hash), td)?;
+
+                stage_progress = block_number;
             }
-        }
-        let mut stage_progress = prev_progress;
-
-        let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
-        let mut cursor_header = txn.cursor(tables::Header)?;
-        let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
-        let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
-        let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
-
-        for (hash, header) in headers {
-            if header.number == 0 {
-                continue;
-            }
-            if header.number > self.max_block {
-                break;
-            }
-
-            let block_number = header.number;
-            td += header.difficulty;
-
-            cursor_header_number.put(hash, block_number)?;
-            cursor_header.put((block_number, hash), header)?;
-            cursor_canonical.put(block_number, hash)?;
-            cursor_td.put((block_number, hash), td)?;
-
-            stage_progress = block_number;
         }
 
         Ok(ExecOutput::Progress {
@@ -183,7 +266,9 @@ where
     where
         'db: 'tx,
     {
-        self.graph.lock().clear();
+        if let ForkChoiceMode::Difficulty(graph) = self.consensus.fork_choice_mode() {
+            graph.lock().clear();
+        }
         let mut cur = txn.cursor(tables::CanonicalHeader)?;
 
         if let Some(bad_block) = input.bad_block {
@@ -206,11 +291,156 @@ where
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LinearDownloadResult {
+    Done(BTreeMap<BlockNumber, (H256, BlockHeader)>),
+    DoesNotAttach,
+    NoResponse,
+}
+
 impl HeaderDownload {
     const BACK_OFF: Duration = Duration::from_secs(5);
 
+    async fn reverse_download_linear(
+        &self,
+        stream: &mut NodeStream,
+        head: H256,
+        head_block: &BlockHeader,
+        chain_tip: H256,
+        finalized: H256,
+    ) -> LinearDownloadResult {
+        let mut buffered_headers = BTreeMap::<BlockNumber, (H256, BlockHeader)>::new();
+        let mut remaining_attempts = Some(10_usize);
+        loop {
+            let limit = 1024;
+            let (request_start_block, request_start) = buffered_headers
+                .iter()
+                .next()
+                .map(|(_, (_, block))| (Some(block.number), block.parent_hash))
+                .unwrap_or((None, chain_tip));
+
+            info!(
+                "Requesting {limit} headers ending at {}/{request_start:?}",
+                if let Some(block_number) = request_start_block {
+                    format!("#{block_number}")
+                } else {
+                    "the tip".to_string()
+                }
+            );
+
+            let mut success = true;
+            let sent_request_id = rand::thread_rng().gen();
+            if let Ok(sent) = tokio::time::timeout(
+                Duration::from_secs(5),
+                self.node.send_header_request(
+                    Some(sent_request_id),
+                    HeaderRequest {
+                        start: BlockId::Hash(request_start),
+                        limit,
+                        reverse: true,
+                        ..Default::default()
+                    },
+                    request_start_block,
+                ),
+            )
+            .await
+            {
+                let timeout = tokio::time::sleep(Duration::from_secs(5));
+                tokio::pin!(timeout);
+
+                let headers = loop {
+                    tokio::select! {
+                        msg = stream.next() => {
+                            if let Some(msg) = msg {
+                                if sent.contains(&(msg.sentry_id, msg.peer_id)) {
+                                    if let Message::BlockHeaders(BlockHeaders { request_id, headers }) = msg.msg.clone() {
+                                        if sent_request_id == request_id && !headers.is_empty() {
+                                            info!("Received {} headers from peer {}/{}", headers.len(), msg.sentry_id, msg.peer_id);
+
+                                            break Some(headers);
+                                        }
+                                    }
+                                }
+                                debug!("Ignoring unsolicited message from {}/{}: {:?}", msg.sentry_id, msg.peer_id, msg);
+                            }
+                        }
+                        _ = &mut timeout => {
+                            break None;
+                        }
+                    }
+                };
+
+                if let Some(mut headers) = headers {
+                    headers.sort_unstable_by_key(|h| h.number);
+
+                    let num_headers = headers.len();
+
+                    for header in headers.into_iter().rev() {
+                        let header_hash = header.hash();
+
+                        debug!("Checking header #{}/{header_hash:?}", header.number);
+
+                        if head == header_hash {
+                            return LinearDownloadResult::Done(buffered_headers);
+                        } else if head_block.number == header.number {
+                            return LinearDownloadResult::DoesNotAttach;
+                        }
+
+                        if let Some((_, (_, earliest_block))) = buffered_headers.iter().next() {
+                            if earliest_block.number.0 - 1 != header.number.0
+                                && earliest_block.parent_hash != header_hash
+                            {
+                                break;
+                            }
+
+                            self.consensus
+                                .validate_block_header(earliest_block, &header, true)
+                                .map_err(|e| match e {
+                                    DuoError::Validation(error) => StageError::Validation {
+                                        block: header.number,
+                                        error,
+                                    },
+                                    DuoError::Internal(error) => StageError::Internal(error),
+                                })
+                                .unwrap();
+                        } else if chain_tip != header.hash() {
+                            break;
+                        }
+
+                        if header_hash == finalized {
+                            remaining_attempts = None;
+                        }
+
+                        buffered_headers.insert(header.number, (header_hash, header));
+                    }
+
+                    info!(
+                        "Buffered {} (+{num_headers}) headers",
+                        buffered_headers.len()
+                    );
+                } else {
+                    success = false;
+                }
+            } else {
+                success = false;
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+
+            if !success {
+                if let Some(remaining_attempts) = &mut remaining_attempts {
+                    if let Some(attempts) = remaining_attempts.checked_sub(1) {
+                        *remaining_attempts = attempts;
+                    } else {
+                        return LinearDownloadResult::NoResponse;
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn download_headers(
         &self,
+        fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
@@ -258,7 +488,7 @@ impl HeaderDownload {
                                 let (node, requests, graph, peer_id) = (
                                     self.node.clone(),
                                     requests.clone(),
-                                    self.graph.clone(),
+                                    fork_choice_graph.clone(),
                                     peer_id,
                                 );
 
@@ -275,7 +505,7 @@ impl HeaderDownload {
 
         let took = Instant::now();
 
-        let mut graph = self.graph.lock();
+        let mut graph = fork_choice_graph.lock();
         let tail = if let Some(v) = graph.chain_head() {
             v
         } else {

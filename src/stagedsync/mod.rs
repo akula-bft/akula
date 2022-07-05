@@ -165,8 +165,6 @@ where
     pub async fn run(&mut self, db: &'db MdbxEnvironment<E>) -> anyhow::Result<()> {
         let num_stages = self.stages.len();
 
-        let mut minimum_progress = None;
-        let mut maximum_progress = None;
         let mut bad_block = None;
         let mut unwind_to = self.start_with_unwind;
         'run_loop: loop {
@@ -246,6 +244,9 @@ where
 
                 let mut previous_stage = None;
                 let mut receipts = Vec::with_capacity(num_stages);
+
+                let mut minimum_progress = None;
+                let mut maximum_progress = None;
 
                 let mut reached_tip_flag = true;
 
@@ -540,7 +541,7 @@ where
 
                 if let Some(minimum_progress) = minimum_progress {
                     if let Some(max_block) = self.max_block {
-                        if minimum_progress == max_block {
+                        if minimum_progress >= max_block {
                             return Ok(());
                         }
                     }
