@@ -9,7 +9,7 @@ use crate::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Revision, Seal},
+    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal},
     BlockReader,
 };
 use anyhow::bail;
@@ -178,7 +178,8 @@ impl Consensus for Clique {
             return Err(ValidationError::UnknownParent {
                 number: block.header.number,
                 parent_hash: block.header.parent_hash,
-            }.into());
+            }
+            .into());
         }
 
         Ok(())

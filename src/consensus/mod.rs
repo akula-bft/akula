@@ -348,6 +348,5 @@ pub fn engine_factory(
             terminal_block_hash,
             terminal_block_number,
         )),
-        _ => bail!("unsupported consensus engine"),
     })
 }
