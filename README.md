@@ -13,7 +13,7 @@ Look at Mgas/s.
 ## Building the source
 
 Requirements:
-- clang
+- clang 12+
 - libext2fs-dev / e2fsprogs-devel
 
 Install `rustup` from rustup.rs.
