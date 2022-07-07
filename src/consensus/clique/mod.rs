@@ -2,8 +2,9 @@ pub mod state;
 
 use crate::{
     consensus::{
-        state::CliqueBlock, CliqueError, Consensus, ConsensusEngineBase, ConsensusState, DuoError,
-        FinalizationChange, ForkChoiceMode, ValidationError,
+        fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
+        ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
+        ValidationError,
     },
     kv::{
         mdbx::{MdbxCursor, MdbxTransaction},
@@ -23,9 +24,11 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use state::CliqueState;
-use std::{sync::Mutex, time::Duration, unreachable};
-use std::sync::Arc;
-use crate::consensus::fork_choice_graph::ForkChoiceGraph;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+    unreachable,
+};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;

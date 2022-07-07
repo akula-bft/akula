@@ -138,6 +138,9 @@ pub enum CliqueError {
     },
     SignedRecently {
         signer: Address,
+        current: BlockNumber,
+        last: BlockNumber,
+        limit: u64,
     },
     WrongExtraData,
     WrongNonce {
@@ -150,6 +153,12 @@ pub enum CliqueError {
         expected: Vec<Address>,
         got: Vec<Address>,
     },
+}
+
+impl Display for CliqueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[allow(clippy::large_enum_variant)]

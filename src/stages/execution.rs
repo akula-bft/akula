@@ -1,6 +1,6 @@
 use crate::{
     accessors,
-    consensus::{engine_factory, ConsensusState, DuoError},
+    consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError},
     execution::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
@@ -212,7 +212,7 @@ where
             .previous_stage.ok_or_else(|| format_err!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1;
 
         Ok(if max_block >= starting_block {
-            let executed_to = execute_batch_of_blocks(
+            let result = execute_batch_of_blocks(
                 tx,
                 chain_config,
                 max_block,
@@ -222,7 +222,32 @@ where
                 self.commit_every,
                 starting_block,
                 input.first_started_at,
-            )?;
+            );
+
+            // CliqueError::SignedRecently seems to be raised sometimes when
+            // a reorg is in process. This is a kludge to recover in such cases.
+            if let Err(StageError::Internal(ref e)) = result {
+                for cause in e.chain() {
+                    if let Some(DuoError::Validation(ValidationError::CliqueError(
+                        CliqueError::SignedRecently {
+                            signer: _,
+                            current,
+                            last: _,
+                            limit,
+                        },
+                    ))) = cause.downcast_ref::<DuoError>()
+                    {
+                        let unwind_to = current.saturating_sub(*limit).into();
+                        warn!(
+                            "Trying to recover from {} by unwinding to {}",
+                            &cause, unwind_to
+                        );
+                        return Ok(ExecOutput::Unwind { unwind_to });
+                    }
+                }
+            }
+
+            let executed_to = result?;
 
             let done = executed_to == max_block || self.exit_after_batch;
 

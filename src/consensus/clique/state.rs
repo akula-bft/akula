@@ -246,7 +246,13 @@ impl CliqueState {
         if let Some(last_signed_block) = self.history.find(candidate) {
             let previous = block.number.0 - last_signed_block.0;
             if (previous as usize) < self.signers.limit() {
-                return Err(CliqueError::SignedRecently { signer: candidate }.into());
+                return Err(CliqueError::SignedRecently {
+                    signer: candidate,
+                    current: block.number,
+                    last: *last_signed_block,
+                    limit: self.signers.limit() as u64,
+                }
+                .into());
             }
         }
 
