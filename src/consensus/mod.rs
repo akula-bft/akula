@@ -12,7 +12,6 @@ use crate::{
     BlockReader,
 };
 use anyhow::bail;
-use clique::state::CliqueState;
 use derive_more::{Display, From};
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;

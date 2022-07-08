@@ -8,7 +8,6 @@ pub struct ConsensusEngineBase {
     eip1559_block: Option<BlockNumber>,
     max_extra_data_length: Option<usize>,
     min_gas_limit: u64,
-    can_have_ommers: bool,
 }
 
 impl ConsensusEngineBase {
@@ -17,14 +16,12 @@ impl ConsensusEngineBase {
         eip1559_block: Option<BlockNumber>,
         max_extra_data_length: Option<usize>,
         min_gas_limit: u64,
-        can_have_ommers: bool,
     ) -> Self {
         Self {
             chain_id,
             eip1559_block,
             max_extra_data_length,
             min_gas_limit,
-            can_have_ommers,
         }
     }
 
@@ -196,11 +193,7 @@ impl ConsensusEngineBase {
     }
 
     pub fn pre_validate_block(&self, block: &Block) -> Result<(), DuoError> {
-        let expected_ommers_hash = if self.can_have_ommers {
-            Block::ommers_hash(&block.ommers)
-        } else {
-            EMPTY_LIST_HASH
-        };
+        let expected_ommers_hash = Block::ommers_hash(&block.ommers);
 
         if block.header.ommers_hash != expected_ommers_hash {
             return Err(ValidationError::WrongOmmersHash {

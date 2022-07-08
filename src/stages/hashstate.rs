@@ -299,13 +299,14 @@ mod tests {
 
         let sender = hex!("b685342b8c54347aad148e1f22eff3eb3eb29391").into();
 
-        let mut header = PartialHeader {
+        let header = PartialHeader {
             number: block_number,
             beneficiary: miner,
             gas_limit,
             gas_used: 63_820,
             ..PartialHeader::empty()
         };
+        let mut header = BlockHeader::new(header, EMPTY_LIST_HASH, EMPTY_ROOT);
 
         let transaction = move |nonce, value, action, input| MessageWithSender {
             message: Message::Legacy {

@@ -73,9 +73,9 @@ where
         let mut state = IntraBlockState::new(&mut buffer);
 
         let mut analysis_cache = AnalysisCache::default();
-        let block_spec = chain::chain_config::read(&txn)?
-            .ok_or_else(|| format_err!("no chainspec found"))?
-            .collect_block_spec(block_number);
+        let chain_spec =
+            chain::chain_config::read(&txn)?.ok_or_else(|| format_err!("no chainspec found"))?;
+        let block_spec = chain_spec.collect_block_spec(block_number);
 
         let sender = call_data.from.unwrap_or_else(Address::zero);
 
@@ -96,7 +96,7 @@ where
 
         let mut tracer = NoopTracer;
 
-        let beneficiary = header.beneficiary; // TODO make this work for all consensus algs
+        let beneficiary = engine_factory(None, chain_spec)?.get_beneficiary(&header);
         Ok(evmglue::execute(
             &mut state,
             &mut tracer,

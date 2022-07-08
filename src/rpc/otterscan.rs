@@ -177,7 +177,6 @@ where
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
         let mut tracer = TouchTracer::new(addr);
-
         let receipt = execute_transaction(
             &mut state,
             &block_spec,

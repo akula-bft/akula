@@ -103,7 +103,7 @@ impl BeaconConsensus {
             finalized_block: H256::zero(),
         });
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000, false),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000),
             block_reward,
             since: terminal_block_number.unwrap_or_default() + 1,
             receiver,

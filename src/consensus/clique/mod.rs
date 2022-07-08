@@ -1,4 +1,5 @@
 pub mod state;
+pub use state::CliqueState;
 
 use crate::{
     consensus::{
@@ -23,7 +24,6 @@ use secp256k1::{
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use state::CliqueState;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -79,7 +79,7 @@ fn get_header<K: TransactionKind>(
 ) -> anyhow::Result<BlockHeader> {
     Ok(match cursor.seek(height)? {
         Some(((found_height, _), header)) if found_height == height => header,
-        _ => bail!("Last epoch header missing from database."),
+        _ => bail!("Header for block {} missing from database.", height),
     })
 }
 
@@ -170,7 +170,7 @@ impl Clique {
         let mut state = CliqueState::new(epoch);
         state.set_signers(initial_signers);
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000, false),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000),
             state: Mutex::new(state),
             period: period.as_secs(),
             fork_choice_graph: Arc::new(PLMutex::new(Default::default())),
@@ -180,6 +180,10 @@ impl Clique {
 
 impl Consensus for Clique {
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
+        if !block.ommers.is_empty() {
+            return Err(ValidationError::TooManyOmmers.into());
+        }
+
         self.base.pre_validate_block(block)?;
 
         if state.read_parent_header(&block.header)?.is_none() {
