@@ -2,7 +2,7 @@ pub mod erigon;
 pub mod eth;
 pub mod net;
 pub mod otterscan;
-mod helpers {
+pub mod helpers {
     use crate::{
         accessors::chain,
         consensus::{engine_factory, DuoError},
