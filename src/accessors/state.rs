@@ -116,7 +116,7 @@ pub mod history_index {
             if index_key.inner == needle {
                 return Ok(change_blocks
                     .iter()
-                    .find(|&change_block| *block_number < change_block)
+                    .find(|&change_block| *block_number <= change_block)
                     .map(BlockNumber));
             }
         }
