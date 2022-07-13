@@ -73,8 +73,7 @@ where
             .chain_id;
 
         let header = chain::header::read(&txn, block_hash, block_number)?
-            .ok_or_else(|| format_err!("Header not found for #{block_number}/{block_hash}"))?
-            .into();
+            .ok_or_else(|| format_err!("Header not found for #{block_number}/{block_hash}"))?;
 
         let mut buffer = Buffer::new(&txn, Some(block_number));
 
@@ -126,8 +125,7 @@ where
             .params
             .chain_id;
         let header = chain::header::read(&txn, hash, block_number)?
-            .ok_or_else(|| format_err!("no header found for block #{block_number}/{hash}"))?
-            .into();
+            .ok_or_else(|| format_err!("no header found for block #{block_number}/{hash}"))?;
         let mut buffer = Buffer::new(&txn, Some(block_number));
 
         let (sender, message) =

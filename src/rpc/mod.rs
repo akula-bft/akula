@@ -286,7 +286,7 @@ pub mod helpers {
         state: &S,
         chain_id: ChainId,
         call: types::MessageCall,
-        header: &PartialHeader,
+        header: &BlockHeader,
         default_gas_price: U256,
         default_gas_limit: Option<u64>,
     ) -> anyhow::Result<(Address, Message)> {

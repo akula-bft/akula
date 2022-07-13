@@ -226,8 +226,7 @@ where
                 ),
                 block_number,
                 crate::accessors::chain::header::read(txn, block_hash, block_number)?
-                    .ok_or_else(|| format_err!("header not found"))?
-                    .into(),
+                    .ok_or_else(|| format_err!("header not found"))?,
             )
         }
         CallManyMode::Speculative(b) => match b {
@@ -242,8 +241,7 @@ where
                     latest_block_hash,
                     latest_block_number,
                 )?
-                .ok_or_else(|| format_err!("header not found"))?
-                .into();
+                .ok_or_else(|| format_err!("header not found"))?;
                 (None, latest_block_number, header)
             }
             other => {
@@ -251,8 +249,7 @@ where
                     .ok_or_else(|| format_err!("block not found"))?;
 
                 let header = crate::accessors::chain::header::read(txn, block_hash, block_number)?
-                    .ok_or_else(|| format_err!("header not found"))?
-                    .into();
+                    .ok_or_else(|| format_err!("header not found"))?;
 
                 (Some(block_number), block_number, header)
             }
@@ -261,6 +258,8 @@ where
 
     let block_spec = chain_spec.collect_block_spec(block_number);
     let mut buffer = Buffer::new(txn, historical_block);
+
+    let engine = engine_factory(None, chain_spec.clone())?;
 
     let mut analysis_cache = AnalysisCache::default();
     for (sender, message, trace_types) in calls {
@@ -280,6 +279,7 @@ where
                 &mut gas_used,
                 &message,
                 sender,
+                engine.get_beneficiary(&header),
             )?;
 
             state.write_to_state_same_block()?;
@@ -751,8 +751,7 @@ where
                 .chain_id;
 
             let header = crate::accessors::chain::header::read(&txn, block_hash, block_number)?
-                .ok_or_else(|| format_err!("header not found"))?
-                .into();
+                .ok_or_else(|| format_err!("header not found"))?;
 
             let msgs = calls
                 .into_iter()
