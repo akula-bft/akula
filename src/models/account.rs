@@ -15,7 +15,7 @@ pub struct Account {
     pub code_hash: H256, // hash of the bytecode
 }
 
-#[derive(Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]
+#[derive(Clone, Copy, Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]
 pub struct RlpAccount {
     pub nonce: u64,
     pub balance: U256,
