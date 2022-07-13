@@ -507,6 +507,9 @@ where
     let mut data = storage_changes.seek(from)?;
     while let Some((key, storage_change)) = data {
         let hashed_address = keccak256(key.address);
+
+        out.insert(unpack_nibbles(hashed_address.as_bytes()).as_slice());
+
         let hashed_location = keccak256(storage_change.location);
 
         let hashed_key = [
