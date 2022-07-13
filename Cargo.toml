@@ -43,6 +43,7 @@ ethereum-forkid = "0.8.0"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
   "remotekv",
   "sentry",
+  "web3",
 ] }
 ethereum-types = { version = "0.13", features = ["codec"] }
 ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc", features = [

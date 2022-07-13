@@ -1,16 +1,14 @@
 (
     name: "Sepolia",
     consensus: (
-        seal_verification: Ethash(
-            duration_limit: 13,
+        seal_verification: Beacon(
+            terminal_total_difficulty: "0x3c6568f12e8000",
+            terminal_block_hash: "0xd07cce9785d39c0dd2409b7d8e69d6bff26a69a0fa5308ac781c63ffe2a37bc1",
+            terminal_block_number: 1450408,
             block_reward: {
                 0: "0x1bc16d674ec80000",
+                1450409: "0x0",
             },
-            homestead_formula: 0,
-            byzantium_formula: 1700000,
-            difficulty_bomb: DifficultyBomb(
-                delays: {},
-            ),
         ),
         eip1559_block: 0,
     ),
@@ -24,6 +22,7 @@
         istanbul: 0,
         berlin: 0,
         london: 0,
+        paris: 1450409,
     ),
     params: (
         chain_id: 11155111,

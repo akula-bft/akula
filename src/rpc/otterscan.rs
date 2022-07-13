@@ -187,7 +187,8 @@ where
             &transaction.message,
             sender,
             beneficiary,
-        )?;
+        )?
+        .1;
 
         if tracer.touched() {
             let gas_used = U64::from(cumulative_gas_used - prev_cumulative_gas_used);
