@@ -222,7 +222,9 @@ impl Consensus for Clique {
 
         let mut state = self.state.lock();
 
-        state.validate(&clique_block)?;
+        state
+            .validate(&clique_block, false)
+            .map_err(DuoError::Validation)?;
         state.finalize(clique_block);
 
         state.set_block_hash(block.hash());

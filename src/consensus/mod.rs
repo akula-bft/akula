@@ -255,6 +255,12 @@ pub enum ValidationError {
     CliqueError(CliqueError),
 }
 
+impl From<CliqueError> for ValidationError {
+    fn from(e: CliqueError) -> Self {
+        Self::CliqueError(e)
+    }
+}
+
 impl Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)

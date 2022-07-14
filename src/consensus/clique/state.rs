@@ -5,6 +5,7 @@ use crate::{
 use ethereum_types::Address;
 use ethnum::U256;
 use primitive_types::H256;
+use tracing::*;
 use std::collections::BTreeMap;
 
 const NONCE_AUTH: u64 = 0xffffffffffffffff;
@@ -54,28 +55,45 @@ impl Votes {
         }
     }
 
-    fn tally(&mut self, address: Address, vote: &Vote) -> bool {
+    fn tally(&mut self, address: Address, vote: &Vote) -> Option<bool> {
         self.votes
             .entry(address)
             .or_insert_with(BTreeMap::new)
             .insert(vote.beneficiary, vote.authorize);
 
-        let count = self
-            .votes
-            .values()
-            .filter(|v| v.get(&vote.beneficiary) == Some(&vote.authorize))
-            .count();
+        let mut votes_auth = 0;
+        let mut votes_deauth = 0;
 
-        count >= self.threshold
+        for signer_votes in self.votes.values_mut() {
+            if let Some(vote) = signer_votes.get(&vote.beneficiary) {
+                if *vote {
+                    votes_auth += 1;
+                } else {
+                    votes_deauth += 1;
+                }
+            }
+        }
+
+        if votes_auth >= self.threshold {
+            Some(true)
+        } else if votes_deauth >= self.threshold {
+            Some(false)
+        } else {
+            None
+        }
     }
 
     fn clear(&mut self) {
         self.votes.clear();
     }
 
-    fn clear_votes_for(&mut self, beneficiary: &Address) {
+    fn clear_votes_by(&mut self, signer: Address) {
+        self.votes.remove(&signer);
+    }
+
+    fn clear_votes_for(&mut self, beneficiary: Address) {
         for signer_votes in self.votes.values_mut() {
-            signer_votes.remove(beneficiary);
+            signer_votes.remove(&beneficiary);
         }
     }
 
@@ -183,6 +201,10 @@ impl History {
         self.0.insert(address, block_number);
     }
 
+    fn remove(&mut self, address: Address) {
+        self.0.remove(&address);
+    }
+
     fn clear(&mut self) {
         self.0.clear();
     }
@@ -228,7 +250,11 @@ impl CliqueState {
         number.0 % self.epoch == 0
     }
 
-    pub(crate) fn validate(&mut self, block: &CliqueBlock) -> Result<(), DuoError> {
+    pub(crate) fn validate(
+        &mut self,
+        block: &CliqueBlock,
+        skip_in_turn_check: bool,
+    ) -> Result<(), ValidationError> {
         let candidate = block.signer;
 
         let index = match self.signers.find(candidate) {
@@ -238,9 +264,11 @@ impl CliqueState {
             }
         };
 
-        let in_turn = block.number % self.signers.count() == index;
-        if in_turn ^ block.in_turn {
-            return Err(ValidationError::WrongDifficulty.into());
+        if !skip_in_turn_check {
+            let in_turn = block.number % self.signers.count() == index;
+            if in_turn ^ block.in_turn {
+                return Err(ValidationError::WrongDifficulty);
+            }
         }
 
         if let Some(last_signed_block) = self.history.find(candidate) {
@@ -280,18 +308,389 @@ impl CliqueState {
         if self.is_epoch(block.number) {
             self.votes.clear();
         } else if let Some(ref vote) = &block.vote {
-            let accepted = self.votes.tally(block.signer, vote);
-
-            if accepted {
-                if vote.authorize {
+            if let Some(authorize) = self.votes.tally(block.signer, vote) {
+                if authorize {
+                    trace!("Adding signer {}", vote.beneficiary);
                     self.signers.insert(vote.beneficiary);
                 } else {
+                    trace!("Removing signer {}", vote.beneficiary);
                     self.signers.remove(vote.beneficiary);
+                    self.history.remove(vote.beneficiary);
+                    self.votes.clear_votes_by(vote.beneficiary);
                 }
 
-                self.votes.clear_votes_for(&vote.beneficiary);
+                self.votes.clear_votes_for(vote.beneficiary);
                 self.votes.set_threshold(self.signers.limit());
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ethereum_types::H160;
+    use hex_literal::hex;
+
+    #[test]
+    fn eip225_test_vectors() {
+        const A: Address = H160(hex!("A000000000000000000000000000000000000000"));
+        const B: Address = H160(hex!("B000000000000000000000000000000000000000"));
+        const C: Address = H160(hex!("C000000000000000000000000000000000000000"));
+        const D: Address = H160(hex!("D000000000000000000000000000000000000000"));
+        const E: Address = H160(hex!("E000000000000000000000000000000000000000"));
+        const F: Address = H160(hex!("F000000000000000000000000000000000000000"));
+
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        enum AuthMeta {
+            Inert,
+            VoteMeta(Address, bool),
+            CheckpointMeta(Vec<Address>),
+        }
+        use AuthMeta::*;
+
+        /// Define the various voting scenarios to test
+        struct Test {
+            description: &'static str,
+            epoch: u64,
+            signers: Vec<Address>,
+            blocks: Vec<(Address, AuthMeta)>,
+            results: Result<Vec<Address>, ValidationError>,
+        }
+
+        impl Default for Test {
+            fn default() -> Self {
+                Self {
+                    description: "",
+                    epoch: 30_000,
+                    signers: Default::default(),
+                    blocks: Default::default(),
+                    results: Ok(vec![]),
+                }
+            }
+        }
+
+        for Test {
+            description,
+            epoch,
+            signers,
+            blocks,
+            results,
+        } in [
+            Test {
+                description: "Single signer, no votes cast",
+                signers: vec![A],
+                blocks: vec![(A, Inert)],
+                results: Ok(vec![A]),
+                ..Default::default()
+            },
+            Test {
+                description: "Single signer, voting to add two others (only accept first, second needs 2 votes)",
+                signers: vec![A],
+                blocks: vec![(A, VoteMeta(B, true)), (B, Inert), (A, VoteMeta(C, true))],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Two signers, voting to add three others (only accept first two, third needs 3 votes already)",
+                signers: vec![A, B],
+                blocks: vec![
+                    (A, VoteMeta(C, true)),
+                    (B, VoteMeta(C, true)),
+                    (A, VoteMeta(D, true)),
+                    (B, VoteMeta(D, true)),
+                    (C, Inert),
+                    (A, VoteMeta(E, true)),
+                    (B, VoteMeta(E, true)),
+                ],
+                results: Ok(vec![A, B, C, D]),
+                ..Default::default()
+            },
+            Test {
+                description: "Single signer, dropping itself (weird, but one less cornercase by explicitly allowing this)",
+                signers: vec![A],
+                blocks: vec![(A, VoteMeta(A, false))],
+                results: Ok(vec![]),
+                ..Default::default()
+            },
+            Test {
+                description: "Two signers, actually needing mutual consent to drop either of them (not fulfilled)",
+                signers: vec![A, B],
+                blocks: vec![(A, VoteMeta(B, false))],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Two signers, actually needing mutual consent to drop either of them (fulfilled)",
+                signers: vec![A, B],
+                blocks: vec![(A, VoteMeta(B, false)), (B, VoteMeta(B, false))],
+                results: Ok(vec![A]),
+                ..Default::default()
+            },
+            Test {
+                description: "Three signers, two of them deciding to drop the third",
+                signers: vec![A, B, C],
+                blocks: vec![(A, VoteMeta(C, false)), (B, VoteMeta(C, false))],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Four signers, consensus of two not being enough to drop anyone",
+                signers: vec![A, B, C, D],
+                blocks: vec![(A, VoteMeta(C, false)), (B, VoteMeta(C, false))],
+                results: Ok(vec![A, B, C, D]),
+                ..Default::default()
+            },
+            Test {
+                description: "Four signers, consensus of three already being enough to drop someone",
+                signers: vec![A, B, C, D],
+                blocks: vec![
+                    (A, VoteMeta(D, false)),
+                    (B, VoteMeta(D, false)),
+                    (C, VoteMeta(D, false)),
+                ],
+                results: Ok(vec![A, B, C]),
+                ..Default::default()
+            },
+            Test {
+                description: "Authorizations are counted once per signer per target",
+                signers: vec![A, B],
+                blocks: vec![
+                    (A, VoteMeta(C, true)),
+                    (B, Inert),
+                    (A, VoteMeta(C, true)),
+                    (B, Inert),
+                    (A, VoteMeta(C, true)),
+                ],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Authorizing multiple accounts concurrently is permitted",
+                signers: vec![A, B],
+                blocks: vec![
+                    (A, VoteMeta(C, true)),
+                    (B, Inert),
+                    (A, VoteMeta(D, true)),
+                    (B, Inert),
+                    (A, Inert),
+                    (B, VoteMeta(D, true)),
+                    (A, Inert),
+                    (B, VoteMeta(C, true)),
+                ],
+                results: Ok(vec![A, B, C, D]),
+                ..Default::default()
+            },
+            Test {
+                description: "Deauthorizations are counted once per signer per target",
+                signers: vec![A, B],
+                blocks:  vec![
+                    (A, VoteMeta(B, false)),
+                    (B, Inert),
+                    (A, VoteMeta(B, false)),
+                    (B, Inert),
+                    (A, VoteMeta(B, false)),
+                ],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Deauthorizing multiple accounts concurrently is permitted",
+                signers: vec![A, B, C, D],
+                blocks:  vec![
+                    (A, VoteMeta(C, false)),
+                    (B, Inert),
+                    (C, Inert),
+                    (A, VoteMeta(D, false)),
+                    (B, Inert),
+                    (C, Inert),
+                    (A, Inert),
+                    (B, VoteMeta(D, false)),
+                    (C, VoteMeta(D, false)),
+                    (A, Inert),
+                    (B, VoteMeta(C, false)),
+                ],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Votes from deauthorized signers are discarded immediately (deauth votes)",
+                signers: vec![A, B, C],
+                blocks:  vec![
+                    (C, VoteMeta(B, false)),
+                    (A, VoteMeta(C, false)),
+                    (B, VoteMeta(C, false)),
+                    (A, VoteMeta(B, false)),
+                ],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Votes from deauthorized signers are discarded immediately (auth votes)",
+                signers: vec![A, B, C],
+                blocks:  vec![
+                    (C, VoteMeta(D, true)),
+                    (A, VoteMeta(C, false)),
+                    (B, VoteMeta(C, false)),
+                    (A, VoteMeta(D, true)),
+                ],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Cascading changes are not allowed, only the account being voted on may change",
+                signers: vec![A, B, C, D],
+                blocks:  vec![
+                    (A, VoteMeta(C, false)),
+                    (B, Inert),
+                    (C, Inert),
+                    (A, VoteMeta(D, false)),
+                    (B, VoteMeta(C, false)),
+                    (C, Inert),
+                    (A, Inert),
+                    (B, VoteMeta(D, false)),
+                    (C, VoteMeta(D, false)),
+                ],
+                results: Ok(vec![A, B, C]),
+                ..Default::default()
+            },
+            Test {
+                description: "Changes reaching consensus out of bounds (via a deauth) execute on touch",
+                signers: vec![A, B, C, D],
+                blocks:  vec![
+                    (A, VoteMeta(C, false)),
+                    (B, Inert),
+                    (C, Inert),
+                    (A, VoteMeta(D, false)),
+                    (B, VoteMeta(C, false)),
+                    (C, Inert),
+                    (A, Inert),
+                    (B, VoteMeta(D, false)),
+                    (C, VoteMeta(D, false)),
+                    (A, Inert),
+                    (C, VoteMeta(C, true)),
+                ],
+                results: Ok(vec![A, B]),
+                ..Default::default()
+            },
+            Test {
+                description: "Changes reaching consensus out of bounds (via a deauth) may go out of consensus on first touch",
+                signers: vec![A, B, C, D],
+                blocks:  vec![
+                    (A, VoteMeta(C, false)),
+                    (B, Inert),
+                    (C, Inert),
+                    (A, VoteMeta(D, false)),
+                    (B, VoteMeta(C, false)),
+                    (C, Inert),
+                    (A, Inert),
+                    (B, VoteMeta(D, false)),
+                    (C, VoteMeta(D, false)),
+                    (A, Inert),
+                    (B, VoteMeta(C, true)),
+                ],
+                results: Ok(vec![A, B, C]),
+                ..Default::default()
+            },
+            Test {
+                description: "Ensure that pending votes don't survive authorization status changes. This corner case can only appear if a signer is quickly added, removed and then readded (or the inverse), while one of the original voters dropped. If a past vote is left cached in the system somewhere, this will interfere with the final signer outcome.",
+                signers: vec![A, B, C, D, E],
+                blocks:  vec![
+                    (A, VoteMeta(F, true)), // Authorize F, 3 votes needed
+                    (B, VoteMeta(F, true)),
+                    (C, VoteMeta(F, true)),
+                    (D, VoteMeta(F, false)), // Deauthorize F, 4 votes needed (leave A's previous vote "unchanged")
+                    (E, VoteMeta(F, false)),
+                    (B, VoteMeta(F, false)),
+                    (C, VoteMeta(F, false)),
+                    (D, VoteMeta(F, true)), // Almost authorize F, 2/3 votes needed
+                    (E, VoteMeta(F, true)),
+                    (B, VoteMeta(A, false)), // Deauthorize A, 3 votes needed
+                    (C, VoteMeta(A, false)),
+                    (D, VoteMeta(A, false)),
+                    (B, VoteMeta(F, true)), // Finish authorizing F, 3/3 votes needed
+                ],
+                results: Ok(vec![B, C, D, E, F]),
+                ..Default::default()
+            },
+            Test {
+                description: "Epoch transitions reset all votes to allow chain checkpointing",
+                epoch:   3,
+                signers: vec![A, B],
+                blocks:  vec![
+                    (A, VoteMeta(C, true)),
+                    (B, Inert),
+                    (A, CheckpointMeta(vec![A, B])),
+                    (B, VoteMeta(C, true)),
+                ],
+                results: Ok(vec![A, B]),
+            },
+            Test {
+                description: "An unauthorized signer should not be able to sign blocks",
+                signers: vec![A],
+                blocks:  vec![
+                    (B, Inert),
+                ],
+                results: Err(ValidationError::CliqueError(CliqueError::UnknownSigner { signer: B })),
+                ..Default::default()
+            },
+            Test {
+                description: "An authorized signer that signed recenty should not be able to sign again",
+                signers: vec![A, B],
+                blocks: vec![
+                    (A, Inert),
+                    (A, Inert),
+                ],
+                results: Err(ValidationError::CliqueError(CliqueError::SignedRecently { current: 2.into(), last: 1.into(), signer: A, limit: 2 })),
+                ..Default::default()
+            },
+            Test {
+                description: "Recent signatures should not reset on checkpoint blocks imported in a batch",
+                epoch:   3,
+                signers: vec![A, B, C],
+                blocks:  vec![
+                    (A, Inert),
+                    (B, Inert),
+                    (A, CheckpointMeta(vec![A, B, C])),
+                    (A, Inert),
+                ],
+                results: Err(ValidationError::CliqueError(CliqueError::SignedRecently { current: 4.into(), last: 3.into(), signer: A, limit: 2 })),
+            },
+        ] {
+            println!("{description}");
+
+            let res: Result<_, ValidationError> = (move || {
+                let mut state = CliqueState::new(epoch);
+
+                state.set_signers(signers);
+
+                for (number, (signer, auth_meta)) in blocks.into_iter().enumerate() {
+                    let (vote, checkpoint) = match auth_meta {
+                        VoteMeta(vote, auth) => (Some((vote, auth)), None),
+                        CheckpointMeta(checkpoint) => (None, Some(checkpoint)),
+                        Inert => (None, None),
+                    };
+
+                    let block = CliqueBlock {
+                        signer,
+                        vote: vote.map(|(beneficiary, authorize)| Vote {
+                            beneficiary,
+                            authorize,
+                        }),
+                        number: (number as u64 + 1).into(),
+                        checkpoint: checkpoint.unwrap_or_default(),
+                        vanity: vec![],
+                        in_turn: false,
+                        timestamp: 0,
+                    };
+                    state.validate(&block, true)?;
+                    state.finalize(block);
+                }
+
+                Ok(state.signers.0.clone())
+            })();
+
+            assert_eq!(res, results);
         }
     }
 }
