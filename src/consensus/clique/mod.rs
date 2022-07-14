@@ -170,7 +170,7 @@ impl Clique {
         let mut state = CliqueState::new(epoch);
         state.set_signers(initial_signers);
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block, None, 5000),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, None),
             state: Mutex::new(state),
             period: period.as_secs(),
             fork_choice_graph: Arc::new(PLMutex::new(Default::default())),

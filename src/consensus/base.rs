@@ -2,12 +2,13 @@ use super::*;
 use crate::{chain::protocol_param::param, models::*, state::*, trie::root_hash};
 use std::{collections::BTreeMap, time::SystemTime};
 
+pub const MIN_GAS_LIMIT: u64 = 5000;
+
 #[derive(Debug)]
 pub struct ConsensusEngineBase {
     chain_id: ChainId,
     eip1559_block: Option<BlockNumber>,
     max_extra_data_length: Option<usize>,
-    min_gas_limit: u64,
 }
 
 impl ConsensusEngineBase {
@@ -15,13 +16,11 @@ impl ConsensusEngineBase {
         chain_id: ChainId,
         eip1559_block: Option<BlockNumber>,
         max_extra_data_length: Option<usize>,
-        min_gas_limit: u64,
     ) -> Self {
         Self {
             chain_id,
             eip1559_block,
             max_extra_data_length,
-            min_gas_limit,
         }
     }
 
@@ -53,7 +52,7 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        if header.gas_limit < self.min_gas_limit {
+        if header.gas_limit < MIN_GAS_LIMIT {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 

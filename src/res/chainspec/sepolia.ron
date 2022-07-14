@@ -27,7 +27,6 @@
     params: (
         chain_id: 11155111,
         network_id: 11155111,
-        min_gas_limit: 5000,
     ),
     genesis: (
         number: 0,

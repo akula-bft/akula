@@ -304,7 +304,6 @@ pub struct Upgrades {
 pub struct Params {
     pub chain_id: ChainId,
     pub network_id: NetworkId,
-    pub min_gas_limit: u64,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub additional_forks: BTreeSet<BlockNumber>,
 }
@@ -463,7 +462,6 @@ mod tests {
                 params: Params {
                     chain_id: ChainId(4),
                     network_id: NetworkId(4),
-                    min_gas_limit: 5000,
                     additional_forks: BTreeSet::new(),
                 },
                 genesis: Genesis {
