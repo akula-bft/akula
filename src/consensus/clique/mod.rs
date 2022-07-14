@@ -18,17 +18,13 @@ use anyhow::bail;
 use bytes::Bytes;
 use ethereum_types::Address;
 use mdbx::{EnvironmentKind, TransactionKind};
-use parking_lot::Mutex as PLMutex;
+use parking_lot::Mutex;
 use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
 use sha3::{Digest, Keccak256};
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-    unreachable,
-};
+use std::{sync::Arc, time::Duration, unreachable};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
@@ -156,7 +152,7 @@ pub struct Clique {
     base: ConsensusEngineBase,
     state: Mutex<CliqueState>,
     period: u64,
-    fork_choice_graph: Arc<PLMutex<ForkChoiceGraph>>,
+    fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
 }
 
 impl Clique {
@@ -173,7 +169,7 @@ impl Clique {
             base: ConsensusEngineBase::new(chain_id, eip1559_block, None),
             state: Mutex::new(state),
             period: period.as_secs(),
-            fork_choice_graph: Arc::new(PLMutex::new(Default::default())),
+            fork_choice_graph: Arc::new(Mutex::new(Default::default())),
         }
     }
 }
@@ -224,7 +220,7 @@ impl Consensus for Clique {
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock();
 
         state.validate(&clique_block)?;
         state.finalize(clique_block);
@@ -243,10 +239,7 @@ impl Consensus for Clique {
     }
 
     fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .match_block_hash(next_header.parent_hash)
+        self.state.lock().match_block_hash(next_header.parent_hash)
     }
 
     fn get_beneficiary(&self, header: &BlockHeader) -> Address {
