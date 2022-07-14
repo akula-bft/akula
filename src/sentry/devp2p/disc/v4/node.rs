@@ -269,7 +269,7 @@ impl Node {
         let (egress_requests_tx, mut egress_requests) = channel(1);
 
         let mut table = Table::new(id);
-        for node in bootstrap_nodes {
+        for node in bootstrap_nodes.iter().copied() {
             debug!("Adding bootstrap node: {:?}", node);
             table.add_verified(node);
         }
@@ -611,7 +611,17 @@ impl Node {
             let this = Arc::downgrade(&this);
             async move {
                 while let Some(this) = this.upgrade() {
+                    {
+                        let mut connected = this.connected.lock();
+                        for node in bootstrap_nodes.iter().copied() {
+                            connected.add_seen(node);
+                        }
+                    }
+
                     this.lookup_self().await;
+                    for _ in 0..3 {
+                        this.lookup(rand::random()).await;
+                    }
                     drop(this);
 
                     sleep(REFRESH_TIMEOUT).await;
