@@ -892,8 +892,12 @@ impl MessageWithSignature {
         keccak256(buf)
     }
 
-    pub fn v(&self) -> u8 {
-        self.signature.odd_y_parity as u8
+    pub fn v(&self) -> u64 {
+        YParityAndChainId {
+            odd_y_parity: self.signature.odd_y_parity,
+            chain_id: self.chain_id(),
+        }
+        .v()
     }
 
     pub fn r(&self) -> H256 {
@@ -910,7 +914,7 @@ impl MessageWithSignature {
         sig[..32].copy_from_slice(self.r().as_bytes());
         sig[32..].copy_from_slice(self.s().as_bytes());
 
-        let rec = RecoveryId::from_i32(self.v() as i32)?;
+        let rec = RecoveryId::from_i32(self.signature.odd_y_parity() as i32)?;
 
         let public = &SECP256K1.recover_ecdsa(
             &SecpMessage::from_slice(self.message.hash().as_bytes())?,

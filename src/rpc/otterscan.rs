@@ -243,31 +243,8 @@ where
                 timestamp: header.timestamp.into(),
             };
 
-            let transaction = types::Transaction {
-                hash: transaction_hash,
-                nonce: transaction.nonce().into(),
-                block_hash: Some(block_hash),
-                block_number: Some(block_number),
-                from: sender,
-                gas: transaction.gas_limit().into(),
-                gas_price: match transaction.message {
-                    Message::Legacy { gas_price, .. } => gas_price,
-                    Message::EIP2930 { gas_price, .. } => gas_price,
-                    Message::EIP1559 {
-                        max_fee_per_gas, ..
-                    } => max_fee_per_gas,
-                },
-                input: transaction.input().clone().into(),
-                to: match transaction.action() {
-                    TransactionAction::Call(to) => Some(to),
-                    TransactionAction::Create => None,
-                },
-                transaction_index: Some(U64::from(transaction_index)),
-                value: transaction.value(),
-                v: transaction.v().into(),
-                r: transaction.r(),
-                s: transaction.s(),
-            };
+            let transaction =
+                helpers::new_jsonrpc_tx(transaction, sender, Some(transaction_index as u64));
 
             results.txs.push(transaction);
             results.receipts.push(receipt);
