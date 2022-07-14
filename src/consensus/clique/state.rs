@@ -104,8 +104,8 @@ impl Signers {
         self.0.binary_search(&address).ok()
     }
 
-    fn compare_checkpoint(&self, checkpoint: &Vec<Address>) -> bool {
-        &self.0 == checkpoint
+    fn compare_checkpoint(&self, checkpoint: &[Address]) -> bool {
+        self.0 == checkpoint
     }
 
     fn insert(&mut self, new_signer: Address) {
