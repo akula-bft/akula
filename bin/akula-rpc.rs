@@ -7,6 +7,7 @@ use akula::{
         otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl,
     },
 };
+use anyhow::format_err;
 use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer,
@@ -40,6 +41,11 @@ async fn main() -> anyhow::Result<()> {
         .into(),
     );
 
+    let network_id = akula::accessors::chain::chain_config::read(&db.begin()?)?
+        .ok_or_else(|| format_err!("no chainspec found"))?
+        .params
+        .network_id;
+
     let server = HttpServerBuilder::default()
         .build(opt.listen_address)
         .await?;
@@ -53,7 +59,8 @@ async fn main() -> anyhow::Result<()> {
         .into_rpc(),
     )
     .unwrap();
-    api.merge(NetApiServerImpl.into_rpc()).unwrap();
+    api.merge(NetApiServerImpl { network_id }.into_rpc())
+        .unwrap();
     api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
         .unwrap();
     api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())

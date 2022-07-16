@@ -3,7 +3,9 @@ use async_trait::async_trait;
 use ethereum_jsonrpc::NetApiServer;
 use jsonrpsee::core::RpcResult;
 
-pub struct NetApiServerImpl;
+pub struct NetApiServerImpl {
+    pub network_id: NetworkId,
+}
 
 #[async_trait]
 impl NetApiServer for NetApiServerImpl {
@@ -14,6 +16,6 @@ impl NetApiServer for NetApiServerImpl {
         Ok(U64::zero())
     }
     async fn version(&self) -> RpcResult<U64> {
-        Ok(1.into())
+        Ok(self.network_id.0.into())
     }
 }
