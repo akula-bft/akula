@@ -99,6 +99,15 @@ pub struct Opt {
     #[clap(long, default_value = "0")]
     pub delay_after_sync: u64,
 
+    #[cfg(feature = "otterscan")]
+    /// Enable Otterscan.
+    #[clap(long)]
+    pub enable_otterscan: bool,
+
+    #[cfg(feature = "otterscan")]
+    #[clap(long, default_value = "127.0.0.1:3000")]
+    pub otterscan_address: SocketAddr,
+
     /// Disable JSONRPC.
     #[clap(long)]
     pub no_rpc: bool,
@@ -325,6 +334,20 @@ fn main() -> anyhow::Result<()> {
                             .unwrap();
                         }
                     });
+
+                    #[cfg(feature = "otterscan")]
+                    if opt.enable_otterscan {
+                        info!("Otterscan starting at http://{}", opt.otterscan_address);
+
+                        tokio::spawn(async move {
+                            otterscan::run(
+                                opt.otterscan_address,
+                                format!("http://{}", opt.rpc_listen_address),
+                            )
+                            .await
+                            .unwrap();
+                        });
+                    }
                 }
 
                 let increment = opt.increment.or({
