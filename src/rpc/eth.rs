@@ -217,31 +217,9 @@ where
             let sender = *senders
                 .get(index)
                 .ok_or_else(|| format_err!("senders to short: {index} vs len {}", senders.len()))?;
-            return Ok(Some(types::Tx::Transaction(Box::new(types::Transaction {
-                hash,
-                nonce: transaction.nonce().into(),
-                block_hash: Some(block_hash),
-                block_number: Some(block_number.0.into()),
-                from: sender,
-                gas: transaction.gas_limit().into(),
-                gas_price: match transaction.message {
-                    Message::Legacy { gas_price, .. } => gas_price,
-                    Message::EIP2930 { gas_price, .. } => gas_price,
-                    Message::EIP1559 {
-                        max_fee_per_gas, ..
-                    } => max_fee_per_gas,
-                },
-                input: transaction.input().clone().into(),
-                to: match transaction.action() {
-                    TransactionAction::Call(to) => Some(to),
-                    TransactionAction::Create => None,
-                },
-                transaction_index: Some(U64::from(index)),
-                value: transaction.value(),
-                v: transaction.v().into(),
-                r: transaction.r(),
-                s: transaction.s(),
-            }))));
+            return Ok(Some(types::Tx::Transaction(Box::new(
+                helpers::new_jsonrpc_tx(transaction, sender, Some(index as u64)),
+            ))));
         }
 
         Ok(None)

@@ -43,6 +43,94 @@ pub mod helpers {
         }
     }
 
+    pub fn new_jsonrpc_tx(
+        tx: MessageWithSignature,
+        sender: Address,
+        transaction_index: Option<u64>,
+    ) -> types::Transaction {
+        let hash = tx.hash();
+        types::Transaction {
+            v: tx.v().into(),
+            r: tx.r(),
+            s: tx.s(),
+            message: match tx.message {
+                Message::Legacy {
+                    chain_id,
+                    nonce,
+                    gas_price,
+                    gas_limit,
+                    action,
+                    value,
+                    input,
+                } => types::TransactionMessage::Legacy {
+                    chain_id: chain_id.map(|v| v.0.into()),
+                    nonce: nonce.into(),
+                    to: action.into_address(),
+                    gas: gas_limit.into(),
+                    gas_price,
+                    value,
+                    input: input.into(),
+                },
+                Message::EIP2930 {
+                    chain_id,
+                    nonce,
+                    gas_price,
+                    gas_limit,
+                    action,
+                    value,
+                    input,
+                    access_list,
+                } => types::TransactionMessage::EIP2930 {
+                    chain_id: chain_id.0.into(),
+                    nonce: nonce.into(),
+                    to: action.into_address(),
+                    gas: gas_limit.into(),
+                    gas_price,
+                    value,
+                    input: input.into(),
+                    access_list: access_list
+                        .into_iter()
+                        .map(|item| types::AccessListEntry {
+                            address: item.address,
+                            storage_keys: item.slots,
+                        })
+                        .collect(),
+                },
+                Message::EIP1559 {
+                    chain_id,
+                    nonce,
+                    max_priority_fee_per_gas,
+                    max_fee_per_gas,
+                    gas_limit,
+                    action,
+                    value,
+                    input,
+                    access_list,
+                } => types::TransactionMessage::EIP1559 {
+                    chain_id: chain_id.0.into(),
+                    nonce: nonce.into(),
+                    to: action.into_address(),
+                    gas: gas_limit.into(),
+                    max_priority_fee_per_gas,
+                    max_fee_per_gas,
+                    value,
+                    input: input.into(),
+                    access_list: access_list
+                        .into_iter()
+                        .map(|item| types::AccessListEntry {
+                            address: item.address,
+                            storage_keys: item.slots,
+                        })
+                        .collect(),
+                },
+            },
+
+            from: sender,
+            hash,
+            transaction_index: transaction_index.map(From::from),
+        }
+    }
+
     pub fn resolve_block_number<K: TransactionKind, E: EnvironmentKind>(
         txn: &MdbxTransaction<'_, K, E>,
         block_number: ethereum_jsonrpc::types::BlockNumber,
@@ -106,28 +194,11 @@ pub mod helpers {
                             .zip(senders)
                             .enumerate()
                             .map(|(index, (tx, sender))| {
-                                types::Tx::Transaction(Box::new(types::Transaction {
-                                    block_number: Some(U64::from(block_number.0)),
-                                    block_hash: Some(block_hash),
-                                    from: sender,
-                                    gas: U64::from(tx.message.gas_limit()),
-                                    gas_price: match tx.message {
-                                        Message::Legacy { gas_price, .. } => gas_price,
-                                        Message::EIP2930 { gas_price, .. } => gas_price,
-                                        Message::EIP1559 {
-                                            max_fee_per_gas, ..
-                                        } => max_fee_per_gas,
-                                    },
-                                    hash: tx.hash(),
-                                    input: tx.message.input().clone().into(),
-                                    nonce: U64::from(tx.message.nonce()),
-                                    to: tx.message.action().into_address(),
-                                    transaction_index: Some(U64::from(index as u64)),
-                                    value: tx.message.value(),
-                                    v: U64::from(tx.v()),
-                                    r: tx.r(),
-                                    s: tx.s(),
-                                }))
+                                types::Tx::Transaction(Box::new(new_jsonrpc_tx(
+                                    tx,
+                                    sender,
+                                    Some(index as u64),
+                                )))
                             })
                             .collect()
                     } else {
@@ -290,6 +361,12 @@ pub mod helpers {
         default_gas_price: U256,
         default_gas_limit: Option<u64>,
     ) -> anyhow::Result<(Address, Message)> {
+        let default_base_fee = if let Some(base_fee) = header.base_fee_per_gas {
+            std::cmp::max(base_fee, default_gas_price)
+        } else {
+            default_gas_price
+        };
+
         Ok(match call {
             types::MessageCall::Legacy {
                 from,
@@ -315,7 +392,7 @@ pub mod helpers {
                         .read_account(sender)?
                         .map(|acc| acc.nonce)
                         .unwrap_or_default(),
-                    gas_price: gas_price.unwrap_or(default_gas_price),
+                    gas_price: gas_price.unwrap_or(default_base_fee),
                     gas_limit,
                     action: if let Some(to) = to {
                         TransactionAction::Call(to)
@@ -353,7 +430,7 @@ pub mod helpers {
                         .read_account(sender)?
                         .map(|acc| acc.nonce)
                         .unwrap_or_default(),
-                    gas_price: gas_price.unwrap_or(default_gas_price),
+                    gas_price: gas_price.unwrap_or(default_base_fee),
                     gas_limit,
                     action: if let Some(to) = to {
                         TransactionAction::Call(to)
@@ -395,8 +472,8 @@ pub mod helpers {
                         .read_account(sender)?
                         .map(|acc| acc.nonce)
                         .unwrap_or_default(),
-                    max_fee_per_gas: max_fee_per_gas.unwrap_or(default_gas_price),
-                    max_priority_fee_per_gas: max_priority_fee_per_gas.unwrap_or(default_gas_price),
+                    max_fee_per_gas: max_fee_per_gas.unwrap_or(default_base_fee),
+                    max_priority_fee_per_gas: max_priority_fee_per_gas.unwrap_or(U256::ZERO),
                     gas_limit,
                     action: if let Some(to) = to {
                         TransactionAction::Call(to)
