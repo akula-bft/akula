@@ -1222,7 +1222,7 @@ dependencies = [
 [[package]]
 name = "ethereum-jsonrpc"
 version = "0.1.0"
-source = "git+https://github.com/rust-ethereum/jsonrpc#48b376db1cda17f7db6bf7193d5a37598a7eebbd"
+source = "git+https://github.com/rust-ethereum/jsonrpc#8b3c9add7465c62ed2c6520ba67640572939df1e"
 dependencies = [
  "bytes",
  "ethereum-types",

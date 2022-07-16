@@ -3,6 +3,7 @@ pub mod eth;
 pub mod net;
 pub mod otterscan;
 pub mod trace;
+pub mod web3;
 pub mod helpers {
     use crate::{
         accessors::chain,
