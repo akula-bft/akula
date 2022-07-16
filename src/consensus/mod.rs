@@ -356,6 +356,7 @@ pub fn engine_factory(
         } => Box::new(BeaconConsensus::new(
             db,
             chain_config.params.chain_id,
+            chain_config.params.network_id,
             chain_config.consensus.eip1559_block,
             BlockRewardSchedule(block_reward),
             terminal_total_difficulty,

@@ -92,6 +92,7 @@ impl BeaconConsensus {
     pub fn new(
         db: Option<Arc<MdbxWithDirHandle<WriteMap>>>,
         chain_id: ChainId,
+        network_id: NetworkId,
         eip1559_block: Option<BlockNumber>,
         block_reward: BlockRewardSchedule,
         terminal_total_difficulty: Option<U256>,
@@ -151,7 +152,8 @@ impl BeaconConsensus {
                         .into_rpc(),
                     )
                     .unwrap();
-                    api.merge(NetApiServerImpl.into_rpc()).unwrap();
+                    api.merge(NetApiServerImpl { network_id }.into_rpc())
+                        .unwrap();
 
                     let server_handle = server.start(api).unwrap();
 
