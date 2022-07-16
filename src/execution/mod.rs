@@ -16,12 +16,13 @@ pub mod tracer;
 pub fn execute_block<S: State>(
     state: &mut S,
     config: &ChainSpec,
-    header: &PartialHeader,
+    header: &BlockHeader,
     block: &BlockBodyWithSenders,
 ) -> Result<Vec<Receipt>, DuoError> {
     let mut analysis_cache = AnalysisCache::default();
     let mut engine = consensus::engine_factory(None, config.clone())?;
     let mut tracer = NoopTracer;
+
     let config = config.collect_block_spec(header.number);
     ExecutionProcessor::new(
         state,
@@ -98,6 +99,7 @@ mod tests {
             receipts_root: root_hash(&receipts),
             ..PartialHeader::empty()
         };
+        let header = BlockHeader::new(header, EMPTY_LIST_HASH, EMPTY_ROOT);
 
         // This contract initially sets its 0th storage to 0x2a
         // and its 1st storage to 0x01c9.

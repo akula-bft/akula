@@ -190,7 +190,7 @@ impl<'state> Blockchain<'state> {
             let header = self.state.read_header(block_number, hash)?.unwrap();
 
             let block = BlockWithSenders {
-                header: header.into(),
+                header,
                 transactions: body.transactions,
                 ommers: body.ommers,
             };
@@ -231,7 +231,7 @@ impl<'state> Blockchain<'state> {
                 .state
                 .read_body_with_senders(block_number, hash)?
                 .unwrap();
-            let header = self.state.read_header(block_number, hash)?.unwrap().into();
+            let header = self.state.read_header(block_number, hash)?.unwrap();
 
             let block = WithHash {
                 inner: BlockWithSenders {
@@ -254,7 +254,7 @@ impl<'state> Blockchain<'state> {
 
     fn canonical_ancestor(
         &self,
-        header: &PartialHeader,
+        header: &BlockHeader,
         hash: H256,
     ) -> Result<BlockNumber, DuoError> {
         if let Some(canonical_hash) = self.state.canonical_hash(header.number) {
@@ -269,6 +269,6 @@ impl<'state> Blockchain<'state> {
                 number: header.number,
                 parent_hash: header.parent_hash,
             })?;
-        self.canonical_ancestor(&parent.into(), header.parent_hash)
+        self.canonical_ancestor(&parent, header.parent_hash)
     }
 }

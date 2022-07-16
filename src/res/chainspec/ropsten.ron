@@ -29,7 +29,6 @@
     params: (
         chain_id: 3,
         network_id: 3,
-        min_gas_limit: 5000,
         additional_forks: [7117117],
     ),
     genesis: (

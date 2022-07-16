@@ -246,11 +246,9 @@ pub mod helpers {
     ) -> Result<Vec<types::TransactionReceipt>, DuoError> {
         let block_hash = chain::canonical_hash::read(txn, block_number)?
             .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
-        let header = PartialHeader::from(
-            chain::header::read(txn, block_hash, block_number)?.ok_or_else(|| {
-                format_err!("header not found for block #{block_number}/{block_hash}")
-            })?,
-        );
+        let header = chain::header::read(txn, block_hash, block_number)?.ok_or_else(|| {
+            format_err!("header not found for block #{block_number}/{block_hash}")
+        })?;
         let block_body = chain::block_body::read_with_senders(txn, block_hash, block_number)?
             .ok_or_else(|| format_err!("body not found for block #{block_number}/{block_hash}"))?;
         let chain_spec = chain::chain_config::read(txn)?
@@ -359,7 +357,7 @@ pub mod helpers {
         state: &S,
         chain_id: ChainId,
         call: types::MessageCall,
-        header: &PartialHeader,
+        header: &BlockHeader,
         default_gas_price: U256,
         default_gas_limit: Option<u64>,
     ) -> anyhow::Result<(Address, Message)> {

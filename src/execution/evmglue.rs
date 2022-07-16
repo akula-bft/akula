@@ -34,7 +34,7 @@ where
     state: &'state mut IntraBlockState<'r, B>,
     tracer: &'tracer mut dyn Tracer,
     analysis_cache: &'analysis mut AnalysisCache,
-    header: &'h PartialHeader,
+    header: &'h BlockHeader,
     block_spec: &'c BlockExecutionSpec,
     message: &'t Message,
     sender: Address,
@@ -45,10 +45,11 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
     state: &mut IntraBlockState<'db, B>,
     tracer: &'tracer mut dyn Tracer,
     analysis_cache: &'analysis mut AnalysisCache,
-    header: &PartialHeader,
+    header: &BlockHeader,
     block_spec: &BlockExecutionSpec,
     message: &Message,
     sender: Address,
+    beneficiary: Address,
     gas: u64,
 ) -> anyhow::Result<CallResult> {
     let mut evm = Evm {
@@ -59,7 +60,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
         block_spec,
         message,
         sender,
-        beneficiary: header.beneficiary,
+        beneficiary,
     };
 
     let res = if let TransactionAction::Call(to) = message.action() {
@@ -678,14 +679,17 @@ mod tests {
         gas: u64,
     ) -> CallResult {
         let mut tracer = NoopTracer;
+        let beneficiary = header.beneficiary;
+        let header = BlockHeader::new(header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
         super::execute(
             state,
             &mut tracer,
             &mut AnalysisCache::default(),
-            header,
+            &header,
             &MAINNET.collect_block_spec(header.number),
             message,
             sender,
+            beneficiary,
             gas,
         )
         .unwrap()

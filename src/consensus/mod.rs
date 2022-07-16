@@ -1,10 +1,11 @@
 mod base;
 mod beacon;
 mod blockchain;
+mod clique;
 mod ethash;
 
 use self::fork_choice_graph::ForkChoiceGraph;
-pub use self::{base::*, beacon::*, blockchain::*, ethash::*};
+pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*};
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
@@ -12,6 +13,7 @@ use crate::{
 };
 use anyhow::bail;
 use derive_more::{Display, From};
+use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
 use std::{
     fmt::{Debug, Display},
@@ -26,6 +28,27 @@ pub enum FinalizationChange {
         amount: U256,
         ommer: bool,
     },
+}
+
+pub enum ConsensusState {
+    Stateless,
+    Clique(CliqueState),
+}
+
+impl ConsensusState {
+    pub(crate) fn recover<T: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, T, E>,
+        chainspec: &ChainSpec,
+        starting_block: BlockNumber,
+    ) -> anyhow::Result<ConsensusState> {
+        Ok(match chainspec.consensus.seal_verification {
+            SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
+            SealVerificationParams::Clique { period: _, epoch } => {
+                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
+            }
+            SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,13 +86,25 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// NOTE: For Ethash See YP Section 11.3 "Reward Application".
     fn finalize(
         &self,
-        header: &PartialHeader,
+        block: &BlockHeader,
         ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See YP Section 11.3 "Reward Application".
     fn get_beneficiary(&self, header: &BlockHeader) -> Address {
         header.beneficiary
+    }
+
+    /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
+    #[allow(unused_variables)]
+    fn set_state(&mut self, state: ConsensusState) {}
+
+    /// To be overridden for stateful consensus engines.
+    ///
+    /// Should return false if the state needs to be recovered, e. g. in case of a reorg.
+    #[allow(unused_variables)]
+    fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
+        true
     }
 }
 
@@ -93,6 +128,36 @@ pub enum BadTransactionError {
         available: u64,
         required: u64,
     }, // Tg > BHl - l(BR)u
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CliqueError {
+    UnknownSigner {
+        signer: Address,
+    },
+    SignedRecently {
+        signer: Address,
+        current: BlockNumber,
+        last: BlockNumber,
+        limit: u64,
+    },
+    WrongExtraData,
+    WrongNonce {
+        nonce: u64,
+    },
+    VoteInEpochBlock,
+    CheckpointInNonEpochBlock,
+    InvalidCheckpoint,
+    CheckpointMismatch {
+        expected: Vec<Address>,
+        got: Vec<Address>,
+    },
+}
+
+impl Display for CliqueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -186,6 +251,14 @@ pub enum ValidationError {
     WrongChainId, // EIP-155
 
     UnsupportedTransactionType, // EIP-2718
+
+    CliqueError(CliqueError),
+}
+
+impl From<CliqueError> for ValidationError {
+    fn from(e: CliqueError) -> Self {
+        Self::CliqueError(e)
+    }
 }
 
 impl Display for ValidationError {
@@ -202,6 +275,12 @@ pub enum DuoError {
 }
 
 impl std::error::Error for DuoError {}
+
+impl From<CliqueError> for DuoError {
+    fn from(clique_error: CliqueError) -> Self {
+        DuoError::Validation(ValidationError::CliqueError(clique_error))
+    }
+}
 
 pub fn pre_validate_transaction(
     txn: &Message,
@@ -250,6 +329,25 @@ pub fn engine_factory(
             difficulty_bomb,
             skip_pow_verification,
         )),
+
+        SealVerificationParams::Clique { period, epoch } => {
+            let initial_signers = match chain_config.genesis.seal {
+                Seal::Clique {
+                    vanity: _,
+                    score: _,
+                    signers,
+                } => signers,
+                _ => bail!("Genesis seal does not match, expected Clique seal."),
+            };
+            Box::new(Clique::new(
+                chain_config.params.chain_id,
+                chain_config.consensus.eip1559_block,
+                period,
+                epoch,
+                initial_signers,
+            ))
+        }
+
         SealVerificationParams::Beacon {
             terminal_total_difficulty,
             terminal_block_hash,
@@ -264,6 +362,5 @@ pub fn engine_factory(
             terminal_block_hash,
             terminal_block_number,
         )),
-        _ => bail!("unsupported consensus engine"),
     })
 }

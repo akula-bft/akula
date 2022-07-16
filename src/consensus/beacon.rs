@@ -103,7 +103,7 @@ impl BeaconConsensus {
             finalized_block: H256::zero(),
         });
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, None),
             block_reward,
             since: terminal_block_number.unwrap_or_default() + 1,
             receiver,
@@ -209,7 +209,7 @@ impl Consensus for BeaconConsensus {
 
     fn finalize(
         &self,
-        header: &crate::models::PartialHeader,
+        header: &crate::models::BlockHeader,
         ommers: &[crate::models::BlockHeader],
     ) -> anyhow::Result<Vec<super::FinalizationChange>> {
         let mut changes = Vec::with_capacity(1 + ommers.len());

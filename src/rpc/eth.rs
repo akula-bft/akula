@@ -73,8 +73,7 @@ where
             .chain_id;
 
         let header = chain::header::read(&txn, block_hash, block_number)?
-            .ok_or_else(|| format_err!("Header not found for #{block_number}/{block_hash}"))?
-            .into();
+            .ok_or_else(|| format_err!("Header not found for #{block_number}/{block_hash}"))?;
 
         let mut buffer = Buffer::new(&txn, Some(block_number));
 
@@ -90,12 +89,13 @@ where
         let mut state = IntraBlockState::new(&mut buffer);
 
         let mut analysis_cache = AnalysisCache::default();
-        let block_spec = chain::chain_config::read(&txn)?
-            .ok_or_else(|| format_err!("no chainspec found"))?
-            .collect_block_spec(block_number);
+        let chain_spec =
+            chain::chain_config::read(&txn)?.ok_or_else(|| format_err!("no chainspec found"))?;
+        let block_spec = chain_spec.collect_block_spec(block_number);
 
         let mut tracer = NoopTracer;
 
+        let beneficiary = engine_factory(None, chain_spec)?.get_beneficiary(&header);
         Ok(evmglue::execute(
             &mut state,
             &mut tracer,
@@ -104,6 +104,7 @@ where
             &block_spec,
             &message,
             sender,
+            beneficiary,
             message.gas_limit(),
         )?
         .output_data
@@ -124,8 +125,7 @@ where
             .params
             .chain_id;
         let header = chain::header::read(&txn, hash, block_number)?
-            .ok_or_else(|| format_err!("no header found for block #{block_number}/{hash}"))?
-            .into();
+            .ok_or_else(|| format_err!("no header found for block #{block_number}/{hash}"))?;
         let mut buffer = Buffer::new(&txn, Some(block_number));
 
         let (sender, message) =
@@ -134,12 +134,13 @@ where
         let mut state = IntraBlockState::new(&mut buffer);
 
         let mut cache = AnalysisCache::default();
-        let block_spec = chain::chain_config::read(&txn)?
-            .ok_or_else(|| format_err!("no chainspec found"))?
-            .collect_block_spec(block_number);
+        let chain_spec =
+            chain::chain_config::read(&txn)?.ok_or_else(|| format_err!("no chainspec found"))?;
+        let block_spec = chain_spec.collect_block_spec(block_number);
         let mut tracer = NoopTracer;
         let gas_limit = header.gas_limit;
 
+        let beneficiary = engine_factory(None, chain_spec)?.get_beneficiary(&header);
         Ok(U64::from(
             gas_limit as i64
                 - evmglue::execute(
@@ -150,6 +151,7 @@ where
                     &block_spec,
                     &message,
                     sender,
+                    beneficiary,
                     gas_limit,
                 )?
                 .gas_left,
@@ -351,11 +353,9 @@ where
         if let Some(block_number) = chain::tl::read(&txn, hash)? {
             let block_hash = chain::canonical_hash::read(&txn, block_number)?
                 .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
-            let header = PartialHeader::from(
-                chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
-                    format_err!("header not found for block #{block_number}/{block_hash}")
-                })?,
-            );
+            let header = chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
+                format_err!("header not found for block #{block_number}/{block_hash}")
+            })?;
             let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)?
                 .ok_or_else(|| {
                     format_err!("body not found for block #{block_number}/{block_hash}")

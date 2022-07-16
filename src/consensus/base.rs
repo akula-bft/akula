@@ -2,17 +2,25 @@ use super::*;
 use crate::{chain::protocol_param::param, models::*, state::*, trie::root_hash};
 use std::{collections::BTreeMap, time::SystemTime};
 
+pub const MIN_GAS_LIMIT: u64 = 5000;
+
 #[derive(Debug)]
 pub struct ConsensusEngineBase {
     chain_id: ChainId,
     eip1559_block: Option<BlockNumber>,
+    max_extra_data_length: Option<usize>,
 }
 
 impl ConsensusEngineBase {
-    pub fn new(chain_id: ChainId, eip1559_block: Option<BlockNumber>) -> Self {
+    pub fn new(
+        chain_id: ChainId,
+        eip1559_block: Option<BlockNumber>,
+        max_extra_data_length: Option<usize>,
+    ) -> Self {
         Self {
             chain_id,
             eip1559_block,
+            max_extra_data_length,
         }
     }
 
@@ -44,7 +52,7 @@ impl ConsensusEngineBase {
             .into());
         }
 
-        if header.gas_limit < 5000 {
+        if header.gas_limit < MIN_GAS_LIMIT {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 
@@ -54,8 +62,10 @@ impl ConsensusEngineBase {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 
-        if header.extra_data.len() > 32 {
-            return Err(ValidationError::ExtraDataTooLong.into());
+        if let Some(limit) = self.max_extra_data_length {
+            if header.extra_data.len() > limit {
+                return Err(ValidationError::ExtraDataTooLong.into());
+            }
         }
 
         if header.timestamp < parent.timestamp {
@@ -183,6 +193,7 @@ impl ConsensusEngineBase {
 
     pub fn pre_validate_block(&self, block: &Block) -> Result<(), DuoError> {
         let expected_ommers_hash = Block::ommers_hash(&block.ommers);
+
         if block.header.ommers_hash != expected_ommers_hash {
             return Err(ValidationError::WrongOmmersHash {
                 expected: expected_ommers_hash,

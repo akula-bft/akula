@@ -65,7 +65,9 @@ impl Ethash {
         skip_pow_verification: bool,
     ) -> Self {
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, Some(32)),
+            dag_cache: DagCache::new(),
+
             duration_limit,
             block_reward,
             homestead_formula,
@@ -73,7 +75,6 @@ impl Ethash {
             difficulty_bomb,
             skip_pow_verification,
 
-            dag_cache: DagCache::new(),
             fork_choice_graph: Arc::new(Mutex::new(ForkChoiceGraph::new())),
         }
     }
@@ -187,7 +188,7 @@ impl Consensus for Ethash {
     }
     fn finalize(
         &self,
-        header: &PartialHeader,
+        header: &BlockHeader,
         ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let mut changes = Vec::with_capacity(1 + ommers.len());

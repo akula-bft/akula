@@ -58,8 +58,7 @@ where
         let chainspec = tx
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("no chainspec found"))?;
-        let finalization_changes =
-            engine_factory(None, chainspec)?.finalize(&header.into(), &ommers)?;
+        let finalization_changes = engine_factory(None, chainspec)?.finalize(&header, &ommers)?;
 
         let mut block_reward = U256::ZERO;
         let mut uncle_reward = U256::ZERO;
@@ -155,9 +154,8 @@ where
 
     let block_hash = chain::canonical_hash::read(txn, block_number)?
         .ok_or_else(|| format_err!("no canonical hash for block #{block_number}"))?;
-    let header = chain::header::read(txn, block_hash, block_number)?
-        .ok_or_else(|| format_err!("no header for block #{block_number}"))?
-        .into();
+    let header: BlockHeader = chain::header::read(txn, block_hash, block_number)?
+        .ok_or_else(|| format_err!("no header for block #{block_number}"))?;
     let senders = chain::tx_sender::read(txn, block_hash, block_number)?;
     let messages = chain::block_body::read_without_senders(txn, block_hash, block_number)?
         .ok_or_else(|| format_err!("where's block body"))?
@@ -174,6 +172,8 @@ where
         last_page: false,
     };
 
+    let beneficiary = engine_factory(None, chain_spec.clone())?.get_beneficiary(&header);
+
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
         let mut tracer = TouchTracer::new(addr);
@@ -186,6 +186,7 @@ where
             &mut cumulative_gas_used,
             &transaction.message,
             sender,
+            beneficiary,
         )?
         .1;
 
@@ -416,11 +417,9 @@ where
         if let Some(block_number) = chain::tl::read(&txn, hash)? {
             let block_hash = chain::canonical_hash::read(&txn, block_number)?
                 .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
-            let header = PartialHeader::from(
-                chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
-                    format_err!("header not found for block #{block_number}/{block_hash}")
-                })?,
-            );
+            let header = chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
+                format_err!("header not found for block #{block_number}/{block_hash}")
+            })?;
             let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)?
                 .ok_or_else(|| {
                     format_err!("body not found for block #{block_number}/{block_hash}")

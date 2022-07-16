@@ -1,6 +1,6 @@
 use crate::{
     accessors,
-    consensus::{engine_factory, DuoError},
+    consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError},
     execution::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
@@ -42,8 +42,10 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
 ) -> Result<BlockNumber, StageError> {
-    let mut buffer = Buffer::new(tx, None);
     let mut consensus_engine = engine_factory(None, chain_config.clone())?;
+    consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, starting_block)?);
+
+    let mut buffer = Buffer::new(tx, None);
     let mut analysis_cache = AnalysisCache::default();
 
     let mut block_number = starting_block;
@@ -65,14 +67,17 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
         let header = tx
             .get(tables::Header, (block_number, block_hash))?
-            .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?
-            .into();
+            .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?;
         let block = accessors::chain::block_body::read_with_senders(tx, block_hash, block_number)?
             .ok_or_else(|| {
                 format_err!("Block body not found: {}/{:?}", block_number, block_hash)
             })?;
 
         let block_spec = chain_config.collect_block_spec(block_number);
+
+        if !consensus_engine.is_state_valid(&header) {
+            consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
+        }
 
         let mut call_tracer = CallTracer::default();
         let receipts = ExecutionProcessor::new(
@@ -207,7 +212,7 @@ where
             .previous_stage.ok_or_else(|| format_err!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1;
 
         Ok(if max_block >= starting_block {
-            let executed_to = execute_batch_of_blocks(
+            let result = execute_batch_of_blocks(
                 tx,
                 chain_config,
                 max_block,
@@ -217,7 +222,32 @@ where
                 self.commit_every,
                 starting_block,
                 input.first_started_at,
-            )?;
+            );
+
+            // CliqueError::SignedRecently seems to be raised sometimes when
+            // a reorg is in process. This is a kludge to recover in such cases.
+            if let Err(StageError::Internal(ref e)) = result {
+                for cause in e.chain() {
+                    if let Some(DuoError::Validation(ValidationError::CliqueError(
+                        CliqueError::SignedRecently {
+                            signer: _,
+                            current,
+                            last: _,
+                            limit,
+                        },
+                    ))) = cause.downcast_ref::<DuoError>()
+                    {
+                        let unwind_to = current.saturating_sub(*limit).into();
+                        warn!(
+                            "Trying to recover from {} by unwinding to {}",
+                            &cause, unwind_to
+                        );
+                        return Ok(ExecOutput::Unwind { unwind_to });
+                    }
+                }
+            }
+
+            let executed_to = result?;
 
             let done = executed_to == max_block || self.exit_after_batch;
 
