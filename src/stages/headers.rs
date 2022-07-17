@@ -444,7 +444,7 @@ impl HeaderDownload {
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
-        let requests = Arc::new(self.prepare_requests(start, end));
+        let requests = Arc::new(Self::prepare_requests(start, end));
 
         info!(
             "Will download {} headers over {} requests",
@@ -587,17 +587,13 @@ impl HeaderDownload {
     }
 
     fn prepare_requests(
-        &self,
         starting_block: BlockNumber,
         target: BlockNumber,
     ) -> DashMap<BlockNumber, HeaderRequest> {
         (starting_block..=target)
             .step_by(HEADERS_UPPER_BOUND)
             .map(|start| {
-                let limit = std::cmp::max(
-                    std::cmp::min(*target - *start, HEADERS_UPPER_BOUND as u64),
-                    1,
-                );
+                let limit = std::cmp::min(*target - *start + 1, HEADERS_UPPER_BOUND as u64);
 
                 let request = HeaderRequest {
                     start: BlockId::Number(start),
@@ -658,6 +654,45 @@ impl HeaderDownload {
         let valid_till = valid_till.load(Ordering::SeqCst);
         if valid_till != 0 {
             headers.truncate(valid_till);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prepare_requests() {
+        for (from, to, requests) in [
+            (1000, 1000, vec![(1000, 1)]),
+            (1000, 3047, vec![(1000, 1024), (2024, 1024)]),
+            (1000, 3048, vec![(1000, 1024), (2024, 1024), (3048, 1)]),
+            (
+                1000,
+                5000,
+                vec![(1000, 1024), (2024, 1024), (3048, 1024), (4072, 929)],
+            ),
+        ] {
+            assert_eq!(
+                HeaderDownload::prepare_requests(from.into(), to.into())
+                    .into_iter()
+                    .collect::<BTreeMap<_, _>>(),
+                requests
+                    .into_iter()
+                    .map(|(start, limit)| {
+                        let start = BlockNumber(start);
+                        (
+                            start,
+                            HeaderRequest {
+                                start: BlockId::Number(start),
+                                limit,
+                                ..Default::default()
+                            },
+                        )
+                    })
+                    .collect()
+            )
         }
     }
 }
