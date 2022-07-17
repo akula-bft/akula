@@ -326,7 +326,6 @@ macro_rules! scale_table_object {
 scale_table_object!(BodyForStorage);
 scale_table_object!(BlockHeader);
 scale_table_object!(MessageWithSignature);
-scale_table_object!(Vec<crate::models::Log>);
 
 macro_rules! ron_table_object {
     ($ty:ident) => {
@@ -387,7 +386,36 @@ impl TableDecode for Vec<Address> {
         let mut v = Vec::with_capacity(b.len() / ADDRESS_LENGTH);
         for i in 0..b.len() / ADDRESS_LENGTH {
             let offset = i * ADDRESS_LENGTH;
-            v.push(Address::decode(&b[offset..offset + ADDRESS_LENGTH])?);
+            v.push(TableDecode::decode(&b[offset..offset + ADDRESS_LENGTH])?);
+        }
+
+        Ok(v)
+    }
+}
+
+impl TableEncode for Vec<H256> {
+    type Encoded = Vec<u8>;
+
+    fn encode(self) -> Self::Encoded {
+        let mut v = Vec::with_capacity(self.len() * KECCAK_LENGTH);
+        for addr in self {
+            v.extend_from_slice(&addr.encode());
+        }
+
+        v
+    }
+}
+
+impl TableDecode for Vec<H256> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() % KECCAK_LENGTH != 0 {
+            bail!("Slice len should be divisible by {}", KECCAK_LENGTH);
+        }
+
+        let mut v = Vec::with_capacity(b.len() / KECCAK_LENGTH);
+        for i in 0..b.len() / KECCAK_LENGTH {
+            let offset = i * KECCAK_LENGTH;
+            v.push(TableDecode::decode(&b[offset..offset + KECCAK_LENGTH])?);
         }
 
         Ok(v)
@@ -597,6 +625,12 @@ impl DupSort for HashedStorage {
 impl DupSort for CallTraceSet {
     type SeekBothKey = Vec<u8>;
 }
+impl DupSort for LogAddressesByBlock {
+    type SeekBothKey = Address;
+}
+impl DupSort for LogTopicsByBlock {
+    type SeekBothKey = H256;
+}
 
 pub type AccountChangeKey = BlockNumber;
 
@@ -785,9 +819,10 @@ decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(TotalGas => BlockNumber => u64);
 decl_table!(TotalTx => BlockNumber => u64);
-decl_table!(Log => (BlockNumber, TxIndex) => Vec<crate::models::Log>);
-decl_table!(LogTopicIndex => Vec<u8> => RoaringTreemap);
-decl_table!(LogAddressIndex => Vec<u8> => RoaringTreemap);
+decl_table!(LogAddressIndex => Address => RoaringTreemap);
+decl_table!(LogAddressesByBlock => BlockNumber => Address);
+decl_table!(LogTopicIndex => H256 => RoaringTreemap);
+decl_table!(LogTopicsByBlock => BlockNumber => H256);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
 decl_table!(CallFromIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(CallToIndex => BitmapKey<Address> => RoaringTreemap);
@@ -836,9 +871,14 @@ pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy:
         BlockTransaction::const_db_name() => TableInfo::default(),
         TotalGas::const_db_name() => TableInfo::default(),
         TotalTx::const_db_name() => TableInfo::default(),
-        Log::const_db_name() => TableInfo::default(),
-        LogTopicIndex::const_db_name() => TableInfo::default(),
         LogAddressIndex::const_db_name() => TableInfo::default(),
+        LogAddressesByBlock::const_db_name() => TableInfo {
+            dup_sort: true,
+        },
+        LogTopicIndex::const_db_name() => TableInfo::default(),
+        LogTopicsByBlock::const_db_name() => TableInfo {
+            dup_sort: true,
+        },
         CallTraceSet::const_db_name() => TableInfo {
             dup_sort: true,
         },
@@ -875,27 +915,5 @@ mod tests {
             assert_eq!(fixture.encode().to_vec(), expected);
             assert_eq!(U256::decode(&expected).unwrap(), fixture);
         }
-    }
-
-    #[test]
-    fn log() {
-        let input = vec![
-            crate::models::Log {
-                address: Address::from([0; 20]),
-                topics: vec![H256([1; 32]), H256([2; 32])],
-                data: hex!("BAADCAFE").to_vec().into(),
-            },
-            crate::models::Log {
-                address: Address::from([1; 20]),
-                topics: vec![H256([3; 32]), H256([4; 32])],
-                data: hex!("DEADBEEF").to_vec().into(),
-            },
-        ];
-
-        let encoded = input.clone().encode();
-
-        println!("{}", hex::encode(&encoded));
-
-        assert_eq!(Vec::<crate::models::Log>::decode(&encoded).unwrap(), input);
     }
 }

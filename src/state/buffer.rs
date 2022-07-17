@@ -9,7 +9,7 @@ use crate::{
     u256_to_h256, BlockReader, HeaderReader, StateReader, StateWriter,
 };
 use bytes::Bytes;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tokio::pin;
 use tracing::*;
 
@@ -45,7 +45,7 @@ where
     storage_changes: BTreeMap<BlockNumber, StorageChanges>, // per block
 
     hash_to_code: BTreeMap<H256, Bytes>,
-    logs: BTreeMap<(BlockNumber, TxIndex), Vec<Log>>,
+    log_index: BTreeMap<BlockNumber, (BTreeSet<Address>, BTreeSet<H256>)>,
 
     // Current block stuff
     block_number: BlockNumber,
@@ -69,16 +69,28 @@ where
             account_changes: Default::default(),
             storage_changes: Default::default(),
             hash_to_code: Default::default(),
-            logs: Default::default(),
+            log_index: Default::default(),
             block_number: Default::default(),
         }
     }
 
     pub fn insert_receipts(&mut self, block_number: BlockNumber, receipts: Vec<Receipt>) {
-        for (i, receipt) in receipts.into_iter().enumerate() {
-            self.logs
-                .insert((block_number, TxIndex(i.try_into().unwrap())), receipt.logs);
-        }
+        self.log_index.insert(
+            block_number,
+            receipts.into_iter().fold(
+                Default::default(),
+                |(mut addresses, mut topics), receipt| {
+                    for log in receipt.logs {
+                        addresses.insert(log.address);
+                        for topic in log.topics {
+                            topics.insert(topic);
+                        }
+                    }
+
+                    (addresses, topics)
+                },
+            ),
+        );
     }
 }
 
@@ -315,9 +327,15 @@ where
         }
 
         debug!("Writing logs");
-        let mut log_table = self.txn.cursor(tables::Log)?;
-        for ((block_number, idx), logs) in std::mem::take(&mut self.logs) {
-            log_table.append((block_number, idx), logs)?;
+        let mut log_addresses = self.txn.cursor(tables::LogAddressesByBlock)?;
+        let mut log_topics = self.txn.cursor(tables::LogTopicsByBlock)?;
+        for (block_number, (addresses, topics)) in std::mem::take(&mut self.log_index) {
+            for address in addresses {
+                log_addresses.append_dup(block_number, address)?;
+            }
+            for topic in topics {
+                log_topics.append_dup(block_number, topic)?;
+            }
         }
 
         debug!("History write complete");
