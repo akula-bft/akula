@@ -73,6 +73,7 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
   "aio",
   "tokio1",
 ] }
+impls = "1"
 itertools = "0.10"
 jsonrpsee = { version = "0.14", features = ["server"] }
 lru = "0.7"

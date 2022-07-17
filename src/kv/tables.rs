@@ -6,11 +6,10 @@ use arrayvec::ArrayVec;
 use bytes::Bytes;
 use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
 use derive_more::*;
-use maplit::hashmap;
 use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, *};
-use std::{collections::HashMap, fmt::Display, sync::Arc};
+use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
 #[derive(Debug)]
 pub struct ErasedTable<T>(pub T)
@@ -808,9 +807,6 @@ decl_table!(StorageHistory => BitmapKey<(Address, H256)> => RoaringTreemap);
 decl_table!(Code => H256 => Bytes);
 decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
-decl_table!(DbInfo => Vec<u8> => Vec<u8>);
-decl_table!(SnapshotInfo => Vec<u8> => Vec<u8>);
-decl_table!(BittorrentInfo => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
 decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
@@ -831,70 +827,62 @@ decl_table!(Config => () => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(PruneProgress => StageId => BlockNumber);
 decl_table!(TxSender => HeaderKey => Vec<Address>);
-decl_table!(LastBlock => Vec<u8> => Vec<u8>);
-decl_table!(Migration => Vec<u8> => Vec<u8>);
-decl_table!(Sequence => Vec<u8> => Vec<u8>);
 decl_table!(LastHeader => () => HeaderKey);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 
-pub type DatabaseChart = Arc<HashMap<&'static str, TableInfo>>;
+pub type DatabaseChart = Arc<BTreeMap<&'static str, TableInfo>>;
 
-pub static CHAINDATA_TABLES: Lazy<Arc<HashMap<&'static str, TableInfo>>> = Lazy::new(|| {
-    Arc::new(hashmap! {
-        Account::const_db_name() => TableInfo::default(),
-        Storage::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        AccountChangeSet::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        StorageChangeSet::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        HashedAccount::const_db_name() => TableInfo::default(),
-        HashedStorage::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        AccountHistory::const_db_name() => TableInfo::default(),
-        StorageHistory::const_db_name() => TableInfo::default(),
-        Code::const_db_name() => TableInfo::default(),
-        TrieAccount::const_db_name() => TableInfo::default(),
-        TrieStorage::const_db_name() => TableInfo::default(),
-        DbInfo::const_db_name() => TableInfo::default(),
-        SnapshotInfo::const_db_name() => TableInfo::default(),
-        BittorrentInfo::const_db_name() => TableInfo::default(),
-        HeaderNumber::const_db_name() => TableInfo::default(),
-        CanonicalHeader::const_db_name() => TableInfo::default(),
-        Header::const_db_name() => TableInfo::default(),
-        HeadersTotalDifficulty::const_db_name() => TableInfo::default(),
-        BlockBody::const_db_name() => TableInfo::default(),
-        BlockTransaction::const_db_name() => TableInfo::default(),
-        TotalGas::const_db_name() => TableInfo::default(),
-        TotalTx::const_db_name() => TableInfo::default(),
-        LogAddressIndex::const_db_name() => TableInfo::default(),
-        LogAddressesByBlock::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        LogTopicIndex::const_db_name() => TableInfo::default(),
-        LogTopicsByBlock::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        CallTraceSet::const_db_name() => TableInfo {
-            dup_sort: true,
-        },
-        CallFromIndex::const_db_name() => TableInfo::default(),
-        CallToIndex::const_db_name() => TableInfo::default(),
-        BlockTransactionLookup::const_db_name() => TableInfo::default(),
-        Config::const_db_name() => TableInfo::default(),
-        SyncStage::const_db_name() => TableInfo::default(),
-        PruneProgress::const_db_name() => TableInfo::default(),
-        TxSender::const_db_name() => TableInfo::default(),
-        LastBlock::const_db_name() => TableInfo::default(),
-        Migration::const_db_name() => TableInfo::default(),
-        Sequence::const_db_name() => TableInfo::default(),
-        LastHeader::const_db_name() => TableInfo::default(),
-        Issuance::const_db_name() => TableInfo::default(),
-    })
+macro_rules! table_entry {
+    ($t:ty) => {
+        (
+            <$t>::const_db_name(),
+            TableInfo {
+                dup_sort: impls::impls!($t: DupSort),
+            },
+        )
+    };
+}
+
+pub static CHAINDATA_TABLES: Lazy<Arc<BTreeMap<&'static str, TableInfo>>> = Lazy::new(|| {
+    Arc::new(
+        [
+            table_entry!(Account),
+            table_entry!(Storage),
+            table_entry!(AccountChangeSet),
+            table_entry!(StorageChangeSet),
+            table_entry!(HashedAccount),
+            table_entry!(HashedStorage),
+            table_entry!(AccountHistory),
+            table_entry!(StorageHistory),
+            table_entry!(Code),
+            table_entry!(TrieAccount),
+            table_entry!(TrieStorage),
+            table_entry!(HeaderNumber),
+            table_entry!(CanonicalHeader),
+            table_entry!(Header),
+            table_entry!(HeadersTotalDifficulty),
+            table_entry!(BlockBody),
+            table_entry!(BlockTransaction),
+            table_entry!(TotalGas),
+            table_entry!(TotalTx),
+            table_entry!(LogAddressIndex),
+            table_entry!(LogAddressesByBlock),
+            table_entry!(LogTopicIndex),
+            table_entry!(LogTopicsByBlock),
+            table_entry!(CallTraceSet),
+            table_entry!(CallFromIndex),
+            table_entry!(CallToIndex),
+            table_entry!(BlockTransactionLookup),
+            table_entry!(Config),
+            table_entry!(SyncStage),
+            table_entry!(PruneProgress),
+            table_entry!(TxSender),
+            table_entry!(LastHeader),
+            table_entry!(Issuance),
+        ]
+        .into_iter()
+        .collect(),
+    )
 });
 
 #[cfg(test)]
@@ -915,5 +903,11 @@ mod tests {
             assert_eq!(fixture.encode().to_vec(), expected);
             assert_eq!(U256::decode(&expected).unwrap(), fixture);
         }
+    }
+
+    #[test]
+    fn table_meta() {
+        assert!(!CHAINDATA_TABLES[tables::Account::const_db_name()].dup_sort);
+        assert!(CHAINDATA_TABLES[tables::Storage::const_db_name()].dup_sort);
     }
 }
