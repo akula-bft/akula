@@ -140,28 +140,25 @@ where
                 }
                 ForkChoiceMode::Difficulty(fork_choice_graph) => {
                     // Forward download mode
-                    let starting_block: BlockNumber = prev_progress + 1;
                     let mut chain_tip = self.node.chain_tip.clone();
                     let current_chain_tip = loop {
                         let _ = chain_tip.changed().await;
                         let (n, _) = *chain_tip.borrow();
-                        if n >= starting_block {
+                        if n > prev_progress {
                             break n;
                         }
                     };
 
                     debug!("Chain tip={}", current_chain_tip);
 
-                    let max_increment = self
-                        .increment
-                        .map(|v| std::cmp::min(v, STAGE_UPPER_BOUND))
-                        .unwrap_or(STAGE_UPPER_BOUND);
-                    let (mut target_block, mut reached_tip) =
-                        if starting_block + max_increment > current_chain_tip {
-                            (current_chain_tip, true)
-                        } else {
-                            (starting_block + max_increment, false)
-                        };
+                    let (mut target_block, mut reached_tip) = Self::forward_set_target_block(
+                        prev_progress,
+                        self.increment,
+                        current_chain_tip,
+                    );
+
+                    let starting_block: BlockNumber = prev_progress + 1;
+
                     if target_block >= self.max_block {
                         target_block = self.max_block;
                         reached_tip = true;
@@ -586,6 +583,26 @@ impl HeaderDownload {
         Ok(())
     }
 
+    fn forward_set_target_block(
+        prev_progress: BlockNumber,
+        increment: Option<BlockNumber>,
+        chain_tip: BlockNumber,
+    ) -> (BlockNumber, bool) {
+        let max_increment = std::cmp::max(
+            BlockNumber(1),
+            increment
+                .map(|v| std::cmp::min(v, STAGE_UPPER_BOUND))
+                .unwrap_or(STAGE_UPPER_BOUND),
+        );
+        let max_incremented_from_start = BlockNumber(prev_progress.0 + max_increment.0);
+
+        if max_incremented_from_start > chain_tip {
+            (chain_tip, true)
+        } else {
+            (max_incremented_from_start, false)
+        }
+    }
+
     fn prepare_requests(
         starting_block: BlockNumber,
         target: BlockNumber,
@@ -693,6 +710,26 @@ mod tests {
                     })
                     .collect()
             )
+        }
+    }
+
+    #[test]
+    fn forward_set_target_block() {
+        for ((prev_progress, increment, chain_tip), (expected_target, expected_reached_tip)) in [
+            ((10_000, Some(1_000_000), 2_000_000), (100_000, false)),
+            ((10_000, Some(10_000), 2_000_000), (20_000, false)),
+            ((10_000, Some(10_000), 15_000), (15_000, true)),
+            ((10_000, None, 2_000_000), (100_000, false)),
+            ((10_000, None, 30_000), (30_000, true)),
+        ] {
+            assert_eq!(
+                HeaderDownload::forward_set_target_block(
+                    BlockNumber(prev_progress),
+                    increment.map(BlockNumber),
+                    BlockNumber(chain_tip)
+                ),
+                (BlockNumber(expected_target), expected_reached_tip)
+            );
         }
     }
 }
