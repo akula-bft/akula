@@ -771,7 +771,7 @@ where
             Ok(do_call_many(&txn, CallManyMode::Speculative(block_id), msgs, None)?.0)
         })
         .await
-        .unwrap_or_else(|e| Err(RpcError::Custom(format!("{e}"))))
+        .unwrap_or_else(helpers::joinerror_to_result)
     }
 
     async fn raw_transaction(
@@ -802,7 +802,7 @@ where
             .remove(0))
         })
         .await
-        .unwrap_or_else(|e| Err(RpcError::Custom(format!("{e}"))))
+        .unwrap_or_else(helpers::joinerror_to_result)
     }
 
     async fn replay_block_transactions(
@@ -821,7 +821,7 @@ where
             )
         })
         .await
-        .unwrap_or_else(|e| Err(RpcError::Custom(format!("{e}"))))
+        .unwrap_or_else(helpers::joinerror_to_result)
     }
 
     async fn replay_transaction(
@@ -875,7 +875,7 @@ where
             Err(RpcError::Custom("tx not found".to_string()))
         })
         .await
-        .unwrap_or_else(|e| Err(RpcError::Custom(format!("{e}"))))
+        .unwrap_or_else(helpers::joinerror_to_result)
     }
 
     async fn block(
@@ -933,7 +933,7 @@ where
             )
         })
         .await
-        .unwrap_or_else(|e| Err(RpcError::Custom(format!("{e}"))))
+        .unwrap_or_else(helpers::joinerror_to_result)
     }
 
     async fn filter(
