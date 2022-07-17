@@ -112,6 +112,7 @@ impl Decoder for ECIESCodec {
                 }
                 ECIESState::Header => {
                     if buf.len() < ECIES::header_len() {
+                        trace!("current len {}, need {}", buf.len(), ECIES::header_len());
                         return Ok(None);
                     }
 
