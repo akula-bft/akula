@@ -11,6 +11,8 @@ pub enum ECIESError {
     InvalidAuthData,
     #[error("invalid ack data")]
     InvalidAckData,
+    #[error("invalid body data")]
+    InvalidHeader,
     #[error("other")]
     Other(#[from] anyhow::Error),
 }

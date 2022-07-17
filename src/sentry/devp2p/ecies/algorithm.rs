@@ -506,6 +506,9 @@ impl ECIES {
         }
 
         self.ingress_aes.as_mut().unwrap().apply_keystream(header);
+        if header.as_slice().len() < 3 {
+            return Err(ECIESError::InvalidHeader);
+        }
         self.body_size = Some(
             usize::try_from(header.as_slice().read_uint::<BigEndian>(3)?)
                 .context("excessive body len")?,
