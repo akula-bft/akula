@@ -4,13 +4,13 @@ use akula::{
     kv::{mdbx::*, MdbxWithDirHandle},
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl,
+        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
     },
 };
 use anyhow::format_err;
 use clap::Parser;
 use ethereum_jsonrpc::{
-    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer,
+    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer, Web3ApiServer,
 };
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{future::pending, net::SocketAddr, sync::Arc};
@@ -73,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
         .into_rpc(),
     )
     .unwrap();
+    api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
 
     let _server_handle = server.start(api)?;
 

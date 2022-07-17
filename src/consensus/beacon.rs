@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
-    rpc::{eth::EthApiServerImpl, net::NetApiServerImpl},
+    rpc::{eth::EthApiServerImpl, net::NetApiServerImpl, web3::Web3ApiServerImpl},
     TaskGuard,
 };
 use async_trait::async_trait;
@@ -154,6 +154,7 @@ impl BeaconConsensus {
                     .unwrap();
                     api.merge(NetApiServerImpl { network_id }.into_rpc())
                         .unwrap();
+                    api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
 
                     let server_handle = server.start(api).unwrap();
 
