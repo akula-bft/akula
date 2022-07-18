@@ -71,20 +71,21 @@ impl Table {
         None // n1 and n2 are equal, so logdistance is -inf
     }
 
-    fn bucket(&self, peer: NodeId) -> Option<&KBucket> {
-        self.logdistance(peer).map(|dst| &self.kbuckets[dst])
+    fn bucket(&self, peer: NodeId) -> Option<(usize, &KBucket)> {
+        self.logdistance(peer)
+            .map(|bucket_idx| (bucket_idx, &self.kbuckets[bucket_idx]))
     }
 
-    fn bucket_mut(&mut self, peer: NodeId) -> Option<&mut KBucket> {
-        if let Some(distance) = self.logdistance(peer) {
-            return Some(&mut self.kbuckets[distance]);
+    fn bucket_mut(&mut self, peer: NodeId) -> Option<(usize, &mut KBucket)> {
+        if let Some(bucket_idx) = self.logdistance(peer) {
+            return Some((bucket_idx, &mut self.kbuckets[bucket_idx]));
         }
 
         None
     }
 
     pub fn get(&self, peer: NodeId) -> Option<Endpoint> {
-        self.bucket(peer).and_then(|bucket| {
+        self.bucket(peer).and_then(|(_, bucket)| {
             bucket
                 .bucket
                 .iter()
@@ -124,8 +125,8 @@ impl Table {
             return;
         }
 
-        if let Some(bucket) = self.bucket_mut(node.id) {
-            trace!("Adding to bucket: {:?}", bucket);
+        if let Some((bucket_idx, bucket)) = self.bucket_mut(node.id) {
+            trace!("Adding to bucket: {bucket_idx}");
             if let Some(pos) = bucket.find_peer_pos(node.id) {
                 bucket.bucket.remove(pos);
             }
@@ -148,7 +149,8 @@ impl Table {
             return;
         }
 
-        if let Some(bucket) = self.bucket_mut(node.id) {
+        if let Some((bucket_idx, bucket)) = self.bucket_mut(node.id) {
+            trace!("Adding peer to bucket {bucket_idx}");
             if bucket.find_peer_pos(node.id).is_some() {
                 // Peer exists already, do nothing
                 return;
@@ -167,9 +169,9 @@ impl Table {
     /// Remove node from the bucket
     #[instrument(skip_all, fields(node = &*node.to_string()))]
     pub fn remove(&mut self, node: NodeId) {
-        if let Some(bucket) = self.bucket_mut(node) {
+        if let Some((bucket_idx, bucket)) = self.bucket_mut(node) {
             if bucket.replacements.is_empty() {
-                trace!("Not removing from bucket: no replacements");
+                trace!("Not removing from bucket {bucket_idx}: no replacements");
                 return;
             }
 
@@ -179,7 +181,7 @@ impl Table {
                         .replacements
                         .pop_front()
                         .expect("already returned if no replacement");
-                    trace!("Replacing with {:?}", replacement);
+                    trace!("Replacing in bucket {bucket_idx} with {:?}", replacement);
                     bucket.bucket.remove(i);
                     bucket.bucket.push_back(replacement);
 
@@ -190,7 +192,7 @@ impl Table {
     }
 
     pub fn neighbours(&self, peer: NodeId) -> Option<NodeBucket> {
-        self.bucket(peer).map(|bucket| {
+        self.bucket(peer).map(|(_, bucket)| {
             bucket
                 .bucket
                 .iter()
