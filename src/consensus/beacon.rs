@@ -215,28 +215,33 @@ impl Consensus for BeaconConsensus {
         header: &crate::models::BlockHeader,
         ommers: &[crate::models::BlockHeader],
     ) -> anyhow::Result<Vec<super::FinalizationChange>> {
-        let mut changes = Vec::with_capacity(1 + ommers.len());
-
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
-        let mut miner_reward = block_reward;
-        for ommer in ommers {
-            let ommer_reward =
-                (U256::from(8 + ommer.number.0 - block_number.0) * block_reward) >> 3;
+
+        Ok(if block_reward > 0 {
+            let mut changes = Vec::with_capacity(1 + ommers.len());
+
+            let mut miner_reward = block_reward;
+            for ommer in ommers {
+                let ommer_reward =
+                    (U256::from(8 + ommer.number.0 - block_number.0) * block_reward) >> 3;
+                changes.push(FinalizationChange::Reward {
+                    address: ommer.beneficiary,
+                    amount: ommer_reward,
+                    ommer: true,
+                });
+                miner_reward += block_reward / 32;
+            }
+
             changes.push(FinalizationChange::Reward {
-                address: ommer.beneficiary,
-                amount: ommer_reward,
-                ommer: true,
+                address: header.beneficiary,
+                amount: miner_reward,
+                ommer: false,
             });
-            miner_reward += block_reward / 32;
-        }
 
-        changes.push(FinalizationChange::Reward {
-            address: header.beneficiary,
-            amount: miner_reward,
-            ommer: false,
-        });
-
-        Ok(changes)
+            changes
+        } else {
+            vec![]
+        })
     }
 }

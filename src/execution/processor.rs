@@ -336,7 +336,9 @@ where
                 FinalizationChange::Reward {
                     address, amount, ..
                 } => {
-                    self.state.add_to_balance(address, amount)?;
+                    if amount > 0 {
+                        self.state.add_to_balance(address, amount)?;
+                    }
                 }
             }
         }
