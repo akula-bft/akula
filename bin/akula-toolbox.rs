@@ -15,7 +15,7 @@ use akula::{
 use anyhow::{ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
-use std::{borrow::Cow, collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, io::Read, path::PathBuf, sync::Arc};
 use tokio::pin;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -107,6 +107,11 @@ pub enum OptCommand {
 
     ReadStorageChanges {
         block: BlockNumber,
+    },
+
+    /// Overwrite chainspec in database with user-provided one
+    OverwriteChainspec {
+        chainspec_file: PathBuf,
     },
 }
 
@@ -475,6 +480,25 @@ fn read_storage_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
     Ok(())
 }
 
+fn overwrite_chainspec(data_dir: AkulaDataDir, chainspec_file: PathBuf) -> anyhow::Result<()> {
+    let mut s = String::new();
+    std::fs::File::open(&chainspec_file)?.read_to_string(&mut s)?;
+    let new_chainspec = TableDecode::decode(s.as_bytes())?;
+
+    let chain_data_dir = data_dir.chain_data_dir();
+
+    let env = Arc::new(akula::kv::new_database(
+        &*CHAINDATA_TABLES,
+        &chain_data_dir,
+    )?);
+
+    let tx = env.begin_mutable()?;
+
+    tx.set(tables::Config, (), new_chainspec)?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
@@ -513,6 +537,9 @@ async fn main() -> anyhow::Result<()> {
         OptCommand::ReadAccountChanges { block } => read_account_changes(opt.data_dir, block)?,
         OptCommand::ReadStorage { address } => read_storage(opt.data_dir, address)?,
         OptCommand::ReadStorageChanges { block } => read_storage_changes(opt.data_dir, block)?,
+        OptCommand::OverwriteChainspec { chainspec_file } => {
+            overwrite_chainspec(opt.data_dir, chainspec_file)?
+        }
     }
 
     Ok(())
