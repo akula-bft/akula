@@ -296,4 +296,19 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn block_reward() {
+        let schedule = BlockRewardSchedule(
+            [(0, 500), (10, 200), (20, 0)]
+                .into_iter()
+                .map(|(b, r)| (BlockNumber(b), r.as_u256()))
+                .collect(),
+        );
+
+        for (block, expected_reward) in [(0, 500), (5, 500), (10, 200), (15, 200), (20, 0), (25, 0)]
+        {
+            assert_eq!(schedule.for_block(BlockNumber(block)), expected_reward);
+        }
+    }
 }
