@@ -312,6 +312,6 @@
             "enode://865a63255b3bb68023b6bffd5095118fcc13e79dcf014fe4e47e065c350c7cc72af2e53eff895f11ba1bbb6a2b33271c1116ee870f266618eadfc2e78aa7349c@52.176.100.77:30303",
             "enode://691907d5a7dee24884b791e799183e5db01f4fe0b6e9b795ffaf5cf85a3023a637f2abadc82fc0da168405092df869126377c5f190794cd2d1c067245ae2b1ce@13.125.237.43:30303",
         ],
-        dns: Some("all.ropsten.ethdisco.net"),
+        dns: "all.ropsten.ethdisco.net",
     ),
 )

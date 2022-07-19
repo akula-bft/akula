@@ -417,7 +417,11 @@ pub enum Precompile {
 pub struct P2PParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bootnodes: Vec<NodeUrl>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
     pub dns: Option<String>,
 }
 
