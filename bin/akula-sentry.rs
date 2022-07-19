@@ -1,6 +1,7 @@
 #![allow(dead_code, clippy::upper_case_acronyms)]
 use akula::{
     akula_tracing::{self, Component},
+    binutil::AkulaDataDir,
     models::ChainConfig,
 };
 use clap::Parser;
@@ -19,6 +20,9 @@ use tracing_subscriber::prelude::*;
 pub struct Opts {
     #[clap(flatten)]
     pub sentry_opts: akula::sentry::Opts,
+    /// Path to database directory.
+    #[clap(long = "datadir", help = "Database directory path", default_value_t)]
+    pub data_dir: AkulaDataDir,
     #[clap(long, takes_value = false)]
     pub chain: Option<String>,
 }
@@ -36,8 +40,10 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?;
 
     let max_peers = opts.sentry_opts.max_peers;
+    std::fs::create_dir_all(&opts.data_dir.0)?;
     let swarm = akula::sentry::run(
         opts.sentry_opts,
+        opts.data_dir,
         chain_config.map_or_else(|| None, |config| config.dns()),
     )
     .await?;

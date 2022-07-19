@@ -164,7 +164,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv::new_mem_database;
+    use crate::kv::new_mem_chaindata;
     use hex_literal::hex;
 
     #[test]
@@ -195,7 +195,7 @@ mod tests {
                 assert_eq!(genesis_header.hash(), hash);
             }
 
-            let db = new_mem_database().unwrap();
+            let db = new_mem_chaindata().unwrap();
             let tx = db.begin_mutable().unwrap();
 
             let temp_dir = TempDir::new().unwrap();

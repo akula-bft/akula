@@ -197,7 +197,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{accessors::chain, kv::new_mem_database};
+    use crate::{accessors::chain, kv::new_mem_chaindata};
     use bytes::Bytes;
     use hex_literal::hex;
     use std::time::Instant;
@@ -206,7 +206,7 @@ mod tests {
 
     #[tokio::test]
     async fn tx_lookup_stage_with_data() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let mut tx = db.begin_mutable().unwrap();
 
         let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));
@@ -397,7 +397,7 @@ mod tests {
 
     #[tokio::test]
     async fn tx_lookup_stage_without_data() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let mut tx = db.begin_mutable().unwrap();
         let mut stage = TxLookup {
             temp_dir: Arc::new(TempDir::new().unwrap()),
@@ -424,7 +424,7 @@ mod tests {
 
     #[tokio::test]
     async fn tx_lookup_unwind() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let mut tx = db.begin_mutable().unwrap();
 
         let recipient1 = Address::from(hex!("f4148309cc30f2dd4ba117122cad6be1e3ba0e2b"));

@@ -31,7 +31,7 @@ impl<E: EnvironmentKind> MdbxEnvironment<E> {
     fn open(
         mut b: ::mdbx::EnvironmentBuilder<E>,
         path: &Path,
-        chart: DatabaseChart,
+        chart: &DatabaseChart,
         ro: bool,
     ) -> anyhow::Result<Self> {
         b.set_max_dbs(std::cmp::max(chart.len(), 1));
@@ -59,7 +59,7 @@ impl<E: EnvironmentKind> MdbxEnvironment<E> {
     pub fn open_ro(
         b: ::mdbx::EnvironmentBuilder<E>,
         path: &Path,
-        chart: DatabaseChart,
+        chart: &DatabaseChart,
     ) -> anyhow::Result<Self> {
         Self::open(b, path, chart, true)
     }
@@ -67,7 +67,7 @@ impl<E: EnvironmentKind> MdbxEnvironment<E> {
     pub fn open_rw(
         b: ::mdbx::EnvironmentBuilder<E>,
         path: &Path,
-        chart: DatabaseChart,
+        chart: &DatabaseChart,
     ) -> anyhow::Result<Self> {
         if DirBuilder::new().recursive(true).create(path).is_ok() {
             #[cfg(target_os = "linux")]
@@ -76,10 +76,10 @@ impl<E: EnvironmentKind> MdbxEnvironment<E> {
             }
         }
 
-        let s = Self::open(b, path, chart.clone(), false)?;
+        let s = Self::open(b, path, chart, false)?;
 
         let tx = s.inner.begin_rw_txn()?;
-        for (table, info) in &*chart {
+        for (table, info) in chart {
             tx.create_db(
                 Some(table),
                 if info.dup_sort {

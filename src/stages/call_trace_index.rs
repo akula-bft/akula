@@ -214,7 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn call_traces() {
-        let db = crate::kv::new_mem_database().unwrap();
+        let db = crate::kv::new_mem_chaindata().unwrap();
 
         let mut tx = db.begin_mutable().unwrap();
 

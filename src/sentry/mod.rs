@@ -5,6 +5,8 @@ use self::{
     opts::{Discv4NR, NR},
 };
 use crate::{
+    binutil::AkulaDataDir,
+    kv::tables::{self, SENTRY_TABLES},
     models::ChainConfig,
     sentry::{
         opts::{OptsDiscStatic, OptsDiscV4, OptsDnsDisc},
@@ -403,15 +405,35 @@ pub struct Opts {
 
 pub async fn run(
     opts: Opts,
+    db_path: AkulaDataDir,
     dns_addr: Option<String>,
 ) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
-    let secret_key;
-    if let Some(node_key) = opts.node_key {
-        secret_key = SecretKey::from_slice(&hex::decode(node_key)?)?;
-        info!("Loaded node key from config");
-    } else {
-        secret_key = SecretKey::new(&mut secp256k1::rand::thread_rng());
-        info!("Generated new node key: {:?}", secret_key);
+    let db = Arc::new(crate::kv::new_database(
+        &*SENTRY_TABLES,
+        &db_path.sentry_db(),
+    )?);
+
+    let secret_key = {
+        let tx = db.begin_mutable()?;
+        let secret_key;
+        if let Some(node_key) = opts.node_key {
+            secret_key = SecretKey::from_slice(&hex::decode(node_key)?)?;
+            info!("Loaded node key from config");
+            tx.set(tables::SentryKey, (), secret_key)?;
+            tx.commit()?;
+        } else if let Some(key) = tx.get(tables::SentryKey, ())? {
+            info!("Loaded node key: {}", hex::encode(key.secret_bytes()));
+            secret_key = key;
+        } else {
+            secret_key = SecretKey::new(&mut secp256k1::rand::thread_rng());
+            info!(
+                "Generated new node key: {}",
+                hex::encode(secret_key.secret_bytes())
+            );
+            tx.set(tables::SentryKey, (), secret_key)?;
+            tx.commit()?;
+        };
+        secret_key
     };
 
     let listen_addr = format!("0.0.0.0:{}", opts.listen_port);

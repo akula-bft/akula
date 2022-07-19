@@ -579,7 +579,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        kv::{new_mem_database, tables},
+        kv::{new_mem_chaindata, tables},
         trie::node::marshal_node,
         u256_to_h256, upsert_hashed_storage_value,
     };
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_intermediate_hashes_cursor_traversal_1() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
         let mut trie = txn.cursor(tables::TrieAccount).unwrap();
 
@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_intermediate_hashes_cursor_traversal_2() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
         let mut trie = txn.cursor(tables::TrieAccount).unwrap();
 
@@ -690,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_intermediate_hashes_cursor_traversal_within_prefix() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
         let mut trie = txn.cursor(tables::TrieAccount).unwrap();
 
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn cursor_traversal_within_prefix() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
 
         let mut trie = txn.cursor(tables::TrieStorage).unwrap();
@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn account_and_storage_trie() {
         let temp_dir = TempDir::new().unwrap();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
 
         let mut hashed_accounts = txn.cursor(tables::HashedAccount).unwrap();
@@ -1177,7 +1177,7 @@ mod tests {
     #[test]
     fn account_trie_around_extension_node() {
         let temp_dir = TempDir::new().unwrap();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
 
         let a = Account {
@@ -1237,7 +1237,7 @@ mod tests {
     #[test]
     fn incremental_vs_regeneration() {
         let temp_dir = TempDir::new().unwrap();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
 
         const N: u128 = 10_000;
         let one_eth = Account {
@@ -1372,7 +1372,7 @@ mod tests {
     #[test]
     fn incremental_vs_regeneration_for_storage() {
         let temp_dir = TempDir::new().unwrap();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
 
         const N: u128 = 2_000;
 
@@ -1594,7 +1594,7 @@ mod tests {
     #[test]
     fn storage_deletion() {
         let temp_dir = TempDir::new().unwrap();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
 
         let address = hex!("1000000000000000000000000000000000000000").into();
@@ -1755,7 +1755,7 @@ mod property_test {
         crypto::{keccak256, trie_root},
         h256_to_u256,
         kv::{
-            new_mem_database, tables,
+            new_mem_chaindata, tables,
             tables::{AccountChange, StorageChange, StorageChangeKey},
         },
         trie::regenerate_intermediate_hashes,
@@ -2023,7 +2023,7 @@ mod property_test {
 
     // test
     fn do_trie_root_matches(test_data: ChangingAccountsFixture) {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let temp_dir = TempDir::new().unwrap();
 
         let tx = db.begin_mutable().unwrap();

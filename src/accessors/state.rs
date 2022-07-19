@@ -130,13 +130,13 @@ pub mod tests {
     use super::*;
     use crate::{
         h256_to_u256,
-        kv::{new_mem_database, tables},
+        kv::{new_mem_chaindata, tables},
     };
     use hex_literal::hex;
 
     #[test]
     fn read_storage() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
 
         let address = hex!("b000000000000000000000000000000000000008").into();

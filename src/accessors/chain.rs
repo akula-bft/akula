@@ -306,7 +306,7 @@ pub mod tl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv::new_mem_database;
+    use crate::kv::new_mem_chaindata;
     use bytes::Bytes;
 
     #[test]
@@ -350,7 +350,7 @@ mod tests {
             uncles: vec![],
         };
 
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let rwtx = db.begin_mutable().unwrap();
         let rwtx = &rwtx;
 

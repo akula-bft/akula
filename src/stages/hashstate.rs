@@ -272,7 +272,7 @@ mod tests {
     use super::*;
     use crate::{
         execution::{address::*, *},
-        kv::new_mem_database,
+        kv::new_mem_chaindata,
         res::chainspec::MAINNET,
         u256_to_h256, Buffer, StateWriter,
     };
@@ -281,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn stage_hashstate() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let mut tx = db.begin_mutable().unwrap();
 
         let mut gas = 0;

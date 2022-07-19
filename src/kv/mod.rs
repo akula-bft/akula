@@ -2,12 +2,12 @@ pub mod mdbx;
 pub mod tables;
 pub mod traits;
 
-use self::traits::*;
+use self::{tables::DatabaseChart, traits::*};
 use crate::kv::{mdbx::*, tables::CHAINDATA_TABLES};
 use byte_unit::*;
 use bytes::Bytes;
 use derive_more::Deref;
-use std::{fmt::Debug, ops::Deref};
+use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct CustomTable(pub string::String<Bytes>);
@@ -51,22 +51,26 @@ impl<E: EnvironmentKind> From<mdbx::MdbxEnvironment<E>> for MdbxWithDirHandle<E>
     }
 }
 
-pub fn new_mem_database() -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
+pub fn new_mem_chaindata() -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
     let tmpdir = tempfile::tempdir()?;
     Ok(MdbxWithDirHandle {
-        inner: new_environment(tmpdir.path(), n_mib_bytes!(64), None)?,
+        inner: new_environment(&*CHAINDATA_TABLES, tmpdir.path(), n_mib_bytes!(64), None)?,
         _tmpdir: Some(tmpdir),
     })
 }
 
-pub fn new_database(path: &std::path::Path) -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
+pub fn new_database(
+    chart: &DatabaseChart,
+    path: &std::path::Path,
+) -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
     Ok(MdbxWithDirHandle {
-        inner: new_environment(path, n_tib_bytes!(4), Some(n_gib_bytes!(4) as usize))?,
+        inner: new_environment(chart, path, n_tib_bytes!(4), Some(n_gib_bytes!(4) as usize))?,
         _tmpdir: None,
     })
 }
 
 fn new_environment(
+    chart: &DatabaseChart,
     path: &std::path::Path,
     size_upper_limit: u128,
     growth_step: Option<usize>,
@@ -80,5 +84,5 @@ fn new_environment(
         page_size: None,
     });
     builder.set_rp_augment_limit(16 * 256 * 1024);
-    mdbx::MdbxEnvironment::open_rw(builder, path, CHAINDATA_TABLES.deref().clone())
+    mdbx::MdbxEnvironment::open_rw(builder, path, chart)
 }

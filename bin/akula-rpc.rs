@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
         MdbxEnvironment::<NoWriteMap>::open_ro(
             mdbx::Environment::new(),
             &opt.datadir,
-            akula::kv::tables::CHAINDATA_TABLES.clone(),
+            &*akula::kv::tables::CHAINDATA_TABLES,
         )?
         .into(),
     );

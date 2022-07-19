@@ -413,12 +413,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{h256_to_u256, kv::new_mem_database};
+    use crate::{h256_to_u256, kv::new_mem_chaindata};
     use hex_literal::hex;
 
     #[test]
     fn storage_update() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let txn = db.begin_mutable().unwrap();
 
         let address: Address = hex!("be00000000000000000000000000000000000000").into();

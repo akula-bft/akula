@@ -122,7 +122,10 @@ async fn download_headers(
 
     let _ = std::fs::remove_dir_all(&etl_temp_path);
     std::fs::create_dir_all(&etl_temp_path)?;
-    let env = Arc::new(akula::kv::new_database(&chain_data_dir)?);
+    let env = Arc::new(akula::kv::new_database(
+        &*CHAINDATA_TABLES,
+        &chain_data_dir,
+    )?);
     let consensus: Arc<dyn Consensus> =
         engine_factory(Some(env.clone()), chain_config.chain_spec.clone())?.into();
     let txn = env.begin_mutable()?;
@@ -176,7 +179,7 @@ async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     let env = akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_rw(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
-        akula::kv::tables::CHAINDATA_TABLES.clone(),
+        &*akula::kv::tables::CHAINDATA_TABLES,
     )?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
@@ -195,7 +198,7 @@ fn open_db(
     akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
-        CHAINDATA_TABLES.clone(),
+        &*CHAINDATA_TABLES,
     )
 }
 
@@ -280,12 +283,12 @@ fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> anyhow
     let env1 = akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &db1_path,
-        Default::default(),
+        &CHAINDATA_TABLES,
     )?;
     let env2 = akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &db2_path,
-        Default::default(),
+        &CHAINDATA_TABLES,
     )?;
 
     let txn1 = env1.begin_ro_txn()?;

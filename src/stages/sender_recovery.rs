@@ -193,7 +193,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{accessors::*, kv::new_mem_database};
+    use crate::{accessors::*, kv::new_mem_chaindata};
     use bytes::Bytes;
     use hex_literal::hex;
 
@@ -201,7 +201,7 @@ mod tests {
 
     #[tokio::test]
     async fn recover_senders() {
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let mut tx = db.begin_mutable().unwrap();
 
         let sender1 = Address::from(hex!("de1ef574fd619979b16fd043ea97c4f4536af2e6"));

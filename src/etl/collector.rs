@@ -188,7 +188,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        kv::{new_mem_database, tables},
+        kv::{new_mem_chaindata, tables},
         models::BlockNumber,
     };
 
@@ -198,7 +198,7 @@ mod tests {
         let mut entries: Vec<(_, _)> = (0..10000)
             .map(|_| (rand::random(), BlockNumber(rand::random())))
             .collect();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let tx = db.begin_mutable().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let mut collector = TableCollector::new(&temp_dir, OPTIMAL_BUFFER_CAPACITY);
@@ -227,7 +227,7 @@ mod tests {
         let mut entries: Vec<(_, _)> = (0..10000)
             .map(|_| (rand::random(), BlockNumber(rand::random())))
             .collect();
-        let db = new_mem_database().unwrap();
+        let db = new_mem_chaindata().unwrap();
         let tx = db.begin_mutable().unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let mut collector = TableCollector::new(&temp_dir, 1000);

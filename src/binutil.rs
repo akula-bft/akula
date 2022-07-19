@@ -2,7 +2,7 @@ use derive_more::*;
 use directories::ProjectDirs;
 use std::{fmt::Display, path::PathBuf};
 
-#[derive(Debug, Deref, DerefMut, FromStr)]
+#[derive(Clone, Debug, Deref, DerefMut, FromStr)]
 
 pub struct AkulaDataDir(pub PathBuf);
 
@@ -15,8 +15,8 @@ impl AkulaDataDir {
         self.0.join("etl-temp")
     }
 
-    pub fn node_key_path(&self) -> PathBuf {
-        self.0.join("nodekey")
+    pub fn sentry_db(&self) -> PathBuf {
+        self.0.join("sentrydb")
     }
 }
 

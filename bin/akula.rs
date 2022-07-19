@@ -2,6 +2,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
+    kv::tables::CHAINDATA_TABLES,
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -149,7 +150,10 @@ fn main() -> anyhow::Result<()> {
                     tempfile::tempdir_in(&etl_temp_path)
                         .context("failed to create ETL temp dir")?,
                 );
-                let db = Arc::new(akula::kv::new_database(&akula_chain_data_dir)?);
+                let db = Arc::new(akula::kv::new_database(
+                    &*CHAINDATA_TABLES,
+                    &akula_chain_data_dir,
+                )?);
                 let chainspec = {
                     let span = span!(Level::INFO, "", " Genesis initialization ");
                     let _g = span.enter();
@@ -270,7 +274,9 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     let max_peers = opt.sentry_opts.max_peers;
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
-                    let swarm = akula::sentry::run(opt.sentry_opts, chain_config.dns()).await?;
+                    let swarm =
+                        akula::sentry::run(opt.sentry_opts, opt.data_dir, chain_config.dns())
+                            .await?;
 
                     let current_stage = staged_sync.current_stage();
 
