@@ -32,7 +32,7 @@ use std::{
     self,
     collections::{btree_map::Entry, hash_map::Entry as HashMapEntry, BTreeMap, HashMap, HashSet},
     fmt::Debug,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     num::NonZeroUsize,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -371,6 +371,8 @@ pub struct Opts {
     #[clap(long)]
     #[educe(Debug(ignore))]
     pub node_key: Option<String>,
+    #[clap(long, default_value = "0.0.0.0")]
+    pub listen_addr: IpAddr,
     #[clap(long, default_value = "30303")]
     pub listen_port: u16,
     #[clap(long)]
@@ -436,7 +438,7 @@ pub async fn run(
         secret_key
     };
 
-    let listen_addr = format!("0.0.0.0:{}", opts.listen_port);
+    let listen_addr = SocketAddr::new(opts.listen_addr, opts.listen_port);
 
     info!("Starting Ethereum P2P node");
 
@@ -514,7 +516,7 @@ pub async fn run(
             discovery_tasks,
             opts.min_peers,
             opts.max_peers,
-            listen_addr.parse().unwrap(),
+            listen_addr,
             opts.cidr,
             no_new_peers,
         ))
