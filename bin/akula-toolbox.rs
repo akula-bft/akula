@@ -495,6 +495,7 @@ fn overwrite_chainspec(data_dir: AkulaDataDir, chainspec_file: PathBuf) -> anyho
     let tx = env.begin_mutable()?;
 
     tx.set(tables::Config, (), new_chainspec)?;
+    tx.commit()?;
 
     Ok(())
 }
