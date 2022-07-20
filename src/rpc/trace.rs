@@ -264,6 +264,10 @@ where
     let engine = engine_factory(None, chain_spec.clone(), None)?;
 
     let mut analysis_cache = AnalysisCache::default();
+    let mut parlia = false;
+    if let SealVerificationParams::Parlia { period, epoch } = chain_spec.consensus.seal_verification {
+            parlia = true;
+    }
     for (sender, message, trace_types) in calls {
         let (output, updates, trace) = {
             let mut buffer = LoggingBuffer::new(&mut buffer);
@@ -282,6 +286,7 @@ where
                 &message,
                 sender,
                 engine.get_beneficiary(&header),
+                parlia,
             )?;
 
             state.write_to_state_same_block()?;

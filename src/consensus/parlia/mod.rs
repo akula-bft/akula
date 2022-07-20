@@ -14,43 +14,55 @@
 // You should have received a copy of the GNU General Public License
 // along with OpenEthereum.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Implementation of the Parlia POSA Engine.
+//! Implementation of the œ POSA Engine.
 #![allow(missing_docs)]
-mod contract_upgrade;
-mod params;
 mod snapshot;
 pub mod util;
+mod contract_upgrade;
 
-use block::ExecutedBlock;
-use client::{BlockId, EngineClient};
-use engines::parlia::contract_upgrade::upgrade_build_in_system_contract;
-use engines::{
-    parlia::{
-        params::ParliaParams,
-        snapshot::Snapshot,
-        util::{is_system_transaction, recover_creator},
+use super::{*, base::ConsensusEngineBase};
+use std::{io::Read, str};
+use crate::{execution::{
+    analysis_cache::AnalysisCache,
+    evmglue,
+    tracer::{CallKind, MessageKind, NoopTracer, Tracer},}, rpc::eth};
+
+use crate::{
+    accessors::chain,
+    Buffer,
+    consensus::{
+        parlia::{
+            snapshot::Snapshot,
+            util::{is_system_transaction, recover_creator},
+        },
     },
-    Engine, EngineError,
+    HeaderReader,
+    kv::{mdbx::*, MdbxWithDirHandle},
+    models::*,
 };
-use error::{BlockError, Error};
+use anyhow::format_err;
 use ethabi::FunctionOutputDecoder;
-use ethereum_types::{Address, H256, U256};
-use hash::KECCAK_EMPTY_LIST_RLP;
-use kvdb::KeyValueDB;
+use ethereum_types::{Address, H256};
 use lru_cache::LruCache;
-use machine::{Call, EthereumMachine};
 use parking_lot::RwLock;
 use std::{
     collections::BTreeSet,
     ops::{Add, Mul},
-    sync::{Arc, Weak},
-    time::{Duration, SystemTime},
+    str::FromStr, time::{Duration, SystemTime},
 };
-use types::{
-    header::{ExtendedHeader, Header},
-    transaction::{Action, Transaction},
-};
-use unexpected::{Mismatch, OutOfBounds};
+use std::ops::Deref;
+use TransactionAction;
+use bytes::{Buf, Bytes};
+use byteorder::{ByteOrder, LittleEndian};
+use ethereum_types::{H160, U256};
+use futures::future::err;
+use crate::consensus::DuoError::Validation;
+use tracing::*;
+use crate::kv::tables;
+
+/// Type alias for a function we can make calls through synchronously.
+/// Returns the call result and state proof for each call.
+pub type Call<'a> = dyn Fn(Address, Vec<u8>) -> Result<(Vec<u8>, Vec<Vec<u8>>), String> + 'a;
 
 // Protocol constants
 /// Fixed number of extra-data prefix bytes reserved for signer vanity
@@ -60,130 +72,53 @@ pub const SIGNATURE_LENGTH: usize = 65;
 /// Address length of signer
 pub const ADDRESS_LENGTH: usize = 20;
 /// Difficulty for INTURN block
-pub const DIFF_INTURN: U256 = U256([2, 0, 0, 0]);
+pub const DIFF_INTURN: ethnum::U256 =ethnum::U256([2, 0]);
 /// Difficulty for NOTURN block
-pub const DIFF_NOTURN: U256 = U256([1, 0, 0, 0]);
+pub const DIFF_NOTURN: ethnum::U256 = ethnum::U256([1, 0]);
 /// Default value for mixhash
 pub const NULL_MIXHASH: H256 = H256([0; 32]);
 /// Default value for uncles hash
-pub const NULL_UNCLES_HASH: H256 = KECCAK_EMPTY_LIST_RLP;
+pub const NULL_UNCLES_HASH :H256 = H256([0x1d, 0xcc, 0x4d, 0xe8, 0xde, 0xc7, 0x5d, 0x7a, 0xab, 0x85, 0xb5, 0x67, 0xb6, 0xcc, 0xd4, 0x1a, 0xd3, 0x12, 0x45, 0x1b, 0x94, 0x8a, 0x74, 0x13, 0xf0, 0xa1, 0x42, 0xfd, 0x40, 0xd4, 0x93, 0x47] );
 /// Default noturn block wiggle factor defined in spec.
 pub const SIGNING_DELAY_NOTURN_MS: u64 = 500;
 /// How many snapshot to cache in the memory.
-pub const SNAP_CACHE_NUM: usize = 512;
+pub const SNAP_CACHE_NUM: usize = 2048;
 /// Number of blocks after which to save the snapshot to the database
 pub const CHECKPOINT_INTERVAL: u64 = 1024;
 /// Percentage to system reward.
 pub const SYSTEM_REWARD_PERCENT: usize = 4;
 
-const MAX_SYSTEM_REWARD: &str = "56bc75e2d63100000";
+const MAX_SYSTEM_REWARD: &str = "0x56bc75e2d63100000";
 const INIT_TX_NUM: usize = 7;
 
-use_contract!(validator_ins, "res/contracts/bsc_validators.json");
-use_contract!(slash_ins, "res/contracts/bsc_slash.json");
+use_contract!(validator_ins, "src/contracts/bsc_validators.json");
+use_contract!(slash_ins, "src/contracts/bsc_slash.json");
 
 /// Parlia Engine implementation
+#[derive(Debug)]
 pub struct Parlia {
-    chain_id: u64,
+    chain_spec: ChainSpec,
+    chain_id: ChainId,
     epoch: u64,
     period: u64,
-    client: RwLock<Option<Weak<dyn EngineClient>>>,
-    machine: EthereumMachine,
     recent_snaps: RwLock<LruCache<H256, Snapshot>>,
-    db: RwLock<Option<Arc<dyn KeyValueDB>>>,
+    fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
 }
 impl Parlia {
     /// new parlia engine
     pub fn new(
-        params: ParliaParams,
-        machine: EthereumMachine,
-        chain_id: u64,
-    ) -> Result<Arc<Self>, Error> {
-        let engine = Parlia {
+        chain_id: ChainId,
+        chain_spec: ChainSpec,
+        epoch: u64,
+        period: u64,) -> Self {
+        Self {
+            chain_spec,
             chain_id,
-            machine,
-            client: Default::default(),
-            db: Default::default(),
-            epoch: params.epoch,
-            period: params.period,
+            epoch,
+            period,
             recent_snaps: RwLock::new(LruCache::new(SNAP_CACHE_NUM)),
-        };
-        let engine = Arc::new(engine);
-        Ok(engine)
-    }
-
-    fn snapshot(&self, mut block_number: u64, mut block_hash: H256) -> Result<Snapshot, Error> {
-        let mut snap_by_hash = self.recent_snaps.write();
-        let mut headers = vec![];
-        let mut snap: Snapshot;
-        match self.client.read().as_ref().and_then(move |w| w.upgrade()) {
-            None => Err(EngineError::RequiresClient)?,
-            Some(c) => {
-                loop {
-                    if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
-                        snap = new_snap.clone();
-                        break;
-                    }
-                    if block_number % CHECKPOINT_INTERVAL == 0 {
-                        if let Some(new_snap) = Snapshot::load(
-                            Arc::clone(&self.db.read().as_ref().unwrap()),
-                            &block_hash,
-                        ) {
-                            snap = new_snap;
-                            break;
-                        }
-                    }
-                    if block_number == 0 {
-                        match c.block_header(BlockId::Number(0)) {
-                            None => Err(EngineError::ParliaUnContinuousHeader)?,
-                            Some(genesis) => {
-                                let hash = genesis.hash();
-                                let validator_bytes = &genesis.extra_data()[VANITY_LENGTH
-                                    ..(genesis.extra_data().len() - SIGNATURE_LENGTH)];
-                                let validators = snapshot::parse_validators(validator_bytes)?;
-                                snap = Snapshot::new(validators, 0, hash, self.epoch);
-                                snap.store(Arc::clone(&self.db.write().as_ref().unwrap()));
-                                break;
-                            }
-                        }
-                    }
-                    if let Some(header) = c.block_header(BlockId::Hash(block_hash)) {
-                        headers.push(header.decode()?);
-                        block_number -= 1;
-                        block_hash = header.parent_hash();
-                    } else {
-                        Err(EngineError::ParliaUnContinuousHeader)?
-                    }
-                }
-                for h in headers.iter().rev() {
-                    snap = snap.apply(c.clone(), h, &self.chain_id)?;
-                }
-                snap_by_hash.insert(snap.hash.clone(), snap.clone());
-                if snap.number % CHECKPOINT_INTERVAL == 0 {
-                    snap.store(Arc::clone(&self.db.write().as_ref().unwrap()));
-                }
-                return Ok(snap);
-            }
+            fork_choice_graph: Arc::new(Mutex::new(Default::default())),
         }
-    }
-
-    fn default_caller(&self, id: BlockId) -> Box<Call> {
-        let client = self.client.read().clone();
-        Box::new(move |addr, data| {
-            client
-                .as_ref()
-                .and_then(Weak::upgrade)
-                .ok_or_else(|| "No client!".into())
-                .and_then(|c| match c.as_full_client() {
-                    Some(c) => c.call_contract(id, addr, data),
-                    None => Err("No full client!".into()),
-                })
-                .map(|out| (out, Vec::new()))
-        })
-    }
-
-    fn upgrade_build_in_system_contract(&self, _block: &mut ExecutedBlock) {
-        upgrade_build_in_system_contract(self.machine.params(), _block);
     }
 }
 
@@ -192,65 +127,225 @@ pub fn is_parlia(engine: &str) -> bool {
     engine == "Parlia"
 }
 
-impl Engine<EthereumMachine> for Parlia {
+impl Consensus for Parlia {
     fn name(&self) -> &str {
         "Parlia"
     }
-
-    fn machine(&self) -> &EthereumMachine {
-        &self.machine
+    
+    fn fork_choice_mode(&self) -> ForkChoiceMode {
+        ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
 
-    fn on_new_block(
-        &self,
-        _block: &mut ExecutedBlock,
-        _epoch_begin: bool,
-        _ancestry: &mut dyn Iterator<Item = ExtendedHeader>,
-    ) -> Result<(), Error> {
-        self.upgrade_build_in_system_contract(_block);
+    fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError>{
         Ok(())
     }
 
-    fn on_close_block(&self, _block: &mut ExecutedBlock) -> Result<(), Error> {
-        let txs = &_block.transactions;
-        let header = &_block.header;
+    fn finalize(
+        &self,
+        header: &BlockHeader,
+        ommers: &[BlockHeader],
+    ) -> anyhow::Result<Vec<FinalizationChange>> {
+        Ok(Vec::default())
+    }
 
-        if header.number() % self.epoch == 0 {
-            let caller = self.default_caller(BlockId::Hash(*header.parent_hash()));
-            let (input, decoder) = validator_ins::functions::get_validators::call();
-            let addresses = caller(util::VALIDATOR_CONTRACT.clone(), input)
-                .and_then(|x| decoder.decode(&x.0).map_err(|e| e.to_string()))?;
+    fn validate_block_header(
+        &self,
+        header: &BlockHeader,
+        parent: &BlockHeader,
+        with_future_timestamp_check: bool,
+    ) -> Result<(), DuoError> {
+        let num = header.number;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let header_time = header.timestamp;
+        if header_time > now {
+           return Err(Validation(ValidationError::WrongHeaderTime {
+               now,
+               got: header_time
+           }));
+        }
+        let extra_data_len = header.extra_data.len();
 
-            let mut suppose_vals = BTreeSet::new();
-            for a in addresses {
-                suppose_vals.insert(Address::from(a));
-            }
-            let validator_bytes =
-                &header.extra_data()[VANITY_LENGTH..(header.extra_data().len() - SIGNATURE_LENGTH)];
-            let header_vals = snapshot::parse_validators(validator_bytes)?;
-            if header_vals != suppose_vals {
-                Err(EngineError::ParliaCheckpointMismatchValidators)?
+        if extra_data_len < VANITY_LENGTH {
+            return Err(Validation(ValidationError::WrongHeaderExtraLen{
+                expected: VANITY_LENGTH,
+                got: extra_data_len
+            }));
+        }
+
+        if extra_data_len < VANITY_LENGTH + SIGNATURE_LENGTH {
+            return Err(Validation(ValidationError::WrongHeaderExtraLen{
+                expected: VANITY_LENGTH + SIGNATURE_LENGTH,
+                got: extra_data_len
+            }));
+        }
+
+        let signers_bytes = extra_data_len - VANITY_LENGTH - SIGNATURE_LENGTH;
+        let is_epoch = num % self.epoch == 0;
+        if !is_epoch && signers_bytes != 0 {
+            return Err(Validation(ValidationError::WrongHeaderExtraSignersLen{
+                expected: 0,
+                got: signers_bytes
+            }));
+        }
+        if is_epoch && signers_bytes % ADDRESS_LENGTH != 0 {
+            return Err(Validation(ValidationError::WrongHeaderExtraSignersLen{
+                expected: 0,
+                got: signers_bytes % ADDRESS_LENGTH
+            }));
+        }
+
+        // Ensure that the block doesn't contain any uncles which are meaningless in PoA
+        if header.ommers_hash != NULL_UNCLES_HASH {
+            return Err(ValidationError::NotAnOmmer.into());
+        }
+
+        // Ensure that the block's difficulty is meaningful (may not be correct at this point)
+        if header.difficulty != DIFF_INTURN && header.difficulty != DIFF_NOTURN {
+            return Err(ValidationError::WrongDifficulty.into());
+        }
+        if header.gas_used > header.gas_limit {
+            return Err(ValidationError::InvalidGasLimit.into());
+        }
+        let cap = ethnum::U256::from(0x7fffffffffffffff_u64);
+        if header.gas_limit.as_u256() > cap {
+            return Err(ValidationError::InvalidGasLimit.into());
+        }
+        let snap = self.query_snap(parent.number.0, parent.hash())?;
+        if header.timestamp
+            < parent.timestamp + self.period + snap.back_off_time(&header.beneficiary)
+        {
+            return Err(ValidationError::InvalidTimestamp {
+                parent: parent.timestamp,
+                current: header.timestamp
+            }.into());
+        }
+        let signer = recover_creator(header, self.chain_id)?;
+        if signer != header.beneficiary {
+            return Err(ValidationError::WrongHeaderSigner {
+                number: header.number,
+                expected: header.beneficiary,
+                got: signer
+            }.into());
+        }
+        if !snap.validators.contains(&signer) {
+            return Err(ValidationError::SignerUnauthorized{ number: header.number, signer }.into());
+        }
+        for (seen, recent) in snap.recents.iter() {
+            if *recent == signer {
+                // Signer is among recents, only fail if the current block doesn't shift it out
+                let limit = (snap.validators.len() / 2 + 1) as u64;
+                if *seen > num.0 - limit {
+                    return Err(ValidationError::SignerOverLimit{ signer }.into());
+                }
             }
         }
-        let mut expect_system_txs = vec![];
-        let mut actual_system_txs = vec![];
+        let is_inturn = snap.inturn(&signer);
+        if is_inturn && header.difficulty != DIFF_INTURN {
+            return Err(ValidationError::WrongDifficulty.into());
+        } else if !is_inturn && header.difficulty != DIFF_NOTURN {
+            return Err(ValidationError::WrongDifficulty.into());
+        }
+        Ok(())
+    }
+
+    fn parlia(&mut self) -> Option<&mut Parlia> {
+        Some(self)
+    }
+
+}
+
+impl Parlia {
+    // TODO tmp parlia real finalize move outside, because trait's inner generic problem fix next time
+    pub fn outer_finalize<'r, S>(
+        &mut self,
+        header: &BlockHeader,
+        ommers: &[BlockHeader],
+        state: &mut IntraBlockState<'r, S>,
+        transactionsOp: Option<&Vec<MessageWithSender>>,
+        receiptsOp: Option<&Vec<Receipt>>,
+    ) -> anyhow::Result<Vec<FinalizationChange>, DuoError>
+        where S: StateReader+HeaderReader,
+    {
+        if transactionsOp.is_none() {
+            return Err(Validation(ValidationError::NoneTransactions));
+        }
+        if receiptsOp.is_none() {
+            return Err(Validation(ValidationError::NoneReceipts));
+        }
+        let transactions = transactionsOp.unwrap();
+        let receipts = receiptsOp.unwrap();
+        if header.number % self.epoch == 0 {
+            let (input, decoder) = validator_ins::functions::get_validators::call();
+            let mut input_byte= Bytes::from(input);
+            let message = Message::Legacy {
+                chain_id: Some(self.chain_id),
+                nonce: header.nonce.to_low_u64_be(),
+                gas_price: ethnum::U256::ZERO,
+                gas_limit: 50000000,
+                action: TransactionAction::Call(util::VALIDATOR_CONTRACT.clone()),
+                value:  ethnum::U256::ZERO,
+                input: input_byte,
+            };
+
+            let mut analysis_cache = AnalysisCache::default();
+            let mut tracer = NoopTracer;
+            let block_spec = self.chain_spec.collect_block_spec(header.number);
+            let res = evmglue::execute(
+                state,
+                &mut tracer,
+                &mut analysis_cache,
+                &header,
+                &block_spec,
+                &message,
+                *util::VALIDATOR_CONTRACT,
+                *util::VALIDATOR_CONTRACT,
+                message.gas_limit(),
+            )?;
+            let dec_res = decoder.decode(res.output_data.chunk());
+            if let Ok(addresses) = dec_res {
+                let mut suppose_vals = BTreeSet::new();
+                for addr in addresses {
+                    suppose_vals.insert(Address::from(addr));
+                }
+
+                let validator_bytes =
+                    &header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)];
+                let header_vals = snapshot::parse_validators(validator_bytes)?;
+                if header_vals != suppose_vals {
+                    return Err(Validation(ValidationError::EpochChgWrongValidators{
+                        expect: suppose_vals,
+                        got: header_vals
+                    }));
+                }
+            } else {
+                error!("decoder err block {}, res {:?}", header.number, dec_res);
+                return Err(Validation(ValidationError::EpochChgCallErr));
+            }
+        }
+
+        // calculate reward
+        let mut expect_system_txs: Vec<Message>= vec![];
+        let mut actual_system_txs: Vec<&MessageWithSender> = vec![];
         let mut have_sys_reward = false;
-        for tx in txs {
-            if is_system_transaction(tx, header.author()) {
+        for tx in transactions.iter() {
+            if is_system_transaction(&tx.message, &tx.sender, &header.beneficiary) {
                 actual_system_txs.push(tx);
             }
         }
-        if header.number() == 1 {
+        if header.number == 1 {
             // skip first 7 init transaction
             actual_system_txs = actual_system_txs[INIT_TX_NUM..].to_owned();
         }
         for tx in actual_system_txs.iter() {
-            if tx.action == Action::Call(util::SYSTEM_REWARD_CONTRACT.clone()) {
+            if tx.message.action() == TransactionAction::Call(util::SYSTEM_REWARD_CONTRACT.clone()) {
                 have_sys_reward = true;
             }
         }
-        if *_block.header.difficulty() != DIFF_INTURN {
-            let snap = self.snapshot(header.number() - 1, *header.parent_hash())?;
+        if header.difficulty != DIFF_INTURN {
+            let snap = self.query_snap(header.number.0 - 1, header.parent_hash)?;
             let suppose_val = snap.suppose_validator();
             let mut signed_recently = false;
             for (_, recent) in snap.recents {
@@ -261,236 +356,183 @@ impl Engine<EthereumMachine> for Parlia {
             }
             if !signed_recently {
                 let slash_tx_data: Vec<u8> = slash_ins::functions::slash::encode_input(suppose_val);
-                let slash_tx = Transaction {
+                let mut input_byte= Bytes::from(slash_tx_data);
+                let slash_tx = Message::Legacy {
+                    chain_id: Some(self.chain_id),
                     nonce: Default::default(),
-                    gas_price: 0.into(),
-                    gas: (std::u64::MAX / 2).into(),
-                    value: 0.into(),
-                    action: Action::Call(util::SLASH_CONTRACT.clone()),
-                    data: slash_tx_data,
+                    gas_price: ethnum::U256::new(0),
+                    gas_limit: (std::u64::MAX / 2).into(),
+                    value: ethnum::U256::new(0),
+                    action: TransactionAction::Call(util::SLASH_CONTRACT.clone()),
+                    input: input_byte,
                 };
                 expect_system_txs.push(slash_tx);
             }
         }
-        let mut reward: U256 = 0.into();
-        for i in 0..txs.len() {
-            let tx = txs.get(i).unwrap();
-            let r = _block.receipts.get(i).unwrap();
+        let mut reward: ethnum::U256 = ethnum::U256::ZERO;
+        for i in 0..transactions.len() {
+            let tx = transactions.get(i).unwrap();
+            let r = receipts.get(i).unwrap();
             if i == 0 {
-                reward = reward.add(tx.gas_price.mul(r.gas_used));
+                reward = reward + ethnum::U256::new(tx.message.max_fee_per_gas().as_u256().mul(r.cumulative_gas_used.as_u256()).as_u128());
             } else {
-                let last_used = _block.receipts.get(i - 1).unwrap().gas_used;
-                reward = reward.add(tx.gas_price.mul(r.gas_used - last_used));
+                let last_used = receipts.get(i - 1).unwrap().cumulative_gas_used;
+                reward = reward + ethnum::U256::new(tx.message.max_fee_per_gas().as_u256().mul((r.cumulative_gas_used - last_used).as_u256()).as_u128());
             }
         }
-        if reward > 0.into() {
+        if reward > ethnum::U256::new(0) {
             let sys_reward = reward >> SYSTEM_REWARD_PERCENT;
-            if sys_reward > 0.into() {
-                let sys_hold = _block.state.balance(&util::SYSTEM_REWARD_CONTRACT).unwrap();
-                if !have_sys_reward && sys_hold < MAX_SYSTEM_REWARD.into() {
-                    Err(EngineError::ParliaSystemTxMismatch)?
+            if sys_reward > ethnum::U256::new(0) {
+                let sys_hold = state.get_balance(*util::SYSTEM_REWARD_CONTRACT).unwrap();
+                let max_system_reward = ethnum::U256::from_str_hex(MAX_SYSTEM_REWARD.into()).unwrap();
+                if !have_sys_reward && sys_hold < max_system_reward{
+                    return Err(ValidationError::SystemTxWrongSystemReward {
+                        expect: max_system_reward,
+                        got: sys_hold,
+                    }.into());
                 }
                 if have_sys_reward {
-                    let sys_reward_tx = Transaction {
+                    let sys_reward_tx = Message::Legacy {
+                        chain_id:Some(self.chain_id),
                         nonce: Default::default(),
-                        gas_price: 0.into(),
-                        gas: (std::u64::MAX / 2).into(),
+                        gas_price: ethnum::U256::new(0),
+                        gas_limit: (std::u64::MAX / 2).into(),
                         value: sys_reward,
-                        action: Action::Call(util::SYSTEM_REWARD_CONTRACT.clone()),
-                        data: vec![],
+                        action: TransactionAction::Call(util::SYSTEM_REWARD_CONTRACT.clone()),
+                        input: Bytes::new(),
                     };
                     expect_system_txs.push(sys_reward_tx);
                     reward -= sys_reward;
                 }
             }
             let validator_dis_data =
-                validator_ins::functions::deposit::encode_input(*header.author());
-            let validator_dis_tx = Transaction {
+                validator_ins::functions::deposit::encode_input(header.beneficiary);
+            let mut input_byte= Bytes::from(validator_dis_data);
+            let validator_dis_tx = Message::Legacy {
+                chain_id: Some(self.chain_id),
                 nonce: Default::default(),
-                gas_price: 0.into(),
-                gas: (std::u64::MAX / 2).into(),
+                gas_price: ethnum::U256::new(0),
+                gas_limit: (std::u64::MAX / 2).into(),
                 value: reward,
-                action: Action::Call(util::VALIDATOR_CONTRACT.clone()),
-                data: validator_dis_data,
+                action: TransactionAction::Call(util::VALIDATOR_CONTRACT.clone()),
+                input: input_byte,
             };
             expect_system_txs.push(validator_dis_tx);
         }
 
         if actual_system_txs.len() != expect_system_txs.len() {
-            Err(EngineError::ParliaSystemTxMismatch)?
+            debug!("expect_system_txs {:?}", expect_system_txs);
+            return Err(ValidationError::SystemTxWrongCount {
+                expect: expect_system_txs.len(),
+                got: actual_system_txs.len()
+            }.into());
         }
         let system_tx_num = expect_system_txs.len();
         for i in 0..system_tx_num {
             let expect_tx = expect_system_txs.get(i).unwrap();
             let system_tx = actual_system_txs.get(i).unwrap();
-            if system_tx.gas != expect_tx.gas
-                || system_tx.gas_price != expect_tx.gas_price
-                || system_tx.value != expect_tx.value
-                || system_tx.data != expect_tx.data
-                || system_tx.action != expect_tx.action
+            if system_tx.message.max_fee_per_gas() != expect_tx.max_fee_per_gas()
+                || system_tx.message.max_fee_per_gas() != expect_tx.max_fee_per_gas()
+                || system_tx.message.value() != expect_tx.value()
+                || system_tx.message.input() != expect_tx.input()
+                || system_tx.message.action() != expect_tx.action()
             {
-                Err(EngineError::ParliaSystemTxMismatch)?
+                return Err(ValidationError::SystemTxWrong{
+                    expect: expect_tx.clone(),
+                    got: system_tx.message.clone(),
+                }.into());
             }
         }
-        Ok(())
+        Ok(Vec::default())
     }
 
-    fn verify_local_seal(&self, _header: &Header) -> Result<(), Error> {
-        Ok(())
+    // TODO tmp add block outside, because trait's inner generic problem fix next time
+    pub fn new_block<'r, S>(
+        &mut self,
+        header: &BlockHeader,
+        state: &mut IntraBlockState<'r, S>,
+    ) -> anyhow::Result<(), DuoError>
+        where S: StateReader+HeaderReader,
+    {
+        contract_upgrade::upgrade_build_in_system_contract(&self.chain_spec, &header.number, state)
     }
 
-    fn seal_fields(&self, _header: &Header) -> usize {
-        2
+    pub fn query_snap(
+        &self,
+        mut block_number: u64,
+        mut block_hash: H256,
+    ) -> Result<Snapshot, DuoError>{
+
+        let mut snap_by_hash = self.recent_snaps.write();
+        if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
+            return Ok(new_snap.clone());
+        }
+        return Err(Validation(ValidationError::SnapNotFound {
+            number: BlockNumber(block_number),
+            hash: block_hash,
+        }))
     }
 
-    fn verify_block_basic(&self, header: &Header) -> Result<(), Error> {
-        let num = header.number();
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let header_time = header.timestamp();
-        if header_time > now {
-            Err(BlockError::InvalidTimestamp(OutOfBounds {
-                max: Some(SystemTime::UNIX_EPOCH.add(Duration::from_secs(now))),
-                min: None,
-                found: SystemTime::UNIX_EPOCH.add(Duration::from_secs(header_time)),
-            }))?
-        }
-        let extra_data_len = header.extra_data().len();
+    // snapshot retrieves the authorization snapshot at a given point in time.
+    pub fn snapshot<E>(
+        &mut self,
+        txn: &MdbxTransaction<'_, RW, E>,
+        mut block_number: BlockNumber,
+        mut block_hash: H256,
+    ) -> anyhow::Result<Snapshot, DuoError>
+        where E: EnvironmentKind
+    {
+        debug!("snapshot header {}", block_number);
+        let mut snap_by_hash = self.recent_snaps.write();
+        let mut headers = Vec::new();
+        let mut snap: Snapshot;
 
-        if extra_data_len < VANITY_LENGTH {
-            Err(EngineError::ParliaMissingVanity)?
-        }
-
-        if extra_data_len < VANITY_LENGTH + SIGNATURE_LENGTH {
-            Err(EngineError::ParliaMissingSignature)?
-        }
-
-        let signers_bytes = extra_data_len - VANITY_LENGTH - SIGNATURE_LENGTH;
-        let is_epoch = num % self.epoch == 0;
-        if !is_epoch && signers_bytes != 0 {
-            Err(EngineError::ParliaInvalidValidatorsExtra)?
-        }
-        if is_epoch && signers_bytes % ADDRESS_LENGTH != 0 {
-            Err(EngineError::ParliaInvalidValidatorsExtra)?
-        }
-        let seal_fields = header.decode_seal::<Vec<_>>()?;
-        if seal_fields.len() != 2 {
-            Err(BlockError::InvalidSealArity(Mismatch {
-                expected: 2,
-                found: seal_fields.len(),
-            }))?
-        }
-
-        let mixhash: H256 = seal_fields[0].into();
-        if mixhash != NULL_MIXHASH {
-            Err(BlockError::MismatchedH256SealElement(Mismatch {
-                expected: NULL_MIXHASH,
-                found: mixhash,
-            }))?
-        }
-        // Ensure that the block doesn't contain any uncles which are meaningless in PoA
-        if *header.uncles_hash() != NULL_UNCLES_HASH {
-            Err(BlockError::InvalidUnclesHash(Mismatch {
-                expected: NULL_UNCLES_HASH,
-                found: *header.uncles_hash(),
-            }))?
-        }
-
-        // Ensure that the block's difficulty is meaningful (may not be correct at this point)
-        if *header.difficulty() != DIFF_INTURN && *header.difficulty() != DIFF_NOTURN {
-            Err(BlockError::DifficultyOutOfBounds(OutOfBounds {
-                min: Some(DIFF_NOTURN),
-                max: Some(DIFF_INTURN),
-                found: *header.difficulty(),
-            }))?
-        }
-        if header.gas_used() > header.gas_limit() {
-            Err(BlockError::TooMuchGasUsed(OutOfBounds {
-                max: Some(*header.gas_limit()),
-                min: None,
-                found: *header.gas_used(),
-            }))?
-        }
-        let cap = U256::from(0x7fffffffffffffff_u64);
-        if *header.gas_limit() > cap {
-            Err(BlockError::InvalidGasLimit(OutOfBounds {
-                min: None,
-                max: Some(cap),
-                found: *header.gas_limit(),
-            }))?
-        }
-        Ok(())
-    }
-
-    fn verify_block_family(&self, header: &Header, parent: &Header) -> Result<(), Error> {
-        let num = header.number();
-        let snap = self.snapshot(parent.number(), parent.hash())?;
-        if header.timestamp()
-            < parent.timestamp() + self.period + snap.back_off_time(header.author())
-        {
-            Err(EngineError::ParliaFutureBlock)?
-        }
-        let signer = recover_creator(header, &self.chain_id)?;
-        if signer != *header.author() {
-            Err(EngineError::ParliaAuthorMismatch)?
-        }
-        if !snap.validators.contains(&signer) {
-            Err(EngineError::ParliaUnauthorizedValidator)?
-        }
-        for (seen, recent) in snap.recents.iter() {
-            if *recent == signer {
-                // Signer is among recents, only fail if the current block doesn't shift it out
-                let limit = (snap.validators.len() / 2 + 1) as u64;
-                if *seen > num - limit {
-                    Err(EngineError::ParliaRecentlySigned)?
+        loop {
+            debug!("snap loop header {} {:?}", block_number, block_hash);
+            if let Some(new_snap) = snap_by_hash.get_mut(&block_hash) {
+                snap = new_snap.clone();
+                break;
+            }
+            if block_number % CHECKPOINT_INTERVAL == 0 {
+                if let Some(new_snap) = Snapshot::load(txn, block_hash)? {
+                    snap = new_snap;
+                    info!("snap find from db {} {:?}", block_number, block_hash);
+                    break;
                 }
             }
+            if block_number == 0 {
+                let header = txn.read_header(block_number, block_hash)?;
+                if header.is_none(){
+                    return Err(Validation(ValidationError::UnknownHeader{
+                        number: block_number, hash: block_hash
+                    }));
+                }
+                let genesis = header.unwrap();
+                let validator_bytes =
+                    &genesis.extra_data[VANITY_LENGTH..(genesis.extra_data.len() - SIGNATURE_LENGTH)];
+                let validators = snapshot::parse_validators(validator_bytes)?;
+                snap = Snapshot::new(validators, block_number.0, block_hash, self.epoch);
+                break;
+            }
+            if let Some(header) = txn.read_header(block_number, block_hash)? {
+                block_hash = header.parent_hash;
+                block_number = BlockNumber(header.number.0 - 1);
+                headers.push(header);
+            } else {
+                return Err(Validation(ValidationError::UnknownHeader{
+                    number: block_number, hash: block_hash
+                }));
+            }
         }
-        let is_inturn = snap.inturn(&signer);
-        if is_inturn && *header.difficulty() != DIFF_INTURN {
-            Err(BlockError::InvalidDifficulty(Mismatch {
-                expected: DIFF_INTURN,
-                found: *header.difficulty(),
-            }))?
-        } else if !is_inturn && *header.difficulty() != DIFF_NOTURN {
-            Err(BlockError::InvalidDifficulty(Mismatch {
-                expected: DIFF_NOTURN,
-                found: *header.difficulty(),
-            }))?
+        for h in headers.iter().rev() {
+            snap = snap.apply(txn, h, self.chain_id)?;
         }
-        Ok(())
-    }
 
-    fn genesis_epoch_data(&self, genesis: &Header, _call: &Call) -> Result<Vec<u8>, String> {
-        let hash = genesis.hash();
-        let validator_bytes =
-            &genesis.extra_data()[VANITY_LENGTH..(genesis.extra_data().len() - SIGNATURE_LENGTH)];
-        let validators =
-            snapshot::parse_validators(validator_bytes).map_err(|e| format!("{}", e))?;
-        let snap = Snapshot::new(validators, 0, hash, self.epoch);
-        snap.store(Arc::clone(&self.db.write().as_ref().unwrap()));
-        Ok(Vec::new())
-    }
-
-    fn register_client(&self, client: Weak<dyn EngineClient>) {
-        *self.client.write() = Some(client.clone());
-    }
-
-    fn register_db(&self, db: Arc<dyn KeyValueDB>) {
-        *self.db.write() = Some(db.clone());
-    }
-
-    fn is_timestamp_valid(&self, header_timestamp: u64, parent_timestamp: u64) -> bool {
-        header_timestamp >= parent_timestamp.saturating_add(self.period)
-    }
-
-    fn fork_choice(&self, new: &ExtendedHeader, current: &ExtendedHeader) -> super::ForkChoice {
-        super::total_difficulty_fork_choice(new, current)
-    }
-
-    fn executive_author(&self, header: &Header) -> Result<Address, Error> {
-        recover_creator(header, &self.chain_id)
+        debug!("snap insert {} {:?}", snap.number, snap.hash);
+        snap_by_hash.insert(snap.hash, snap.clone());
+        if snap.number % CHECKPOINT_INTERVAL == 0 {
+            snap.store(txn)?;
+        }
+        return Ok(snap);
     }
 }

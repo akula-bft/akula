@@ -176,10 +176,14 @@ where
     };
 
     let beneficiary = engine_factory(None, chain_spec.clone(), None)?.get_beneficiary(&header);
-
+    let mut parlia = false;
+    if let SealVerificationParams::Parlia { period, epoch } = chain_spec.consensus.seal_verification {
+            parlia = true;
+    }
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
         let mut tracer = TouchTracer::new(addr);
+
         let receipt = execute_transaction(
             &mut state,
             &block_spec,
@@ -190,6 +194,7 @@ where
             &transaction.message,
             sender,
             beneficiary,
+            parlia,
         )?
         .1;
 

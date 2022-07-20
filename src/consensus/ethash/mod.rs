@@ -81,6 +81,10 @@ impl Ethash {
 }
 
 impl Consensus for Ethash {
+    fn name(&self) -> &str {
+        "Ethash"
+    }
+
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
     }
@@ -186,11 +190,14 @@ impl Consensus for Ethash {
         }
         Ok(())
     }
+
     fn finalize(
         &self,
         header: &BlockHeader,
         ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>> {
+        let mut changes: Vec<FinalizationChange> = Vec::with_capacity(1 + ommers.len());
+
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
 
@@ -218,5 +225,9 @@ impl Consensus for Ethash {
         } else {
             vec![]
         })
+    }
+
+    fn parlia(&mut self) -> Option<&mut Parlia> {
+        None
     }
 }

@@ -13,22 +13,22 @@
 
 // You should have received a copy of the GNU General Public License
 // along with OpenEthereum.  If not, see <http://www.gnu.org/licenses/>.
-
-use client::{BlockId, EngineClient};
-use db;
-use engines::{
-    parlia::{util::recover_creator, ADDRESS_LENGTH, SIGNATURE_LENGTH, VANITY_LENGTH},
-    EngineError,
+use crate::{
+    consensus::{
+        parlia::{util::recover_creator, ADDRESS_LENGTH, SIGNATURE_LENGTH, VANITY_LENGTH}, *
+    },
+    kv::{mdbx::*, MdbxWithDirHandle, tables},
+    HeaderReader,
 };
-use error::Error;
-use ethereum_types::{Address, H256};
-use kvdb::KeyValueDB;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-use types::header::Header;
+use std::ops::Sub;
+use ethereum_types::{Address};
+use tracing::{info, debug};
+use crate::p2p::types::GetBlockHeadersParams;
 
 /// Snapshot for each block.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -53,25 +53,22 @@ impl Snapshot {
         }
     }
 
-    pub fn load(db_ins: Arc<dyn KeyValueDB>, hash: &H256) -> Option<Snapshot> {
-        if let Ok(b) = db_ins.get(db::COL_PARLIA_SNAPSHOT, hash) {
-            if b.is_none() {
-                return None;
+    pub fn load<E: EnvironmentKind>(txn: &MdbxTransaction<'_, RW, E>, hash: H256) -> anyhow::Result<Option<Snapshot>> {
+        let snap_op = txn.get(tables::ColParliaSnapshot, hash)?;
+        Ok(match snap_op {
+            None => {
+                None
             }
-            if let Ok(snap) = serde_json::from_slice(&b.unwrap()) {
-                return Some(snap);
+            Some(val) => {
+                Some(serde_json::from_slice(&val)?)
             }
-            None
-        } else {
-            None
-        }
+        })
     }
 
-    pub fn store(&self, db_ins: Arc<dyn KeyValueDB>) {
-        let value = serde_json::to_vec(&self).unwrap();
-        let mut tx = db_ins.transaction();
-        tx.put(db::COL_PARLIA_SNAPSHOT, &self.hash, &value);
-        db_ins.write(tx).unwrap();
+    pub fn store<E: EnvironmentKind>(&self, txn: &MdbxTransaction<'_, RW, E>) -> anyhow::Result<()> {
+        debug!("snap store {}, {}", self.number, self.hash);
+        let value = serde_json::to_vec(&self)?;
+        txn.set(tables::ColParliaSnapshot, self.hash, value)
     }
 
     pub fn clone(&self) -> Snapshot {
@@ -82,16 +79,18 @@ impl Snapshot {
         }
     }
 
-    /// Apply a new header to current snap
-    pub fn apply(
+    pub fn apply<E>(
         &mut self,
-        client: Arc<dyn EngineClient>,
-        header: &Header,
-        chain_id: &u64,
-    ) -> Result<Snapshot, Error> {
-        let num = header.number();
+        txn: &MdbxTransaction<'_, RW, E>,
+        header: &BlockHeader,
+        chain_id: ChainId,
+    ) -> Result<Snapshot, DuoError> where E: EnvironmentKind{
+        let num = header.number.into();
         if self.number + 1 != num {
-            Err(EngineError::ParliaUnContinuousHeader)?
+            return Err(ValidationError::SnapFutureBlock{
+                expect: BlockNumber(self.number + 1),
+                got: BlockNumber(num),
+            }.into());
         }
         let creator = recover_creator(header, chain_id)?;
         let mut snap = self.clone();
@@ -102,18 +101,23 @@ impl Snapshot {
             snap.recents.remove(&(num - limit));
         }
         if !snap.validators.contains(&creator) {
-            Err(EngineError::ParliaUnauthorizedValidator)?
+            return Err(ValidationError::SignerUnauthorized {
+                number: BlockNumber(num),
+                signer: creator,
+            }.into());
         }
         for (_, recent) in snap.recents.iter() {
             if *recent == creator {
-                Err(EngineError::ParliaRecentlySigned)?
+                return Err(ValidationError::SignerOverLimit {
+                    signer: creator
+                }.into());
             }
         }
         snap.recents.insert(num, creator);
         if num > 0 && num % snap.epoch == (snap.validators.len() / 2) as u64 {
             let checkpoint_header =
-                find_ancient_header(client, header, (snap.validators.len() / 2) as u64)?;
-            let extra = checkpoint_header.extra_data();
+                find_ancient_header(txn, header, (snap.validators.len() / 2) as u64)?;
+            let extra = checkpoint_header.extra_data;
             let validator_bytes = &extra[VANITY_LENGTH..(extra.len() - SIGNATURE_LENGTH)];
             let new_validators = parse_validators(validator_bytes)?;
             let old_limit = snap.validators.len() / 2 + 1;
@@ -146,32 +150,39 @@ impl Snapshot {
         return *res;
     }
 
-    pub fn back_off_time(&self, _: &Address) -> u64 {
+    pub fn back_off_time(&self, _: &ethereum_types::Address) -> u64 {
         // TODO, so far so good.
         return 0;
     }
 }
 
-fn find_ancient_header(
-    client: Arc<dyn EngineClient>,
-    header: &Header,
+fn find_ancient_header<E>(
+    txn: &MdbxTransaction<'_, RW, E>,
+    header: &BlockHeader,
     ite: u64,
-) -> Result<Header, Error> {
+) -> Result<BlockHeader, DuoError> where E: EnvironmentKind {
     let cur_header_op = Some(header.clone());
     let mut cur_header = cur_header_op.unwrap();
+
     for _ in 0..ite {
-        let cur_header_op = client.block_header(BlockId::Hash(*cur_header.parent_hash()));
+        let cur_header_op = txn.read_header(BlockNumber(cur_header.number.0 - 1), cur_header.parent_hash)?;
         if cur_header_op.is_none() {
-            Err(EngineError::ParliaUnContinuousHeader)?
+            return Err(ValidationError::UnknownHeader{
+                number: BlockNumber(header.number.0 - 1),
+                hash: header.parent_hash,
+            }.into());
         }
-        cur_header = cur_header_op.unwrap().decode()?;
+        cur_header = cur_header_op.unwrap();
     }
     Ok(cur_header)
 }
 
-pub fn parse_validators(validators_bytes: &[u8]) -> Result<BTreeSet<Address>, Error> {
+pub fn parse_validators(validators_bytes: &[u8]) -> Result<BTreeSet<Address>, DuoError> {
     if validators_bytes.len() % ADDRESS_LENGTH != 0 {
-        Err(EngineError::ParliaInvalidValidatorBytes)?
+       return Err(ValidationError::WrongHeaderExtraSignersLen {
+           expected: 0,
+           got: validators_bytes.len() % ADDRESS_LENGTH
+       }.into());
     }
     let n = validators_bytes.len() / ADDRESS_LENGTH;
     let mut validators = BTreeSet::new();

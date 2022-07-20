@@ -1,20 +1,11 @@
-use crate::{
-    accessors,
-    consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError},
-    execution::{
-        analysis_cache::AnalysisCache,
-        processor::ExecutionProcessor,
-        tracer::{CallTracer, CallTracerFlags},
-    },
-    h256_to_u256,
-    kv::{
-        mdbx::*,
-        tables::{self, CallTraceSetEntry},
-    },
-    models::*,
-    stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*},
-    upsert_storage_value, Buffer,
-};
+use crate::{accessors, consensus::{engine_factory, CliqueError, ConsensusState, DuoError, ValidationError}, execution::{
+    analysis_cache::AnalysisCache,
+    processor::ExecutionProcessor,
+    tracer::{CallTracer, CallTracerFlags},
+}, h256_to_u256, kv::{
+    mdbx::*,
+    tables::{self, CallTraceSetEntry},
+}, models::*, stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*}, upsert_storage_value, Buffer, HeaderReader};
 use anyhow::format_err;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
@@ -79,6 +70,24 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, block_number)?);
         }
 
+        if let Some(p) = consensus_engine.parlia() {
+            match p.snapshot(tx, BlockNumber(header.number.0-1), header.parent_hash) {
+                Ok(..) => {},
+                Err(e) => {
+                    return match e {
+                        DuoError::Validation(e) => {
+                            Err(StageError::Validation {
+                                block: header.number,
+                                error: e
+                            })
+                        }
+                        DuoError::Internal(e) => {
+                            Err(StageError::Internal(e))
+                        }
+                    };
+                }
+            }
+        }
         let mut call_tracer = CallTracer::default();
         let receipts = ExecutionProcessor::new(
             &mut buffer,

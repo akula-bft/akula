@@ -3,6 +3,8 @@ use crate::{consensus::ValidationError, kv::mdbx::*, models::*};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use std::{fmt::Debug, time::Instant};
+use crate::consensus::DuoError;
+use crate::stagedsync::stage::StageError::Validation;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
@@ -55,6 +57,22 @@ pub enum StageError {
 impl From<anyhow::Error> for StageError {
     fn from(e: anyhow::Error) -> Self {
         StageError::Internal(e)
+    }
+}
+
+impl From<DuoError> for StageError {
+    fn from(e: DuoError) -> Self {
+        match e {
+            DuoError::Validation(inner) => {
+                StageError::Validation{
+                    block: Default::default(),
+                    error: inner,
+                }
+            },
+            DuoError::Internal(inner) => {
+                StageError::Internal(inner)
+            }
+        }
     }
 }
 

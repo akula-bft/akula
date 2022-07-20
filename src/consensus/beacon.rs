@@ -170,6 +170,10 @@ impl BeaconConsensus {
 }
 
 impl Consensus for BeaconConsensus {
+    fn name(&self) -> &str {
+        "Beacon"
+    }
+
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::External(self.receiver.clone())
     }
@@ -187,7 +191,9 @@ impl Consensus for BeaconConsensus {
         header: &crate::models::BlockHeader,
         parent: &crate::models::BlockHeader,
         with_future_timestamp_check: bool,
-    ) -> Result<(), super::DuoError> {
+    ) -> Result<(), super::DuoError>
+
+    {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;
 
@@ -214,9 +220,11 @@ impl Consensus for BeaconConsensus {
 
     fn finalize(
         &self,
-        header: &crate::models::BlockHeader,
-        ommers: &[crate::models::BlockHeader],
-    ) -> anyhow::Result<Vec<super::FinalizationChange>> {
+        header: &BlockHeader,
+        ommers: &[BlockHeader],
+    ) -> anyhow::Result<Vec<FinalizationChange>> {
+        let mut changes :Vec<FinalizationChange> = Vec::with_capacity(1 + ommers.len());
+
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);
 
@@ -245,5 +253,9 @@ impl Consensus for BeaconConsensus {
         } else {
             vec![]
         })
+    }
+
+    fn parlia(&mut self) -> Option<&mut Parlia> {
+        None
     }
 }
