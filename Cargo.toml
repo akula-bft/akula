@@ -46,7 +46,7 @@ ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", featu
   "web3",
 ] }
 ethereum-types = { version = "0.13", features = ["codec"] }
-ethereum-jsonrpc = { git = "https://github.com/rust-ethereum/jsonrpc", features = [
+ethereum-jsonrpc = { git = "https://github.com/vorot93/ethereum-jsonrpc", features = [
   "server",
 ] }
 ethnum = { version = "1", features = ["llvm-intrinsics", "rlp", "scale"] }
@@ -94,14 +94,14 @@ rand = "0.8"
 rayon = "1"
 ripemd = "0.1"
 ron = "0.7"
-secp256k1 = { version = "0.23", features = [
+secp256k1 = { version = "0.24", features = [
   "global-context",
   "rand-std",
   "recovery",
 ] }
 serde = "1"
 serde_json = "1"
-serde_with = "1"
+serde_with = "2"
 sha2 = "0.10"
 sha3 = "0.10"
 snap = "1"
