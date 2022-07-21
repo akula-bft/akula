@@ -62,6 +62,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "auto_impl",
+ "bitvec",
  "block-padding",
  "byte-unit",
  "byteorder",

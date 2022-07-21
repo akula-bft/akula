@@ -17,6 +17,7 @@ async-recursion = "1"
 async-stream = "0.3"
 async-trait = "0.1"
 auto_impl = "1"
+bitvec = { version = "1", default-features = false }
 block-padding = "0.3"
 byte-unit = "4"
 byteorder = "1"

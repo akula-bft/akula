@@ -6,8 +6,8 @@ use super::{
     *,
 };
 use crate::models::*;
+use bitvec::prelude::BitBox;
 use ethnum::U256;
-use std::sync::Arc;
 
 #[inline]
 fn check_requirements(
@@ -32,7 +32,7 @@ fn check_requirements(
 }
 
 #[derive(Clone, Debug)]
-pub struct JumpdestMap(Arc<[bool]>);
+pub struct JumpdestMap(BitBox);
 
 impl JumpdestMap {
     #[inline]
@@ -52,14 +52,14 @@ pub struct AnalyzedCode {
 impl AnalyzedCode {
     /// Analyze code and prepare it for execution.
     pub fn analyze(code: &[u8]) -> Self {
-        let mut jumpdest_map = vec![false; code.len()];
+        let mut jumpdest_map = bitvec::bitvec![0; code.len()];
 
         let mut i = 0;
         while i < code.len() {
             let opcode = OpCode(code[i]);
             i += match opcode {
                 OpCode::JUMPDEST => {
-                    jumpdest_map[i] = true;
+                    jumpdest_map.set(i, true);
                     1
                 }
                 OpCode::PUSH1
