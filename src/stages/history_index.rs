@@ -1,37 +1,20 @@
 use crate::{
-    etl::collector::*,
     kv::{
         mdbx::*,
-        tables::{self, AccountChange, BitmapKey, StorageChange, StorageChangeKey},
-        traits::*,
+        tables::{self, AccountChange, StorageChange, StorageChangeKey},
     },
-    models::*,
     stagedsync::stage::*,
     stages::stage_util::*,
     StageId,
 };
-use anyhow::format_err;
 use async_trait::async_trait;
-use croaring::Treemap;
-use std::{
-    collections::{BTreeSet, HashMap},
-    hash::Hash,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tempfile::TempDir;
-use tokio::pin;
-use tracing::info;
 
 pub const ACCOUNT_HISTORY_INDEX: StageId = StageId("AccountHistoryIndex");
 pub const STORAGE_HISTORY_INDEX: StageId = StageId("StorageHistoryIndex");
 
 /// Generate account history index
 #[derive(Debug)]
-pub struct AccountHistoryIndex {
-    pub temp_dir: Arc<TempDir>,
-    pub flush_interval: u64,
-}
+pub struct AccountHistoryIndex(pub IndexParams);
 
 impl AccountHistoryIndex {
     fn execute<'db, 'tx, E>(
@@ -46,8 +29,7 @@ impl AccountHistoryIndex {
         Ok(execute_index(
             tx,
             input,
-            &self.temp_dir,
-            self.flush_interval,
+            &self.0,
             tables::AccountChangeSet,
             tables::AccountHistory,
             |block_number, AccountChange { address, .. }| (block_number, address),
@@ -124,10 +106,7 @@ where
 
 /// Generate storage history index
 #[derive(Debug)]
-pub struct StorageHistoryIndex {
-    pub temp_dir: Arc<TempDir>,
-    pub flush_interval: u64,
-}
+pub struct StorageHistoryIndex(pub IndexParams);
 
 #[async_trait]
 impl<'db, E> Stage<'db, E> for StorageHistoryIndex
@@ -149,8 +128,7 @@ where
         Ok(execute_index(
             tx,
             input,
-            &self.temp_dir,
-            self.flush_interval,
+            &self.0,
             tables::StorageChangeSet,
             tables::StorageHistory,
             |StorageChangeKey {
@@ -200,158 +178,19 @@ where
     }
 }
 
-fn execute_index<E, DataKey, DataValue, DataTable, IndexKey, IndexTable, Extractor>(
-    tx: &mut MdbxTransaction<'_, RW, E>,
-    input: StageInput,
-    temp_dir: &TempDir,
-    flush_interval: u64,
-    data_table: DataTable,
-    index_table: IndexTable,
-    extractor: Extractor,
-) -> anyhow::Result<ExecOutput>
-where
-    E: EnvironmentKind,
-    DataKey: TableDecode,
-    DataTable: Table<Key = DataKey, Value = DataValue, SeekKey = BlockNumber>,
-    IndexKey: Hash + Ord + Copy + TableObject,
-    BitmapKey<IndexKey>: TableDecode,
-    <IndexKey as TableEncode>::Encoded: Ord,
-    Vec<u8>: From<<IndexKey as TableEncode>::Encoded>,
-    IndexTable: Table<Key = BitmapKey<IndexKey>, Value = Treemap, SeekKey = BitmapKey<IndexKey>>,
-    Extractor: Fn(DataKey, DataValue) -> (BlockNumber, IndexKey),
-{
-    let starting_block = input.stage_progress.unwrap_or(BlockNumber(0));
-    let max_block = input
-        .previous_stage
-        .ok_or_else(|| format_err!("Index generation cannot be the first stage"))?
-        .1;
-
-    let walker = tx
-        .cursor(data_table)?
-        .walk(input.stage_progress.map(|x| x + 1));
-    pin!(walker);
-
-    let mut keys = HashMap::<IndexKey, croaring::Treemap>::new();
-
-    let mut collector =
-        Collector::<IndexKey, croaring::Treemap>::new(temp_dir, OPTIMAL_BUFFER_CAPACITY);
-
-    let mut highest_block = starting_block;
-    let mut last_flush = starting_block;
-
-    let mut printed = false;
-    let mut last_log = Instant::now();
-    while let Some((data_key, data_value)) = walker.next().transpose()? {
-        let (block_number, index_key) = (extractor)(data_key, data_value);
-
-        if block_number > max_block {
-            break;
-        }
-
-        keys.entry(index_key).or_default().add(block_number.0);
-
-        if highest_block != block_number {
-            highest_block = block_number;
-
-            if highest_block.0 - last_flush.0 >= flush_interval {
-                flush_bitmap(&mut collector, &mut keys);
-
-                last_flush = highest_block;
-            }
-        }
-
-        let now = Instant::now();
-        if last_log - now > Duration::from_secs(30) {
-            info!("Current block: {}", block_number);
-            printed = true;
-            last_log = now;
-        }
-    }
-
-    flush_bitmap(&mut collector, &mut keys);
-
-    if printed {
-        info!("Flushing index");
-    }
-    load_bitmap(&mut tx.cursor(index_table)?, collector)?;
-
-    Ok(ExecOutput::Progress {
-        stage_progress: max_block,
-        done: true,
-        reached_tip: true,
-    })
-}
-
-fn unwind_index<E, DataKey, DataValue, DataTable, IndexKey, IndexTable, Extractor>(
-    tx: &mut MdbxTransaction<'_, RW, E>,
-    input: UnwindInput,
-    data_table: DataTable,
-    index_table: IndexTable,
-    extractor: Extractor,
-) -> anyhow::Result<UnwindOutput>
-where
-    E: EnvironmentKind,
-    DataKey: TableDecode,
-    DataTable: Table<Key = DataKey, Value = DataValue, SeekKey = BlockNumber>,
-    IndexKey: Ord + Copy,
-    BitmapKey<IndexKey>: TableDecode,
-    IndexTable: Table<Key = BitmapKey<IndexKey>, Value = Treemap, SeekKey = BitmapKey<IndexKey>>,
-    Extractor: Fn(DataKey, DataValue) -> IndexKey,
-{
-    let walker = tx.cursor(data_table)?.walk(Some(input.unwind_to + 1));
-    pin!(walker);
-
-    let mut keys = BTreeSet::new();
-    while let Some((key, value)) = walker.next().transpose()? {
-        keys.insert((extractor)(key, value));
-    }
-
-    unwind_bitmap(&mut tx.cursor(index_table)?, keys, input.unwind_to)?;
-
-    Ok(UnwindOutput {
-        stage_progress: input.unwind_to,
-    })
-}
-
-fn prune_index<E, DataKey, DataValue, DataTable, IndexKey, IndexTable, Extractor>(
-    tx: &mut MdbxTransaction<'_, RW, E>,
-    input: PruningInput,
-    data_table: DataTable,
-    index_table: IndexTable,
-    extractor: Extractor,
-) -> anyhow::Result<()>
-where
-    E: EnvironmentKind,
-    DataKey: TableDecode,
-    DataTable: Table<Key = DataKey, Value = DataValue>,
-    IndexKey: Ord + Copy,
-    BitmapKey<IndexKey>: TableDecode,
-    IndexTable: Table<Key = BitmapKey<IndexKey>, Value = Treemap, SeekKey = BitmapKey<IndexKey>>,
-    Extractor: Fn(DataKey, DataValue) -> (BlockNumber, IndexKey),
-{
-    let walker = tx.cursor(data_table)?.walk(None);
-    pin!(walker);
-
-    let mut keys = BTreeSet::new();
-    while let Some((key, value)) = walker.next().transpose()? {
-        let (block_number, index_key) = (extractor)(key, value);
-
-        if block_number >= input.prune_to {
-            break;
-        }
-
-        keys.insert(index_key);
-    }
-
-    prune_bitmap(&mut tx.cursor(index_table)?, keys, input.prune_to)?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{kv::new_mem_chaindata, stages};
+    use crate::{
+        kv::{new_mem_chaindata, tables::BitmapKey},
+        models::{Account, BlockNumber, EMPTY_HASH},
+        stages,
+    };
+    use ethereum_types::Address;
+    use ethnum::U256;
+    use std::{collections::BTreeSet, sync::Arc, time::Instant};
+    use tempfile::TempDir;
+    use tokio::pin;
 
     fn collect_bitmap_and_check<'db, K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'db, K, E>,
@@ -428,14 +267,14 @@ mod tests {
             }
         }
 
-        let mut stage = AccountHistoryIndex {
+        let mut stage = AccountHistoryIndex(IndexParams {
             temp_dir: Arc::new(TempDir::new().unwrap()),
             flush_interval: LIMIT,
-        };
+        });
 
         let mut stage_progress = None;
         for limit in [LIMIT / 2, LIMIT] {
-            stage.flush_interval = limit / 3;
+            stage.0.flush_interval = limit / 3;
             let executed = stage
                 .execute(
                     &mut tx,
