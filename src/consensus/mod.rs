@@ -74,9 +74,9 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// See YP Section 4.3.4 "Block Header Validity".
     ///
     /// NOTE: Shouldn't be used for genesis block.
-    fn validate_block_header(
+    fn validate_block_headers(
         &self,
-        header: &BlockHeader,
+        headers: &[BlockHeader],
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
     ) -> Result<(), DuoError>;
