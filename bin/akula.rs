@@ -23,7 +23,7 @@ use ethereum_jsonrpc::{
 };
 use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
-use std::{fs::File, future::pending, net::SocketAddr, panic, sync::Arc, time::Duration};
+use std::{future::pending, net::SocketAddr, panic, sync::Arc, time::Duration};
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
@@ -39,15 +39,12 @@ pub struct Opt {
     #[clap(long)]
     pub chain: Option<String>,
 
-    /// Chain spec file to use
+    /// Chain specification file to use
     #[clap(long)]
     pub chain_spec_file: Option<ExpandedPathBuf>,
 
     /// Sentry GRPC service URL
-    #[clap(
-        long = "sentry.api.addr",
-        help = "Sentry GRPC service URLs as 'http://host:port'"
-    )]
+    #[clap(long, help = "Sentry GRPC service URLs as 'http://host:port'")]
     pub sentry_api_addr: Option<String>,
 
     #[clap(flatten)]
@@ -101,11 +98,11 @@ pub struct Opt {
     #[clap(long)]
     pub no_rpc: bool,
 
-    /// Enable JSONRPC at this address.
+    /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
     pub rpc_listen_address: SocketAddr,
 
-    /// Enable gRPC at this address.
+    /// Enable gRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:7545")]
     pub grpc_listen_address: SocketAddr,
 }
@@ -130,11 +127,10 @@ fn main() -> anyhow::Result<()> {
 
                 let mut bundled_chain_spec = false;
                 let chain_config = if let Some(chain) = opt.chain {
-                    let chain_config = ChainConfig::new(&chain)?;
                     bundled_chain_spec = true;
-                    Some(chain_config.chain_spec)
-                } else if let Some(chain_path) = opt.chain_spec_file {
-                    Some(ron::de::from_reader(File::open(chain_path)?)?)
+                    Some(ChainSpec::load_builtin(&chain)?)
+                } else if let Some(path) = opt.chain_spec_file {
+                    Some(ChainSpec::load_from_file(path)?)
                 } else {
                     None
                 };
@@ -272,9 +268,12 @@ fn main() -> anyhow::Result<()> {
                 } else {
                     let max_peers = opt.sentry_opts.max_peers;
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
-                    let swarm =
-                        akula::sentry::run(opt.sentry_opts, opt.data_dir, chain_config.dns())
-                            .await?;
+                    let swarm = akula::sentry::run(
+                        opt.sentry_opts,
+                        opt.data_dir,
+                        chain_config.chain_spec.p2p.clone(),
+                    )
+                    .await?;
 
                     let current_stage = staged_sync.current_stage();
 
@@ -298,9 +297,7 @@ fn main() -> anyhow::Result<()> {
                     vec![format!("http://{sentry_api_addr}").parse()?]
                 };
 
-                let mut builder = NodeBuilder::default()
-                    .set_stash(db.clone())
-                    .set_config(chain_config.clone());
+                let mut builder = NodeBuilder::new(chain_config.clone()).set_stash(db.clone());
                 for sentry_api_addr in sentries {
                     builder = builder.add_sentry(sentry_api_addr);
                 }

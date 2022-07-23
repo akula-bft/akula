@@ -144,7 +144,7 @@ async fn download_headers(
     txn.commit()?;
 
     let node = Arc::new(
-        NodeBuilder::default()
+        NodeBuilder::new(chain_config)
             .set_stash(env.clone())
             .add_sentry(uri)
             .build()?,

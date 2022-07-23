@@ -1,8 +1,8 @@
 #![allow(dead_code, clippy::upper_case_acronyms)]
 use akula::{
     akula_tracing::{self, Component},
-    binutil::AkulaDataDir,
-    models::ChainConfig,
+    binutil::{AkulaDataDir, ExpandedPathBuf},
+    models::ChainSpec,
 };
 use clap::Parser;
 use educe::Educe;
@@ -23,8 +23,12 @@ pub struct Opts {
     /// Path to database directory.
     #[clap(long = "datadir", help = "Database directory path", default_value_t)]
     pub data_dir: AkulaDataDir,
-    #[clap(long, takes_value = false)]
-    pub chain: Option<String>,
+    /// Name of the network to join
+    #[clap(long, default_value = "mainnet")]
+    pub chain: String,
+    /// Chain specification file to use
+    #[clap(long)]
+    pub chain_spec_file: Option<ExpandedPathBuf>,
 }
 
 #[tokio::main]
@@ -34,19 +38,16 @@ async fn main() -> anyhow::Result<()> {
 
     akula_tracing::build_subscriber(Component::Sentry).init();
 
-    let chain_config = opts
-        .chain
-        .map(|chain| ChainConfig::new(&chain))
-        .transpose()?;
-
     let max_peers = opts.sentry_opts.max_peers;
     std::fs::create_dir_all(&opts.data_dir.0)?;
-    let swarm = akula::sentry::run(
-        opts.sentry_opts,
-        opts.data_dir,
-        chain_config.map_or_else(|| None, |config| config.dns()),
-    )
-    .await?;
+
+    let network_params = if let Some(path) = opts.chain_spec_file {
+        ChainSpec::load_from_file(path)?.p2p
+    } else {
+        ChainSpec::load_builtin(&opts.chain)?.p2p
+    };
+
+    let swarm = akula::sentry::run(opts.sentry_opts, opts.data_dir, network_params).await?;
 
     loop {
         info!(
