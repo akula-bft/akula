@@ -180,31 +180,37 @@ impl Consensus for BeaconConsensus {
         self.base.pre_validate_block(block)
     }
 
-    fn validate_block_header(
+    fn validate_block_headers(
         &self,
-        header: &crate::models::BlockHeader,
+        headers: &[crate::models::BlockHeader],
         parent: &crate::models::BlockHeader,
         with_future_timestamp_check: bool,
     ) -> Result<(), super::DuoError> {
-        self.base
-            .validate_block_header(header, parent, with_future_timestamp_check)?;
+        let mut parent = parent;
 
-        if header.number >= self.since {
-            if header.ommers_hash != EMPTY_LIST_HASH {
-                return Err(ValidationError::TooManyOmmers.into());
-            }
+        for header in headers {
+            self.base
+                .validate_block_header(header, parent, with_future_timestamp_check)?;
 
-            if header.difficulty != U256::ZERO {
-                return Err(ValidationError::WrongDifficulty.into());
-            }
-
-            if header.nonce != H64::zero() {
-                return Err(ValidationError::WrongHeaderNonce {
-                    expected: H64::zero(),
-                    got: header.nonce,
+            if header.number >= self.since {
+                if header.ommers_hash != EMPTY_LIST_HASH {
+                    return Err(ValidationError::TooManyOmmers.into());
                 }
-                .into());
+
+                if header.difficulty != U256::ZERO {
+                    return Err(ValidationError::WrongDifficulty.into());
+                }
+
+                if header.nonce != H64::zero() {
+                    return Err(ValidationError::WrongHeaderNonce {
+                        expected: H64::zero(),
+                        got: header.nonce,
+                    }
+                    .into());
+                }
             }
+
+            parent = header;
         }
 
         Ok(())

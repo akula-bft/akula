@@ -17,15 +17,7 @@ use dashmap::DashMap;
 use ethereum_types::H512;
 use parking_lot::Mutex;
 use rand::prelude::*;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::{
-    collections::BTreeMap,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::*;
@@ -372,6 +364,17 @@ impl HeaderDownload {
 
                     let num_headers = headers.len();
 
+                    self.consensus
+                        .validate_block_headers(&headers[1..], &headers[0], true)
+                        .map_err(|e| match e {
+                            DuoError::Validation(error) => StageError::Validation {
+                                block: BlockNumber(0), // todo
+                                error,
+                            },
+                            DuoError::Internal(error) => StageError::Internal(error),
+                        })
+                        .unwrap();
+
                     for header in headers.into_iter().rev() {
                         let header_hash = header.hash();
 
@@ -389,17 +392,6 @@ impl HeaderDownload {
                             {
                                 break;
                             }
-
-                            self.consensus
-                                .validate_block_header(earliest_block, &header, true)
-                                .map_err(|e| match e {
-                                    DuoError::Validation(error) => StageError::Validation {
-                                        block: header.number,
-                                        error,
-                                    },
-                                    DuoError::Internal(error) => StageError::Internal(error),
-                                })
-                                .unwrap();
                         } else if chain_tip != header.hash() {
                             break;
                         }
@@ -647,30 +639,16 @@ impl HeaderDownload {
     }
 
     fn verify_seal(&self, headers: &mut Vec<(H256, BlockHeader)>) {
-        let valid_till = AtomicUsize::new(0);
-
-        headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
-            if self
-                .consensus
-                .validate_block_header(&headers[i].1, &headers[i - 1].1, false)
-                .is_err()
-            {
-                let mut value = valid_till.load(Ordering::SeqCst);
-                while i < value {
-                    if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)
-                        == Ok(value)
-                    {
-                        break;
-                    } else {
-                        value = valid_till.load(Ordering::SeqCst);
-                    }
-                }
-            }
-        });
-
-        let valid_till = valid_till.load(Ordering::SeqCst);
-        if valid_till != 0 {
-            headers.truncate(valid_till);
+        let mut only_headers = vec![];
+        for header in headers.iter() {
+            only_headers.push(header.1.clone());
+        }
+        if self
+            .consensus
+            .validate_block_headers(&only_headers[1..], &only_headers[0], false)
+            .is_err()
+        {
+            headers.truncate(0);
         }
     }
 }

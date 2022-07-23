@@ -193,22 +193,28 @@ impl Consensus for Clique {
         Ok(())
     }
 
-    fn validate_block_header(
+    fn validate_block_headers(
         &self,
-        header: &BlockHeader,
+        headers: &[BlockHeader],
         parent: &BlockHeader,
         with_future_timestamp_check: bool,
     ) -> Result<(), DuoError> {
-        self.base
-            .validate_block_header(header, parent, with_future_timestamp_check)?;
+        let mut parent = parent;
 
-        if header.timestamp - parent.timestamp < self.period {
-            return Err(ValidationError::InvalidTimestamp {
-                parent: parent.timestamp,
-                current: header.timestamp,
-            }
-            .into());
-        };
+        for header in headers {
+            self.base
+                .validate_block_header(header, parent, with_future_timestamp_check)?;
+
+            if header.timestamp - parent.timestamp < self.period {
+                return Err(ValidationError::InvalidTimestamp {
+                    parent: parent.timestamp,
+                    current: header.timestamp,
+                }
+                .into());
+            };
+
+            parent = header;
+        }
 
         Ok(())
     }
