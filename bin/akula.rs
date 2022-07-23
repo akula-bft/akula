@@ -1,6 +1,6 @@
 use akula::{
     akula_tracing::{self, Component},
-    binutil::AkulaDataDir,
+    binutil::{AkulaDataDir, ExpandedPathBuf},
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     kv::tables::CHAINDATA_TABLES,
     models::*,
@@ -23,9 +23,7 @@ use ethereum_jsonrpc::{
 };
 use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
-use std::{
-    fs::File, future::pending, net::SocketAddr, panic, path::PathBuf, sync::Arc, time::Duration,
-};
+use std::{fs::File, future::pending, net::SocketAddr, panic, sync::Arc, time::Duration};
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
@@ -43,7 +41,7 @@ pub struct Opt {
 
     /// Chain spec file to use
     #[clap(long)]
-    pub chain_spec_file: Option<PathBuf>,
+    pub chain_spec_file: Option<ExpandedPathBuf>,
 
     /// Sentry GRPC service URL
     #[clap(

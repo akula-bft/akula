@@ -1,6 +1,6 @@
 #![feature(never_type)]
 use akula::{
-    binutil::AkulaDataDir,
+    binutil::{AkulaDataDir, ExpandedPathBuf},
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     hex_to_bytes,
     kv::{
@@ -15,7 +15,7 @@ use akula::{
 use anyhow::{ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
-use std::{borrow::Cow, collections::BTreeMap, io::Read, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, io::Read, sync::Arc};
 use tokio::pin;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -60,9 +60,9 @@ pub enum OptCommand {
     /// Check table equality in two databases
     CheckEqual {
         #[clap(long, parse(from_os_str))]
-        db1: PathBuf,
+        db1: ExpandedPathBuf,
         #[clap(long, parse(from_os_str))]
-        db2: PathBuf,
+        db2: ExpandedPathBuf,
         #[clap(long)]
         table: String,
     },
@@ -111,7 +111,7 @@ pub enum OptCommand {
 
     /// Overwrite chainspec in database with user-provided one
     OverwriteChainspec {
-        chainspec_file: PathBuf,
+        chainspec_file: ExpandedPathBuf,
     },
 }
 
@@ -284,7 +284,11 @@ fn db_walk(
     Ok(())
 }
 
-fn check_table_eq(db1_path: PathBuf, db2_path: PathBuf, table: String) -> anyhow::Result<()> {
+fn check_table_eq(
+    db1_path: ExpandedPathBuf,
+    db2_path: ExpandedPathBuf,
+    table: String,
+) -> anyhow::Result<()> {
     let env1 = akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &db1_path,
@@ -480,7 +484,10 @@ fn read_storage_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
     Ok(())
 }
 
-fn overwrite_chainspec(data_dir: AkulaDataDir, chainspec_file: PathBuf) -> anyhow::Result<()> {
+fn overwrite_chainspec(
+    data_dir: AkulaDataDir,
+    chainspec_file: ExpandedPathBuf,
+) -> anyhow::Result<()> {
     let mut s = String::new();
     std::fs::File::open(&chainspec_file)?.read_to_string(&mut s)?;
     let new_chainspec = TableDecode::decode(s.as_bytes())?;

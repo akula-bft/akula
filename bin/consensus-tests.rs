@@ -1,6 +1,7 @@
 #![feature(let_else)]
 #![allow(clippy::suspicious_else_formatting)]
 use akula::{
+    binutil::ExpandedPathBuf,
     consensus::{
         difficulty::{canonical_difficulty, BlockDifficultyBombData},
         *,
@@ -899,7 +900,7 @@ where
 pub struct Opt {
     /// Path to consensus tests
     #[clap(long)]
-    pub tests: PathBuf,
+    pub tests: ExpandedPathBuf,
     #[clap(long)]
     pub test_names: Vec<String>,
 }
