@@ -365,7 +365,7 @@ impl HeaderDownload {
                     let num_headers = headers.len();
 
                     self.consensus
-                        .validate_block_headers(&headers[1..], &headers[0], true)
+                        .validate_block_headers(&headers, true)
                         .map_err(|e| match e {
                             DuoError::Validation(error) => StageError::Validation {
                                 block: BlockNumber(0), // todo
@@ -645,7 +645,7 @@ impl HeaderDownload {
         }
         if self
             .consensus
-            .validate_block_headers(&only_headers[1..], &only_headers[0], false)
+            .validate_block_headers(&only_headers, false)
             .is_err()
         {
             headers.truncate(0);

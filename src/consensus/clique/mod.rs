@@ -195,13 +195,12 @@ impl Consensus for Clique {
 
     fn validate_block_headers(
         &self,
-        headers: &[BlockHeader],
-        parent: &BlockHeader,
+        segment: &[BlockHeader],
         with_future_timestamp_check: bool,
     ) -> Result<(), DuoError> {
-        let mut parent = parent;
+        let mut parent = &segment[0];
 
-        for header in headers {
+        for header in segment.iter().skip(1) {
             self.base
                 .validate_block_header(header, parent, with_future_timestamp_check)?;
 

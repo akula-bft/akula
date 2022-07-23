@@ -55,9 +55,8 @@ impl<'state> Blockchain<'state> {
             .state
             .read_parent_header(&block.header)?
             .ok_or_else(|| format_err!("no parent header"))?;
-        let headers = vec![block.header.clone()];
-        self.engine
-            .validate_block_headers(&headers, &parent, true)?;
+        let segment = vec![parent, block.header.clone()];
+        self.engine.validate_block_headers(&segment, true)?;
         self.engine.pre_validate_block(&block, &self.state)?;
 
         let hash = block.header.hash();

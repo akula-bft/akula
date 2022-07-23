@@ -73,11 +73,13 @@ pub trait Consensus: Debug + Send + Sync + 'static {
 
     /// See YP Section 4.3.4 "Block Header Validity".
     ///
+    /// Validates a segment of the chain. The first header in the segment is supposed to be already
+    /// validated, it is only checked that it is the parent of the second.
+    ///
     /// NOTE: Shouldn't be used for genesis block.
     fn validate_block_headers(
         &self,
-        headers: &[BlockHeader],
-        parent: &BlockHeader,
+        segment: &[BlockHeader],
         with_future_timestamp_check: bool,
     ) -> Result<(), DuoError>;
 

@@ -182,13 +182,12 @@ impl Consensus for BeaconConsensus {
 
     fn validate_block_headers(
         &self,
-        headers: &[crate::models::BlockHeader],
-        parent: &crate::models::BlockHeader,
+        segment: &[crate::models::BlockHeader],
         with_future_timestamp_check: bool,
     ) -> Result<(), super::DuoError> {
-        let mut parent = parent;
+        let mut parent = &segment[0];
 
-        for header in headers {
+        for header in segment.iter().skip(1) {
             self.base
                 .validate_block_header(header, parent, with_future_timestamp_check)?;
 
