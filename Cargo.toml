@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
 edition = "2021"
 description = "Ethereum client based on turbo-geth client architecture"
-license = "GPL-3.0-or-later"
+license = "GPL-3.0-only"
 default-run = "akula"
 
 [dependencies]
@@ -39,7 +39,7 @@ enr = { version = "0.6", default-features = false, features = [
 ] }
 enum-primitive-derive = "0.2"
 ethash = { git = "https://github.com/rust-ethereum/ethash" }
-ethereum-forkid = "0.8.0"
+ethereum-forkid = "0.10"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
   "remotekv",
   "sentry",
@@ -75,7 +75,7 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
 ] }
 impls = "1"
 itertools = "0.10"
-jsonrpsee = { version = "0.14", features = ["server"] }
+jsonrpsee = { version = "0.15", features = ["server"] }
 lru = "0.7"
 maplit = "1"
 mdbx = { package = "libmdbx", version = "0.1" }

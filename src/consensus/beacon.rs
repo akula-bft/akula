@@ -8,11 +8,15 @@ use crate::{
 use async_trait::async_trait;
 use ethereum_jsonrpc::*;
 use jsonrpsee::{
-    core::{middleware::Middleware, server::rpc_module::Methods, RpcResult},
+    core::{
+        middleware::{Headers, HttpMiddleware, MethodKind},
+        server::rpc_module::Methods,
+        RpcResult,
+    },
     http_server::HttpServerBuilder,
-    types::{error::CallError, ErrorObject},
+    types::{error::CallError, ErrorObject, Params},
 };
-use std::future::pending;
+use std::{future::pending, net::SocketAddr};
 use tracing::*;
 
 #[derive(Debug)]
@@ -113,18 +117,15 @@ impl BeaconConsensus {
                     #[derive(Clone)]
                     struct M;
 
-                    impl Middleware for M {
+                    impl HttpMiddleware for M {
                         type Instant = ();
 
-                        fn on_request(&self) -> Self::Instant {}
-                        fn on_result(
-                            &self,
-                            name: &str,
-                            _success: bool,
-                            _started_at: Self::Instant,
-                        ) {
+                        fn on_request(&self, _: SocketAddr, _: &Headers) -> Self::Instant {}
+                        fn on_call(&self, _: &str, _: Params, _: MethodKind) {}
+                        fn on_result(&self, name: &str, _: bool, _: Self::Instant) {
                             trace!("Called to {name}");
                         }
+                        fn on_response(&self, _: &str, _: Self::Instant) {}
                     }
 
                     let server = HttpServerBuilder::default()
