@@ -485,6 +485,18 @@ where
         message_id.encode(&mut msg);
 
         let mut buf = msg.split_off(msg.len());
+
+        if payload.len() > MAX_PAYLOAD_SIZE {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "payload size ({}) exceeds limit ({} bytes)",
+                    payload.len(),
+                    MAX_PAYLOAD_SIZE
+                ),
+            ));
+        }
+
         buf.resize(snap::raw::max_compress_len(payload.len()), 0);
 
         let compressed_len = this.snappy.encoder.compress(&*payload, &mut buf).unwrap();

@@ -22,9 +22,11 @@ use secp256k1::{
 };
 use sha2::Sha256;
 use sha3::Keccak256;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, io};
 
 const PROTOCOL_VERSION: usize = 4;
+
+pub(crate) const MAX_BODY_SIZE: usize = 19_573_451;
 
 fn ecdh_x(public_key: &PublicKey, secret_key: &SecretKey) -> H256 {
     H256::from_slice(&secp256k1::ecdh::shared_secret_point(public_key, secret_key)[..32])
@@ -509,10 +511,20 @@ impl ECIES {
         if header.as_slice().len() < 3 {
             return Err(ECIESError::InvalidHeader);
         }
-        self.body_size = Some(
-            usize::try_from(header.as_slice().read_uint::<BigEndian>(3)?)
-                .context("excessive body len")?,
-        );
+        let body_size = usize::try_from(header.as_slice().read_uint::<BigEndian>(3)?)
+            .context("excessive body len")?;
+
+        if body_size > MAX_BODY_SIZE {
+            return Err(ECIESError::IO(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "body size ({}) exceeds limit ({} bytes)",
+                    body_size, MAX_BODY_SIZE
+                ),
+            )));
+        }
+
+        self.body_size = Some(body_size);
 
         Ok(self.body_size.unwrap())
     }
