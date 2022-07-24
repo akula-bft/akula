@@ -55,3 +55,6 @@ If you'd like to sponsor, check out our [Gitcoin](https://gitcoin.co/grants/5933
 
 ---
 Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
+
+## License
+[GPL-3.0-or-later](./LICENSE)
