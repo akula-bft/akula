@@ -30,11 +30,13 @@ You can find built binaries in `target/production` folder.
 
 ## Running
 
-* `akula` is the main binary that runs as full node, requires `akula-sentry`:
+* `akula` is the main binary that runs as full node:
 
 ```ignore
 akula --datadir=<path to Akula database directory>
 ```
+
+* `akula-rpc` is the RPC daemon, which can provide JSONRPC and gRPC endpoints based on Akula's database.
 
 * `akula-sentry` is the P2P node.
 
