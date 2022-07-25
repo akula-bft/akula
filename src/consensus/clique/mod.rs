@@ -4,8 +4,8 @@ pub use state::CliqueState;
 use crate::{
     consensus::{
         fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
-        ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
-        ValidationError,
+        ConsensusEngineBase, ConsensusState, DuoError, DuoErrorAtHeight, FinalizationChange,
+        ForkChoiceMode, ValidationError,
     },
     kv::{
         mdbx::{MdbxCursor, MdbxTransaction},
@@ -172,6 +172,33 @@ impl Clique {
             fork_choice_graph: Arc::new(Mutex::new(Default::default())),
         }
     }
+
+    fn validate_block_header(
+        &self,
+        non_final_state: &mut CliqueState,
+        parent: &BlockHeader,
+        header: &BlockHeader,
+        with_future_timestamp_check: bool,
+    ) -> Result<(), DuoError> {
+        self.base
+            .validate_block_header(header, parent, with_future_timestamp_check)?;
+
+        if header.timestamp - parent.timestamp < self.period {
+            return Err(ValidationError::InvalidTimestamp {
+                parent: parent.timestamp,
+                current: header.timestamp,
+            }
+            .into());
+        };
+
+        let clique_block = CliqueBlock::from_header(header)?;
+        non_final_state
+            .validate(&clique_block, false)
+            .map_err(DuoError::Validation)?;
+        non_final_state.finalize(clique_block);
+
+        Ok(())
+    }
 }
 
 impl Consensus for Clique {
@@ -197,30 +224,20 @@ impl Consensus for Clique {
         &self,
         segment: &[BlockHeader],
         with_future_timestamp_check: bool,
-    ) -> Result<(), DuoError> {
-        let mut parent = &segment[0];
-
+    ) -> Result<(), DuoErrorAtHeight> {
         let mut non_final_state = self.state.lock().clone();
 
-        for header in segment.iter().skip(1) {
-            self.base
-                .validate_block_header(header, parent, with_future_timestamp_check)?;
+        for i in 1..segment.len() {
+            let parent = &segment[i - 1];
+            let header = &segment[i];
 
-            if header.timestamp - parent.timestamp < self.period {
-                return Err(ValidationError::InvalidTimestamp {
-                    parent: parent.timestamp,
-                    current: header.timestamp,
-                }
-                .into());
-            };
-
-            let clique_block = CliqueBlock::from_header(header)?;
-            non_final_state
-                .validate(&clique_block, false)
-                .map_err(DuoError::Validation)?;
-            non_final_state.finalize(clique_block);
-
-            parent = header;
+            self.validate_block_header(
+                &mut non_final_state,
+                parent,
+                header,
+                with_future_timestamp_check,
+            )
+            .map_err(|e| DuoErrorAtHeight::new(e, header.number))?;
         }
 
         Ok(())

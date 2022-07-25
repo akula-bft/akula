@@ -81,7 +81,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         &self,
         segment: &[BlockHeader],
         with_future_timestamp_check: bool,
-    ) -> Result<(), DuoError>;
+    ) -> Result<(), DuoErrorAtHeight>;
 
     /// Finalizes block execution by applying changes in the state of accounts or of the consensus itself
     ///
@@ -281,6 +281,42 @@ impl std::error::Error for DuoError {}
 impl From<CliqueError> for DuoError {
     fn from(clique_error: CliqueError) -> Self {
         DuoError::Validation(ValidationError::CliqueError(clique_error))
+    }
+}
+
+#[derive(Debug)]
+pub struct DuoErrorAtHeight {
+    pub(crate) error: DuoError,
+    pub(crate) height: BlockNumber,
+}
+
+impl DuoErrorAtHeight {
+    pub(crate) fn new(error: DuoError, height: BlockNumber) -> Self {
+        Self { error, height }
+    }
+}
+
+pub struct HeaderValidationStatus(Mutex<Result<(), DuoErrorAtHeight>>);
+
+impl HeaderValidationStatus {
+    pub(crate) fn new() -> Self {
+        Self(Mutex::new(Ok(())))
+    }
+
+    pub(crate) fn update(&self, error: DuoError, height: BlockNumber) {
+        let mut result = self.0.lock();
+
+        if let Err(e) = &*result {
+            if e.height <= height {
+                return;
+            }
+        }
+
+        *result = Err(DuoErrorAtHeight::new(error, height));
+    }
+
+    pub(crate) fn get(self) -> Result<(), DuoErrorAtHeight> {
+        self.0.into_inner()
     }
 }
 

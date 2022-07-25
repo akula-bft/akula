@@ -194,23 +194,21 @@ impl Consensus for Ethash {
         &self,
         segment: &[BlockHeader],
         with_future_timestamp_check: bool,
-    ) -> Result<(), DuoError> {
-        let failure = Mutex::new((segment.len(), Ok(())));
+    ) -> Result<(), DuoErrorAtHeight> {
+        let status = HeaderValidationStatus::new();
 
         segment.par_iter().enumerate().skip(1).for_each(|(i, _)| {
-            if let Err(error) = self.validate_block_header(
+            if let Err(new_error) = self.validate_block_header(
                 &segment[i - 1],
                 &segment[i],
                 with_future_timestamp_check,
             ) {
-                let mut failure = failure.lock();
-                if i < failure.0 {
-                    *failure = (i, Err(error));
-                }
+                let height = segment[i].number;
+                status.update(new_error, height);
             }
         });
 
-        failure.into_inner().1
+        status.get()
     }
 
     fn finalize(

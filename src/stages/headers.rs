@@ -366,9 +366,9 @@ impl HeaderDownload {
 
                     self.consensus
                         .validate_block_headers(&headers, true)
-                        .map_err(|e| match e {
+                        .map_err(|e| match e.error {
                             DuoError::Validation(error) => StageError::Validation {
-                                block: BlockNumber(0), // todo
+                                block: e.height,
                                 error,
                             },
                             DuoError::Internal(error) => StageError::Internal(error),
@@ -643,12 +643,9 @@ impl HeaderDownload {
         for header in headers.iter() {
             only_headers.push(header.1.clone());
         }
-        if self
-            .consensus
-            .validate_block_headers(&only_headers, false)
-            .is_err()
-        {
-            headers.truncate(0);
+        if let Err(e) = self.consensus.validate_block_headers(&only_headers, false) {
+            let error_index = e.height.0 - only_headers[0].number.0;
+            headers.truncate(error_index as usize);
         }
     }
 }
