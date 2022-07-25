@@ -12,6 +12,7 @@ use jsonrpsee::{
     http_server::HttpServerBuilder,
     types::{error::CallError, ErrorObject},
 };
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::future::pending;
 use tracing::*;
 
@@ -165,6 +166,36 @@ impl BeaconConsensus {
             }),
         }
     }
+
+    fn validate_block_header(
+        &self,
+        parent: &crate::models::BlockHeader,
+        header: &crate::models::BlockHeader,
+        with_future_timestamp_check: bool,
+    ) -> Result<(), super::DuoError> {
+        self.base
+            .validate_block_header(header, parent, with_future_timestamp_check)?;
+
+        if header.number >= self.since {
+            if header.ommers_hash != EMPTY_LIST_HASH {
+                return Err(ValidationError::TooManyOmmers.into());
+            }
+
+            if header.difficulty != U256::ZERO {
+                return Err(ValidationError::WrongDifficulty.into());
+            }
+
+            if header.nonce != H64::zero() {
+                return Err(ValidationError::WrongHeaderNonce {
+                    expected: H64::zero(),
+                    got: header.nonce,
+                }
+                .into());
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Consensus for BeaconConsensus {
@@ -185,34 +216,22 @@ impl Consensus for BeaconConsensus {
         segment: &[crate::models::BlockHeader],
         with_future_timestamp_check: bool,
     ) -> Result<(), super::DuoError> {
-        let mut parent = &segment[0];
+        let failure = Mutex::new((segment.len(), Ok(())));
 
-        for header in segment.iter().skip(1) {
-            self.base
-                .validate_block_header(header, parent, with_future_timestamp_check)?;
-
-            if header.number >= self.since {
-                if header.ommers_hash != EMPTY_LIST_HASH {
-                    return Err(ValidationError::TooManyOmmers.into());
-                }
-
-                if header.difficulty != U256::ZERO {
-                    return Err(ValidationError::WrongDifficulty.into());
-                }
-
-                if header.nonce != H64::zero() {
-                    return Err(ValidationError::WrongHeaderNonce {
-                        expected: H64::zero(),
-                        got: header.nonce,
-                    }
-                    .into());
+        segment.par_iter().enumerate().skip(1).for_each(|(i, _)| {
+            if let Err(error) = self.validate_block_header(
+                &segment[i - 1],
+                &segment[i],
+                with_future_timestamp_check,
+            ) {
+                let mut failure = failure.lock();
+                if i < failure.0 {
+                    *failure = (i, Err(error));
                 }
             }
+        });
 
-            parent = header;
-        }
-
-        Ok(())
+        failure.into_inner().1
     }
 
     fn finalize(
