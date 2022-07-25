@@ -200,6 +200,8 @@ impl Consensus for Clique {
     ) -> Result<(), DuoError> {
         let mut parent = &segment[0];
 
+        let mut non_final_state = self.state.lock().clone();
+
         for header in segment.iter().skip(1) {
             self.base
                 .validate_block_header(header, parent, with_future_timestamp_check)?;
@@ -211,6 +213,12 @@ impl Consensus for Clique {
                 }
                 .into());
             };
+
+            let clique_block = CliqueBlock::from_header(header)?;
+            non_final_state
+                .validate(&clique_block, false)
+                .map_err(DuoError::Validation)?;
+            non_final_state.finalize(clique_block);
 
             parent = header;
         }
@@ -227,11 +235,7 @@ impl Consensus for Clique {
 
         let mut state = self.state.lock();
 
-        state
-            .validate(&clique_block, false)
-            .map_err(DuoError::Validation)?;
         state.finalize(clique_block);
-
         state.set_block_hash(block.hash());
 
         Ok(vec![])

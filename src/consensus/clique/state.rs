@@ -41,7 +41,7 @@ impl Vote {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Votes {
     votes: BTreeMap<Address, BTreeMap<Address, bool>>,
     threshold: usize,
@@ -102,7 +102,7 @@ impl Votes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Signers(Vec<Address>);
 
 impl Signers {
@@ -185,7 +185,7 @@ impl CliqueBlock {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct History(BTreeMap<Address, BlockNumber>);
 
 impl History {
@@ -210,7 +210,7 @@ impl History {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CliqueState {
     signers: Signers,
     history: History,
