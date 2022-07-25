@@ -4,6 +4,7 @@ use crate::{h256_to_u256, BlockReader};
 use ::ethash::LightDAG;
 use lru::LruCache;
 use parking_lot::Mutex;
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::sync::Arc;
 
 pub mod difficulty;
@@ -78,6 +79,51 @@ impl Ethash {
             fork_choice_graph: Arc::new(Mutex::new(ForkChoiceGraph::new())),
         }
     }
+
+    fn validate_block_header(
+        &self,
+        parent: &BlockHeader,
+        header: &BlockHeader,
+        with_future_timestamp_check: bool,
+    ) -> Result<(), DuoError> {
+        self.base
+            .validate_block_header(header, parent, with_future_timestamp_check)?;
+
+        let parent_has_uncles = parent.ommers_hash != EMPTY_LIST_HASH;
+        let difficulty = difficulty::canonical_difficulty(
+            header.number,
+            header.timestamp,
+            parent.difficulty,
+            parent.timestamp,
+            parent_has_uncles,
+            switch_is_active(self.byzantium_formula, header.number),
+            switch_is_active(self.homestead_formula, header.number),
+            self.difficulty_bomb
+                .as_ref()
+                .map(|b| BlockDifficultyBombData {
+                    delay_to: b.get_delay_to(header.number),
+                }),
+        );
+
+        if difficulty != header.difficulty {
+            return Err(ValidationError::WrongDifficulty.into());
+        }
+
+        if !self.skip_pow_verification {
+            let light_dag = self.dag_cache.get(header.number);
+            let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
+
+            if mixh != header.mix_hash {
+                return Err(ValidationError::InvalidSeal.into());
+            }
+
+            if h256_to_u256(final_hash) > ::ethash::cross_boundary(header.difficulty) {
+                return Err(ValidationError::InvalidSeal.into());
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Consensus for Ethash {
@@ -149,48 +195,22 @@ impl Consensus for Ethash {
         segment: &[BlockHeader],
         with_future_timestamp_check: bool,
     ) -> Result<(), DuoError> {
-        let mut parent = &segment[0];
+        let failure = Mutex::new((segment.len(), Ok(())));
 
-        for header in segment.iter().skip(1) {
-            self.base
-                .validate_block_header(header, parent, with_future_timestamp_check)?;
-
-            let parent_has_uncles = parent.ommers_hash != EMPTY_LIST_HASH;
-            let difficulty = difficulty::canonical_difficulty(
-                header.number,
-                header.timestamp,
-                parent.difficulty,
-                parent.timestamp,
-                parent_has_uncles,
-                switch_is_active(self.byzantium_formula, header.number),
-                switch_is_active(self.homestead_formula, header.number),
-                self.difficulty_bomb
-                    .as_ref()
-                    .map(|b| BlockDifficultyBombData {
-                        delay_to: b.get_delay_to(header.number),
-                    }),
-            );
-            if difficulty != header.difficulty {
-                return Err(ValidationError::WrongDifficulty.into());
-            }
-
-            if !self.skip_pow_verification {
-                let light_dag = self.dag_cache.get(header.number);
-                let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
-
-                if mixh != header.mix_hash {
-                    return Err(ValidationError::InvalidSeal.into());
-                }
-
-                if h256_to_u256(final_hash) > ::ethash::cross_boundary(header.difficulty) {
-                    return Err(ValidationError::InvalidSeal.into());
+        segment.par_iter().enumerate().skip(1).for_each(|(i, _)| {
+            if let Err(error) = self.validate_block_header(
+                &segment[i - 1],
+                &segment[i],
+                with_future_timestamp_check,
+            ) {
+                let mut failure = failure.lock();
+                if i < failure.0 {
+                    *failure = (i, Err(error));
                 }
             }
+        });
 
-            parent = header;
-        }
-
-        Ok(())
+        failure.into_inner().1
     }
 
     fn finalize(
