@@ -1,9 +1,7 @@
 use crate::{
     genesis::GenesisState,
     models::{BlockNumber, ChainSpec, NetworkId, H256},
-    res::chainspec,
 };
-use anyhow::anyhow;
 
 const REPOSITORY_URL: &str = "https://github.com/akula-bft/akula";
 
@@ -25,16 +23,7 @@ impl From<ChainSpec> for ChainConfig {
 
 impl ChainConfig {
     pub fn new(name: &str) -> anyhow::Result<Self> {
-        match name.to_lowercase().as_ref() {
-            "mainnet" | "ethereum" => Ok(ChainConfig::from(chainspec::MAINNET.clone())),
-            "ropsten" => Ok(ChainConfig::from(chainspec::ROPSTEN.clone())),
-            "rinkeby" => Ok(ChainConfig::from(chainspec::RINKEBY.clone())),
-            "goerli" => Ok(ChainConfig::from(chainspec::GOERLI.clone())),
-            "sepolia" => Ok(ChainConfig::from(chainspec::SEPOLIA.clone())),
-            _ => Err(anyhow!(
-                "{name} is not yet supported, please fill an issue at {REPOSITORY_URL} and we'll maybe add support for it in the foreseeable future",
-            )),
-        }
+        ChainSpec::load_builtin(name).map(From::from)
     }
 
     pub const fn network_id(&self) -> NetworkId {

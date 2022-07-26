@@ -7,7 +7,7 @@ use self::{
 use crate::{
     binutil::AkulaDataDir,
     kv::tables::{self, SENTRY_TABLES},
-    models::ChainConfig,
+    models::P2PParams,
     sentry::{
         opts::{OptsDiscStatic, OptsDiscV4, OptsDnsDisc},
         services::SentryService,
@@ -408,7 +408,7 @@ pub struct Opts {
 pub async fn run(
     opts: Opts,
     db_path: AkulaDataDir,
-    dns_addr: Option<String>,
+    network_params: P2PParams,
 ) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
     let db = Arc::new(crate::kv::new_database(
         &*SENTRY_TABLES,
@@ -456,9 +456,8 @@ pub async fn run(
     let mut discovery_tasks: StreamMap<String, Discovery> = StreamMap::new();
 
     let bootnodes = if opts.discv4_bootnodes.is_empty() {
-        ChainConfig::new("mainnet")
-            .unwrap()
-            .bootnodes()
+        network_params
+            .bootnodes
             .iter()
             .map(|b| Discv4NR(b.parse().unwrap()))
             .collect::<Vec<_>>()
@@ -466,7 +465,7 @@ pub async fn run(
         opts.discv4_bootnodes
     };
 
-    let dns_addr = opts.dnsdisc_address.or(dns_addr);
+    let dns_addr = opts.dnsdisc_address.or(network_params.dns);
     let no_dns_discovery = opts.no_dns_discovery || dns_addr.is_none();
 
     if !opts.no_discovery {

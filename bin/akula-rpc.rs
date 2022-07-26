@@ -24,6 +24,9 @@ pub struct Opt {
 
     #[clap(long)]
     pub listen_address: SocketAddr,
+
+    #[clap(long)]
+    pub grpc_listen_address: SocketAddr,
 }
 
 #[tokio::main]
@@ -67,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap();
     api.merge(
         TraceApiServerImpl {
-            db,
+            db: db.clone(),
             call_gas_limit: 100_000_000,
         }
         .into_rpc(),
@@ -76,6 +79,25 @@ async fn main() -> anyhow::Result<()> {
     api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
 
     let _server_handle = server.start(api)?;
+
+    tokio::spawn({
+        let db = db.clone();
+        let listen_address = opt.grpc_listen_address;
+        async move {
+            tonic::transport::Server::builder()
+                .add_service(
+                    ethereum_interfaces::web3::trace_api_server::TraceApiServer::new(
+                        TraceApiServerImpl {
+                            db,
+                            call_gas_limit: 100_000_000,
+                        },
+                    ),
+                )
+                .serve(listen_address)
+                .await
+                .unwrap();
+        }
+    });
 
     pending().await
 }

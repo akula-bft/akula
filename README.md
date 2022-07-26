@@ -30,11 +30,13 @@ You can find built binaries in `target/production` folder.
 
 ## Running
 
-* `akula` is the main binary that runs as full node, requires `akula-sentry`:
+* `akula` is the main binary that runs as full node:
 
 ```ignore
 akula --datadir=<path to Akula database directory>
 ```
+
+* `akula-rpc` is the RPC daemon, which can provide JSONRPC and gRPC endpoints based on Akula's database.
 
 * `akula-sentry` is the P2P node.
 
@@ -55,3 +57,6 @@ If you'd like to sponsor, check out our [Gitcoin](https://gitcoin.co/grants/5933
 
 ---
 Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
+
+## License
+The entire code within this repository is licensed under the [GNU General Public License v3](LICENSE)
