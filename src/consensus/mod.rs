@@ -17,6 +17,7 @@ use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
 use std::{
     fmt::{Debug, Display},
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
 use tokio::sync::watch;
@@ -310,6 +311,7 @@ pub fn pre_validate_transaction(
 pub fn engine_factory(
     db: Option<Arc<MdbxWithDirHandle<WriteMap>>>,
     chain_config: ChainSpec,
+    listen_addr: Option<SocketAddr>,
 ) -> anyhow::Result<Box<dyn Consensus>> {
     Ok(match chain_config.consensus.seal_verification {
         SealVerificationParams::Ethash {
@@ -355,6 +357,10 @@ pub fn engine_factory(
             block_reward,
         } => Box::new(BeaconConsensus::new(
             db,
+            listen_addr.unwrap_or(SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::new(127, 0, 0, 1),
+                8551,
+            ))),
             chain_config.params.chain_id,
             chain_config.params.network_id,
             chain_config.consensus.eip1559_block,

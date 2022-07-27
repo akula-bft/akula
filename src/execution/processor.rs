@@ -456,7 +456,7 @@ mod tests {
 
         let mut state = InMemoryState::default();
         let mut analysis_cache = AnalysisCache::default();
-        let mut engine = engine_factory(None, MAINNET.clone()).unwrap();
+        let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
@@ -499,7 +499,7 @@ mod tests {
 
         let mut state = InMemoryState::default();
         let mut analysis_cache = AnalysisCache::default();
-        let mut engine = engine_factory(None, MAINNET.clone()).unwrap();
+        let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
@@ -564,7 +564,7 @@ mod tests {
 
         let mut state = InMemoryState::default();
         let mut analysis_cache = AnalysisCache::default();
-        let mut engine = engine_factory(None, MAINNET.clone()).unwrap();
+        let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
@@ -682,7 +682,7 @@ mod tests {
 
         let mut state = InMemoryState::default();
         let mut analysis_cache = AnalysisCache::default();
-        let mut engine = engine_factory(None, MAINNET.clone()).unwrap();
+        let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
@@ -789,7 +789,7 @@ mod tests {
         };
 
         let mut analysis_cache = AnalysisCache::default();
-        let mut engine = engine_factory(None, MAINNET.clone()).unwrap();
+        let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
@@ -845,7 +845,7 @@ mod tests {
 
         let mut state = InMemoryState::default();
         let mut analysis_cache = AnalysisCache::default();
-        let mut engine = engine_factory(None, MAINNET.clone()).unwrap();
+        let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
         let mut processor = ExecutionProcessor::new(
