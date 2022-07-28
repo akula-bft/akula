@@ -169,8 +169,12 @@ fn main() -> anyhow::Result<()> {
                     chainspec
                 };
 
-                let consensus: Arc<dyn Consensus> =
-                    engine_factory(Some(db.clone()), chainspec.clone(), Some(opt.engine_listen_address))?.into();
+                let consensus: Arc<dyn Consensus> = engine_factory(
+                    Some(db.clone()),
+                    chainspec.clone(),
+                    Some(opt.engine_listen_address),
+                )?
+                .into();
 
                 let network_id = chainspec.params.network_id;
 
