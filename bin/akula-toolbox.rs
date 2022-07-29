@@ -132,7 +132,7 @@ async fn download_headers(
         &chain_data_dir,
     )?);
     let consensus: Arc<dyn Consensus> =
-        engine_factory(Some(env.clone()), chain_config.chain_spec.clone())?.into();
+        engine_factory(Some(env.clone()), chain_config.chain_spec.clone(), None)?.into();
     let txn = env.begin_mutable()?;
     akula::genesis::initialize_genesis(
         &txn,

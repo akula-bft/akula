@@ -95,6 +95,7 @@ pub struct BeaconConsensus {
 impl BeaconConsensus {
     pub fn new(
         db: Option<Arc<MdbxWithDirHandle<WriteMap>>>,
+        engine_addr: SocketAddr,
         chain_id: ChainId,
         network_id: NetworkId,
         eip1559_block: Option<BlockNumber>,
@@ -130,7 +131,7 @@ impl BeaconConsensus {
 
                     let server = HttpServerBuilder::default()
                         .set_middleware(M)
-                        .build("localhost:8551")
+                        .build(engine_addr)
                         .await
                         .unwrap();
 

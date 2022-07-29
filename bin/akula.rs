@@ -105,6 +105,10 @@ pub struct Opt {
     /// Enable gRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:7545")]
     pub grpc_listen_address: SocketAddr,
+
+    /// Enable CL engine RPC at this IP address and port.
+    #[clap(long, default_value = "127.0.0.1:8551")]
+    pub engine_listen_address: SocketAddr,
 }
 
 #[allow(unreachable_code)]
@@ -165,8 +169,12 @@ fn main() -> anyhow::Result<()> {
                     chainspec
                 };
 
-                let consensus: Arc<dyn Consensus> =
-                    engine_factory(Some(db.clone()), chainspec.clone())?.into();
+                let consensus: Arc<dyn Consensus> = engine_factory(
+                    Some(db.clone()),
+                    chainspec.clone(),
+                    Some(opt.engine_listen_address),
+                )?
+                .into();
 
                 let network_id = chainspec.params.network_id;
 

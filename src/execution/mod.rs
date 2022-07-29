@@ -20,7 +20,7 @@ pub fn execute_block<S: State>(
     block: &BlockBodyWithSenders,
 ) -> Result<Vec<Receipt>, DuoError> {
     let mut analysis_cache = AnalysisCache::default();
-    let mut engine = consensus::engine_factory(None, config.clone())?;
+    let mut engine = consensus::engine_factory(None, config.clone(), None)?;
     let mut tracer = NoopTracer;
 
     let config = config.collect_block_spec(header.number);
