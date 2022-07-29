@@ -357,10 +357,9 @@ pub fn engine_factory(
             block_reward,
         } => Box::new(BeaconConsensus::new(
             db,
-            listen_addr.unwrap_or(SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::new(127, 0, 0, 1),
-                8551,
-            ))),
+            listen_addr.unwrap_or_else(|| {
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 8551))
+            }),
             chain_config.params.chain_id,
             chain_config.params.network_id,
             chain_config.consensus.eip1559_block,
