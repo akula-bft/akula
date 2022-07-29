@@ -2,34 +2,22 @@ use super::{CodeKind, Tracer};
 use crate::{execution::evm::StatusCode, models::*};
 use ethereum_jsonrpc::types;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AdhocTracer {
-    trace: Option<Vec<types::TransactionTrace>>,
+    trace: Vec<types::TransactionTrace>,
 
-    output: bytes::Bytes,
     trace_addr: Vec<usize>,
-    trace_stack: Vec<types::TransactionTrace>,
+    trace_stack: Vec<usize>,
     /// Whether the last capture_start was called with `precompile = true`
     precompile: bool,
 }
 
 impl AdhocTracer {
-    pub fn new(trace: bool) -> Self {
-        Self {
-            trace: if trace {
-                Some(Default::default())
-            } else {
-                None
-            },
-
-            output: Default::default(),
-            trace_addr: Default::default(),
-            trace_stack: Default::default(),
-            precompile: Default::default(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn into_trace(self) -> Option<Vec<types::TransactionTrace>> {
+    pub fn into_trace(self) -> Vec<types::TransactionTrace> {
         self.trace
     }
 }
@@ -42,8 +30,10 @@ impl Tracer for AdhocTracer {
     fn capture_start(
         &mut self,
         depth: u16,
-        from: ethereum_types::Address,
-        to: ethereum_types::Address,
+        sender: ethereum_types::Address,
+        recipient: ethereum_types::Address,
+        real_sender: ethereum_types::Address,
+        code_address: ethereum_types::Address,
         call_type: super::MessageKind,
         input: bytes::Bytes,
         mut gas: u64,
@@ -68,7 +58,7 @@ impl Tracer for AdhocTracer {
             types::TraceOutput::Create(types::CreateOutput {
                 gas_used: 0.into(),
                 code: types::Bytes::default(),
-                address: to,
+                address: recipient,
             })
         } else {
             types::TraceOutput::Call(types::CallOutput {
@@ -77,7 +67,7 @@ impl Tracer for AdhocTracer {
             })
         };
         if depth > 0 {
-            let top_trace = self.trace_stack.last_mut().unwrap();
+            let top_trace = &mut self.trace[*self.trace_stack.last().unwrap()];
             self.trace_addr.push(top_trace.subtraces);
             top_trace.subtraces += 1;
 
@@ -103,14 +93,14 @@ impl Tracer for AdhocTracer {
         let trace_address = self.trace_addr.clone();
         let action = match call_type {
             super::MessageKind::Create { .. } => types::Action::Create(types::CreateAction {
-                from,
+                from: sender,
                 value,
                 gas: gas.into(),
                 init: input.into(),
             }),
             super::MessageKind::Call { call_kind, .. } => types::Action::Call(types::CallAction {
-                from,
-                to,
+                from: real_sender,
+                to: code_address,
                 gas: gas.into(),
                 input: input.into(),
                 value,
@@ -122,16 +112,14 @@ impl Tracer for AdhocTracer {
                 },
             }),
         };
-        if let Some(traces) = &mut self.trace {
-            let trace = types::TransactionTrace {
-                trace_address,
-                subtraces: 0,
-                action,
-                result: Some(types::TraceResult::Success { result: output }),
-            };
-            traces.push(trace.clone());
-            self.trace_stack.push(trace);
-        }
+
+        self.trace.push(types::TransactionTrace {
+            trace_address,
+            subtraces: 0,
+            action,
+            result: Some(types::TraceResult::Success { result: output }),
+        });
+        self.trace_stack.push(self.trace.len() - 1);
     }
 
     fn capture_end(
@@ -144,10 +132,7 @@ impl Tracer for AdhocTracer {
             self.precompile = false;
             return;
         }
-        if depth == 0 {
-            self.output = exec_output.output_data.clone();
-        }
-        let top_trace = self.trace_stack.last_mut().unwrap();
+        let top_trace = &mut self.trace[*self.trace_stack.last().unwrap()];
         match exec_output.status_code {
             StatusCode::Success => match (&top_trace.action, &mut top_trace.result) {
                 (
@@ -157,8 +142,8 @@ impl Tracer for AdhocTracer {
                         ..
                     }),
                 ) => {
-                    if !self.output.is_empty() {
-                        output.output = self.output.clone().into();
+                    if !exec_output.output_data.is_empty() {
+                        output.output = exec_output.output_data.clone().into();
                     }
                     output.gas_used =
                         (start_gas - u64::try_from(exec_output.gas_left).unwrap()).into();
@@ -170,8 +155,8 @@ impl Tracer for AdhocTracer {
                         ..
                     }),
                 ) => {
-                    if !self.output.is_empty() {
-                        output.code = self.output.clone().into();
+                    if !exec_output.output_data.is_empty() {
+                        output.code = exec_output.output_data.clone().into();
                     }
                     output.gas_used =
                         (start_gas - u64::try_from(exec_output.gas_left).unwrap()).into();
@@ -271,27 +256,25 @@ impl Tracer for AdhocTracer {
         beneficiary: ethereum_types::Address,
         balance: ethnum::U256,
     ) {
-        if let Some(traces) = &mut self.trace {
-            let top_trace = self.trace_stack.last_mut().unwrap();
-            let trace_idx = top_trace.subtraces;
-            top_trace.subtraces += 1;
+        let top_trace = &mut self.trace[*self.trace_stack.last().unwrap()];
+        let trace_idx = top_trace.subtraces;
+        top_trace.subtraces += 1;
 
-            traces.push(types::TransactionTrace {
-                trace_address: {
-                    let mut v = self.trace_addr.clone();
-                    v.push(trace_idx);
-                    v
-                },
-                subtraces: 0,
-                action: types::Action::Selfdestruct(types::SelfdestructAction {
-                    address: caller,
-                    refund_address: beneficiary,
-                    balance,
-                }),
-                result: Some(types::TraceResult::Error {
-                    error: "".to_string(),
-                }),
-            });
-        }
+        self.trace.push(types::TransactionTrace {
+            trace_address: {
+                let mut v = self.trace_addr.clone();
+                v.push(trace_idx);
+                v
+            },
+            subtraces: 0,
+            action: types::Action::Selfdestruct(types::SelfdestructAction {
+                address: caller,
+                refund_address: beneficiary,
+                balance,
+            }),
+            result: Some(types::TraceResult::Error {
+                error: "".to_string(),
+            }),
+        });
     }
 }

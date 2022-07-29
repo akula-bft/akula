@@ -70,6 +70,7 @@ pub(crate) fn do_call<
         } else {
             state.message.recipient
         },
+        real_sender: state.message.recipient,
         gas: i64::MAX,
         value: if matches!(KIND, CallKind::DelegateCall) {
             state.message.value
