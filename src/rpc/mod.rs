@@ -238,6 +238,7 @@ pub mod helpers {
                         timestamp: U64::from(header.timestamp),
                         transactions,
                         uncles: body.ommers.into_iter().map(|uncle| uncle.hash()).collect(),
+                        base_fee_per_gas: header.base_fee_per_gas,
                     }));
                 }
             }

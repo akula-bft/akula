@@ -119,12 +119,12 @@ console-subscriber = { version = "0.1.5", optional = true }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 toml = { version = "0.5", features = ["preserve_order"] }
-tonic = { version = "0.7", default-features = false, features = [
+tonic = { version = "0.8", default-features = false, features = [
   "codegen",
   "prost",
   "transport",
 ] }
-tonic-health = "0.6"
+tonic-health = "0.7"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
