@@ -130,7 +130,6 @@ tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 trust-dns-resolver = "0.21"
 url = "2"
-uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 hashlink = "0.8.0"
 hashbrown = { version = "0.12.0", features = [
