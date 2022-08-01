@@ -480,6 +480,11 @@ impl HeaderDownload {
                             continue;
                         }
 
+                        info!(
+                            "Received {} headers from peer {peer_id}",
+                            inner.headers.len()
+                        );
+
                         if is_bounded(inner.headers[0].number) {
                             tasks.push(TaskGuard(tokio::task::spawn({
                                 let (node, requests, graph, peer_id) = (
