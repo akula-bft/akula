@@ -17,7 +17,7 @@ use ethereum_jsonrpc::{
     EthApiServer, LogFilter, SyncStatus,
 };
 use jsonrpsee::core::RpcResult;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 pub struct EthApiServerImpl<SE>
 where
@@ -25,6 +25,34 @@ where
 {
     pub db: Arc<MdbxWithDirHandle<SE>>,
     pub call_gas_limit: u64,
+}
+
+fn filter_log(
+    log: &Log,
+    addresses: &Option<HashSet<H160>>,
+    topics: &Option<Vec<Option<HashSet<H256>>>>,
+) -> bool {
+    if let Some(addresses) = addresses.as_ref() {
+        if !addresses.is_empty() && !addresses.contains(&log.address) {
+            return false;
+        }
+    }
+
+    if let Some(topic_filters) = topics.as_ref() {
+        if topic_filters.len() > log.topics.len() {
+            return false;
+        }
+
+        for (topic_filter, topic) in topic_filters.iter().zip(&log.topics) {
+            if let Some(topic_filter) = topic_filter {
+                if !topic_filter.is_empty() && !topic_filter.contains(topic) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
 }
 
 #[async_trait]
@@ -42,9 +70,164 @@ where
         ))
     }
 
-    async fn get_logs(&self, filter: LogFilter) -> RpcResult<TransactionLog> {
-        let _ = filter;
-        Err(format_err!("not implemented").into())
+    async fn get_logs(&self, filter: LogFilter) -> RpcResult<Vec<TransactionLog>> {
+        let db = self.db.clone();
+
+        let (logtx, mut logrx) = tokio::sync::mpsc::channel(1);
+
+        let addresses = filter
+            .address
+            .map(|addresses| addresses.0.into_iter().collect::<HashSet<_>>());
+
+        let topics = filter.topics.map(|topics| {
+            // Reverse, cut the dead tail, reverse again
+            let mut topics = topics
+                .into_iter()
+                .rev()
+                .skip_while(|v| {
+                    if let Some(topic_filter) = v {
+                        if !topic_filter.0.is_empty() {
+                            return false;
+                        }
+                    }
+                    true
+                })
+                .map(|topic_filter| {
+                    topic_filter.map(|topics| topics.0.into_iter().collect::<HashSet<_>>())
+                })
+                .collect::<Vec<_>>();
+
+            topics.reverse();
+
+            topics
+        });
+
+        tokio::task::spawn_blocking(move || {
+            let f = {
+                let logtx = logtx.clone();
+                move || {
+                    let txn = db.begin()?;
+
+                    let block_range = match filter.block_filter {
+                        Some(filter) => match filter {
+                            ethereum_jsonrpc::BlockFilter::Exact { block_hash } => {
+                                if let Some((number, _)) = helpers::resolve_block_id(
+                                    &txn,
+                                    types::BlockId::Hash(block_hash),
+                                )? {
+                                    number.0..=number.0
+                                } else {
+                                    return Ok(());
+                                }
+                            }
+                            ethereum_jsonrpc::BlockFilter::Bounded {
+                                from_block,
+                                to_block,
+                            } => {
+                                let from = helpers::resolve_block_number(
+                                    &txn,
+                                    from_block.unwrap_or(types::BlockNumber::Latest),
+                                )?;
+                                let to = helpers::resolve_block_number(
+                                    &txn,
+                                    to_block.unwrap_or(types::BlockNumber::Latest),
+                                )?;
+
+                                from.0..=to.0
+                            }
+                        },
+                        None => {
+                            let latest =
+                                helpers::resolve_block_number(&txn, types::BlockNumber::Latest)?;
+                            latest.0..=latest.0
+                        }
+                    };
+
+                    for block_number in block_range {
+                        let block_number = BlockNumber(block_number);
+                        let block_hash =
+                            crate::accessors::chain::canonical_hash::read(&txn, block_number)?
+                                .ok_or_else(|| {
+                                    format_err!("no canonical hash for block #{block_number}")
+                                })?;
+
+                        let header = chain::header::read(&txn, block_hash, block_number)?
+                            .ok_or_else(|| {
+                                format_err!(
+                                    "header not found for block #{block_number}/{block_hash}"
+                                )
+                            })?;
+                        let block_body =
+                            chain::block_body::read_with_senders(&txn, block_hash, block_number)?
+                                .ok_or_else(|| {
+                                format_err!("body not found for block #{block_number}/{block_hash}")
+                            })?;
+                        let txhashes = block_body
+                            .transactions
+                            .iter()
+                            .map(|tx| tx.hash())
+                            .collect::<Vec<_>>();
+                        let chain_spec = chain::chain_config::read(&txn)?
+                            .ok_or_else(|| format_err!("chain specification not found"))?;
+
+                        // Prepare the execution context.
+                        let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
+
+                        let block_execution_spec = chain_spec.collect_block_spec(block_number);
+                        let mut engine = engine_factory(None, chain_spec, None)?;
+                        let mut analysis_cache = AnalysisCache::default();
+                        let mut tracer = NoopTracer;
+
+                        let mut processor = ExecutionProcessor::new(
+                            &mut buffer,
+                            &mut tracer,
+                            &mut analysis_cache,
+                            &mut *engine,
+                            &header,
+                            &block_body,
+                            &block_execution_spec,
+                        );
+
+                        let receipts = processor.execute_block_no_post_validation()?;
+
+                        for ((transaction_index, receipt), txhash) in
+                            receipts.into_iter().enumerate().zip(txhashes)
+                        {
+                            for (i, log) in receipt.logs.into_iter().enumerate() {
+                                if filter_log(&log, &addresses, &topics) {
+                                    let sent = logtx
+                                        .blocking_send(Ok(types::TransactionLog {
+                                            log_index: Some(U64::from(i)),
+                                            transaction_index: Some(U64::from(transaction_index)),
+                                            transaction_hash: Some(txhash),
+                                            block_hash: Some(block_hash),
+                                            block_number: Some(U64::from(block_number.0)),
+                                            address: log.address,
+                                            data: log.data.clone().into(),
+                                            topics: log.topics.clone(),
+                                        }))
+                                        .is_ok();
+                                    if !sent {
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Ok(())
+                }
+            };
+            if let Err::<_, anyhow::Error>(e) = (f)() {
+                let _ = logtx.blocking_send(Err(e));
+            }
+        });
+
+        let mut out = vec![];
+        while let Some(v) = logrx.recv().await.transpose()? {
+            out.push(v);
+        }
+        Ok(out)
     }
 
     async fn chain_id(&self) -> RpcResult<U64> {
