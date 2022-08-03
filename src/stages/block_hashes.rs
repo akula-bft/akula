@@ -40,7 +40,7 @@ where
         let bodies_cursor = tx.cursor(tables::CanonicalHeader)?;
         let mut blockhashes_cursor = tx.cursor(tables::HeaderNumber.erased())?;
 
-        let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
+        let mut collector = TableCollector::new(&self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
         let walker = bodies_cursor.walk(Some(highest_block + 1));
         pin!(walker);
 

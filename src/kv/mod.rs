@@ -54,7 +54,7 @@ impl<E: EnvironmentKind> From<mdbx::MdbxEnvironment<E>> for MdbxWithDirHandle<E>
 pub fn new_mem_chaindata() -> anyhow::Result<MdbxWithDirHandle<WriteMap>> {
     let tmpdir = tempfile::tempdir()?;
     Ok(MdbxWithDirHandle {
-        inner: new_environment(&*CHAINDATA_TABLES, tmpdir.path(), n_mib_bytes!(64), None)?,
+        inner: new_environment(&CHAINDATA_TABLES, tmpdir.path(), n_mib_bytes!(64), None)?,
         _tmpdir: Some(tmpdir),
     })
 }

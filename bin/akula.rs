@@ -149,7 +149,7 @@ fn main() -> anyhow::Result<()> {
                         .context("failed to create ETL temp dir")?,
                 );
                 let db = Arc::new(akula::kv::new_database(
-                    &*CHAINDATA_TABLES,
+                    &CHAINDATA_TABLES,
                     &akula_chain_data_dir,
                 )?);
                 let chainspec = {
@@ -158,7 +158,7 @@ fn main() -> anyhow::Result<()> {
                     let txn = db.begin_mutable()?;
                     let (chainspec, initialized) = akula::genesis::initialize_genesis(
                         &txn,
-                        &*etl_temp_dir,
+                        &etl_temp_dir,
                         bundled_chain_spec,
                         chain_config,
                     )?;

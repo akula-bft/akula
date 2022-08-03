@@ -185,7 +185,7 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
     .to_vec()
     .into();
 
-    host.emit_log(state.message.recipient, data, &*topics);
+    host.emit_log(state.message.recipient, data, &topics);
 
     Ok(())
 }

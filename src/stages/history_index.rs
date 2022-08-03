@@ -50,7 +50,7 @@ where
         Ok(execute_index(
             tx,
             input,
-            &*self.temp_dir,
+            &self.temp_dir,
             self.flush_interval,
             tables::AccountChangeSet,
             tables::AccountHistory,
@@ -120,7 +120,7 @@ where
         Ok(execute_index(
             tx,
             input,
-            &*self.temp_dir,
+            &self.temp_dir,
             self.flush_interval,
             tables::StorageChangeSet,
             tables::StorageHistory,

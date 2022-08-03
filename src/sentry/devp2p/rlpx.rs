@@ -904,6 +904,6 @@ impl<C: CapabilityServer> Deref for Swarm<C> {
     type Target = C;
 
     fn deref(&self) -> &Self::Target {
-        &*self.capability_server
+        &self.capability_server
     }
 }

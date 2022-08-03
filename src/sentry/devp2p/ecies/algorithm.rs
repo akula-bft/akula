@@ -626,15 +626,15 @@ mod tests {
         // Test server to client 1
         let mut header = server_ecies.create_header(server_to_client_data.len());
         assert_eq!(header.len(), ECIES::header_len());
-        client_ecies.read_header(&mut *header).unwrap();
+        client_ecies.read_header(&mut header).unwrap();
         let mut body = server_ecies.create_body(&server_to_client_data);
         assert_eq!(body.len(), client_ecies.body_len());
-        let ret = client_ecies.read_body(&mut *body).unwrap();
+        let ret = client_ecies.read_body(&mut body).unwrap();
         assert_eq!(ret, server_to_client_data);
 
         // Test client to server 1
         server_ecies
-            .read_header(&mut *client_ecies.create_header(client_to_server_data.len()))
+            .read_header(&mut client_ecies.create_header(client_to_server_data.len()))
             .unwrap();
         let mut b = client_ecies.create_body(&client_to_server_data);
         let ret = server_ecies.read_body(&mut b).unwrap();
@@ -642,7 +642,7 @@ mod tests {
 
         // Test server to client 2
         client_ecies
-            .read_header(&mut *server_ecies.create_header(server_to_client_data.len()))
+            .read_header(&mut server_ecies.create_header(server_to_client_data.len()))
             .unwrap();
         let mut b = server_ecies.create_body(&server_to_client_data);
         let ret = client_ecies.read_body(&mut b).unwrap();
@@ -650,7 +650,7 @@ mod tests {
 
         // Test server to client 3
         client_ecies
-            .read_header(&mut *server_ecies.create_header(server_to_client_data.len()))
+            .read_header(&mut server_ecies.create_header(server_to_client_data.len()))
             .unwrap();
         let mut b = server_ecies.create_body(&server_to_client_data);
         let ret = client_ecies.read_body(&mut b).unwrap();
@@ -658,7 +658,7 @@ mod tests {
 
         // Test client to server 2
         server_ecies
-            .read_header(&mut *client_ecies.create_header(client_to_server_data.len()))
+            .read_header(&mut client_ecies.create_header(client_to_server_data.len()))
             .unwrap();
         let mut b = client_ecies.create_body(&client_to_server_data);
         let ret = server_ecies.read_body(&mut b).unwrap();
@@ -666,7 +666,7 @@ mod tests {
 
         // Test client to server 3
         server_ecies
-            .read_header(&mut *client_ecies.create_header(client_to_server_data.len()))
+            .read_header(&mut client_ecies.create_header(client_to_server_data.len()))
             .unwrap();
         let mut b = client_ecies.create_body(&client_to_server_data);
         let ret = server_ecies.read_body(&mut b).unwrap();

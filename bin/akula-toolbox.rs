@@ -127,16 +127,13 @@ async fn download_headers(
 
     let _ = std::fs::remove_dir_all(&etl_temp_path);
     std::fs::create_dir_all(&etl_temp_path)?;
-    let env = Arc::new(akula::kv::new_database(
-        &*CHAINDATA_TABLES,
-        &chain_data_dir,
-    )?);
+    let env = Arc::new(akula::kv::new_database(&CHAINDATA_TABLES, &chain_data_dir)?);
     let consensus: Arc<dyn Consensus> =
         engine_factory(Some(env.clone()), chain_config.chain_spec.clone(), None)?.into();
     let txn = env.begin_mutable()?;
     akula::genesis::initialize_genesis(
         &txn,
-        &*Arc::new(tempfile::tempdir_in(etl_temp_path).context("failed to create ETL temp dir")?),
+        &Arc::new(tempfile::tempdir_in(etl_temp_path).context("failed to create ETL temp dir")?),
         true,
         Some(chain_config.chain_spec.clone()),
     )?;
@@ -184,7 +181,7 @@ async fn blockhashes(data_dir: AkulaDataDir) -> anyhow::Result<()> {
     let env = akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_rw(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
-        &*akula::kv::tables::CHAINDATA_TABLES,
+        &akula::kv::tables::CHAINDATA_TABLES,
     )?;
 
     let mut staged_sync = stagedsync::StagedSync::new();
@@ -203,7 +200,7 @@ fn open_db(
     akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_ro(
         mdbx::Environment::new(),
         &data_dir.chain_data_dir(),
-        &*CHAINDATA_TABLES,
+        &CHAINDATA_TABLES,
     )
 }
 
@@ -494,10 +491,7 @@ fn overwrite_chainspec(
 
     let chain_data_dir = data_dir.chain_data_dir();
 
-    let env = Arc::new(akula::kv::new_database(
-        &*CHAINDATA_TABLES,
-        &chain_data_dir,
-    )?);
+    let env = Arc::new(akula::kv::new_database(&CHAINDATA_TABLES, &chain_data_dir)?);
 
     let tx = env.begin_mutable()?;
 

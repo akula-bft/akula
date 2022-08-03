@@ -75,7 +75,7 @@ impl InMemoryState {
                 let mut hb = HashBuilder::<'static>::new(None);
 
                 for (location, value) in sorted_storage {
-                    hb.add_leaf(unpack_nibbles(&location.0), &*value);
+                    hb.add_leaf(unpack_nibbles(&location.0), &value);
                 }
 
                 return hb.compute_root_hash();

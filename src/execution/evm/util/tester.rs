@@ -238,9 +238,9 @@ impl EvmTester {
             assert_eq!(&*output.output_data, expected_data);
         }
 
-        (self.inspect_output_fn)(&*output.output_data);
+        (self.inspect_output_fn)(&output.output_data);
         (self.inspect_host_fn)(&host, &self.message);
-        (self.inspect_fn)(&host, &self.message, &*output.output_data);
+        (self.inspect_fn)(&host, &self.message, &output.output_data);
 
         output
     }

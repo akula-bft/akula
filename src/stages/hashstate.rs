@@ -190,9 +190,9 @@ where
             self.clean_promotion_threshold,
         )? {
             info!("Generating hashed accounts");
-            promote_clean_accounts(tx, &*self.temp_dir)?;
+            promote_clean_accounts(tx, &self.temp_dir)?;
             info!("Generating hashed storage");
-            promote_clean_storage(tx, &*self.temp_dir)?;
+            promote_clean_storage(tx, &self.temp_dir)?;
         } else {
             info!("Incrementally hashing accounts");
             promote_accounts(tx, past_progress)?;

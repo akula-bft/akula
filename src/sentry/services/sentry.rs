@@ -64,7 +64,7 @@ impl SentryService {
         IT: IntoIterator<Item = PeerId>,
     {
         let g = self.capability_server.peer_pipes.read();
-        (pred)(&*self.capability_server)
+        (pred)(&self.capability_server)
             .into_iter()
             .filter_map(|peer| g.get(&peer).map(|pipes| (pipes.sender.clone(), peer)))
             .collect::<Vec<_>>()

@@ -411,7 +411,7 @@ pub async fn run(
     network_params: P2PParams,
 ) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
     let db = Arc::new(crate::kv::new_database(
-        &*SENTRY_TABLES,
+        &SENTRY_TABLES,
         &db_path.sentry_db(),
     )?);
 

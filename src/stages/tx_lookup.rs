@@ -40,7 +40,7 @@ where
     {
         let mut cursor = tx.cursor(tables::BlockTransactionLookup.erased())?;
 
-        let mut collector = TableCollector::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
+        let mut collector = TableCollector::new(&self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
         let mut highest_block = input.stage_progress.unwrap_or(BlockNumber(0));
         let start_block = highest_block + 1;
 

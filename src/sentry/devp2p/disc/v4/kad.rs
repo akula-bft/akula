@@ -28,13 +28,7 @@ pub struct KBucket {
 
 impl KBucket {
     pub fn find_peer_pos(&self, peer: NodeId) -> Option<usize> {
-        for i in 0..self.bucket.len() {
-            if self.bucket[i].id == peer {
-                return Some(i);
-            }
-        }
-
-        None
+        (0..self.bucket.len()).find(|&i| self.bucket[i].id == peer)
     }
 
     pub fn push_replacement(&mut self, peer: NodeRecord) {

@@ -58,9 +58,9 @@ where
         let mut tos = HashMap::<Address, croaring::Treemap>::new();
 
         let mut froms_collector =
-            Collector::<Address, croaring::Treemap>::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
+            Collector::<Address, croaring::Treemap>::new(&self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
         let mut tos_collector =
-            Collector::<Address, croaring::Treemap>::new(&*self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
+            Collector::<Address, croaring::Treemap>::new(&self.temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
         let mut highest_block = starting_block;
         let mut last_flush = starting_block;

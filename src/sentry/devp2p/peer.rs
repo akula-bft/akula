@@ -499,7 +499,7 @@ where
 
         buf.resize(snap::raw::max_compress_len(payload.len()), 0);
 
-        let compressed_len = this.snappy.encoder.compress(&*payload, &mut buf).unwrap();
+        let compressed_len = this.snappy.encoder.compress(&payload, &mut buf).unwrap();
         buf.truncate(compressed_len);
 
         msg.unsplit(buf);
