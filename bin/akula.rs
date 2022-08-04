@@ -153,7 +153,7 @@ fn main() -> anyhow::Result<()> {
                     &akula_chain_data_dir,
                 )?);
 
-                akula::database_version::migrate_database(db.clone());
+                akula::database_version::migrate_database(&db)?;
 
                 let chainspec = {
                     let span = span!(Level::INFO, "", " Genesis initialization ");

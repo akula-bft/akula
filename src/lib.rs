@@ -1,5 +1,6 @@
 #![feature(
     adt_const_params,
+    assert_matches,
     const_for,
     const_mut_refs,
     entry_insert,

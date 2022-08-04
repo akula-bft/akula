@@ -1,97 +1,131 @@
+use crate::kv::{mdbx::*, tables, MdbxWithDirHandle};
+use anyhow::format_err;
 use std::collections::BTreeMap;
-use std::sync::Arc;
-use mdbx::{EnvironmentKind};
-use crate::kv::{MdbxWithDirHandle, tables};
+use thiserror::Error;
 
 const DATABASE_VERSION: u64 = 1;
 
-type Migration<E> = fn(&MdbxWithDirHandle<E>) -> anyhow::Result<u64>;
+type Migration<'db, E> = fn(&mut MdbxTransaction<'db, RW, E>) -> anyhow::Result<u64>;
 
-fn init_database_version<E>(_env: &MdbxWithDirHandle<E>) -> anyhow::Result<u64>
-    where E: EnvironmentKind
+#[derive(Debug, Error)]
+pub enum MigrationError {
+    #[error("No migration from database version {current}, please re-sync")]
+    DbTooOld { current: u64 },
+    #[error("Database version {current} too high. Newest version {newest}")]
+    DbTooNew { current: u64, newest: u64 },
+    #[error("Migration error")]
+    MigrationError(#[from] anyhow::Error),
+}
+
+fn init_database_version<E>(_: &mut MdbxTransaction<'_, RW, E>) -> anyhow::Result<u64>
+where
+    E: EnvironmentKind,
 {
     Ok(DATABASE_VERSION)
 }
 
-fn set_database_version<E>(db: &MdbxWithDirHandle<E>, version: u64) -> anyhow::Result<()>
-    where E: EnvironmentKind
+fn set_database_version<E>(txn: &MdbxTransaction<'_, RW, E>, version: u64) -> anyhow::Result<()>
+where
+    E: EnvironmentKind,
 {
-    let txn = db.begin_mutable()?;
     txn.set(tables::Version, (), version)?;
-    txn.commit()
+    Ok(())
 }
 
-fn get_database_version<E>(db: &MdbxWithDirHandle<E>) -> anyhow::Result<u64>
-    where E: EnvironmentKind
+fn get_database_version<K, E>(txn: &MdbxTransaction<'_, K, E>) -> anyhow::Result<u64>
+where
+    K: TransactionKind,
+    E: EnvironmentKind,
 {
-    let txn = db.begin()?;
     let version = txn.get(tables::Version, ())?.unwrap_or(0);
     Ok(version)
 }
 
-fn apply_migrations<E>(
-    db: Arc<MdbxWithDirHandle<E>>,
+fn apply_migrations<'db, E>(
+    tx: &mut MdbxTransaction<'db, RW, E>,
     from_version: u64,
-    migrations: BTreeMap<u64, Migration<E>>,
-) where E: EnvironmentKind
+    migrations: BTreeMap<u64, Migration<'db, E>>,
+) -> Result<(), MigrationError>
+where
+    E: EnvironmentKind,
 {
     let mut current_version = from_version;
     while current_version < DATABASE_VERSION {
         if let Some(migration) = migrations.get(&current_version) {
-            match migration(&db) {
-                Ok(new_version) => {
-                    current_version = new_version;
-                    set_database_version(&db, new_version).unwrap();
-                }
-                Err(err) => panic!("Failed database migration: {}", err)
-            }
+            let new_version =
+                migration(tx).map_err(|e| format_err!("Failed database migration: {e}"))?;
+            current_version = new_version;
+            set_database_version(tx, new_version)?;
         } else {
-            panic!("No migration from database version {}, please re-sync", current_version)
+            return Err(MigrationError::DbTooOld {
+                current: current_version,
+            });
         }
     }
+
+    Ok(())
 }
 
-pub fn migrate_database<E>(db: Arc<MdbxWithDirHandle<E>>)
-    where E: EnvironmentKind
+pub fn migrate_database<E>(db: &MdbxWithDirHandle<E>) -> Result<(), MigrationError>
+where
+    E: EnvironmentKind,
 {
-    let current_version = get_database_version(&db).unwrap_or(0);
+    let mut tx = db.begin_mutable()?;
+    let current_version = get_database_version(&tx).unwrap_or(0);
 
     if current_version > DATABASE_VERSION {
-        panic!("Database version {} too high. Newest version {}", current_version, DATABASE_VERSION)
+        return Err(MigrationError::DbTooNew {
+            current: current_version,
+            newest: DATABASE_VERSION,
+        });
     }
 
-    let migrations: BTreeMap<u64, Migration<E>> = BTreeMap::from(
-        [(0, init_database_version as Migration<E>); 1],
-    );
+    let migrations: BTreeMap<u64, Migration<E>> =
+        BTreeMap::from([(0, init_database_version as Migration<E>); 1]);
 
-    apply_migrations(db, current_version, migrations);
+    apply_migrations(&mut tx, current_version, migrations)?;
+    tx.commit()?;
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::kv::new_mem_chaindata;
+    use std::assert_matches::assert_matches;
 
     #[test]
     fn test_migrate_database_new() {
-        let db = Arc::new(new_mem_chaindata().unwrap());
-        migrate_database(db.clone());
-        let version = get_database_version(&db);
+        let db = new_mem_chaindata().unwrap();
+        migrate_database(&db).unwrap();
+        let version = get_database_version(&db.begin().unwrap());
         assert_eq!(DATABASE_VERSION, version.unwrap());
     }
 
     #[test]
-    #[should_panic(expected = "Database version 18446744073709551615 too high. Newest version")]
     fn test_migrate_database_too_high() {
-        let db = Arc::new(new_mem_chaindata().unwrap());
-        set_database_version(&db, u64::MAX).unwrap();
-        migrate_database(db.clone());
+        let db = new_mem_chaindata().unwrap();
+        {
+            let txn = db.begin_mutable().unwrap();
+            set_database_version(&txn, u64::MAX).unwrap();
+            txn.commit().unwrap();
+        }
+        assert_matches!(
+            migrate_database(&db),
+            Err(MigrationError::DbTooNew {
+                current,
+                newest
+            }) if current == u64::MAX && newest == DATABASE_VERSION
+        );
     }
 
     #[test]
-    #[should_panic(expected = "No migration from database version 0, please re-sync")]
     fn test_apply_migrations() {
-        let db = Arc::new(new_mem_chaindata().unwrap());
-        apply_migrations(db.clone(), 0, BTreeMap::new());
+        let db = new_mem_chaindata().unwrap();
+        assert_matches!(
+            apply_migrations(&mut db.begin_mutable().unwrap(), 0, BTreeMap::new()),
+            Err(MigrationError::DbTooOld { current }) if current == 0
+        );
     }
 }
