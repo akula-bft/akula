@@ -4,7 +4,7 @@ use akula::{
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     hex_to_bytes,
     kv::{
-        tables::{self, CHAINDATA_TABLES},
+        tables::{self, BitmapKey, CHAINDATA_TABLES},
         traits::*,
     },
     models::*,
@@ -57,6 +57,30 @@ pub enum OptCommand {
         max_entries: Option<usize>,
     },
 
+    /// Set db value
+    DbSet {
+        #[clap(long)]
+        table: String,
+        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        key: Bytes,
+        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        value: Bytes,
+    },
+
+    /// Unset db value
+    DbUnset {
+        #[clap(long)]
+        table: String,
+        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        key: Bytes,
+    },
+
+    /// Drop db
+    DbDrop {
+        #[clap(long)]
+        table: String,
+    },
+
     /// Check table equality in two databases
     CheckEqual {
         #[clap(long, parse(from_os_str))]
@@ -101,6 +125,10 @@ pub enum OptCommand {
         block: BlockNumber,
     },
 
+    ReadAccountChangedBlocks {
+        address: Address,
+    },
+
     ReadStorage {
         address: Address,
     },
@@ -112,6 +140,18 @@ pub enum OptCommand {
     /// Overwrite chainspec in database with user-provided one
     OverwriteChainspec {
         chainspec_file: ExpandedPathBuf,
+    },
+
+    SetStageProgress {
+        #[clap(long)]
+        stage: String,
+        #[clap(long)]
+        progress: BlockNumber,
+    },
+
+    UnsetStageProgress {
+        #[clap(long)]
+        stage: String,
     },
 }
 
@@ -204,6 +244,16 @@ fn open_db(
     )
 }
 
+fn open_db_rw(
+    data_dir: AkulaDataDir,
+) -> anyhow::Result<akula::kv::mdbx::MdbxEnvironment<mdbx::NoWriteMap>> {
+    akula::kv::mdbx::MdbxEnvironment::<mdbx::NoWriteMap>::open_rw(
+        mdbx::Environment::new(),
+        &data_dir.chain_data_dir(),
+        &CHAINDATA_TABLES,
+    )
+}
+
 fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
     let env = open_db(data_dir)?;
 
@@ -277,6 +327,43 @@ fn db_walk(
             BlockHeader::decode(&v)
         );
     }
+
+    Ok(())
+}
+
+fn db_set(
+    data_dir: AkulaDataDir,
+    table: String,
+    key: Bytes,
+    value: Option<Bytes>,
+) -> anyhow::Result<()> {
+    let env = open_db_rw(data_dir)?;
+
+    let txn = env.begin_rw_txn()?;
+    let db = txn
+        .open_db(Some(&table))
+        .with_context(|| format!("failed to open table: {}", table))?;
+    if let Some(value) = value {
+        txn.put(&db, key, value, Default::default())?;
+    } else {
+        txn.del(&db, key, None)?;
+    }
+    txn.commit()?;
+
+    Ok(())
+}
+
+fn db_drop(data_dir: AkulaDataDir, table: String) -> anyhow::Result<()> {
+    let env = open_db_rw(data_dir)?;
+
+    let txn = env.begin_rw_txn()?;
+    let db = txn
+        .open_db(Some(&table))
+        .with_context(|| format!("failed to open table: {}", table))?;
+    unsafe {
+        txn.drop_db(db)?;
+    }
+    txn.commit()?;
 
     Ok(())
 }
@@ -432,6 +519,29 @@ fn read_account_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
     Ok(())
 }
 
+fn read_account_changed_blocks(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> {
+    let env = open_db(data_dir)?;
+
+    let tx = env.begin()?;
+
+    let walker = tx.cursor(tables::AccountHistory)?.walk(Some(BitmapKey {
+        inner: address,
+        block_number: BlockNumber(0),
+    }));
+
+    pin!(walker);
+
+    while let Some((key, bitmap)) = walker.next().transpose()? {
+        if key.inner != address {
+            break;
+        }
+
+        println!("up to {}: {:?}", key.block_number, bitmap);
+    }
+
+    Ok(())
+}
+
 fn read_storage(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> {
     let env = open_db(data_dir)?;
 
@@ -501,6 +611,19 @@ fn overwrite_chainspec(
     Ok(())
 }
 
+fn set_stage_progress(
+    data_dir: AkulaDataDir,
+    stage: String,
+    stage_progress: Option<BlockNumber>,
+) -> anyhow::Result<()> {
+    db_set(
+        data_dir,
+        tables::SyncStage::const_db_name().to_string(),
+        stage.as_bytes().to_vec().into(),
+        stage_progress.map(|v| v.encode().to_vec().into()),
+    )
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
@@ -530,6 +653,9 @@ async fn main() -> anyhow::Result<()> {
             starting_key,
             max_entries,
         } => db_walk(opt.data_dir, table, starting_key, max_entries)?,
+        OptCommand::DbSet { table, key, value } => db_set(opt.data_dir, table, key, Some(value))?,
+        OptCommand::DbUnset { table, key } => db_set(opt.data_dir, table, key, None)?,
+        OptCommand::DbDrop { table } => db_drop(opt.data_dir, table)?,
         OptCommand::CheckEqual { db1, db2, table } => check_table_eq(db1, db2, table)?,
         OptCommand::ReadBlock { block_number } => read_block(opt.data_dir, block_number)?,
         OptCommand::ReadAccount {
@@ -537,11 +663,18 @@ async fn main() -> anyhow::Result<()> {
             block_number,
         } => read_account(opt.data_dir, address, block_number)?,
         OptCommand::ReadAccountChanges { block } => read_account_changes(opt.data_dir, block)?,
+        OptCommand::ReadAccountChangedBlocks { address } => {
+            read_account_changed_blocks(opt.data_dir, address)?
+        }
         OptCommand::ReadStorage { address } => read_storage(opt.data_dir, address)?,
         OptCommand::ReadStorageChanges { block } => read_storage_changes(opt.data_dir, block)?,
         OptCommand::OverwriteChainspec { chainspec_file } => {
             overwrite_chainspec(opt.data_dir, chainspec_file)?
         }
+        OptCommand::SetStageProgress { stage, progress } => {
+            set_stage_progress(opt.data_dir, stage, Some(progress))?
+        }
+        OptCommand::UnsetStageProgress { stage } => set_stage_progress(opt.data_dir, stage, None)?,
     }
 
     Ok(())
