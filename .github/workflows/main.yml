@@ -8,7 +8,7 @@ name: CI
 
 jobs:
   ci:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
@@ -54,7 +54,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           repository: ethereum/tests
           submodules: recursive
