@@ -247,8 +247,13 @@ where
                 timestamp: header.timestamp.into(),
             };
 
-            let transaction =
-                helpers::new_jsonrpc_tx(transaction, sender, Some(transaction_index as u64));
+            let transaction = helpers::new_jsonrpc_tx(
+                transaction,
+                sender,
+                Some(transaction_index as u64),
+                Some(block_hash),
+                Some(block_number.as_u64().into()),
+            );
 
             results.txs.push(transaction);
             results.receipts.push(receipt);
