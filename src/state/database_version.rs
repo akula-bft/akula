@@ -7,31 +7,30 @@ const DATABASE_VERSION: u64 = 1;
 
 type Migration<E> = fn(&MdbxWithDirHandle<E>) -> anyhow::Result<u64>;
 
-fn init_database_version<E>(env: &MdbxWithDirHandle<E>) -> anyhow::Result<u64>
+fn init_database_version<E>(_env: &MdbxWithDirHandle<E>) -> anyhow::Result<u64>
     where E: EnvironmentKind
 {
-    set_database_version(env, DATABASE_VERSION)?;
     Ok(DATABASE_VERSION)
 }
 
-fn set_database_version<E>(env: &MdbxWithDirHandle<E>, version: u64) -> anyhow::Result<()>
+fn set_database_version<E>(db: &MdbxWithDirHandle<E>, version: u64) -> anyhow::Result<()>
     where E: EnvironmentKind
 {
-    let txn = env.begin_mutable()?;
+    let txn = db.begin_mutable()?;
     txn.set(tables::Version, (), version)?;
     txn.commit()
 }
 
-fn get_database_version<E>(env: &MdbxWithDirHandle<E>) -> anyhow::Result<u64>
+fn get_database_version<E>(db: &MdbxWithDirHandle<E>) -> anyhow::Result<u64>
     where E: EnvironmentKind
 {
-    let txn = env.begin()?;
+    let txn = db.begin()?;
     let version = txn.get(tables::Version, ())?.unwrap_or(0);
     Ok(version)
 }
 
 fn apply_migrations<E>(
-    env: Arc<MdbxWithDirHandle<E>>,
+    db: Arc<MdbxWithDirHandle<E>>,
     from_version: u64,
     migrations: BTreeMap<u64, Migration<E>>,
 ) where E: EnvironmentKind
@@ -39,9 +38,10 @@ fn apply_migrations<E>(
     let mut current_version = from_version;
     while current_version < DATABASE_VERSION {
         if let Some(migration) = migrations.get(&current_version) {
-            match migration(&env) {
+            match migration(&db) {
                 Ok(new_version) => {
-                    current_version = new_version
+                    current_version = new_version;
+                    set_database_version(&db, new_version).unwrap();
                 }
                 Err(err) => panic!("Failed database migration: {}", err)
             }
@@ -51,10 +51,10 @@ fn apply_migrations<E>(
     }
 }
 
-pub fn migrate_database<E>(env: Arc<MdbxWithDirHandle<E>>)
+pub fn migrate_database<E>(db: Arc<MdbxWithDirHandle<E>>)
     where E: EnvironmentKind
 {
-    let current_version = get_database_version(&env).unwrap_or(0);
+    let current_version = get_database_version(&db).unwrap_or(0);
 
     if current_version > DATABASE_VERSION {
         panic!("Database version {} too high. Newest version {}", current_version, DATABASE_VERSION)
@@ -64,7 +64,7 @@ pub fn migrate_database<E>(env: Arc<MdbxWithDirHandle<E>>)
         [(0, init_database_version as Migration<E>); 1],
     );
 
-    apply_migrations(env, current_version, migrations);
+    apply_migrations(db, current_version, migrations);
 }
 
 #[cfg(test)]
@@ -81,7 +81,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database version 18446744073709551615 too high. Newest version 1")]
+    #[should_panic(expected = "Database version 18446744073709551615 too high. Newest version")]
     fn test_migrate_database_too_high() {
         let db = Arc::new(new_mem_chaindata().unwrap());
         set_database_version(&db, u64::MAX).unwrap();
