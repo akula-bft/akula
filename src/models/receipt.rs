@@ -2,9 +2,8 @@ use super::*;
 use crate::trie::*;
 use bytes::{Buf, BufMut};
 use fastrlp::*;
-use serde::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Receipt {
     pub tx_type: TxType,
     pub success: bool,
