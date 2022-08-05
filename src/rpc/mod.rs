@@ -53,6 +53,8 @@ pub mod helpers {
         tx: MessageWithSignature,
         sender: Address,
         transaction_index: Option<u64>,
+        block_hash: Option<H256>,
+        block_number: Option<BlockNumber>,
     ) -> types::Transaction {
         let hash = tx.hash();
         types::Transaction {
@@ -134,6 +136,8 @@ pub mod helpers {
             from: sender,
             hash,
             transaction_index: transaction_index.map(From::from),
+            block_hash,
+            block_number: block_number.map(|v| v.0.into()),
         }
     }
 
@@ -204,6 +208,8 @@ pub mod helpers {
                                     tx,
                                     sender,
                                     Some(index as u64),
+                                    Some(block_hash),
+                                    Some(block_number),
                                 )))
                             })
                             .collect()

@@ -559,15 +559,16 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.19"
+version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "670ad68c9088c2a963aaa298cb369688cf3f9465ce5e2d4ca10e6e0098a1ce73"
+checksum = "6127248204b9aba09a362f6c930ef6a78f2c1b2215f8a7b398c06e1083f17af0"
 dependencies = [
- "libc",
+ "js-sys",
  "num-integer",
  "num-traits",
  "serde",
  "time 0.1.44",
+ "wasm-bindgen",
  "winapi",
 ]
 
@@ -1077,8 +1078,8 @@ checksum = "3f107b87b6afc2a64fd13cac55fe06d6c8859f12d4b14cbcdd2c67d0976781be"
 
 [[package]]
 name = "enr"
-version = "0.6.1"
-source = "git+https://github.com/rust-ethereum/enr#7f9f97347499709e73ec398b018c7fb577456f33"
+version = "0.6.2"
+source = "git+https://github.com/sigp/enr#b09b66ee006e6d16cd0371f9e5ea3a4f14bda8db"
 dependencies = [
  "base64",
  "bs58",
@@ -1213,7 +1214,7 @@ dependencies = [
 [[package]]
 name = "ethereum-interfaces"
 version = "0.1.0"
-source = "git+https://github.com/ledgerwatch/interfaces#5253d422403fa29541c97c5f7cac75b1e0e53ea5"
+source = "git+https://github.com/ledgerwatch/interfaces#75d924a737312a7c102eb7004910ccbc3d7f1174"
 dependencies = [
  "arrayref",
  "ethereum-types",
@@ -1227,7 +1228,7 @@ dependencies = [
 [[package]]
 name = "ethereum-jsonrpc"
 version = "0.1.0"
-source = "git+https://github.com/vorot93/ethereum-jsonrpc#e652e1598987763b2777c71b700ef32aaf9e4c94"
+source = "git+https://github.com/vorot93/ethereum-jsonrpc#69cb4a74640c5087093833d54b699ce9a8b060fa"
 dependencies = [
  "arrayvec 0.7.2",
  "bytes",
@@ -2098,9 +2099,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.126"
+version = "0.2.127"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "349d5a591cd28b49e1d1037471617a32ddcda5731b99419008085f72d5a53836"
+checksum = "505e71a4706fa491e9b1b55f51b95d4037d0821ee40131190475f692b35b009b"
 
 [[package]]
 name = "libgit2-sys"
