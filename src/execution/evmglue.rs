@@ -359,9 +359,7 @@ where
 
         let revision = self.block_spec.revision;
 
-        let mut host = EvmHost { inner: self };
-
-        let output = analysis.execute(&mut host, msg, revision);
+        let output = analysis.execute(self, msg, revision);
 
         self.tracer.capture_end(
             msg.depth.try_into().unwrap(),
@@ -397,70 +395,53 @@ where
     }
 }
 
-struct EvmHost<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B>
-where
-    B: HeaderReader + StateReader,
-{
-    inner: &'a mut Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>,
-}
-
-impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateReader> Host
-    for EvmHost<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B>
+impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> Host
+    for Evm<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 {
     fn trace_instructions(&self) -> bool {
-        self.inner.tracer.trace_instructions()
+        self.tracer.trace_instructions()
     }
     fn tracer(&mut self, mut f: impl FnMut(&mut dyn Tracer)) {
-        (f)(self.inner.tracer)
+        (f)(self.tracer)
     }
 
     fn account_exists(&mut self, address: Address) -> bool {
-        if self.inner.block_spec.revision >= Revision::Spurious {
-            !self.inner.state.is_dead(address).unwrap()
+        if self.block_spec.revision >= Revision::Spurious {
+            !self.state.is_dead(address).unwrap()
         } else {
-            self.inner.state.exists(address).unwrap()
+            self.state.exists(address).unwrap()
         }
     }
 
     fn get_storage(&mut self, address: Address, location: U256) -> U256 {
-        self.inner
-            .state
-            .get_current_storage(address, location)
-            .unwrap()
+        self.state.get_current_storage(address, location).unwrap()
     }
 
     fn set_storage(&mut self, address: Address, location: U256, new_val: U256) -> StorageStatus {
-        let current_val = self
-            .inner
-            .state
-            .get_current_storage(address, location)
-            .unwrap();
+        let current_val = self.state.get_current_storage(address, location).unwrap();
 
         if current_val == new_val {
             StorageStatus::Unchanged
         } else {
-            self.inner
-                .state
-                .set_storage(address, location, new_val)
-                .unwrap();
+            self.state.set_storage(address, location, new_val).unwrap();
 
-            let eip1283 = self.inner.block_spec.revision >= Revision::Istanbul
-                || self.inner.block_spec.revision == Revision::Constantinople;
+            let eip1283 = self.block_spec.revision >= Revision::Istanbul
+                || self.block_spec.revision == Revision::Constantinople;
 
             if !eip1283 {
                 if current_val == 0 {
                     StorageStatus::Added
                 } else if new_val == 0 {
-                    self.inner.state.add_refund(fee::R_SCLEAR);
+                    self.state.add_refund(fee::R_SCLEAR);
                     StorageStatus::Deleted
                 } else {
                     StorageStatus::Modified
                 }
             } else {
                 let sload_cost = {
-                    if self.inner.block_spec.revision >= Revision::Berlin {
+                    if self.block_spec.revision >= Revision::Berlin {
                         fee::WARM_STORAGE_READ_COST
-                    } else if self.inner.block_spec.revision >= Revision::Istanbul {
+                    } else if self.block_spec.revision >= Revision::Istanbul {
                         fee::G_SLOAD_ISTANBUL
                     } else {
                         fee::G_SLOAD_TANGERINE_WHISTLE
@@ -468,19 +449,15 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
                 };
 
                 let mut sstore_reset_gas = fee::G_SRESET;
-                if self.inner.block_spec.revision >= Revision::Berlin {
+                if self.block_spec.revision >= Revision::Berlin {
                     sstore_reset_gas -= fee::COLD_SLOAD_COST;
                 }
 
                 // https://eips.ethereum.org/EIPS/eip-1283
-                let original_val = self
-                    .inner
-                    .state
-                    .get_original_storage(address, location)
-                    .unwrap();
+                let original_val = self.state.get_original_storage(address, location).unwrap();
 
                 // https://eips.ethereum.org/EIPS/eip-3529
-                let sstore_clears_refund = if self.inner.block_spec.revision >= Revision::London {
+                let sstore_clears_refund = if self.block_spec.revision >= Revision::London {
                     sstore_reset_gas + fee::ACCESS_LIST_STORAGE_KEY_COST
                 } else {
                     fee::R_SCLEAR
@@ -491,17 +468,17 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
                         StorageStatus::Added
                     } else {
                         if new_val == 0 {
-                            self.inner.state.add_refund(sstore_clears_refund);
+                            self.state.add_refund(sstore_clears_refund);
                         }
                         StorageStatus::Modified
                     }
                 } else {
                     if original_val != 0 {
                         if current_val == 0 {
-                            self.inner.state.subtract_refund(sstore_clears_refund);
+                            self.state.subtract_refund(sstore_clears_refund);
                         }
                         if new_val == 0 {
-                            self.inner.state.add_refund(sstore_clears_refund);
+                            self.state.add_refund(sstore_clears_refund);
                         }
                     }
                     if original_val == new_val {
@@ -513,7 +490,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
                             }
                         };
 
-                        self.inner.state.add_refund(refund);
+                        self.state.add_refund(refund);
                     }
                     StorageStatus::ModifiedAgain
                 }
@@ -522,13 +499,12 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
     }
 
     fn get_balance(&mut self, address: Address) -> U256 {
-        self.inner.state.get_balance(address).unwrap()
+        self.state.get_balance(address).unwrap()
     }
 
     fn get_code_size(&mut self, address: Address) -> U256 {
         u64::try_from(
-            self.inner
-                .state
+            self.state
                 .get_code(address)
                 .unwrap()
                 .map(|c| c.len())
@@ -540,21 +516,16 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
 
     fn get_code_hash(&mut self, address: Address) -> U256 {
         h256_to_u256({
-            if self.inner.state.is_dead(address).unwrap() {
+            if self.state.is_dead(address).unwrap() {
                 H256::zero()
             } else {
-                self.inner.state.get_code_hash(address).unwrap()
+                self.state.get_code_hash(address).unwrap()
             }
         })
     }
 
     fn copy_code(&mut self, address: Address, offset: usize, buffer: &mut [u8]) -> usize {
-        let code = self
-            .inner
-            .state
-            .get_code(address)
-            .unwrap()
-            .unwrap_or_default();
+        let code = self.state.get_code(address).unwrap().unwrap_or_default();
 
         let mut copied = 0;
         if offset < code.len() {
@@ -566,13 +537,10 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
     }
 
     fn selfdestruct(&mut self, address: Address, beneficiary: Address) {
-        self.inner.state.record_selfdestruct(address);
-        let balance = self.inner.state.get_balance(address).unwrap();
-        self.inner
-            .state
-            .add_to_balance(beneficiary, balance)
-            .unwrap();
-        self.inner.state.set_balance(address, 0).unwrap();
+        self.state.record_selfdestruct(address);
+        let balance = self.state.get_balance(address).unwrap();
+        self.state.add_to_balance(beneficiary, balance).unwrap();
+        self.state.set_balance(address, 0).unwrap();
 
         self.tracer(|t| t.capture_self_destruct(address, beneficiary, balance));
     }
@@ -580,7 +548,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
     fn call(&mut self, msg: Call) -> Output {
         match msg {
             Call::Create(message) => {
-                let mut res = self.inner.create(message).unwrap();
+                let mut res = self.create(message).unwrap();
 
                 // https://eips.ethereum.org/EIPS/eip-211
                 if res.status_code != StatusCode::Revert {
@@ -590,28 +558,27 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
 
                 res
             }
-            Call::Call(message) => self.inner.call(message).unwrap(),
+            Call::Call(message) => self.call(message).unwrap(),
         }
     }
 
     fn get_tx_context(&mut self) -> Result<TxContext, StatusCode> {
-        let base_fee_per_gas = self.inner.header.base_fee_per_gas.unwrap_or(U256::ZERO);
+        let base_fee_per_gas = self.header.base_fee_per_gas.unwrap_or(U256::ZERO);
         let tx_gas_price = self
-            .inner
             .message
             .effective_gas_price(base_fee_per_gas)
             .ok_or(StatusCode::InternalError("tx gas price too low"))?;
-        let tx_origin = self.inner.sender;
-        let block_coinbase = self.inner.beneficiary;
-        let block_number = self.inner.header.number.0;
-        let block_timestamp = self.inner.header.timestamp;
-        let block_gas_limit = self.inner.header.gas_limit;
-        let block_difficulty = if self.inner.block_spec.revision >= Revision::Paris {
-            h256_to_u256(self.inner.header.mix_hash)
+        let tx_origin = self.sender;
+        let block_coinbase = self.beneficiary;
+        let block_number = self.header.number.0;
+        let block_timestamp = self.header.timestamp;
+        let block_gas_limit = self.header.gas_limit;
+        let block_difficulty = if self.block_spec.revision >= Revision::Paris {
+            h256_to_u256(self.header.mix_hash)
         } else {
-            self.inner.header.difficulty
+            self.header.difficulty
         };
-        let chain_id = self.inner.block_spec.params.chain_id.0.into();
+        let chain_id = self.block_spec.params.chain_id.0.into();
         let block_base_fee = base_fee_per_gas;
 
         Ok(TxContext {
@@ -628,15 +595,14 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
     }
 
     fn get_block_hash(&mut self, block_number: u64) -> U256 {
-        let base_number = self.inner.header.number;
+        let base_number = self.header.number;
         let distance = base_number.0 - block_number;
         assert!(distance <= 256);
 
-        let mut hash = self.inner.header.parent_hash;
+        let mut hash = self.header.parent_hash;
 
         for i in 1..distance {
             hash = self
-                .inner
                 .state
                 .db()
                 .read_header(BlockNumber(base_number.0 - i), hash)
@@ -650,7 +616,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
     }
 
     fn emit_log(&mut self, address: Address, data: Bytes, topics: &[U256]) {
-        self.inner.state.add_log(Log {
+        self.state.add_log(Log {
             address,
             topics: topics.iter().copied().map(u256_to_h256).collect(),
             data,
@@ -658,15 +624,15 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, 'a, B: HeaderReader + StateRead
     }
 
     fn access_account(&mut self, address: Address) -> AccessStatus {
-        if self.inner.is_precompiled(address) {
+        if self.is_precompiled(address) {
             AccessStatus::Warm
         } else {
-            self.inner.state.access_account(address)
+            self.state.access_account(address)
         }
     }
 
     fn access_storage(&mut self, address: Address, location: U256) -> AccessStatus {
-        self.inner.state.access_storage(address, location)
+        self.state.access_storage(address, location)
     }
 }
 

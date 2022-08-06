@@ -1,5 +1,6 @@
 mod buffer;
 mod database;
+pub mod database_version;
 mod delta;
 pub mod genesis;
 mod in_memory_state;
