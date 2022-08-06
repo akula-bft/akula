@@ -102,7 +102,7 @@ where
                     };
                     let _ = chain_finalized_hash;
 
-                    info!("Received chain tip hash: {chain_tip_hash}, starting_download");
+                    info!("Received chain tip hash: {chain_tip_hash}, starting_download (last block #{prev_progress}");
 
                     let mut stream = self.node.stream_headers().await;
 
@@ -180,7 +180,7 @@ where
                             starting_block
                         };
 
-                        info!("Download session {starting_block} to {target_block}");
+                        info!("Download session block {starting_block} to {target_block}");
 
                         if let Some(mut downloaded) = self
                             .download_headers(
@@ -352,8 +352,7 @@ impl HeaderDownload {
                                 if sent.contains(&(msg.sentry_id, msg.peer_id)) {
                                     if let Message::BlockHeaders(BlockHeaders { request_id, headers }) = msg.msg.clone() {
                                         if sent_request_id == request_id && !headers.is_empty() {
-                                            info!("Received {} headers from peer {}/{}", headers.len(), msg.sentry_id, msg.peer_id);
-
+                                            info!("Received {} headers from peer {}/{} (request id {})", headers.len(), msg.sentry_id, msg.peer_id, request_id);
                                             break Some(headers);
                                         }
                                     }
@@ -444,7 +443,8 @@ impl HeaderDownload {
         let requests = Arc::new(Self::prepare_requests(start, end));
 
         info!(
-            "Will download {} headers over {} requests",
+            "Will download {} headers over {} requests (blocks {}-{})",
+            start, end,
             end - start + 1,
             requests.len()
         );
@@ -481,8 +481,8 @@ impl HeaderDownload {
                         }
 
                         info!(
-                            "Received {} headers from peer {peer_id}",
-                            inner.headers.len()
+                            "Received {} headers from peer {peer_id} (first block {})",
+                            inner.headers.len(), inner.headers[0].number
                         );
 
                         if is_bounded(inner.headers[0].number) {
@@ -516,11 +516,8 @@ impl HeaderDownload {
         };
         let mut headers = graph.backtrack(&tail);
 
-        info!(
-            "Built canonical chain with={} headers, elapsed={:?}",
-            headers.len(),
-            took.elapsed()
-        );
+        info!("Built canonical chain with={}, elapsed={:?}", headers.len(), took.elapsed());
+        debug!("Tail: {}", tail);
 
         let cur_size = headers.len();
         let took = Instant::now();

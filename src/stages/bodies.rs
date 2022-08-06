@@ -187,6 +187,10 @@ impl BodyDownload {
         let (pending_responses, mut pending_responses_watch) = PendingResponses::new();
         let pending_responses = Arc::new(Mutex::new(pending_responses));
         let handler = self.node.clone();
+        let mut min_block: BlockNumber = BlockNumber(0);
+        let mut max_block: BlockNumber = BlockNumber(0);
+
+		info!("[BodyDownload] starting_block={starting_block} target={target} will_reach_tip={will_reach_tip}");
 
         let mut bodies = {
             let _requester_task = TaskGuard(tokio::spawn({
@@ -259,7 +263,7 @@ impl BodyDownload {
                                             pending_responses.lock().remove(request_id);
                                             total_sent.fetch_sub(1, Ordering::SeqCst);
                                         } else {
-                                            debug!("Sent block request with id {request_id}");
+                                            trace!("Sent block request with id {request_id}");
                                         }
                                     })
                                     .await;
@@ -341,7 +345,7 @@ impl BodyDownload {
                             if let Some(BlockBodies { request_id, bodies }) = res {
                                 let mut pending_responses = pending_responses.lock();
                                 pending_responses.remove(request_id);
-                                debug!("Accepted block bodies with id {request_id}");
+                                trace!("Accepted block bodies with id {request_id}");
                                 pending_bodies.push(bodies);
 
                                 if pending_responses.count() == 0 {
@@ -391,6 +395,13 @@ impl BodyDownload {
                     let mut requests = requests.write();
                     for (key, value) in tmp {
                         if let Some((number, hash)) = requests.remove(&key) {
+                            trace!("Block key {key:?} number {number} hash {hash}");
+                            if min_block == 0 || number < min_block {
+                                min_block = number;
+                            }
+                            if max_block == 0 || number > max_block {
+                                max_block = number;
+                            }
                             bodies.insert(number, (hash, value));
                             received += 1;
                         } else {
@@ -416,7 +427,7 @@ impl BodyDownload {
 
                 if received > 0 {
                     info!(
-                        "Received {received} block bodies{}",
+                        "Received {received} block bodies{} in range {min_block}-{max_block}",
                         if elapsed_sum > 0 {
                             format!(" ({} blk/sec)", total_received_sum / elapsed_sum)
                         } else {
