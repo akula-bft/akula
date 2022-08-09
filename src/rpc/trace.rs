@@ -1010,6 +1010,7 @@ mod convert {
                 gas_price: gas_price.map(From::from),
                 value: value.map(From::from),
                 data: input.map(From::from),
+                tag: Default::default(),
             },
             web3::call::Call::Eip2930(Eip2930Call {
                 from,
@@ -1031,6 +1032,7 @@ mod convert {
                 } else {
                     None
                 },
+                tag: Default::default(),
             },
             web3::call::Call::Eip1559(Eip1559Call {
                 from,
@@ -1054,6 +1056,7 @@ mod convert {
                 } else {
                     None
                 },
+                tag: Default::default(),
             },
         })
     }
