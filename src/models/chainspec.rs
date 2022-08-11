@@ -100,7 +100,10 @@ impl ChainSpec {
             self.upgrades.berlin,
             self.upgrades.london,
             // self.upgrades.paris,
-        ]
+            self.upgrades.mirrorsync,
+            self.upgrades.bruno,
+            self.upgrades.euler,
+            ]
         .iter()
         .copied()
         .flatten()
@@ -155,6 +158,11 @@ pub fn switch_is_active(switch: Option<BlockNumber>, block_number: BlockNumber) 
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SealVerificationParams {
+    Parlia {
+        #[serde(with = "duration_as_millis")]
+        period: Duration,
+        epoch: u64,
+    },
     Clique {
         #[serde(with = "duration_as_millis")]
         period: Duration,
@@ -264,6 +272,25 @@ pub struct Upgrades {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub paris: Option<BlockNumber>,
+    // bsc forks starts
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub mirrorsync: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub bruno: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub euler: Option<BlockNumber>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -289,6 +316,11 @@ pub enum Seal {
         nonce: H64,
         mix_hash: H256,
     },
+    Parlia {
+        vanity: H256,
+        score: BlockScore,
+        signers: Vec<Address>,
+    },
     Clique {
         vanity: H256,
         score: BlockScore,
@@ -300,6 +332,7 @@ impl Seal {
     pub fn difficulty(&self) -> U256 {
         match self {
             Seal::Ethash { difficulty, .. } => *difficulty,
+            Seal::Parlia { score, .. } => (*score as u8).into(),
             Seal::Clique { score, .. } => (*score as u8).into(),
         }
     }
@@ -307,6 +340,17 @@ impl Seal {
     pub fn extra_data(&self) -> Bytes {
         match self {
             Seal::Ethash { vanity, .. } => vanity.clone(),
+            Seal::Parlia {
+                vanity, signers, ..
+            } => {
+                let mut v = Vec::new();
+                v.extend_from_slice(vanity.as_bytes());
+                for signer in signers {
+                    v.extend_from_slice(signer.as_bytes());
+                }
+                v.extend_from_slice(&[0; 65]);
+                v.into()
+            }
             Seal::Clique {
                 vanity, signers, ..
             } => {

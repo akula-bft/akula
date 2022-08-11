@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::format_err;
 use tempfile::TempDir;
+use sha3::{Digest, Keccak256};
 
 #[derive(Clone, Debug)]
 pub struct GenesisState {
@@ -24,8 +25,25 @@ impl GenesisState {
         // Allocate accounts
         if let Some(balances) = self.chain_spec.balances.get(&BlockNumber(0)) {
             for (&address, &balance) in balances {
+                let mut code_hash = EMPTY_HASH;
+                if let Some(contracts) = self.chain_spec.contracts.get(&BlockNumber(0)) {
+                    if contracts.contains_key(&address) {
+                        code_hash = match contracts.get(&address) {
+                            Some(contract) =>
+                                {
+                                    match contract {
+                                        Contract::Contract { code } => H256::from_slice(&Keccak256::digest(&code)[..]),
+                                        _ => EMPTY_HASH,
+                                    }
+                                },
+                            _ => EMPTY_HASH,
+                        };
+                    }
+                }
+                println!("initial_state address{:?}, code_hash:{:?}", address, code_hash);
                 let current_account = Account {
                     balance,
+                    code_hash,
                     ..Default::default()
                 };
                 state_buffer.update_account(address, None, Some(current_account));
@@ -73,6 +91,7 @@ where
     if let Some(existing_chainspec) = txn.get(tables::Config, ())? {
         if let Some(chainspec) = chainspec {
             if chainspec != existing_chainspec {
+                println!("initialize_genesis chainspec.name: {:?}: {:?}", chainspec.name, existing_chainspec.name);
                 if bundled_chain_spec && chainspec.name == existing_chainspec.name {
                     txn.set(tables::Config, (), chainspec.clone())?;
                     return Ok((chainspec, true));
@@ -94,11 +113,28 @@ where
     // Allocate accounts
     if let Some(balances) = chainspec.balances.get(&genesis) {
         for (&address, &balance) in balances {
+            let mut code_hash = EMPTY_HASH;
+            if let Some(contracts) = chainspec.contracts.get(&genesis) {
+                if contracts.contains_key(&address) {
+                    code_hash = match contracts.get(&address) {
+                        Some(contract) =>
+                            {
+                                match contract {
+                                    Contract::Contract { code } => H256::from_slice(&Keccak256::digest(&code)[..]),
+                                    _ => EMPTY_HASH,
+                                }
+                            },
+                            _ => EMPTY_HASH,
+                    };
+                }
+            }
+            println!("initialize_genesis address{:?}, code_hash:{:?}", address, code_hash);
             state_buffer.update_account(
                 address,
                 None,
                 Some(Account {
                     balance,
+                    code_hash,
                     ..Default::default()
                 }),
             );
@@ -130,7 +166,10 @@ where
         ommers_hash: EMPTY_LIST_HASH,
         transactions_root: EMPTY_ROOT,
     };
+
     let block_hash = header.hash();
+    println!("initialize_genesis block_hash:{:?}", block_hash);
+
 
     txn.set(tables::Header, (genesis, block_hash), header.clone())?;
     txn.set(tables::CanonicalHeader, genesis, block_hash)?;
