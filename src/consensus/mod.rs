@@ -44,6 +44,9 @@ impl ConsensusState {
     ) -> anyhow::Result<ConsensusState> {
         Ok(match chainspec.consensus.seal_verification {
             SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
+            SealVerificationParams::Parlia { period: _, epoch } => {
+                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
+            }
             SealVerificationParams::Clique { period: _, epoch } => {
                 ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
             }
@@ -332,6 +335,23 @@ pub fn engine_factory(
             skip_pow_verification,
         )),
 
+        SealVerificationParams::Parlia { period, epoch } => {
+            let initial_signers = match chain_config.genesis.seal {
+                Seal::Parlia {
+                    vanity: _,
+                    score: _,
+                    signers,
+                } => signers,
+                _ => bail!("Genesis seal does not match, expected Clique seal."),
+            };
+            Box::new(Clique::new(
+                chain_config.params.chain_id,
+                chain_config.consensus.eip1559_block,
+                period,
+                epoch,
+                initial_signers,
+            ))
+        }
         SealVerificationParams::Clique { period, epoch } => {
             let initial_signers = match chain_config.genesis.seal {
                 Seal::Clique {
