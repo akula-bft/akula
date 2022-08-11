@@ -325,7 +325,7 @@ pub fn engine_factory(
             chain_config.params.chain_id,
             chain_config.consensus.eip1559_block,
             duration_limit,
-            BlockRewardSchedule(block_reward),
+            block_reward.into(),
             homestead_formula,
             byzantium_formula,
             difficulty_bomb,
@@ -354,7 +354,9 @@ pub fn engine_factory(
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_number,
+            since,
             block_reward,
+            beneficiary,
         } => Box::new(BeaconConsensus::new(
             db,
             listen_addr.unwrap_or_else(|| {
@@ -363,10 +365,12 @@ pub fn engine_factory(
             chain_config.params.chain_id,
             chain_config.params.network_id,
             chain_config.consensus.eip1559_block,
-            BlockRewardSchedule(block_reward),
+            block_reward.into(),
+            beneficiary.into(),
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_number,
+            since,
         )),
     })
 }
