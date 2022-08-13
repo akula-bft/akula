@@ -3,8 +3,6 @@
     consensus: (
         seal_verification: Beacon(
             terminal_total_difficulty: "0xb1a2bc2ec50000",
-            terminal_block_hash: "0x5010949c3acdf1d076c9e4ee8aedbb539aca48ebe19638330bc02c5b1bfb953d",
-            terminal_block_number: 12350712,
             block_reward: {
                 0: "0x4563918244f40000",
                 1700000: "0x29a2241af62c0000",
