@@ -23,7 +23,9 @@ use ethereum_jsonrpc::{
 };
 use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
-use std::{future::pending, net::SocketAddr, panic, sync::Arc, time::Duration};
+use std::{
+    fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic, sync::Arc, time::Duration,
+};
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
@@ -109,6 +111,10 @@ pub struct Opt {
     /// Enable CL engine RPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8551")]
     pub engine_listen_address: SocketAddr,
+
+    /// Path to JWT secret file.
+    #[clap(long)]
+    pub jwt_secret_path: Option<ExpandedPathBuf>,
 }
 
 #[allow(unreachable_code)]
@@ -171,6 +177,26 @@ fn main() -> anyhow::Result<()> {
 
                     chainspec
                 };
+
+                let jwt_secret_path = opt
+                    .jwt_secret_path
+                    .map(|v| v.0)
+                    .unwrap_or_else(|| opt.data_dir.0.join("jwt.hex"));
+                if let Ok(mut file) = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(jwt_secret_path)
+                {
+                    file.write_all(
+                        hex::encode(
+                            std::iter::repeat_with(rand::random)
+                                .take(32)
+                                .collect::<Vec<_>>(),
+                        )
+                        .as_bytes(),
+                    )?;
+                    file.flush()?;
+                }
 
                 let consensus: Arc<dyn Consensus> = engine_factory(
                     Some(db.clone()),
