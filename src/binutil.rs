@@ -18,6 +18,10 @@ impl AkulaDataDir {
         self.0.join("chaindata")
     }
 
+    pub fn snapshot(&self) -> PathBuf {
+        self.0.join("snapshots")
+    }
+
     pub fn etl_temp_dir(&self) -> PathBuf {
         self.0.join("etl-temp")
     }

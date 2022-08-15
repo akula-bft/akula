@@ -3,6 +3,7 @@
     assert_matches,
     const_for,
     const_mut_refs,
+    const_option,
     entry_insert,
     generator_trait,
     generators,
@@ -40,6 +41,7 @@ pub mod p2p;
 pub mod res;
 pub mod rpc;
 pub mod sentry;
+pub mod snapshot;
 pub mod stagedsync;
 pub mod stages;
 mod state;
