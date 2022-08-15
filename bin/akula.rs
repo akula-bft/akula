@@ -376,6 +376,7 @@ fn main() -> anyhow::Result<()> {
                 );
                 staged_sync.push(
                     Execution {
+                        max_block: opt.max_block,
                         batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
                         history_batch_size: opt
                             .execution_history_batch_size
