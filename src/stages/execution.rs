@@ -23,6 +23,7 @@ use tracing::*;
 /// Execution of blocks through EVM
 #[derive(Debug)]
 pub struct Execution {
+    pub max_block: Option<BlockNumber>,
     pub batch_size: u64,
     pub history_batch_size: u64,
     pub exit_after_batch: bool,
@@ -208,8 +209,8 @@ where
 
         let prev_progress = input.stage_progress.unwrap_or_default();
         let starting_block = prev_progress + 1;
-        let max_block = input
-            .previous_stage.ok_or_else(|| format_err!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1;
+        let max_block = std::cmp::min(input
+            .previous_stage.ok_or_else(|| format_err!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1, self.max_block.unwrap_or(BlockNumber(u64::MAX)));
 
         Ok(if max_block >= starting_block {
             let result = execute_batch_of_blocks(
