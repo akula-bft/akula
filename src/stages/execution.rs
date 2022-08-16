@@ -12,13 +12,15 @@ use crate::{
         tables::{self, CallTraceSetEntry},
     },
     models::*,
-    stagedsync::{format_duration, stage::*, stages::EXECUTION, util::*},
-    upsert_storage_value, Buffer,
+    stagedsync::{format_duration, stage::*, util::*},
+    upsert_storage_value, Buffer, StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::*;
+
+pub const EXECUTION: StageId = StageId("Execution");
 
 /// Execution of blocks through EVM
 #[derive(Debug)]

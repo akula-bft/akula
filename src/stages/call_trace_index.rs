@@ -5,7 +5,7 @@ use crate::{
         tables::{self, CallTraceSetEntry},
     },
     models::*,
-    stagedsync::{stage::*, stages::*},
+    stagedsync::stage::*,
     stages::stage_util::*,
     StageId,
 };
@@ -19,6 +19,8 @@ use std::{
 use tempfile::TempDir;
 use tokio::pin;
 use tracing::info;
+
+pub const CALL_TRACES: StageId = StageId("CallTraces");
 
 /// Generate call trace index
 #[derive(Debug)]
@@ -209,7 +211,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bitmapdb;
+    use crate::{bitmapdb, stages};
     use std::time::Instant;
 
     #[tokio::test]
@@ -275,7 +277,7 @@ mod tests {
                     StageInput {
                         restarted: false,
                         first_started_at: (Instant::now(), Some(BlockNumber(0))),
-                        previous_stage: Some((EXECUTION, BlockNumber(20))),
+                        previous_stage: Some((stages::EXECUTION, BlockNumber(20))),
                         stage_progress: None,
                     },
                 )
@@ -316,7 +318,7 @@ mod tests {
                     StageInput {
                         restarted: false,
                         first_started_at: (Instant::now(), Some(BlockNumber(10))),
-                        previous_stage: Some((EXECUTION, BlockNumber(30))),
+                        previous_stage: Some((stages::EXECUTION, BlockNumber(30))),
                         stage_progress: Some(BlockNumber(10)),
                     },
                 )

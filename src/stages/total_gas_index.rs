@@ -1,11 +1,13 @@
 use crate::{
     kv::{mdbx::*, tables},
-    stagedsync::{stage::*, stages::*},
+    stagedsync::stage::*,
     StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
 use tracing::*;
+
+pub const TOTAL_GAS_INDEX: StageId = StageId("TotalGasIndex");
 
 #[derive(Debug)]
 pub struct TotalGasIndex;

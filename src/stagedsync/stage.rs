@@ -1,8 +1,15 @@
-use super::stages::StageId;
-use crate::{consensus::ValidationError, kv::mdbx::*, models::*};
+use crate::{
+    consensus::ValidationError,
+    kv::{mdbx::*, tables},
+    models::*,
+};
 use async_trait::async_trait;
 use auto_impl::auto_impl;
-use std::{fmt::Debug, time::Instant};
+use std::{
+    fmt::{Debug, Display},
+    time::Instant,
+};
+use tracing::*;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
@@ -92,5 +99,76 @@ where
         'db: 'tx,
     {
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StageId(pub &'static str);
+
+impl AsRef<str> for StageId {
+    fn as_ref(&self) -> &str {
+        self.0
+    }
+}
+
+impl AsRef<[u8]> for StageId {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl Display for StageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl StageId {
+    #[instrument]
+    pub fn get_progress<'db, K, E>(
+        &self,
+        tx: &MdbxTransaction<'db, K, E>,
+    ) -> anyhow::Result<Option<BlockNumber>>
+    where
+        K: TransactionKind,
+        E: EnvironmentKind,
+    {
+        tx.get(tables::SyncStage, *self)
+    }
+
+    #[instrument]
+    pub fn save_progress<'db, E>(
+        &self,
+        tx: &MdbxTransaction<'db, RW, E>,
+        block: BlockNumber,
+    ) -> anyhow::Result<()>
+    where
+        E: EnvironmentKind,
+    {
+        tx.set(tables::SyncStage, *self, block)
+    }
+
+    #[instrument]
+    pub fn get_prune_progress<'db, K, E>(
+        &self,
+        tx: &MdbxTransaction<'db, K, E>,
+    ) -> anyhow::Result<Option<BlockNumber>>
+    where
+        K: TransactionKind,
+        E: EnvironmentKind,
+    {
+        tx.get(tables::PruneProgress, *self)
+    }
+
+    #[instrument]
+    pub fn save_prune_progress<'db, E>(
+        &self,
+        tx: &MdbxTransaction<'db, RW, E>,
+        block: BlockNumber,
+    ) -> anyhow::Result<()>
+    where
+        E: EnvironmentKind,
+    {
+        tx.set(tables::PruneProgress, *self, block)
     }
 }
