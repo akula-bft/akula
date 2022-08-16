@@ -16,17 +16,17 @@ ENV PATH="${PATH}:/root/.cargo/bin"
 WORKDIR /akula
 ADD . .
 
-RUN cargo build --all --profile=production
+RUN cargo build --workspace --profile=production
 
 FROM fedora:36
 RUN dnf install -y e2fsprogs
 
 # Avoid copying over a bunch of junk
 COPY --from=builder /akula/target/production/akula /usr/local/bin/akula
-COPY --from=builder /akula/target/production/akula /usr/local/bin/akula-rpc
-COPY --from=builder /akula/target/production/akula /usr/local/bin/akula-sentry
-COPY --from=builder /akula/target/production/akula /usr/local/bin/akula-toolbox
-COPY --from=builder /akula/target/production/akula /usr/local/bin/consensus-tests
+COPY --from=builder /akula/target/production/akula-rpc /usr/local/bin/akula-rpc
+COPY --from=builder /akula/target/production/akula-sentry /usr/local/bin/akula-sentry
+COPY --from=builder /akula/target/production/akula-toolbox /usr/local/bin/akula-toolbox
+COPY --from=builder /akula/target/production/consensus-tests /usr/local/bin/consensus-tests
 
 ARG UID=1000
 ARG GID=1000
