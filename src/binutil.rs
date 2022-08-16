@@ -38,6 +38,10 @@ impl AkulaDataDir {
     pub fn sentry_db(&self) -> PathBuf {
         self.0.join("sentrydb")
     }
+
+    pub fn nodekey(&self) -> PathBuf {
+        self.0.join("nodekey")
+    }
 }
 
 impl Default for AkulaDataDir {
