@@ -6,7 +6,6 @@ use self::{
 };
 use crate::{
     binutil::AkulaDataDir,
-    kv::tables::{self, SENTRY_TABLES},
     models::P2PParams,
     sentry::{
         opts::{OptsDiscStatic, OptsDiscV4, OptsDnsDisc},
@@ -410,31 +409,35 @@ pub async fn run(
     db_path: AkulaDataDir,
     network_params: P2PParams,
 ) -> anyhow::Result<Arc<Swarm<CapabilityServerImpl>>> {
-    let db = Arc::new(crate::kv::new_database(
-        &SENTRY_TABLES,
-        &db_path.sentry_db(),
-    )?);
-
     let secret_key = {
-        let tx = db.begin_mutable()?;
+        let secret_key_path = db_path.nodekey();
         let secret_key;
         if let Some(node_key) = opts.node_key {
             secret_key = SecretKey::from_slice(&hex::decode(node_key)?)?;
             info!("Loaded node key from config");
-            tx.set(tables::SentryKey, (), secret_key)?;
-            tx.commit()?;
-        } else if let Some(key) = tx.get(tables::SentryKey, ())? {
-            info!("Loaded node key: {}", hex::encode(key.secret_bytes()));
-            secret_key = key;
+            std::fs::write(&secret_key_path, &hex::encode(secret_key.secret_bytes()))?;
         } else {
-            secret_key = SecretKey::new(&mut secp256k1::rand::thread_rng());
-            info!(
-                "Generated new node key: {}",
-                hex::encode(secret_key.secret_bytes())
-            );
-            tx.set(tables::SentryKey, (), secret_key)?;
-            tx.commit()?;
-        };
+            match std::fs::read_to_string(&secret_key_path) {
+                Ok(nodekey) => {
+                    secret_key = SecretKey::from_slice(&hex::decode(&nodekey)?)?;
+                    info!(
+                        "Loaded node key: {}",
+                        hex::encode(secret_key.secret_bytes())
+                    );
+                }
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::NotFound => {
+                        secret_key = SecretKey::new(&mut secp256k1::rand::thread_rng());
+                        info!(
+                            "Generated new node key: {}",
+                            hex::encode(secret_key.secret_bytes())
+                        );
+                        std::fs::write(&secret_key_path, &hex::encode(secret_key.secret_bytes()))?;
+                    }
+                    _ => return Err(e.into()),
+                },
+            }
+        }
         secret_key
     };
 
