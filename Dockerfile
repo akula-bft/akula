@@ -36,7 +36,7 @@ ADD . .
 
 RUN cargo build --all --profile=production
 
-FROM alpine:3.16.2
+FROM ubuntu:22.04
 
 # Avoid copying over a bunch of junk
 COPY --from=builder /akula/target/production/akula /usr/local/bin/akula
@@ -47,7 +47,9 @@ COPY --from=builder /akula/target/production/akula /usr/local/bin/consensus-test
 
 ARG UID=1000
 ARG GID=1000
-RUN adduser -D -u $UID -g $GID akula
+
+RUN groupadd -g $GID akula
+RUN adduser --uid $UID --gid $GID --disabled-password akula
 USER akula
 RUN mkdir -p ~/.local/share/akula
 
