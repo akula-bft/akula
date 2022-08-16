@@ -1,20 +1,9 @@
-FROM ubuntu:22.04 as builder
+FROM fedora:36 as builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && \
-    apt-get install \
-       git \
-       ca-certificates \
-       curl \
-       gcc \
-       libc6-dev \
-       openssl \
-       libssl-dev \
-       pkg-config \
-       -qqy \
-       --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+# base requirements
+RUN dnf install -y git clang \
+    cmake e2fsprogs e2fsprogs-devel \
+    protobuf-compiler protobuf-devel
 
 RUN mkdir /rust
 WORKDIR /rust
@@ -24,19 +13,13 @@ RUN chmod +x ./install_rust.sh
 RUN ./install_rust.sh -y
 ENV PATH="${PATH}:/root/.cargo/bin"
 
-RUN apt-get update && apt-get install -y clang-12 libext2fs-dev wget && rm -rf /var/lib/apt/lists/*
-RUN ln /usr/bin/clang-12 /usr/bin/clang
-
-WORKDIR /protobuf
-RUN wget http://ftp.debian.org/debian/pool/main/p/protobuf/libprotobuf-dev_3.20.1-1_amd64.deb http://ftp.debian.org/debian/pool/main/p/protobuf/libprotobuf-lite31_3.20.1-1_amd64.deb http://ftp.debian.org/debian/pool/main/p/protobuf/libprotoc31_3.20.1-1_amd64.deb http://ftp.debian.org/debian/pool/main/p/protobuf/libprotobuf31_3.20.1-1_amd64.deb http://ftp.debian.org/debian/pool/main/p/protobuf/protobuf-compiler_3.20.1-1_amd64.deb
-RUN apt-get update && apt-get install -y ./*.deb
-
 WORKDIR /akula
 ADD . .
 
 RUN cargo build --all --profile=production
 
-FROM ubuntu:22.04
+FROM fedora:36
+RUN dnf install -y e2fsprogs
 
 # Avoid copying over a bunch of junk
 COPY --from=builder /akula/target/production/akula /usr/local/bin/akula
@@ -49,12 +32,12 @@ ARG UID=1000
 ARG GID=1000
 
 RUN groupadd -g $GID akula
-RUN adduser --uid $UID --gid $GID --disabled-password akula
+RUN adduser --uid $UID --gid $GID  -p '*' akula
 USER akula
 RUN mkdir -p ~/.local/share/akula
 
 EXPOSE 8545 \
-       8551 \
-       30303 \
-       30303/udp \
-       7545
+    8551 \
+    30303 \
+    30303/udp \
+    7545
