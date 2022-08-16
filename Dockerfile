@@ -32,7 +32,7 @@ ARG UID=1000
 ARG GID=1000
 
 RUN groupadd -g $GID akula
-RUN adduser --uid $UID --gid $GID  -p '*' akula
+RUN adduser -D -u $UID -g $GID akula
 USER akula
 RUN mkdir -p ~/.local/share/akula
 
