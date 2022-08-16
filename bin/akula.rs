@@ -10,6 +10,7 @@ use akula::{
         net::NetApiServerImpl, otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl,
         trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
     },
+    snapshot::Snapshotter,
     stagedsync,
     stages::*,
     version_string,
@@ -29,7 +30,7 @@ use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
     sync::Arc, time::Duration,
 };
-use tokio::time::sleep;
+use tokio::{sync::Mutex as AsyncMutex, time::sleep};
 use tracing::*;
 use tracing_subscriber::prelude::*;
 
@@ -39,6 +40,10 @@ pub struct Opt {
     /// Path to database directory.
     #[clap(long, help = "Database directory path", default_value_t)]
     pub datadir: AkulaDataDir,
+
+    /// Path to snapshot directory.
+    #[clap(long = "snapshotdir")]
+    pub snapshot_dir: Option<ExpandedPathBuf>,
 
     /// Name of the network to join
     #[clap(long)]
@@ -171,6 +176,16 @@ fn main() -> anyhow::Result<()> {
                 )?);
 
                 akula::database_version::migrate_database(&db)?;
+
+                let snapshot_dir = opt
+                    .snapshot_dir
+                    .map(|v| v.0)
+                    .unwrap_or_else(|| opt.datadir.snapshot());
+
+                let header_snapshot_dir = snapshot_dir.join("headers");
+
+                let header_snapshotter =
+                    Arc::new(AsyncMutex::new(Snapshotter::new(header_snapshot_dir)?));
 
                 let chainspec = {
                     let span = span!(Level::INFO, "", " Genesis initialization ");
@@ -438,6 +453,12 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     BlockHashes {
                         temp_dir: etl_temp_dir.clone(),
+                    },
+                    false,
+                );
+                staged_sync.push(
+                    HeaderSnapshot {
+                        snapshotter: header_snapshotter,
                     },
                     false,
                 );
