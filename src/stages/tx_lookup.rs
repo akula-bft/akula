@@ -2,7 +2,7 @@ use crate::{
     etl::collector::*,
     kv::{mdbx::*, tables},
     models::*,
-    stagedsync::{stage::*, stages::*},
+    stagedsync::stage::*,
     StageId,
 };
 use anyhow::format_err;
@@ -14,6 +14,8 @@ use std::{
 use tempfile::TempDir;
 use tokio::pin;
 use tracing::*;
+
+pub const TX_LOOKUP: StageId = StageId("TxLookup");
 
 /// Generation of TransactionHash => BlockNumber mapping
 #[derive(Debug)]
@@ -197,7 +199,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{accessors::chain, kv::new_mem_chaindata};
+    use crate::{accessors::chain, kv::new_mem_chaindata, stages};
     use bytes::Bytes;
     use hex_literal::hex;
     use std::time::Instant;
@@ -366,7 +368,7 @@ mod tests {
         let stage_input = StageInput {
             restarted: false,
             first_started_at: (Instant::now(), Some(BlockNumber(0))),
-            previous_stage: Some((BODIES, 3.into())),
+            previous_stage: Some((stages::BODIES, 3.into())),
             stage_progress: Some(0.into()),
         };
 
@@ -406,7 +408,7 @@ mod tests {
         let stage_input = StageInput {
             restarted: false,
             first_started_at: (Instant::now(), Some(BlockNumber(0))),
-            previous_stage: Some((BODIES, 3.into())),
+            previous_stage: Some((stages::BODIES, 3.into())),
             stage_progress: Some(0.into()),
         };
 

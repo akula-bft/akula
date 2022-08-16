@@ -13,8 +13,7 @@ pub mod helpers {
         },
         kv::{mdbx::*, tables},
         models::*,
-        stagedsync::stages,
-        Buffer, StateReader,
+        stages, Buffer, StateReader,
     };
     use anyhow::format_err;
     use ethereum_jsonrpc::types;

@@ -7,7 +7,7 @@ use crate::{
     },
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
-    stagedsync::stages::{self, FINISH},
+    stages::{self, FINISH},
     Buffer, IntraBlockState,
 };
 use anyhow::format_err;

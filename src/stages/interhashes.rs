@@ -2,10 +2,7 @@ use crate::{
     consensus::DuoError,
     kv::{mdbx::*, tables},
     models::*,
-    stagedsync::{
-        stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
-        stages::*,
-    },
+    stagedsync::stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
     stages::stage_util::should_do_clean_promotion,
     trie::*,
     StageId,
@@ -15,6 +12,8 @@ use async_trait::async_trait;
 use std::{cmp, sync::Arc};
 use tempfile::TempDir;
 use tracing::*;
+
+pub const INTERMEDIATE_HASHES: StageId = StageId("IntermediateHashes");
 
 /// Generation of intermediate hashes for efficient computation of the state trie root
 #[derive(Debug)]

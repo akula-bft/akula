@@ -9,10 +9,7 @@ use akula::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
         otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
     },
-    stagedsync::{
-        self,
-        stages::{BODIES, HEADERS},
-    },
+    stagedsync,
     stages::*,
     version_string,
 };

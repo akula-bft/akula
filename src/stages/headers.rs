@@ -8,8 +8,8 @@ use crate::{
         node::{Node, NodeStream},
         types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
     },
-    stagedsync::{stage::*, stages::HEADERS},
-    TaskGuard,
+    stagedsync::stage::*,
+    StageId, TaskGuard,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -34,6 +34,8 @@ const HEADERS_UPPER_BOUND: usize = 1 << 10;
 
 const STAGE_UPPER_BOUND: BlockNumber = BlockNumber(90_000);
 const REQUEST_INTERVAL: Duration = Duration::from_secs(10);
+
+pub const HEADERS: StageId = StageId("Headers");
 
 #[derive(Debug)]
 pub struct HeaderDownload {
