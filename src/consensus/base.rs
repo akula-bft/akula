@@ -219,15 +219,18 @@ impl ConsensusEngineBase {
     }
 }
 
-#[derive(Debug)]
-pub struct BlockRewardSchedule(pub BTreeMap<BlockNumber, U256>);
+#[derive(Debug, From)]
+pub struct BlockSchedule<T: Copy + Default>(pub BTreeMap<BlockNumber, T>);
 
-impl BlockRewardSchedule {
-    pub fn for_block(&self, block_number: BlockNumber) -> U256 {
-        let mut v = U256::ZERO;
-        for (&reward_since, &reward) in &self.0 {
-            if reward_since <= block_number {
-                v = reward;
+impl<T> BlockSchedule<T>
+where
+    T: Copy + Default,
+{
+    pub fn for_block(&self, block_number: BlockNumber) -> T {
+        let mut v = T::default();
+        for (&item_since, &item) in &self.0 {
+            if item_since <= block_number {
+                v = item;
             } else {
                 break;
             }
@@ -235,6 +238,8 @@ impl BlockRewardSchedule {
         v
     }
 }
+
+pub type BlockRewardSchedule = BlockSchedule<U256>;
 
 #[cfg(test)]
 mod tests {
@@ -299,7 +304,7 @@ mod tests {
 
     #[test]
     fn block_reward() {
-        let schedule = BlockRewardSchedule(
+        let schedule = BlockSchedule(
             [(0, 500), (10, 200), (20, 0)]
                 .into_iter()
                 .map(|(b, r)| (BlockNumber(b), r.as_u256()))
