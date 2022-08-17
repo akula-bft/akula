@@ -187,6 +187,16 @@ fn main() -> anyhow::Result<()> {
                 let header_snapshotter =
                     Arc::new(AsyncMutex::new(Snapshotter::new(header_snapshot_dir)?));
 
+                let body_snapshot_dir = snapshot_dir.join("bodies");
+
+                let body_snapshotter =
+                    Arc::new(AsyncMutex::new(Snapshotter::new(body_snapshot_dir)?));
+
+                let sender_snapshot_dir = snapshot_dir.join("senders");
+
+                let sender_snapshotter =
+                    Arc::new(AsyncMutex::new(Snapshotter::new(sender_snapshot_dir)?));
+
                 let chainspec = {
                     let span = span!(Level::INFO, "", " Genesis initialization ");
                     let _g = span.enter();
@@ -465,8 +475,20 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(BodyDownload { node, consensus }, false);
                 staged_sync.push(TotalTxIndex, false);
                 staged_sync.push(
+                    BodySnapshot {
+                        snapshotter: body_snapshotter,
+                    },
+                    false,
+                );
+                staged_sync.push(
                     SenderRecovery {
                         batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),
+                    },
+                    false,
+                );
+                staged_sync.push(
+                    SenderSnapshot {
+                        snapshotter: sender_snapshotter,
                     },
                     false,
                 );
