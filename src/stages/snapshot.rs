@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::*;
 
-const MIN_DISTANCE: usize = 90_000;
+const MIN_DISTANCE: usize = 1_000;
 
 pub const HEADER_SNAPSHOT: StageId = StageId("HeaderSnapshot");
 pub const BODY_SNAPSHOT: StageId = StageId("BodySnapshot");
