@@ -5,7 +5,7 @@ use crate::{
         traits::{TableObject, TryGenIter},
     },
     models::*,
-    snapshot::Snapshotter,
+    snapshot::{SnapshotVersion, Snapshotter, V1},
     stagedsync::stage::*,
     StageId,
 };
@@ -23,7 +23,7 @@ pub const SENDER_SNAPSHOT: StageId = StageId("SenderSnapshot");
 
 #[derive(Debug)]
 pub struct HeaderSnapshot {
-    pub snapshotter: Arc<AsyncMutex<Snapshotter<BlockHeader>>>,
+    pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockHeader>>>,
 }
 
 #[async_trait]
@@ -84,7 +84,7 @@ where
 
 #[derive(Debug)]
 pub struct BodySnapshot {
-    pub snapshotter: Arc<AsyncMutex<Snapshotter<BlockBody>>>,
+    pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockBody>>>,
 }
 
 #[async_trait]
@@ -165,7 +165,7 @@ where
 
 #[derive(Debug)]
 pub struct SenderSnapshot {
-    pub snapshotter: Arc<AsyncMutex<Snapshotter<Vec<Address>>>>,
+    pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, Vec<Address>>>>,
 }
 
 #[async_trait]
@@ -241,12 +241,13 @@ where
     }
 }
 
-fn execute_snapshot<T, IT>(
-    snapshotter: &mut Snapshotter<T>,
+fn execute_snapshot<Version, T, IT>(
+    snapshotter: &mut Snapshotter<Version, T>,
     mut extractor: impl FnMut(Option<BlockNumber>) -> anyhow::Result<IT>,
     prev_stage_progress: BlockNumber,
 ) -> anyhow::Result<()>
 where
+    Version: SnapshotVersion,
     T: TableObject,
     IT: Iterator<Item = anyhow::Result<(BlockNumber, T)>>,
 {

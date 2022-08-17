@@ -3,7 +3,6 @@ use crate::{
     models::*,
 };
 use anyhow::{bail, format_err};
-use serde::{Deserialize, Serialize};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write},
@@ -14,7 +13,19 @@ use std::{
 
 pub const DEFAULT_STRIDE: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
 pub const VERSION: usize = 1;
-pub const CONFIG_FILE: &str = "snapshot_config.ron";
+
+pub trait SnapshotVersion {
+    const DIRNAME: &'static str;
+    const STRIDE: NonZeroUsize;
+}
+
+#[derive(Debug)]
+pub struct V1;
+
+impl SnapshotVersion for V1 {
+    const DIRNAME: &'static str = "v1";
+    const STRIDE: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
+}
 
 #[derive(Debug)]
 struct Snapshot {
@@ -65,128 +76,76 @@ impl Snapshot {
     }
 
     fn index_file_name(idx: usize) -> String {
-        format!("segment_{idx:08}.idx")
+        format!("{idx:08}.idx")
     }
 
     fn segment_file_name(idx: usize) -> String {
-        format!("segment_{idx:08}.seg")
+        format!("{idx:08}.seg")
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SnapshotConfig {
-    pub version: usize,
-    pub stride: NonZeroUsize,
 }
 
 #[derive(Debug)]
-pub struct Snapshotter<T>
+pub struct Snapshotter<Version, T>
 where
+    Version: SnapshotVersion,
     T: TableObject,
 {
     base_path: PathBuf,
-    stride: NonZeroUsize,
     snapshots: Vec<Snapshot>,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<(Version, T)>,
 }
 
-impl<T> Snapshotter<T>
+impl<Version, T> Snapshotter<Version, T>
 where
+    Version: SnapshotVersion,
     T: TableObject,
 {
     pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        Self::new_with_stride(path, None)
-    }
-
-    fn new_with_stride(
-        path: impl AsRef<Path>,
-        stride: Option<NonZeroUsize>,
-    ) -> anyhow::Result<Self> {
-        let path = path.as_ref().to_path_buf();
+        let path = path.as_ref().join(Version::DIRNAME);
 
         std::fs::create_dir_all(&path)?;
 
-        let config_path = path.join(CONFIG_FILE);
+        let mut snapshots = vec![];
 
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&config_path)
-        {
-            Ok(mut new_config_file) => {
-                // No config, snapshot starting anew
+        let mut snapshot_idx = 0;
+        loop {
+            let index = match OpenOptions::new()
+                .read(true)
+                .open(path.join(Snapshot::index_file_name(snapshot_idx)))
+            {
+                Ok(file) => BufReader::new(file),
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::NotFound => break,
+                    _ => return Err(e.into()),
+                },
+            };
 
-                let stride = stride.unwrap_or(DEFAULT_STRIDE);
-                let config = SnapshotConfig {
-                    version: VERSION,
-                    stride,
-                };
+            let segment = OpenOptions::new()
+                .read(true)
+                .open(path.join(Snapshot::segment_file_name(snapshot_idx)))?;
 
-                ron::ser::to_writer(&mut new_config_file, &config)?;
-                new_config_file.flush()?;
+            let segment_len = segment.metadata()?.len() as usize;
 
-                Ok(Self {
-                    base_path: path,
-                    stride,
-                    snapshots: vec![],
-                    _marker: PhantomData,
-                })
-            }
-            Err(e) => {
-                match e.kind() {
-                    std::io::ErrorKind::AlreadyExists => {
-                        // Config already exists, let's read it.
-                        let mut config_file = OpenOptions::new().read(true).open(&config_path)?;
-
-                        let config = ron::de::from_reader::<_, SnapshotConfig>(&mut config_file)?;
-
-                        let mut snapshots = vec![];
-
-                        let mut snapshot_idx = 0;
-                        loop {
-                            let index = match OpenOptions::new()
-                                .read(true)
-                                .open(path.join(Snapshot::index_file_name(snapshot_idx)))
-                            {
-                                Ok(file) => BufReader::new(file),
-                                Err(e) => match e.kind() {
-                                    std::io::ErrorKind::NotFound => break,
-                                    _ => return Err(e.into()),
-                                },
-                            };
-
-                            let segment = OpenOptions::new()
-                                .read(true)
-                                .open(path.join(Snapshot::segment_file_name(snapshot_idx)))?;
-
-                            let segment_len = segment.metadata()?.len() as usize;
-
-                            snapshots.push(Snapshot {
-                                total_items: config.stride.get(),
-                                segment_len,
-                                segment: BufReader::new(segment),
-                                index,
-                            });
-                            snapshot_idx += 1;
-                        }
-
-                        Ok(Self {
-                            base_path: path,
-                            stride: config.stride,
-                            snapshots,
-                            _marker: PhantomData,
-                        })
-                    }
-                    _ => Err(e.into()),
-                }
-            }
+            snapshots.push(Snapshot {
+                total_items: Version::STRIDE.get(),
+                segment_len,
+                segment: BufReader::new(segment),
+                index,
+            });
+            snapshot_idx += 1;
         }
+
+        Ok(Self {
+            base_path: path,
+            snapshots,
+            _marker: PhantomData,
+        })
     }
 
     pub fn get(&mut self, block_number: BlockNumber) -> anyhow::Result<Option<T>> {
-        let snapshot_idx = block_number.0 as usize / self.stride;
+        let snapshot_idx = block_number.0 as usize / Version::STRIDE.get();
         if let Some(snapshot) = self.snapshots.get_mut(snapshot_idx) {
-            let entry_idx = block_number.0 as usize % self.stride;
+            let entry_idx = block_number.0 as usize % Version::STRIDE.get();
             return Ok(Some(TableDecode::decode(&snapshot.read(entry_idx)?)?));
         }
 
@@ -194,17 +153,13 @@ where
     }
 
     pub fn max_block(&self) -> Option<BlockNumber> {
-        (self.snapshots.len() * self.stride.get())
+        (self.snapshots.len() * Version::STRIDE.get())
             .checked_sub(1)
             .map(|v| BlockNumber(v as u64))
     }
 
     pub fn next_max_block(&self) -> BlockNumber {
-        BlockNumber((((self.snapshots.len() + 1) * self.stride.get()) - 1) as u64)
-    }
-
-    pub fn stride(&self) -> NonZeroUsize {
-        self.stride
+        BlockNumber((((self.snapshots.len() + 1) * Version::STRIDE.get()) - 1) as u64)
     }
 
     pub fn snapshot(
@@ -240,7 +195,7 @@ where
         let mut i = 0;
         let mut total_len = 0_usize;
 
-        let mut index_data = Vec::with_capacity(self.stride.get() * 8);
+        let mut index_data = Vec::with_capacity(Version::STRIDE.get() * 8);
 
         while let Some((block, item)) = items.next().transpose()? {
             if let Some(last_block) = last_block {
@@ -260,12 +215,12 @@ where
             i += 1;
             total_len += encoded.as_ref().len();
 
-            if i == self.stride.get() {
+            if i == Version::STRIDE.get() {
                 break;
             }
         }
 
-        if i != self.stride.get() {
+        if i != Version::STRIDE.get() {
             return Err(format_err!("end too early"));
         }
 
@@ -297,15 +252,17 @@ mod tests {
     fn snapshot() {
         let tmp_dir = tempdir().unwrap();
 
-        let stride = 4;
         let items = [0x42_u64, 0x0, 0xDEADBEEF, 0xAACC, 0xBAADCAFE];
 
+        struct TestSnapshot;
+
+        impl SnapshotVersion for TestSnapshot {
+            const DIRNAME: &'static str = "test";
+            const STRIDE: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+        }
+
         for new in [true, false] {
-            let mut snapshotter = Snapshotter::<U256>::new_with_stride(
-                &tmp_dir,
-                Some(NonZeroUsize::new(stride).unwrap()),
-            )
-            .unwrap();
+            let mut snapshotter = Snapshotter::<TestSnapshot, U256>::new(&tmp_dir).unwrap();
 
             if new {
                 assert_eq!(snapshotter.max_block(), None);
@@ -342,14 +299,14 @@ mod tests {
                 );
             }
 
-            for (i, item) in items.iter().enumerate().take(stride) {
+            for (i, item) in items.iter().enumerate().take(TestSnapshot::STRIDE.get()) {
                 assert_eq!(
                     snapshotter.get((i as u64).into()).unwrap(),
                     Some(item.as_u256())
                 );
             }
 
-            for i in stride..items.len() {
+            for i in TestSnapshot::STRIDE.get()..items.len() {
                 assert_eq!(snapshotter.get((i as u64).into()).unwrap(), None);
             }
         }
