@@ -6,7 +6,7 @@ use anyhow::{bail, format_err};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{File, OpenOptions},
-    io::{BufReader, Read, Seek, SeekFrom, Write},
+    io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write},
     marker::PhantomData,
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -214,25 +214,34 @@ where
         let mut last_block = self.max_block();
 
         let next_snapshot_idx = self.snapshots.len();
+
+        let segment_file_path = self
+            .base_path
+            .join(Snapshot::segment_file_name(next_snapshot_idx));
+        let idx_file_path = self
+            .base_path
+            .join(Snapshot::index_file_name(next_snapshot_idx));
+
+        for path in [&segment_file_path, &idx_file_path] {
+            match std::fs::remove_file(path) {
+                Err(e) if !matches!(e.kind(), ErrorKind::NotFound) => {
+                    return Err(e.into());
+                }
+                _ => {}
+            }
+        }
+
         let mut segment = OpenOptions::new()
             .read(true)
             .write(true)
             .create_new(true)
-            .open(
-                self.base_path
-                    .join(Snapshot::segment_file_name(next_snapshot_idx)),
-            )?;
-        let mut index = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(
-                self.base_path
-                    .join(Snapshot::index_file_name(next_snapshot_idx)),
-            )?;
+            .open(segment_file_path)?;
 
         let mut i = 0;
         let mut total_len = 0_usize;
+
+        let mut index_data = Vec::with_capacity(self.stride.get() * 8);
+
         while let Some((block, item)) = items.next().transpose()? {
             if let Some(last_block) = last_block {
                 if block != last_block + 1 {
@@ -245,7 +254,7 @@ where
             last_block = Some(block);
 
             let encoded = item.encode();
-            index.write_all(&total_len.to_be_bytes())?;
+            index_data.extend_from_slice(&total_len.to_be_bytes());
             segment.write_all(encoded.as_ref())?;
 
             i += 1;
@@ -261,7 +270,11 @@ where
         }
 
         segment.flush()?;
-        index.flush()?;
+
+        // Do this at the very end both for performance and to ensure index only gets created when all is said and done
+        let mut index = tempfile::NamedTempFile::new()?;
+        index.write_all(&index_data)?;
+        let index = index.persist(idx_file_path)?;
 
         self.snapshots.push(Snapshot {
             total_items: i,
