@@ -177,7 +177,7 @@ where
                 let mut caps = Vec::new();
                 for cap in &capabilities {
                     caps.push(CapabilityMessage {
-                        name: cap.name,
+                        name: cap.name.clone(),
                         version: cap.version,
                     });
                 }
@@ -245,7 +245,7 @@ where
                 .retain(|v| v.name != cap_info.name || v.version >= cap_info.version);
         }
 
-        shared_capabilities.sort_by_key(|v| v.name);
+        shared_capabilities.sort_by_cached_key(|v| v.name.clone());
 
         let no_shared_caps = shared_capabilities.is_empty();
 
@@ -378,7 +378,7 @@ where
                                 "invalid message id (out of cap range)",
                             ))));
                         }
-                        (s.shared_capabilities[index], message_id, data)
+                        (s.shared_capabilities[index].clone(), message_id, data)
                     }
                     Err(e) => {
                         return Poll::Ready(Some(Err(io::Error::new(
@@ -390,13 +390,13 @@ where
 
                 trace!(
                     "Cap: {}, id: {}, data: {}",
-                    CapabilityId::from(cap),
+                    CapabilityId::from(cap.clone()),
                     id,
                     hex::encode(&data)
                 );
 
                 Poll::Ready(Some(Ok(PeerMessage::Subprotocol(SubprotocolMessage {
-                    cap_name: cap.name,
+                    cap_name: cap.name.clone(),
                     message: Message { id, data },
                 }))))
             }
@@ -446,7 +446,7 @@ where
             }
             PeerMessage::Subprotocol(SubprotocolMessage { cap_name, message }) => {
                 let Message { id, data } = message;
-                let cap = *this
+                let cap = this
                     .shared_capabilities
                     .iter()
                     .find(|cap| cap.name == cap_name)
@@ -469,7 +469,7 @@ where
 
                 let mut message_id = 0x10;
                 for scap in &this.shared_capabilities {
-                    if scap == &cap {
+                    if scap == cap {
                         break;
                     }
 
@@ -515,5 +515,31 @@ where
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(&mut self.get_mut().stream).poll_close(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fastrlp::Decodable;
+
+    use super::HelloMessage;
+
+    #[test]
+    fn test_hello_message() {
+        let test_cases = vec![
+            b"\x80\xf8\xc0\x05\xb8>Geth/*****/v1.10.0-stable(quorum-v22.1.0)/linux-amd64/go1.17.2\xf8:\xc5\x83eth@\xc5\x83ethA\xc5\x83ethB\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\xc6\x84snap\x01\x80\xb8@exx\xa6M\x86\xe0\xff\xady\x9cI\xbb\x9f\xc8\xcfY\x81kbb\xe6v\xf0q\x90p\xfda0EQ\xcf\x01\x8f)J\xc1\xb3\xce\x87\x1a+\xe1{\xff\x0f\x16g\xea*ct\x83\x16\xdeY\xe3\xa4\xd3H\x0f\xca\x8c".to_vec(),
+            b"\x80\xf8\xc7\x05\xb8MGeth/**********/v1.9.25-stable-919800f0(quorum-v21.10.0)/linux-amd64/go1.15.6\xf3\xc5\x83eth?\xc5\x83eth@\xc5\x83ethA\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\x80\xb8@3i\0L\xcd \xf4\xfdW\xe3\x1e\xe7\xceY\x14\x9a\xaf\xa8\x8a\xf3\x13&\x01[\x0fa&M\xdbn\x129\x11]\xdd\0\x97\x97%l|\xae\x08\xf8\xfc\r1\x9d8\xb2\x1826\xa0\x04\xe7qZO]\xc9B\xee\xa1".to_vec(),
+            b"\x80\xf8\xc8\x05\xb8NGeth/***********/v1.9.25-stable-919800f0(quorum-v21.10.0)/linux-amd64/go1.15.6\xf3\xc5\x83eth?\xc5\x83eth@\xc5\x83ethA\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\x80\xb8@\xcdy\xef]*\xfa\xa5\x91\x81\xf3`\xd9~\xa7\xb9>\xb9\x80\xee\xe0\xb3\xe1\xd4(\xc1\xfc.\xe41\xc9\xe7I\xac\xa1B\xafp\xfc;\xce\xae(\r\x11\x89\x07_\xb0|\xa0z\0\xf5{1`\xe3\xdb\xff\x1c\xf8\x97\xa2\x81".to_vec(),
+            b"\x80\xf8\xc4\x05\xb8BGeth/***********/v1.10.0-stable(quorum-v22.1.0)/linux-amd64/go1.17\xf8:\xc5\x83eth@\xc5\x83ethA\xc5\x83ethB\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\xc6\x84snap\x01\x80\xb8@\xe0\xacc\xf1\xaeD#\xf5\x8b\tB\x91\xd2I\xe4\x88>&\x07\xa9\x01s\xf9\xa1Hk,{\x88;:\xc9\xbcn\xd3bE3{\x94^\xfa\xd15\xb0\xf6\xcb!\n\x1e\xb1\x13L\x1aq}L\x99W\x88;\xe2\x0f\xde".to_vec(),
+            b"\x80\xf8\xc5\x05\xb8CGeth/**********/v1.10.0-stable(quorum-v22.1.0)/linux-amd64/go1.17.5\xf8:\xc5\x83eth@\xc5\x83ethA\xc5\x83ethB\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\xc6\x84snap\x01\x80\xb8@\xeb\x9b\x81\x04I\xe8\xb0\xd8Ut\xb1\x1d\xe3\x14U)\xcb\xd7PB\xba\xd5\xdeG\xcb.\xdfD\x93q\xb3'5\xdd\xdf\xa2i\xfc\x8f\x84\xb4\xc3\xfc\n\xad\r\x81(1\x91l.\xf2\xcfI\x03\xa9\x0cc\x8f\xc0P\x80A".to_vec(),
+            b"\x80\xf8\xc3\x05\xb8AGeth/********/v1.10.0-stable(quorum-v22.1.0)/linux-amd64/go1.17.5\xf8:\xc5\x83eth@\xc5\x83ethA\xc5\x83ethB\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\xc6\x84snap\x01\x80\xb8@M\x16a\xf6\xec\x123\x86\xe1\x19+\xf4\xc5c$\x8fGIw\xe4\x08{\x95jf\x9a\x92\x7f\x1f\x12B\x19$\x7f\xf35\xa5\x18%L\x844\x06\x11H\x94\xd2\x95\x8a\xc2zD3f\x96qJ7\x0c\xe5I\x17\x10e".to_vec(),
+            b"\x80\xf8\xbf\x05\xb8=Geth/****/v1.10.0-stable(quorum-v22.1.0)/linux-amd64/go1.17.5\xf8:\xc5\x83eth@\xc5\x83ethA\xc5\x83ethB\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\xc6\x84snap\x01\x80\xb8@\xec\xe42\x98!\xbc\xd6C\xd0\x86\xc2_\xbe\xf3\xdb\xb2\xd6\x94$\x87\x11Cw\xd0\xc1\x9e\xa6\xfd\x1a\xdc\x99\x9eX\xba%\x9e\xe3\xc1]\x1b\xee\xf9D\x02\x94\x18\x9a\n.\xc8\xdb\x19\x1fQ\xc6\xfeE\x14\x8c\xcd\xd7\xeem8".to_vec(),
+            b"\x80\xf8\xc1\x05\xb8?Geth/******/v1.10.0-stable(quorum-v22.1.0)/linux-amd64/go1.17.5\xf8:\xc5\x83eth@\xc5\x83ethA\xc5\x83ethB\xca\x88istanbul@\xca\x88istanbulc\xca\x88istanbuld\xc6\x84snap\x01\x80\xb8@\x87\xa9\xad\xe9WI!s\xd2r[\x93\xa7p\xf5/\xa9\xeb7\x9c\xeb\xb1\x9fjmLCI\xab'\x12>\xa3)~\x0f\x91\x94\xb1\x87h~\x7f\x12*\xb5\x9f\x1f\x83Y\xd3\x8d\x93\xbfoG`\xda\n#\xb0>u\x96".to_vec(),
+        ];
+
+        for msg in &test_cases {
+            let mut payload = &msg[1..];
+            HelloMessage::decode(&mut payload).expect("error");
+        }
     }
 }

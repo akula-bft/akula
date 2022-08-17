@@ -1,5 +1,4 @@
 use crate::sentry::devp2p::{peer::DisconnectReason, util::*};
-use arrayvec::ArrayString;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::{Bytes, BytesMut};
@@ -37,8 +36,8 @@ impl FromStr for NodeRecord {
     }
 }
 
-#[derive(Clone, Copy, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CapabilityName(pub ArrayString<4>);
+#[derive(Clone, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CapabilityName(pub String);
 
 impl Encodable for CapabilityName {
     fn encode(&self, out: &mut dyn BufMut) {
@@ -51,20 +50,17 @@ impl Encodable for CapabilityName {
 
 impl Decodable for CapabilityName {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
-        Ok(Self(
-            ArrayString::from(
-                std::str::from_utf8(&BytesMut::decode(buf)?)
-                    .map_err(|_| DecodeError::Custom("should be a UTF-8 string"))?,
-            )
-            .map_err(|_| DecodeError::Custom("capability name is too long"))?,
-        ))
+        Ok(Self(String::from(
+            std::str::from_utf8(&BytesMut::decode(buf)?)
+                .map_err(|_| DecodeError::Custom("should be a UTF-8 string"))?,
+        )))
     }
 }
 
 pub type CapabilityLength = usize;
 pub type CapabilityVersion = usize;
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 /// Capability information
 pub struct CapabilityInfo {
     pub name: CapabilityName,
@@ -82,7 +78,7 @@ impl CapabilityInfo {
     }
 }
 
-#[derive(Clone, Debug, Display, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[display(fmt = "{}/{}", name, version)]
 pub struct CapabilityId {
     pub name: CapabilityName,

@@ -1,14 +1,13 @@
 use super::devp2p::*;
 use crate::models::*;
 use anyhow::anyhow;
-use arrayvec::ArrayString;
 use enum_primitive_derive::*;
 use ethereum_forkid::{ForkFilter, ForkId};
 use fastrlp::*;
 use std::{collections::BTreeSet, convert::TryFrom};
 
 pub fn capability_name() -> CapabilityName {
-    CapabilityName(ArrayString::from("eth").unwrap())
+    CapabilityName(String::from("eth"))
 }
 
 #[derive(Clone, Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]

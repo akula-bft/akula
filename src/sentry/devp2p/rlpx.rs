@@ -164,8 +164,7 @@ where
     let capability_set = peer
         .capabilities()
         .iter()
-        .copied()
-        .map(|cap_info| (cap_info.name, cap_info.version))
+        .map(|cap_info| (cap_info.name.clone(), cap_info.version))
         .collect::<HashMap<_, _>>();
     let (mut sink, mut stream) = futures::StreamExt::split(peer);
     let (peer_disconnect_tx, mut peer_disconnect_rx) = unbounded_channel();
@@ -448,8 +447,8 @@ impl From<BTreeMap<CapabilityId, CapabilityLength>> for CapabilitySet {
         let capability_cache = inner
             .iter()
             .map(
-                |(&CapabilityId { name, version }, &length)| CapabilityInfo {
-                    name,
+                |(&CapabilityId { ref name, version }, &length)| CapabilityInfo {
+                    name: name.clone(),
                     version,
                     length,
                 },
