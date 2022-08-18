@@ -94,6 +94,7 @@ rand = "0.8"
 rayon = "1"
 ripemd = "0.1"
 ron = "0.7"
+rustc-hex = "1.0"
 secp256k1 = { version = "0.24", features = [
   "global-context",
   "rand-std",
@@ -138,6 +139,9 @@ hashbrown = { version = "0.12.0", features = [
   "ahash-compile-time-rng",
 ] }
 dashmap = "5.3"
+tendermint = { git = "https://github.com/bnb-chain/tendermint.git" }
+parity-bytes = "0.1"
+lazy_static = "1.4.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
@@ -163,7 +167,7 @@ triehash = "0.8"
 
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
-enr = { git = "https://github.com/rust-ethereum/enr" }
+enr = { git = "https://github.com/sigp/enr" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls" }
 
 [[bin]]
