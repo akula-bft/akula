@@ -18,15 +18,19 @@ pub const SEGMENT_FILE_NAME: &str = "segment";
 pub const READY_FILE_NAME: &str = "ready";
 
 pub trait SnapshotVersion {
-    const DIRNAME: &'static str;
+    const ID: &'static str;
     const STRIDE: NonZeroUsize;
+}
+
+pub trait SnapshotObject: TableObject {
+    const ID: &'static str;
 }
 
 #[derive(Debug)]
 pub struct V1;
 
 impl SnapshotVersion for V1 {
-    const DIRNAME: &'static str = "v1";
+    const ID: &'static str = "v1";
     const STRIDE: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
 }
 
@@ -77,17 +81,13 @@ impl Snapshot {
 
         Ok(entry)
     }
-
-    fn directory_name(idx: usize) -> String {
-        format!("{idx:08}")
-    }
 }
 
 #[derive(Debug)]
 pub struct Snapshotter<Version, T>
 where
     Version: SnapshotVersion,
-    T: TableObject,
+    T: SnapshotObject,
 {
     base_path: PathBuf,
     snapshots: Vec<Snapshot>,
@@ -97,10 +97,10 @@ where
 impl<Version, T> Snapshotter<Version, T>
 where
     Version: SnapshotVersion,
-    T: TableObject,
+    T: SnapshotObject,
 {
     pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let path = path.as_ref().join(Version::DIRNAME);
+        let path = path.as_ref().to_path_buf();
 
         std::fs::create_dir_all(&path)?;
 
@@ -108,7 +108,7 @@ where
 
         let mut snapshot_idx = 0;
         loop {
-            let snapshot_path = path.join(Snapshot::directory_name(snapshot_idx));
+            let snapshot_path = path.join(Self::snapshot_directory(snapshot_idx));
 
             if !snapshot_path.join(READY_FILE_NAME).try_exists()? {
                 break;
@@ -137,6 +137,10 @@ where
             snapshots,
             _marker: PhantomData,
         })
+    }
+
+    fn snapshot_directory(snapshot_idx: usize) -> String {
+        format!("{}-{}-{snapshot_idx:08}", Version::ID, T::ID)
     }
 
     pub fn get(&mut self, block_number: BlockNumber) -> anyhow::Result<Option<T>> {
@@ -169,7 +173,7 @@ where
 
         let snapshot_path = self
             .base_path
-            .join(Snapshot::directory_name(next_snapshot_idx));
+            .join(Self::snapshot_directory(next_snapshot_idx));
 
         let segment_file_path = snapshot_path.join(SEGMENT_FILE_NAME);
         let idx_file_path = snapshot_path.join(INDEX_FILE_NAME);
@@ -251,6 +255,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kv::traits::TableEncode;
+    use derive_more::From;
     use hex_literal::hex;
     use tempfile::tempdir;
 
@@ -263,8 +269,29 @@ mod tests {
         struct TestSnapshot;
 
         impl SnapshotVersion for TestSnapshot {
-            const DIRNAME: &'static str = "test";
+            const ID: &'static str = "test";
             const STRIDE: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+        }
+
+        #[derive(Clone, Copy, Debug, From)]
+        pub struct TestNumber(pub U256);
+
+        impl TableEncode for TestNumber {
+            type Encoded = <U256 as TableEncode>::Encoded;
+
+            fn encode(self) -> Self::Encoded {
+                self.0.encode()
+            }
+        }
+
+        impl TableDecode for TestNumber {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                U256::decode(b).map(From::from)
+            }
+        }
+
+        impl SnapshotObject for U256 {
+            const ID: &'static str = "testobj";
         }
 
         for new in [true, false] {

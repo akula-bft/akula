@@ -182,20 +182,11 @@ fn main() -> anyhow::Result<()> {
                     .map(|v| v.0)
                     .unwrap_or_else(|| opt.datadir.snapshot());
 
-                let header_snapshot_dir = snapshot_dir.join("headers");
-
                 let header_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(header_snapshot_dir)?));
-
-                let body_snapshot_dir = snapshot_dir.join("bodies");
-
-                let body_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(body_snapshot_dir)?));
-
-                let sender_snapshot_dir = snapshot_dir.join("senders");
-
+                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
+                let body_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
                 let sender_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(sender_snapshot_dir)?));
+                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
 
                 let chainspec = {
                     let span = span!(Level::INFO, "", " Genesis initialization ");

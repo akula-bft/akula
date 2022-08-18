@@ -1,11 +1,7 @@
 use crate::{
-    kv::{
-        mdbx::*,
-        tables,
-        traits::{TableObject, TryGenIter},
-    },
+    kv::{mdbx::*, tables, traits::TryGenIter},
     models::*,
-    snapshot::{SnapshotVersion, Snapshotter, V1},
+    snapshot::{SnapshotObject, SnapshotVersion, Snapshotter, V1},
     stagedsync::stage::*,
     StageId,
 };
@@ -20,6 +16,18 @@ const MIN_DISTANCE: usize = 1_000;
 pub const HEADER_SNAPSHOT: StageId = StageId("HeaderSnapshot");
 pub const BODY_SNAPSHOT: StageId = StageId("BodySnapshot");
 pub const SENDER_SNAPSHOT: StageId = StageId("SenderSnapshot");
+
+impl SnapshotObject for BlockHeader {
+    const ID: &'static str = "headers";
+}
+
+impl SnapshotObject for BlockBody {
+    const ID: &'static str = "bodies";
+}
+
+impl SnapshotObject for Vec<Address> {
+    const ID: &'static str = "senders";
+}
 
 #[derive(Debug)]
 pub struct HeaderSnapshot {
@@ -248,7 +256,7 @@ fn execute_snapshot<Version, T, IT>(
 ) -> anyhow::Result<()>
 where
     Version: SnapshotVersion,
-    T: TableObject,
+    T: SnapshotObject,
     IT: Iterator<Item = anyhow::Result<(BlockNumber, T)>>,
 {
     if let Some(max_progress) = prev_stage_progress.checked_sub(MIN_DISTANCE as u64) {
