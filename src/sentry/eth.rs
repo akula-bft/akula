@@ -1,13 +1,14 @@
 use super::devp2p::*;
 use crate::models::*;
 use anyhow::anyhow;
+use arrayvec::ArrayString;
 use enum_primitive_derive::*;
 use ethereum_forkid::{ForkFilter, ForkId};
 use fastrlp::*;
 use std::{collections::BTreeSet, convert::TryFrom};
 
 pub fn capability_name() -> CapabilityName {
-    CapabilityName(String::from("eth"))
+    CapabilityName::Small(ArrayString::from("eth").expect("eth could not fit in ArrayString"))
 }
 
 #[derive(Clone, Debug, RlpEncodable, RlpDecodable, RlpMaxEncodedLen)]

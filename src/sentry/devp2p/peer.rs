@@ -453,7 +453,7 @@ where
                     .unwrap_or_else(|| {
                         panic!(
                             "attempted to send payload of unsupported capability ({}/{}/{})",
-                            cap_name.0,
+                            cap_name.as_str(),
                             id,
                             this.remote_id(),
                         )
@@ -462,7 +462,7 @@ where
                 assert!(
                     id < cap.length,
                     "attempted to send payload with message id too big ({}/{}/{})",
-                    cap_name.0,
+                    cap_name.as_str(),
                     id,
                     this.remote_id()
                 );

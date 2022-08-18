@@ -1,4 +1,5 @@
 use crate::sentry::devp2p::{peer::DisconnectReason, util::*};
+use arrayvec::ArrayString;
 use async_trait::async_trait;
 use auto_impl::auto_impl;
 use bytes::{Bytes, BytesMut};
@@ -37,23 +38,47 @@ impl FromStr for NodeRecord {
 }
 
 #[derive(Clone, Debug, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CapabilityName(pub String);
+pub enum CapabilityName {
+    Small(ArrayString<4>),
+    String(String),
+}
+
+impl CapabilityName {
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            CapabilityName::Small(s) => s.as_bytes(),
+            CapabilityName::String(s) => s.as_bytes(),
+        }
+    }
+    pub fn as_str(&self) -> &str {
+        match self {
+            CapabilityName::Small(s) => s.as_str(),
+            CapabilityName::String(s) => s.as_str(),
+        }
+    }
+}
 
 impl Encodable for CapabilityName {
     fn encode(&self, out: &mut dyn BufMut) {
-        self.0.as_bytes().encode(out)
+        self.as_bytes().encode(out)
     }
     fn length(&self) -> usize {
-        self.0.as_bytes().length()
+        self.as_bytes().length()
     }
 }
 
 impl Decodable for CapabilityName {
     fn decode(buf: &mut &[u8]) -> Result<Self, DecodeError> {
-        Ok(Self(String::from(
-            std::str::from_utf8(&BytesMut::decode(buf)?)
-                .map_err(|_| DecodeError::Custom("should be a UTF-8 string"))?,
-        )))
+        let decoded = BytesMut::decode(buf)?;
+        let name = std::str::from_utf8(&decoded)
+            .map_err(|_| DecodeError::Custom("should be a UTF-8 string"))?;
+        if name.len() <= 4 {
+            Ok(Self::Small(ArrayString::from(name).map_err(|_| {
+                DecodeError::Custom("could not fit in ArrayString")
+            })?))
+        } else {
+            Ok(Self::String(String::from(name)))
+        }
     }
 }
 
