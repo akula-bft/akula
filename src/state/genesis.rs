@@ -61,6 +61,44 @@ impl GenesisState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChainspecUpgradeStatus {
+    Unchanged,
+    Upgraded,
+    Initialized,
+}
+
+pub fn upgrade_chainspec<E>(
+    txn: &MdbxTransaction<'_, RW, E>,
+    bundled_chain_spec: bool,
+    chainspec: Option<ChainSpec>,
+) -> anyhow::Result<(ChainSpec, ChainspecUpgradeStatus)>
+where
+    E: EnvironmentKind,
+{
+    Ok(
+        if let Some(existing_chainspec) = txn.get(tables::Config, ())? {
+            if let Some(chainspec) = chainspec {
+                if chainspec != existing_chainspec {
+                    if bundled_chain_spec && chainspec.name == existing_chainspec.name {
+                        txn.set(tables::Config, (), chainspec.clone())?;
+                        return Ok((chainspec, ChainspecUpgradeStatus::Upgraded));
+                    } else {
+                        return Err(format_err!(
+                            "Genesis initialized, but chainspec does not match one in database"
+                        ));
+                    }
+                }
+            }
+            (existing_chainspec, ChainspecUpgradeStatus::Unchanged)
+        } else {
+            let chainspec = chainspec.unwrap_or_else(|| MAINNET.clone());
+            txn.set(tables::Config, (), chainspec.clone())?;
+            (chainspec, ChainspecUpgradeStatus::Initialized)
+        },
+    )
+}
+
 pub fn initialize_genesis<'db, E>(
     txn: &MdbxTransaction<'db, RW, E>,
     etl_temp_dir: &TempDir,
@@ -70,23 +108,15 @@ pub fn initialize_genesis<'db, E>(
 where
     E: EnvironmentKind,
 {
-    if let Some(existing_chainspec) = txn.get(tables::Config, ())? {
-        if let Some(chainspec) = chainspec {
-            if chainspec != existing_chainspec {
-                if bundled_chain_spec && chainspec.name == existing_chainspec.name {
-                    txn.set(tables::Config, (), chainspec.clone())?;
-                    return Ok((chainspec, true));
-                } else {
-                    return Err(format_err!(
-                        "Genesis initialized, but chainspec does not match one in database"
-                    ));
-                }
-            }
-        }
-        return Ok((existing_chainspec, false));
-    }
+    let (chainspec, chainspec_upgrade_status) =
+        upgrade_chainspec(txn, bundled_chain_spec, chainspec)?;
 
-    let chainspec = chainspec.unwrap_or_else(|| MAINNET.clone());
+    if !matches!(
+        chainspec_upgrade_status,
+        ChainspecUpgradeStatus::Initialized
+    ) {
+        return Ok((chainspec, false));
+    }
 
     let genesis = chainspec.genesis.number;
     let mut state_buffer = Buffer::new(txn, None);
