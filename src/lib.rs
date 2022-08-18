@@ -5,6 +5,7 @@
     const_mut_refs,
     const_option,
     entry_insert,
+    fs_try_exists,
     generator_trait,
     generators,
     iter_collect_into,

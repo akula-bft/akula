@@ -82,6 +82,10 @@ impl Snapshot {
     fn segment_file_name(idx: usize) -> String {
         format!("{idx:08}.seg")
     }
+
+    fn ready_file_name(idx: usize) -> String {
+        format!("{idx:08}.ready")
+    }
 }
 
 #[derive(Debug)]
@@ -108,17 +112,10 @@ where
         let mut snapshots = vec![];
 
         let mut snapshot_idx = 0;
-        loop {
-            let index = match OpenOptions::new()
+        while std::fs::try_exists(path.join(Snapshot::ready_file_name(snapshot_idx)))? {
+            let index = OpenOptions::new()
                 .read(true)
-                .open(path.join(Snapshot::index_file_name(snapshot_idx)))
-            {
-                Ok(file) => BufReader::new(file),
-                Err(e) => match e.kind() {
-                    std::io::ErrorKind::NotFound => break,
-                    _ => return Err(e.into()),
-                },
-            };
+                .open(path.join(Snapshot::index_file_name(snapshot_idx)))?;
 
             let segment = OpenOptions::new()
                 .read(true)
@@ -130,7 +127,7 @@ where
                 total_items: Version::STRIDE.get(),
                 segment_len,
                 segment: BufReader::new(segment),
-                index,
+                index: BufReader::new(index),
             });
             snapshot_idx += 1;
         }
@@ -176,8 +173,11 @@ where
         let idx_file_path = self
             .base_path
             .join(Snapshot::index_file_name(next_snapshot_idx));
+        let ready_file_path = self
+            .base_path
+            .join(Snapshot::ready_file_name(next_snapshot_idx));
 
-        for path in [&segment_file_path, &idx_file_path] {
+        for path in [&segment_file_path, &idx_file_path, &ready_file_path] {
             match std::fs::remove_file(path) {
                 Err(e) if !matches!(e.kind(), ErrorKind::NotFound) => {
                     return Err(e.into());
@@ -227,9 +227,19 @@ where
         segment.flush()?;
 
         // Do this at the very end both for performance and to ensure index only gets created when all is said and done
-        let mut index = tempfile::NamedTempFile::new()?;
+        let mut index = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(idx_file_path)?;
         index.write_all(&index_data)?;
-        let index = index.persist(idx_file_path)?;
+
+        index.flush()?;
+
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(ready_file_path)?;
 
         self.snapshots.push(Snapshot {
             total_items: i,
