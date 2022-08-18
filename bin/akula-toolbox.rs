@@ -371,8 +371,8 @@ fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::Result
 
     println!("key:     {}", hex::encode(&key));
     println!("value:   {:?}", value.as_ref().map(hex::encode));
-    if let Some(ref value) = value {
-        if let Ok((k, v)) = select_db_decode(&table, &key, &value) {
+    if let Some(value) = &value {
+        if let Ok((k, v)) = select_db_decode(&table, &key, value) {
             println!("decoded: {} => {}", k, v);
         }
     }
