@@ -282,6 +282,84 @@ fn table_sizes(data_dir: AkulaDataDir, csv: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn decode_db_inner<T: Table, K: TableDecode>(
+    _: T,
+    key: &[u8],
+    value: &[u8],
+) -> anyhow::Result<(K, T::Value)> {
+    Ok((
+        <K as TableDecode>::decode(key)?,
+        <T::Value as TableDecode>::decode(value)?,
+    ))
+}
+
+fn decode_db<T: Table>(table: T, key: &[u8], value: &[u8]) -> anyhow::Result<(T::Key, T::Value)>
+where
+    T::Key: TableDecode,
+{
+    decode_db_inner::<T, T::Key>(table, key, value)
+}
+
+macro_rules! select_db_from_str {
+    ($name:expr, [$($table:ident),* $(,)?], $fn:expr, $ow:expr) => {
+        match $name {
+            $(
+                stringify!($table) => $fn($table),
+            )*
+            _ => $ow,
+        }
+    };
+}
+
+fn select_db_decode(table: &str, key: &[u8], value: &[u8]) -> anyhow::Result<(String, String)> {
+    use akula::kv::tables::*;
+    select_db_from_str!(
+        table,
+        [
+            Account,
+            Storage,
+            AccountChangeSet,
+            StorageChangeSet,
+            HashedAccount,
+            HashedStorage,
+            AccountHistory,
+            StorageHistory,
+            Code,
+            TrieAccount,
+            TrieStorage,
+            HeaderNumber,
+            CanonicalHeader,
+            Header,
+            HeadersTotalDifficulty,
+            BlockBody,
+            BlockTransaction,
+            TotalGas,
+            TotalTx,
+            LogAddressIndex,
+            LogAddressesByBlock,
+            LogTopicIndex,
+            LogTopicsByBlock,
+            CallTraceSet,
+            CallFromIndex,
+            CallToIndex,
+            BlockTransactionLookup,
+            Config,
+            TxSender,
+            LastHeader,
+            Issuance,
+            Version,
+        ],
+        |table| decode_db(table, key, value).map(|(k, v)| (format!("{:?}", k), format!("{:?}", v))),
+        select_db_from_str!(
+            table,
+            [SyncStage, PruneProgress],
+            |table| decode_db_inner::<_, Vec<u8>>(table, key, value)
+                .map(|(k, v)| (String::from_utf8_lossy(&k).to_string(), format!("{:?}", v))),
+            anyhow::bail!("unknown table format {}", table)
+        )
+    )
+}
+
 fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::Result<()> {
     let env = open_db(data_dir)?;
 
@@ -291,7 +369,13 @@ fn db_query(data_dir: AkulaDataDir, table: String, key: Bytes) -> anyhow::Result
         .with_context(|| format!("failed to open table: {}", table))?;
     let value = txn.get::<Vec<u8>>(&db, &key)?;
 
-    println!("{:?}", value.as_ref().map(hex::encode));
+    println!("key:     {}", hex::encode(&key));
+    println!("value:   {:?}", value.as_ref().map(hex::encode));
+    if let Some(value) = &value {
+        if let Ok((k, v)) = select_db_decode(&table, &key, value) {
+            println!("decoded: {} => {}", k, v);
+        }
+    }
 
     Ok(())
 }
@@ -319,12 +403,11 @@ fn db_walk(
     {
         let (k, v) = item?;
         println!(
-            "{} / {:?} / {:?} / {:?} / {:?}",
+            "{} / {:?} / {:?} / {:?}",
             i,
-            hex::encode(k),
+            hex::encode(&k),
             hex::encode(&v),
-            Account::decode_for_storage(&v),
-            BlockHeader::decode(&v)
+            select_db_decode(&table, &k, &v),
         );
     }
 
