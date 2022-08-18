@@ -101,6 +101,10 @@ pub struct Opt {
     #[clap(long, default_value = "127.0.0.1:8545")]
     pub rpc_listen_address: SocketAddr,
 
+    /// Enable Websocket at this IP address and port.
+    #[clap(long, default_value = "127.0.0.1:8546")]
+    pub websocket_listen_address: SocketAddr,
+
     /// Enable gRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:7545")]
     pub grpc_listen_address: SocketAddr,
