@@ -12,7 +12,10 @@ use std::{
 };
 
 pub const DEFAULT_STRIDE: NonZeroUsize = NonZeroUsize::new(100_000).unwrap();
-pub const VERSION: usize = 1;
+
+pub const INDEX_FILE_NAME: &str = "index";
+pub const SEGMENT_FILE_NAME: &str = "segment";
+pub const READY_FILE_NAME: &str = "ready";
 
 pub trait SnapshotVersion {
     const DIRNAME: &'static str;
@@ -75,16 +78,8 @@ impl Snapshot {
         Ok(entry)
     }
 
-    fn index_file_name(idx: usize) -> String {
-        format!("{idx:08}.idx")
-    }
-
-    fn segment_file_name(idx: usize) -> String {
-        format!("{idx:08}.seg")
-    }
-
-    fn ready_file_name(idx: usize) -> String {
-        format!("{idx:08}.ready")
+    fn directory_name(idx: usize) -> String {
+        format!("{idx:08}")
     }
 }
 
@@ -112,14 +107,19 @@ where
         let mut snapshots = vec![];
 
         let mut snapshot_idx = 0;
-        while std::fs::try_exists(path.join(Snapshot::ready_file_name(snapshot_idx)))? {
+        loop {
+            let snapshot_path = path.join(Snapshot::directory_name(snapshot_idx));
+
+            if !snapshot_path.join(READY_FILE_NAME).try_exists()? {
+                break;
+            }
             let index = OpenOptions::new()
                 .read(true)
-                .open(path.join(Snapshot::index_file_name(snapshot_idx)))?;
+                .open(snapshot_path.join(INDEX_FILE_NAME))?;
 
             let segment = OpenOptions::new()
                 .read(true)
-                .open(path.join(Snapshot::segment_file_name(snapshot_idx)))?;
+                .open(snapshot_path.join(SEGMENT_FILE_NAME))?;
 
             let segment_len = segment.metadata()?.len() as usize;
 
@@ -167,24 +167,20 @@ where
 
         let next_snapshot_idx = self.snapshots.len();
 
-        let segment_file_path = self
+        let snapshot_path = self
             .base_path
-            .join(Snapshot::segment_file_name(next_snapshot_idx));
-        let idx_file_path = self
-            .base_path
-            .join(Snapshot::index_file_name(next_snapshot_idx));
-        let ready_file_path = self
-            .base_path
-            .join(Snapshot::ready_file_name(next_snapshot_idx));
+            .join(Snapshot::directory_name(next_snapshot_idx));
 
-        for path in [&segment_file_path, &idx_file_path, &ready_file_path] {
-            match std::fs::remove_file(path) {
-                Err(e) if !matches!(e.kind(), ErrorKind::NotFound) => {
-                    return Err(e.into());
-                }
-                _ => {}
+        let segment_file_path = snapshot_path.join(SEGMENT_FILE_NAME);
+        let idx_file_path = snapshot_path.join(INDEX_FILE_NAME);
+        let ready_file_path = snapshot_path.join(READY_FILE_NAME);
+
+        if let Err(e) = std::fs::remove_dir_all(&snapshot_path) {
+            if !matches!(e.kind(), ErrorKind::NotFound) {
+                return Err(e.into());
             }
         }
+        std::fs::create_dir_all(&snapshot_path)?;
 
         let mut segment = OpenOptions::new()
             .read(true)
