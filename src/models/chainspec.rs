@@ -118,6 +118,27 @@ impl ChainSpec {
 
         forks
     }
+
+    pub fn is_on_mirror_sync(&self, number: &BlockNumber) -> bool {
+        return match self.upgrades.mirrorsync {
+            Some(m) => *number == m,
+            None => false
+        }
+    }
+
+    pub fn is_on_bruno(&self, number: &BlockNumber) -> bool {
+        return match self.upgrades.bruno {
+            Some(b) => *number == b,
+            None => false
+        }
+    }
+
+    pub fn is_on_euler(&self, number: &BlockNumber) -> bool {
+        return match self.upgrades.euler {
+            Some(e) => *number == e,
+            None => false
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

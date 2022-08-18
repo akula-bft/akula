@@ -94,6 +94,7 @@ rand = "0.8"
 rayon = "1"
 ripemd = "0.1"
 ron = "0.8"
+rustc-hex = "1.0"
 secp256k1 = { version = "0.24", features = [
   "global-context",
   "rand-std",
@@ -139,6 +140,9 @@ hashbrown = { version = "0.12.0", features = [
 ] }
 dashmap = "5.3"
 public-ip = "0.2.2"
+tendermint = { git = "https://github.com/bnb-chain/tendermint.git" }
+parity-bytes = "0.1"
+lazy_static = "1.4.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }

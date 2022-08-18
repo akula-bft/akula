@@ -301,8 +301,8 @@ where
                 self.execute(message, code, Some(&code_hash))?
             }
             CodeKind::Precompile => {
-                let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
-                let contract = &precompiled::CONTRACTS[num - 1];
+                let num = message.code_address.0[ADDRESS_LENGTH - 1] as u8;
+                let contract = precompiled::CONTRACTS.get(&num).unwrap();
                 let input = message.input_data.clone();
                 let mut res = Output {
                     status_code: StatusCode::Success,
@@ -388,9 +388,16 @@ where
         if contract.is_zero() {
             false
         } else {
+            let num_of_precompiles = self.number_of_precompiles();
             let mut max_precompiled = Address::zero();
-            max_precompiled.0[ADDRESS_LENGTH - 1] = self.number_of_precompiles() as u8;
-            contract <= max_precompiled
+            if num_of_precompiles < precompiled::NUM_OF_ISTANBUL_CONTRACTS as u8 {
+                max_precompiled.0[ADDRESS_LENGTH - 1] = num_of_precompiles;
+            } else {
+                max_precompiled.0[ADDRESS_LENGTH - 1] = precompiled::MAX_NUM_OF_PRECOMPILED as u8;
+            }
+
+            let num_of_contract= contract.0[ADDRESS_LENGTH -1] as u8;
+            contract <= max_precompiled && precompiled::CONTRACTS.contains_key(&num_of_contract)
         }
     }
 }

@@ -49,3 +49,5 @@ pub(crate) mod util;
 pub use stagedsync::stage::StageId;
 pub use state::*;
 pub use util::*;
+#[macro_use]
+extern crate lazy_static;

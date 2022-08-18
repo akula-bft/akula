@@ -3,6 +3,7 @@ mod beacon;
 mod blockchain;
 mod clique;
 pub mod fork_choice_graph;
+mod upgrade;
 
 use self::fork_choice_graph::ForkChoiceGraph;
 pub use self::{base::*, beacon::*, blockchain::*, clique::*};
