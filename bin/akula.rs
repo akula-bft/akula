@@ -26,13 +26,37 @@ use http::Uri;
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
+use rbtorrent::{AddTorrentParams, AddTorrentParamsSource, TorrentHandleTrait};
 use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
-    sync::Arc, time::Duration,
+    path::PathBuf, sync::Arc, time::Duration,
 };
 use tokio::{sync::Mutex as AsyncMutex, time::sleep};
 use tracing::*;
 use tracing_subscriber::prelude::*;
+
+const TRACKERS: &[&str] = &[
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.tracker.cl:1337/announce",
+    "udp://9.rarbg.com:2810/announce",
+    "udp://tracker.openbittorrent.com:6969/announce",
+    "http://tracker.openbittorrent.com:80/announce",
+    "https://opentracker.i2p.rocks:443/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://tracker.tiny-vps.com:6969/announce",
+    "udp://tracker.moeking.me:6969/announce",
+    "udp://tracker.dler.org:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+    "udp://explodie.org:6969/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://chouchou.top:8080/announce",
+    "udp://bt.oiyo.tk:6969/announce",
+    "https://tracker.nanoha.org:443/announce",
+    // "https://tracker.lilithraws.org:443/announce",
+    "http://tracker3.ctix.cn:8080/announce",
+    "http://tracker.mywaifu.best:6969/announce",
+];
 
 #[derive(Parser)]
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
@@ -135,7 +159,7 @@ pub struct Opt {
 
 #[allow(unreachable_code)]
 fn main() -> anyhow::Result<()> {
-    let opt: Opt = Opt::parse();
+    let mut opt: Opt = Opt::parse();
     fdlimit::raise_fd_limit();
 
     akula_tracing::build_subscriber(Component::Core).init();
@@ -187,11 +211,62 @@ fn main() -> anyhow::Result<()> {
                     .map(|v| v.0)
                     .unwrap_or_else(|| opt.datadir.snapshot());
 
+                let session = Arc::new(
+                    rbtorrent::SessionBuilder::new()
+                        .with_user_agent(format!("akula/v{}", env!("VERGEN_BUILD_SEMVER")))
+                        .build(),
+                );
+                let (torrent_tx, mut torrent_rx) = tokio::sync::mpsc::channel(1);
+                tokio::spawn({
+                    let snapshot_base_path = snapshot_dir.clone();
+                    async move {
+                        while let Some((snapshot_name, snapshot_path)) = torrent_rx.recv().await {
+                            let torrent_file_name = format!("{snapshot_name}.torrent");
+                            let torrent_path = snapshot_base_path.join(&torrent_file_name);
+
+                            let snapshot_path: PathBuf = snapshot_path;
+
+                            let handle = session.add_torrent(AddTorrentParams {
+                                source: AddTorrentParamsSource::Torrent(torrent_path),
+                                save_path: Some(snapshot_path),
+                                trackers: Some(TRACKERS.iter().map(|v| v.to_string()).collect()),
+                                torrent_flags: None,
+                            });
+
+                            info!("Started torrent: {}", handle.get_name().unwrap());
+                        }
+                    }
+                });
+
                 let header_snapshotter =
                     Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
                 let body_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
                 let sender_snapshotter =
                     Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
+
+                {
+                    let header_snapshotter = header_snapshotter.lock().await;
+                    let body_snapshotter = body_snapshotter.lock().await;
+                    let sender_snapshotter = sender_snapshotter.lock().await;
+
+                    let mut snapshots_count = 0;
+                    for snapshot_paths in [
+                        header_snapshotter.snapshot_paths(),
+                        body_snapshotter.snapshot_paths(),
+                        sender_snapshotter.snapshot_paths(),
+                    ] {
+                        for (snapshot_name, snapshot_path) in snapshot_paths {
+                            torrent_tx
+                                .send((snapshot_name, snapshot_path))
+                                .await
+                                .unwrap();
+
+                            snapshots_count += 1;
+                        }
+                    }
+
+                    info!("Added {snapshots_count} snapshots to torrent engine");
+                }
 
                 let chainspec = {
                     let span = span!(Level::INFO, "", " Genesis initialization ");
@@ -465,6 +540,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     HeaderSnapshot {
                         snapshotter: header_snapshotter,
+                        bt_sender: torrent_tx.clone(),
                     },
                     false,
                 );
@@ -473,6 +549,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     BodySnapshot {
                         snapshotter: body_snapshotter,
+                        bt_sender: torrent_tx.clone(),
                     },
                     false,
                 );
@@ -485,6 +562,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     SenderSnapshot {
                         snapshotter: sender_snapshotter,
+                        bt_sender: torrent_tx,
                     },
                     false,
                 );

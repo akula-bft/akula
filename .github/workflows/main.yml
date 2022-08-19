@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - run: sudo apt-get install -y libext2fs-dev
+      - run: sudo apt-get install -y libboost-dev libext2fs-dev
 
       - uses: arduino/setup-protoc@v1
         with:

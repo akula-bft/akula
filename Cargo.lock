@@ -112,6 +112,7 @@ dependencies = [
  "include_dir",
  "itertools",
  "jsonrpsee",
+ "lava_torrent",
  "libmdbx",
  "lru",
  "maplit",
@@ -128,6 +129,7 @@ dependencies = [
  "public-ip",
  "rand",
  "rayon",
+ "rbtorrent",
  "ripemd",
  "ron",
  "secp256k1",
@@ -694,6 +696,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e8ad8cef104ac57b68b89df3208164d228503abbdce70f6880ffa3d970e7443a"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "codespan-reporting"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -759,6 +770,15 @@ dependencies = [
  "lazy_static",
  "proc-macro-hack",
  "tiny-keccak",
+]
+
+[[package]]
+name = "conv"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78ff10625fd0ac447827aa30ea8b861fead473bb60aeb73af6c1c58caf0d1299"
+dependencies = [
+ "custom_derive",
 ]
 
 [[package]]
@@ -930,6 +950,12 @@ checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
 dependencies = [
  "cipher",
 ]
+
+[[package]]
+name = "custom_derive"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef8ae57c4978a2acd8b869ce6b9ca1dfe817bff704c220209fdef2c0b75a01b9"
 
 [[package]]
 name = "cxx"
@@ -2279,6 +2305,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9b7d56ba4a8344d6be9729995e6b06f928af29998cdf79fe390cbf6b1fee838"
 
 [[package]]
+name = "lava_torrent"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55a54d453eca40ff90a6547373c4e5f337823f612b751f75e8132cf1b20c6450"
+dependencies = [
+ "conv",
+ "itertools",
+ "percent-encoding",
+ "sha-1 0.10.0",
+ "thiserror",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3156,6 +3196,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rbtorrent"
+version = "0.1.0"
+source = "git+https://github.com/vorot93/rbtorrent#e4b4e5c37f1b88c20284e74cef2f7fcdd3c3ee6e"
+dependencies = [
+ "bitflags",
+ "cxx",
+ "rbtorrent-sys",
+]
+
+[[package]]
+name = "rbtorrent-sys"
+version = "0.1.0"
+source = "git+https://github.com/vorot93/rbtorrent#e4b4e5c37f1b88c20284e74cef2f7fcdd3c3ee6e"
+dependencies = [
+ "cmake",
+ "cxx",
+ "cxx-build",
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3453,6 +3514,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha-1"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "028f48d513f9678cda28f6e4064755b3fbb2af6acd672f2c209b62323f7aea0f"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest 0.10.5",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3549,7 +3621,7 @@ dependencies = [
  "httparse",
  "log",
  "rand",
- "sha-1",
+ "sha-1 0.9.8",
 ]
 
 [[package]]

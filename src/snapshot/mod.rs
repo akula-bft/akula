@@ -167,20 +167,22 @@ where
         BlockNumber((((self.snapshots.len() + 1) * Version::STRIDE.get()) - 1) as u64)
     }
 
+    fn snapshot_path(&self, snapshot_idx: usize) -> (String, PathBuf) {
+        let snapshot_dir = Self::snapshot_directory(snapshot_idx);
+        let snapshot_path = self.base_path.join(&snapshot_dir);
+        (snapshot_dir, snapshot_path)
+    }
+
     pub fn snapshot_paths(&self) -> Vec<(String, PathBuf)> {
         (0..self.snapshots.len())
-            .map(|snapshot_idx| {
-                let snapshot_dir = Self::snapshot_directory(snapshot_idx);
-                let snapshot_path = self.base_path.join(&snapshot_dir);
-                (snapshot_dir, snapshot_path)
-            })
+            .map(|snapshot_idx| self.snapshot_path(snapshot_idx))
             .collect()
     }
 
     pub fn snapshot(
         &mut self,
         mut items: impl Iterator<Item = anyhow::Result<(BlockNumber, T)>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<(String, PathBuf)> {
         let mut last_block = self.max_block();
 
         let next_snapshot_idx = self.snapshots.len();
@@ -251,10 +253,20 @@ where
 
         index.flush()?;
 
+        let torrent = lava_torrent::torrent::v1::TorrentBuilder::new(&snapshot_path, 2_i64.pow(18))
+            .build()
+            .unwrap();
+
+        let torrent_file_name = format!("{snapshot_directory_name}.torrent");
+        let torrent_path = self.base_path.join(&torrent_file_name);
+        torrent.write_into_file(&torrent_path).unwrap();
+
         OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(ready_file_path)?;
+
+        let snapshot_idx = self.snapshots.len();
 
         self.snapshots.push(Snapshot {
             total_items: i,
@@ -263,7 +275,7 @@ where
             index: BufReader::new(index),
         });
 
-        Ok(())
+        Ok(self.snapshot_path(snapshot_idx))
     }
 }
 
