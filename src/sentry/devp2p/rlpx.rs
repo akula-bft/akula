@@ -44,6 +44,7 @@ const GRACE_PERIOD_SECS: u64 = 2;
 const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
 const PING_TIMEOUT: Duration = Duration::from_secs(15);
 const PING_INTERVAL: Duration = Duration::from_secs(60);
+const MAX_FAILED_PINGS: usize = 3;
 const DISCOVERY_TIMEOUT_SECS: u64 = 90;
 const DISCOVERY_CONNECT_TIMEOUT_SECS: u64 = 5;
 
@@ -179,7 +180,7 @@ where
 
     // This will handle incoming packets from peer.
     tasks.spawn_with_name(format!("peer {} ingress router", remote_id), {
-        let peer_disconnect_tx = peer_disconnect_tx;
+        let peer_disconnect_tx = peer_disconnect_tx.clone();
         let capability_server = capability_server.clone();
         let pinged = pinged.clone();
         async move {
@@ -339,16 +340,35 @@ where
 
     // This will ping the peer and disconnect if they don't respond.
     tasks.spawn_with_name(format!("peer {} pinger", remote_id), async move {
+        let mut failed_pings = 0;
         loop {
             pinged.store(true, Ordering::SeqCst);
 
-            let (cb_tx, cb_rx) = oneshot();
+            let (cb_tx, ping_sent_rx) = oneshot();
 
             // Pipes went down, pinger must exit
-            let _ = pings_tx.send(cb_tx).await;
-            let _ = cb_rx.await;
+            if pings_tx.send(cb_tx).await.is_err() || ping_sent_rx.await.is_err() {
+                return;
+            };
 
-            sleep(PING_INTERVAL).await;
+            sleep(PING_TIMEOUT).await;
+
+            if pinged.load(Ordering::SeqCst) {
+                failed_pings += 1;
+
+                if failed_pings >= MAX_FAILED_PINGS {
+                    let _ = peer_disconnect_tx.send(DisconnectSignal {
+                        initiator: DisconnectInitiator::Local,
+                        reason: DisconnectReason::PingTimeout,
+                    });
+
+                    return;
+                }
+            } else {
+                failed_pings = 0;
+
+                sleep(PING_INTERVAL).await;
+            }
         }
     });
     ConnectedPeerState { _tasks: tasks }
