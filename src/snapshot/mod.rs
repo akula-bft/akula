@@ -108,9 +108,13 @@ where
 
         let mut snapshot_idx = 0;
         loop {
-            let snapshot_path = path.join(Self::snapshot_directory(snapshot_idx));
+            let snapshot_directory = Self::snapshot_directory(snapshot_idx);
+            let snapshot_path = path.join(&snapshot_directory);
 
-            if !snapshot_path.join(READY_FILE_NAME).try_exists()? {
+            if !path
+                .join(format!("{}.{}", snapshot_directory, READY_FILE_NAME))
+                .try_exists()?
+            {
                 break;
             }
             let index = OpenOptions::new()
@@ -163,6 +167,16 @@ where
         BlockNumber((((self.snapshots.len() + 1) * Version::STRIDE.get()) - 1) as u64)
     }
 
+    pub fn snapshot_paths(&self) -> Vec<(String, PathBuf)> {
+        (0..self.snapshots.len())
+            .map(|snapshot_idx| {
+                let snapshot_dir = Self::snapshot_directory(snapshot_idx);
+                let snapshot_path = self.base_path.join(&snapshot_dir);
+                (snapshot_dir, snapshot_path)
+            })
+            .collect()
+    }
+
     pub fn snapshot(
         &mut self,
         mut items: impl Iterator<Item = anyhow::Result<(BlockNumber, T)>>,
@@ -171,13 +185,14 @@ where
 
         let next_snapshot_idx = self.snapshots.len();
 
-        let snapshot_path = self
-            .base_path
-            .join(Self::snapshot_directory(next_snapshot_idx));
+        let snapshot_directory_name = Self::snapshot_directory(next_snapshot_idx);
+        let snapshot_path = self.base_path.join(&snapshot_directory_name);
 
         let segment_file_path = snapshot_path.join(SEGMENT_FILE_NAME);
         let idx_file_path = snapshot_path.join(INDEX_FILE_NAME);
-        let ready_file_path = snapshot_path.join(READY_FILE_NAME);
+        let ready_file_path = self
+            .base_path
+            .join(format!("{}.{}", snapshot_directory_name, READY_FILE_NAME));
 
         if let Err(e) = std::fs::remove_dir_all(&snapshot_path) {
             if !matches!(e.kind(), ErrorKind::NotFound) {
