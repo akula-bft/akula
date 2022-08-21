@@ -29,3 +29,28 @@ Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Rus
 
 ## License
 The entire code within this repository is licensed under the [GNU General Public License v3](LICENSE)
+
+## Dependencies
+
+In addition to those dependency crates listed in Cargo.toml Akula also has implicit dependencies on:
+
+- Rust/Cargo (unstable)
+- pkgconfig
+- clang
+- libclang
+- e2fsprogs
+- protobuf
+
+The latter two being used by the builds of some of Akula's dependencies.
+
+### Building with Nix
+
+A hermetic build/development shell environment is provided in `flake.nix` via the [nix](https://nixos.org/) package manager. It provides fixed versions of the implicit dependencies above as well as the correct version of Rust as defined in the rust `./rust-toolchain` file. You can enter the environment by running:
+
+```shell
+# Will download necessary dependencies including Rust nightly and enter a development environment where they are available
+nix develop
+# Dependency are now available for:
+cargo build
+cargo test
+```
