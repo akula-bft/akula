@@ -644,7 +644,7 @@ impl HeaderDownload {
             .into_iter()
             .map(|h| (h.hash(), h))
             .collect::<Vec<_>>();
-        for (i, _) in headers.iter().skip(1).enumerate() {
+        for (i, _) in headers.iter().enumerate().skip(1) {
             consensus.validate_block_header(&headers[i].1, &headers[i - 1].1, false)?;
         }
 
