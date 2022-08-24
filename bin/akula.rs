@@ -97,8 +97,8 @@ pub struct Opt {
     #[clap(long)]
     pub no_rpc: bool,
 
-    /// Enable the ETH API
-    #[clap(long, max_values(6))]
+    /// Enable API options
+    #[clap(long, min_values(1))]
     pub enable_api: Vec<String>,
 
     /// Enable JSONRPC at this IP address and port.
