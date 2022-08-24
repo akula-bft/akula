@@ -97,6 +97,10 @@ pub struct Opt {
     #[clap(long)]
     pub no_rpc: bool,
 
+    /// Enable the ETH API
+    #[clap(long, max_values(6))]
+    pub enable_api: Vec<String>,
+
     /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
     pub rpc_listen_address: SocketAddr,
@@ -221,29 +225,62 @@ fn main() -> anyhow::Result<()> {
                                 .unwrap();
 
                             let mut api = Methods::new();
-                            api.merge(
-                                EthApiServerImpl {
-                                    db: db.clone(),
-                                    call_gas_limit: 100_000_000,
+
+                            for api_option in opt
+                                .enable_api
+                                .iter()
+                                .map(|o| o.to_lowercase())
+                                .collect::<Vec<String>>()
+                            {
+                                match api_option.as_str() {
+                                    "eth" => {
+                                        api.merge(
+                                            EthApiServerImpl {
+                                                db: db.clone(),
+                                                call_gas_limit: 100_000_000,
+                                            }
+                                            .into_rpc(),
+                                        )
+                                        .unwrap();
+                                    }
+
+                                    "net" => {
+                                        api.merge(NetApiServerImpl { network_id }.into_rpc())
+                                            .unwrap();
+                                    }
+
+                                    "erigon" => {
+                                        api.merge(
+                                            ErigonApiServerImpl { db: db.clone() }.into_rpc(),
+                                        )
+                                        .unwrap();
+                                    }
+
+                                    "otterscan" => {
+                                        api.merge(
+                                            OtterscanApiServerImpl { db: db.clone() }.into_rpc(),
+                                        )
+                                        .unwrap();
+                                    }
+
+                                    "trace" => {
+                                        api.merge(
+                                            TraceApiServerImpl {
+                                                db: db.clone(),
+                                                call_gas_limit: 100_000_000,
+                                            }
+                                            .into_rpc(),
+                                        )
+                                        .unwrap();
+                                    }
+
+                                    "web3" => {
+                                        api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+                                    }
+
+                                    _ => {}
                                 }
-                                .into_rpc(),
-                            )
-                            .unwrap();
-                            api.merge(NetApiServerImpl { network_id }.into_rpc())
-                                .unwrap();
-                            api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
-                                .unwrap();
-                            api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
-                                .unwrap();
-                            api.merge(
-                                TraceApiServerImpl {
-                                    db,
-                                    call_gas_limit: 100_000_000,
-                                }
-                                .into_rpc(),
-                            )
-                            .unwrap();
-                            api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+                            }
 
                             let _server_handle = server.start(api).unwrap();
 
