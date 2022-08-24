@@ -107,6 +107,10 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
         true
     }
+
+    fn validate_header_seal(&self, _: &BlockHeader) -> Result<(), DuoError> {
+        Ok(())
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -216,6 +220,7 @@ pub enum ValidationError {
         expected: Option<U256>,
         got: Option<U256>,
     }, // see EIP-1559
+    MissingBaseFee,  // see EIP-1559
     InvalidSeal,     // Nonce or mix_hash
 
     // See [YP] Section 6.2 "Execution", Eq (58)

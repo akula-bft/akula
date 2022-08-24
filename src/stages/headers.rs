@@ -489,16 +489,19 @@ impl HeaderDownload {
 
                         if is_bounded(inner.headers[0].number) {
                             tasks.push(TaskGuard(tokio::task::spawn({
-                                let (node, requests, graph, peer_id) = (
+                                let (node, consensus, requests, graph, peer_id) = (
                                     self.node.clone(),
+                                    self.consensus.clone(),
                                     requests.clone(),
                                     fork_choice_graph.clone(),
                                     peer_id,
                                 );
 
                                 async move {
-                                    Self::handle_response(node, requests, graph, peer_id, inner)
-                                        .await
+                                    Self::handle_response(
+                                        node, consensus, requests, graph, peer_id, inner,
+                                    )
+                                    .await
                                 }
                             })));
                         }
@@ -547,6 +550,7 @@ impl HeaderDownload {
 
     async fn handle_response(
         node: Arc<Node>,
+        consensus: Arc<dyn Consensus>,
         requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
         graph: Arc<Mutex<ForkChoiceGraph>>,
         peer_id: H512,
@@ -554,25 +558,26 @@ impl HeaderDownload {
     ) {
         let cur_size = response.headers.len();
         debug!("Handling response from {peer_id} with {cur_size} headers");
-        let headers = Self::check_headers(&node, response.headers);
-        if cur_size != headers.len() {
-            node.penalize_peer(peer_id).await;
-        } else {
-            let key = headers[0].1.number;
-            let last_hash = headers[headers.len() - 1].0;
 
-            let mut graph = graph.lock();
+        match Self::check_headers(&consensus, response.headers) {
+            Ok(headers) => {
+                let key = headers[0].1.number;
+                let last_hash = headers[headers.len() - 1].0;
 
-            if let dashmap::mapref::entry::Entry::Occupied(entry) = requests.entry(key) {
-                let limit = entry.get().limit as usize;
+                let mut graph = graph.lock();
 
-                if headers.len() == limit {
-                    entry.remove();
+                if let dashmap::mapref::entry::Entry::Occupied(entry) = requests.entry(key) {
+                    let limit = entry.get().limit as usize;
+
+                    if headers.len() == limit {
+                        entry.remove();
+                        graph.extend(headers);
+                    }
+                } else if !graph.contains(last_hash) {
                     graph.extend(headers);
                 }
-            } else if !graph.contains(last_hash) {
-                graph.extend(headers);
             }
+            Err(_) => node.penalize_peer(peer_id).await,
         }
     }
 
@@ -631,37 +636,26 @@ impl HeaderDownload {
     }
 
     #[inline]
-    fn check_headers(node: &Node, headers: Vec<BlockHeader>) -> Vec<(H256, BlockHeader)> {
-        let mut headers = headers
+    fn check_headers(
+        consensus: &Arc<dyn Consensus>,
+        headers: Vec<BlockHeader>,
+    ) -> Result<Vec<(H256, BlockHeader)>, DuoError> {
+        let headers = headers
             .into_iter()
             .map(|h| (h.hash(), h))
             .collect::<Vec<_>>();
-
-        if let Some(valid_till) =
-            headers
-                .iter()
-                .skip(1)
-                .enumerate()
-                .position(|(i, (hash, header))| {
-                    header.parent_hash != headers[i].0
-                        || header.number != headers[i].1.number + 1u8
-                        || node.bad_blocks.contains(hash)
-                })
-        {
-            headers.truncate(valid_till);
+        for (i, _) in headers.iter().skip(1).enumerate() {
+            consensus.validate_block_header(&headers[i].1, &headers[i - 1].1, false)?;
         }
-        headers
+
+        Ok(headers)
     }
 
     fn verify_seal(&self, headers: &mut Vec<(H256, BlockHeader)>) {
         let valid_till = AtomicUsize::new(0);
 
-        headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
-            if self
-                .consensus
-                .validate_block_header(&headers[i].1, &headers[i - 1].1, false)
-                .is_err()
-            {
+        headers.par_iter().enumerate().for_each(|(i, (_, header))| {
+            if self.consensus.validate_header_seal(header).is_err() {
                 let mut value = valid_till.load(Ordering::SeqCst);
                 while i < value {
                     if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)

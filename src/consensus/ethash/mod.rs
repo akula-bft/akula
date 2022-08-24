@@ -172,18 +172,6 @@ impl Consensus for Ethash {
             return Err(ValidationError::WrongDifficulty.into());
         }
 
-        if !self.skip_pow_verification {
-            let light_dag = self.dag_cache.get(header.number);
-            let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
-
-            if mixh != header.mix_hash {
-                return Err(ValidationError::InvalidSeal.into());
-            }
-
-            if h256_to_u256(final_hash) > ::ethash::cross_boundary(header.difficulty) {
-                return Err(ValidationError::InvalidSeal.into());
-            }
-        }
         Ok(())
     }
     fn finalize(
@@ -218,5 +206,20 @@ impl Consensus for Ethash {
         } else {
             vec![]
         })
+    }
+
+    fn validate_header_seal(&self, header: &BlockHeader) -> Result<(), DuoError> {
+        let light_dag = self.dag_cache.get(header.number);
+        let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
+
+        if mixh != header.mix_hash {
+            return Err(ValidationError::InvalidSeal.into());
+        }
+
+        if h256_to_u256(final_hash) > ::ethash::cross_boundary(header.difficulty) {
+            return Err(ValidationError::InvalidSeal.into());
+        }
+
+        Ok(())
     }
 }
