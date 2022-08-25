@@ -208,7 +208,11 @@ impl Consensus for Ethash {
         })
     }
 
-    fn validate_header_seal(&self, header: &BlockHeader) -> Result<(), DuoError> {
+    fn needs_parallel_validation(&self) -> bool {
+        true
+    }
+
+    fn validate_header_parallel(&self, header: &BlockHeader) -> Result<(), DuoError> {
         let light_dag = self.dag_cache.get(header.number);
         let (mixh, final_hash) = light_dag.hashimoto(header.truncated_hash(), header.nonce);
 

@@ -163,7 +163,7 @@ impl ConsensusEngineBase {
 
                 let parent_base_fee_per_gas = parent
                     .base_fee_per_gas
-                    .ok_or_else(|| DuoError::Validation(ValidationError::MissingBaseFee))?;
+                    .ok_or(DuoError::Validation(ValidationError::MissingBaseFee))?;
 
                 if parent.gas_used == parent_gas_target {
                     return Ok(Some(parent_base_fee_per_gas));

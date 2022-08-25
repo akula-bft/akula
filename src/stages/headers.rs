@@ -530,7 +530,9 @@ impl HeaderDownload {
         let cur_size = headers.len();
         let took = Instant::now();
 
-        self.verify_seal(&mut headers);
+        if self.consensus.needs_parallel_validation() {
+            self.validate_parallel(&mut headers);
+        }
 
         if cur_size == headers.len() {
             info!(
@@ -651,11 +653,11 @@ impl HeaderDownload {
         Ok(headers)
     }
 
-    fn verify_seal(&self, headers: &mut Vec<(H256, BlockHeader)>) {
+    fn validate_parallel(&self, headers: &mut Vec<(H256, BlockHeader)>) {
         let valid_till = AtomicUsize::new(0);
 
         headers.par_iter().enumerate().for_each(|(i, (_, header))| {
-            if self.consensus.validate_header_seal(header).is_err() {
+            if self.consensus.validate_header_parallel(header).is_err() {
                 let mut value = valid_till.load(Ordering::SeqCst);
                 while i < value {
                     if valid_till.compare_exchange(value, i, Ordering::SeqCst, Ordering::SeqCst)

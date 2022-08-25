@@ -108,7 +108,11 @@ pub trait Consensus: Debug + Send + Sync + 'static {
         true
     }
 
-    fn validate_header_seal(&self, _: &BlockHeader) -> Result<(), DuoError> {
+    fn needs_parallel_validation(&self) -> bool {
+        false
+    }
+
+    fn validate_header_parallel(&self, _: &BlockHeader) -> Result<(), DuoError> {
         Ok(())
     }
 }
