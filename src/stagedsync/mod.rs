@@ -2,7 +2,14 @@ pub mod stage;
 pub mod util;
 
 use self::stage::{Stage, StageInput, UnwindInput};
-use crate::{kv::mdbx::*, models::*, stagedsync::stage::*, StageId};
+use crate::{
+    kv::mdbx::*,
+    mining::{state::MiningConfig, StagedMining},
+    models::*,
+    stagedsync::stage::*,
+    stages::CreateBlock,
+    StageId,
+};
 use futures::future::BoxFuture;
 use std::time::{Duration, Instant};
 use tokio::sync::watch::{Receiver as WatchReceiver, Sender as WatchSender};
@@ -58,6 +65,7 @@ where
     delay_after_sync: Option<Duration>,
     post_cycle_callback:
         Option<Box<dyn Fn(StagedSyncStatus) -> BoxFuture<'static, ()> + Send + 'static>>,
+    staged_mining: Option<StagedMining<'db, E>>,
 }
 
 impl<'db, E> Default for StagedSync<'db, E>
@@ -86,6 +94,7 @@ where
             exit_after_sync: false,
             delay_after_sync: None,
             post_cycle_callback: None,
+            staged_mining: None,
         }
     }
 
@@ -113,6 +122,13 @@ where
             require_tip,
             unwind_priority,
         })
+    }
+
+    pub fn enable_mining(&mut self, config: MiningConfig) {
+        let mut mining = StagedMining::new();
+        mining.push(CreateBlock { config });
+        // TODO other stages
+        self.staged_mining = Some(mining);
     }
 
     pub fn set_pruning_interval(&mut self, v: u64) -> &mut Self {
@@ -529,6 +545,8 @@ where
 
                 tx.commit()?;
 
+                let last_block = receipts.last().map_or(BlockNumber(0), |r| r.progress);
+
                 if let Some(cb) = &self.post_cycle_callback {
                     (cb)(StagedSyncStatus {
                         maximum_progress,
@@ -536,6 +554,14 @@ where
                         stage_execution_receipts: receipts,
                     })
                     .await
+                }
+
+                if let Some(mining) = &mut self.staged_mining {
+                    let mut tx = db.begin_mutable()?;
+                    async {
+                        mining.run(&mut tx, last_block).await;
+                    }
+                    .await;
                 }
 
                 if let Some(minimum_progress) = minimum_progress {

@@ -35,6 +35,7 @@ pub mod crypto;
 pub mod etl;
 pub mod execution;
 pub mod kv;
+pub mod mining;
 pub mod models;
 pub mod p2p;
 pub mod res;

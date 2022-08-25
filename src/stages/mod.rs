@@ -1,6 +1,7 @@
 mod block_hashes;
 mod bodies;
 mod call_trace_index;
+mod create_block;
 mod execution;
 mod finish;
 mod hashstate;
@@ -16,6 +17,7 @@ mod tx_lookup;
 pub use block_hashes::*;
 pub use bodies::*;
 pub use call_trace_index::*;
+pub use create_block::*;
 pub use execution::*;
 pub use finish::*;
 pub use hashstate::*;
