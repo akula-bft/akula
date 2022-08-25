@@ -76,6 +76,13 @@ where
                         "no canonical hash for block #{prev_progress}"
                     ))
                 })?;
+            let prev_progress_header = txn
+                .get(tables::Header, (prev_progress, prev_progress_hash))?
+                .ok_or_else(|| {
+                    StageError::Internal(format_err!(
+                        "no canonical header for block #{prev_progress}:{prev_progress_hash:?}"
+                    ))
+                })?;
 
             let headers;
             (headers, reached_tip) = match self.consensus.fork_choice_mode() {
@@ -187,6 +194,7 @@ where
                         if let Some(mut downloaded) = self
                             .download_headers(
                                 fork_choice_graph.clone(),
+                                &prev_progress_header,
                                 starting_block,
                                 target_block,
                             )
@@ -440,6 +448,7 @@ impl HeaderDownload {
     pub async fn download_headers(
         &self,
         fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
+        prev_progress_header: &BlockHeader,
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
@@ -529,6 +538,10 @@ impl HeaderDownload {
 
         let cur_size = headers.len();
         let took = Instant::now();
+
+        if let Err(last_valid) = self.validate_sequentially(prev_progress_header, &headers) {
+            headers.truncate(last_valid);
+        }
 
         if self.consensus.needs_parallel_validation() {
             self.validate_parallel(&mut headers);
@@ -651,6 +664,25 @@ impl HeaderDownload {
         }
 
         Ok(headers)
+    }
+
+    fn validate_sequentially<'a>(
+        &self,
+        mut parent_header: &'a BlockHeader,
+        headers: &'a [(H256, BlockHeader)],
+    ) -> Result<(), usize> {
+        for (i, (_, header)) in headers.iter().enumerate() {
+            if self
+                .consensus
+                .validate_block_header(header, parent_header, false)
+                .is_err()
+            {
+                return Err(i.saturating_sub(1));
+            }
+            parent_header = header;
+        }
+
+        Ok(())
     }
 
     fn validate_parallel(&self, headers: &mut Vec<(H256, BlockHeader)>) {
