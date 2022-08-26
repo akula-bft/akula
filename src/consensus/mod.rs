@@ -3,16 +3,18 @@ mod beacon;
 mod blockchain;
 mod clique;
 mod ethash;
-mod upgrade;
+mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
-pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*};
+pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*, parlia::*};
 use crate::{
+    BlockReader,
+    HeaderReader,
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
-    BlockReader,
+    state::{IntraBlockState, StateReader},
 };
-use anyhow::bail;
+use anyhow::{bail, Error};
 use derive_more::{Display, From};
 use mdbx::{EnvironmentKind, TransactionKind};
 use parking_lot::Mutex;
@@ -21,7 +23,13 @@ use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
+use std::collections::BTreeSet;
+use std::fmt::Formatter;
+use ethnum::u256;
 use tokio::sync::watch;
+
+/// Column for parlia block state
+pub const COL_PARLIA_SNAPSHOT: &'static str = "ParliaSnapshot";
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -45,13 +53,11 @@ impl ConsensusState {
     ) -> anyhow::Result<ConsensusState> {
         Ok(match chainspec.consensus.seal_verification {
             SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
-            SealVerificationParams::Parlia { period: _, epoch } => {
-                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
-            }
             SealVerificationParams::Clique { period: _, epoch } => {
                 ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
             }
             SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
+            SealVerificationParams::Parlia {..} => ConsensusState::Stateless,
         })
     }
 }
@@ -68,6 +74,9 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
+    /// The name of this engine.
+    fn name(&self) -> &str;
+
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
@@ -91,7 +100,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// NOTE: For Ethash See YP Section 11.3 "Reward Application".
     fn finalize(
         &self,
-        block: &BlockHeader,
+        header: &BlockHeader,
         ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
@@ -111,6 +120,8 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
         true
     }
+
+    fn parlia(&mut self) -> Option<&mut Parlia>;
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -186,6 +197,23 @@ pub enum ValidationError {
         expected: H64,
         got: H64,
     },
+    WrongHeaderTime {
+        now: u64,
+        got: u64,
+    },
+    WrongHeaderExtraLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderExtraSignersLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderSigner {
+        number: BlockNumber,
+        expected: Address,
+        got: Address,
+    },
     WrongTransactionsRoot {
         expected: H256,
         got: H256,
@@ -258,6 +286,45 @@ pub enum ValidationError {
     UnsupportedTransactionType, // EIP-2718
 
     CliqueError(CliqueError),
+    NoneTransactions,
+    NoneReceipts,
+    InvalidDB,
+    UnknownHeader{
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized{
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit{
+        signer: Address,
+    },
+    EpochChgWrongValidators {
+        expect: BTreeSet<Address>,
+        got: BTreeSet<Address>,
+    },
+    EpochChgCallErr,
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SystemTxWrongSystemReward {
+        expect: U256,
+        got: U256,
+    },
+    SystemTxWrongCount {
+        expect: usize,
+        got: usize,
+    },
+    SystemTxWrong {
+        expect: Message,
+        got: Message,
+    }
 }
 
 impl From<CliqueError> for ValidationError {
@@ -284,6 +351,12 @@ impl std::error::Error for DuoError {}
 impl From<CliqueError> for DuoError {
     fn from(clique_error: CliqueError) -> Self {
         DuoError::Validation(ValidationError::CliqueError(clique_error))
+    }
+}
+
+impl From<secp256k1::Error> for DuoError {
+    fn from(err: secp256k1::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
     }
 }
 
@@ -335,24 +408,16 @@ pub fn engine_factory(
             difficulty_bomb,
             skip_pow_verification,
         )),
-
-        SealVerificationParams::Parlia { period, epoch } => {
-            let initial_signers = match chain_config.genesis.seal {
-                Seal::Parlia {
-                    vanity: _,
-                    score: _,
-                    signers,
-                } => signers,
-                _ => bail!("Genesis seal does not match, expected Clique seal."),
-            };
-            Box::new(Clique::new(
-                chain_config.params.chain_id,
-                chain_config.consensus.eip1559_block,
-                period,
-                epoch,
-                initial_signers,
-            ))
-        }
+        SealVerificationParams::Parlia {
+            period,
+            epoch,
+        } => Box::new(Parlia::new(
+            chain_config.params.chain_id,
+            chain_config,
+            epoch,
+            period,
+        )),
+        
         SealVerificationParams::Clique { period, epoch } => {
             let initial_signers = match chain_config.genesis.seal {
                 Seal::Clique {

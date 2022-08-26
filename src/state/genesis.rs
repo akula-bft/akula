@@ -1,3 +1,4 @@
+use std::io::Bytes;
 use crate::{
     kv::{mdbx::*, tables},
     models::*,
@@ -120,7 +121,11 @@ where
                         Some(contract) =>
                             {
                                 match contract {
-                                    Contract::Contract { code } => H256::from_slice(&Keccak256::digest(&code)[..]),
+                                    Contract::Contract { code } => {
+                                        let ch = H256::from_slice(&Keccak256::digest(&code)[..]);
+                                        state_buffer.update_code(ch, code.clone())?;
+                                        ch
+                                    },
                                     _ => EMPTY_HASH,
                                 }
                             },

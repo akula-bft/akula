@@ -3,49 +3,50 @@ use std::sync::Arc;
 use ethereum_types::H256;
 use mdbx::WriteMap;
 use sha3::{Digest, Keccak256};
-use crate::{Buffer, StateReader, StateWriter};
+use crate::{Buffer, HeaderReader, IntraBlockState, StateReader, StateWriter};
 use crate::kv::MdbxWithDirHandle;
 use crate::models::{Account, Address, BlockNumber, ChainSpec};
 use std::str::FromStr;
 use rustc_hex::FromHex;
 use bytes::Bytes;
+use crate::consensus::DuoError;
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct UpgradeConfig {
     pub contract_addr: &'static str,
     pub code: &'static str,
 }
-pub fn upgrade_build_in_system_contract(config: &ChainSpec, block_number: &BlockNumber, statedb: &Arc<MdbxWithDirHandle<WriteMap>> ) -> anyhow::Result<()> {
+pub fn upgrade_build_in_system_contract<'r, S>(
+    config: &ChainSpec,
+    block_number: &BlockNumber,
+    statedb: &mut IntraBlockState<'r, S>,
+) -> anyhow::Result<(), DuoError>
+    where S: StateReader+HeaderReader,
+{
     if config.is_on_mirror_sync(block_number) {
-        apply_system_contract_upgrade(MIRRORSYNC_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), block_number, statedb)?;
+        apply_system_contract_upgrade(MIRRORSYNC_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_bruno(block_number) {
-        apply_system_contract_upgrade(BRUNO_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), block_number, statedb)?;
+        apply_system_contract_upgrade(BRUNO_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
 
     if config.is_on_euler(block_number) {
-        apply_system_contract_upgrade(EULER_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), block_number, statedb)?;
+        apply_system_contract_upgrade(EULER_UPGRADE_CONFIG.get(&config.params.chain_id.0).unwrap(), statedb)?;
     }
     Ok(())
 }
 
-pub fn apply_system_contract_upgrade(upgrade: &Vec<UpgradeConfig>, block_number: &BlockNumber, statedb: &Arc<MdbxWithDirHandle<WriteMap>>) -> anyhow::Result<()> {
-    let txn = statedb.begin_mutable().unwrap();
-    let mut state_buffer = Buffer::new(&txn, None);
-    state_buffer.begin_block(*block_number);
+pub fn apply_system_contract_upgrade<'r, S>(
+    upgrade: &Vec<UpgradeConfig>,
+    statedb: &mut IntraBlockState<'r, S>,
+) -> anyhow::Result<(), DuoError>
+    where S: StateReader+HeaderReader,
+{
     for x in upgrade.iter() {
         let addr: Address = Address::from_str(x.contract_addr).unwrap();
-        let initial = state_buffer.read_account(addr)?;
-        let code_hash = H256::from_slice(&Keccak256::digest(&x.code)[..]);
-        state_buffer.update_account(addr, initial, Some( Account {
-            nonce: initial.unwrap().nonce,
-            balance: initial.unwrap().balance,
-            code_hash
-        }));
-        state_buffer.update_code(code_hash, Bytes::from(x.code.from_hex().unwrap()))?;
+        statedb.set_code(addr, Bytes::from(x.code.from_hex().unwrap()))?;
     }
-    state_buffer.write_to_db()?;
     Ok(())
 }
 

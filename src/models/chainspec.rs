@@ -179,11 +179,6 @@ pub fn switch_is_active(switch: Option<BlockNumber>, block_number: BlockNumber) 
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SealVerificationParams {
-    Parlia {
-        #[serde(with = "duration_as_millis")]
-        period: Duration,
-        epoch: u64,
-    },
     Clique {
         #[serde(with = "duration_as_millis")]
         period: Duration,
@@ -234,6 +229,12 @@ pub enum SealVerificationParams {
         terminal_block_number: Option<BlockNumber>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         block_reward: BTreeMap<BlockNumber, U256>,
+    },
+    Parlia {
+        /// Number of seconds between blocks to enforce
+        period: u64,
+        /// Epoch length to update validatorSet
+        epoch: u64,
     },
 }
 
@@ -527,6 +528,9 @@ mod tests {
                     berlin: Some(8290928.into()),
                     london: Some(8897988.into()),
                     paris: None,
+                    mirrorsync: None,
+                    bruno: None,
+                    euler: None
                 },
                 params: Params {
                     chain_id: ChainId(4),

@@ -1,19 +1,16 @@
 pub mod state;
 pub use state::CliqueState;
 
-use crate::{
-    consensus::{
-        fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
-        ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
-        ValidationError,
-    },
-    kv::{
-        mdbx::{MdbxCursor, MdbxTransaction},
-        tables,
-    },
-    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal},
-    BlockReader,
-};
+use crate::{consensus::{
+    fork_choice_graph::ForkChoiceGraph, state::CliqueBlock, CliqueError, Consensus,
+    ConsensusEngineBase, ConsensusState, DuoError, FinalizationChange, ForkChoiceMode,
+    ValidationError,
+}, kv::{
+    mdbx::{MdbxCursor, MdbxTransaction},
+    tables,
+}, models::{
+    Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal
+}, BlockReader, state::{IntraBlockState, StateReader}, HeaderReader};
 use anyhow::bail;
 use bytes::Bytes;
 use ethereum_types::Address;
@@ -25,6 +22,8 @@ use secp256k1::{
 };
 use sha3::{Digest, Keccak256};
 use std::{sync::Arc, time::Duration, unreachable};
+use crate::consensus::Parlia;
+use crate::models::{MessageWithSender, Receipt};
 
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
@@ -75,7 +74,7 @@ fn get_header<K: TransactionKind>(
 ) -> anyhow::Result<BlockHeader> {
     Ok(match cursor.seek(height)? {
         Some(((found_height, _), header)) if found_height == height => header,
-        _ => bail!("Header for block {} missing from database.", height),
+        _ => bail!("Header for block {} missing from database.", height.0),
     })
 }
 
@@ -175,6 +174,10 @@ impl Clique {
 }
 
 impl Consensus for Clique {
+    fn name(&self) -> &str {
+        "Clique"
+    }
+
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         if !block.ommers.is_empty() {
             return Err(ValidationError::TooManyOmmers.into());
@@ -216,7 +219,7 @@ impl Consensus for Clique {
     fn finalize(
         &self,
         block: &BlockHeader,
-        _ommers: &[BlockHeader],
+        ommers: &[BlockHeader],
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 
@@ -250,5 +253,9 @@ impl Consensus for Clique {
 
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
+    }
+
+    fn parlia(&mut self) -> Option<&mut Parlia> {
+        None
     }
 }

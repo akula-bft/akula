@@ -18,6 +18,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use std::{cmp::min, convert::TryFrom};
 
+#[derive(Clone, Debug)]
 pub struct CallResult {
     /// EVM exited with this status code.
     pub status_code: StatusCode,

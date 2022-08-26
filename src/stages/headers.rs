@@ -1,16 +1,9 @@
 #![allow(unreachable_code)]
 
-use crate::{
-    consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode},
-    kv::{mdbx::*, tables},
-    models::{BlockHeader, BlockNumber, H256},
-    p2p::{
-        node::{Node, NodeStream},
-        types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
-    },
-    stagedsync::{stage::*, stages::HEADERS},
-    TaskGuard,
-};
+use crate::{consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode}, HeaderReader, kv::{mdbx::*, tables}, models::{BlockHeader, BlockNumber, H256}, p2p::{
+    node::{Node, NodeStream},
+    types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
+}, stagedsync::{stage::*, stages::HEADERS}, TaskGuard};
 use anyhow::format_err;
 use async_trait::async_trait;
 use dashmap::DashMap;
@@ -29,6 +22,8 @@ use std::{
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 use tracing::*;
+use std::ptr::null;
+use crate::consensus::{engine_factory};
 
 const HEADERS_UPPER_BOUND: usize = 1 << 10;
 
@@ -184,6 +179,7 @@ where
 
                         if let Some(mut downloaded) = self
                             .download_headers(
+                                txn,
                                 fork_choice_graph.clone(),
                                 starting_block,
                                 target_block,
@@ -223,7 +219,6 @@ where
             };
 
             let mut cursor_header_number = txn.cursor(tables::HeaderNumber)?;
-            let mut cursor_header = txn.cursor(tables::Header)?;
             let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
             let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
             let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
@@ -240,7 +235,6 @@ where
                 td += header.difficulty;
 
                 cursor_header_number.put(hash, block_number)?;
-                cursor_header.put((block_number, hash), header)?;
                 cursor_canonical.put(block_number, hash)?;
                 cursor_td.put((block_number, hash), td)?;
 
@@ -435,14 +429,18 @@ impl HeaderDownload {
         }
     }
 
-    pub async fn download_headers(
+    pub async fn download_headers<'tx, 'db, E: EnvironmentKind>(
         &self,
+        txn: &'tx mut MdbxTransaction<'db, RW, E>,
         fork_choice_graph: Arc<Mutex<ForkChoiceGraph>>,
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
         let requests = Arc::new(Self::prepare_requests(start, end));
-
+        let chain_config = txn
+            .get(tables::Config, ())?
+            .ok_or_else(|| format_err!("No chain specification set"))?;
+        let mut consensus_engine = engine_factory(None, chain_config.clone(), None)?;
         info!(
             "Will download {} headers over {} requests",
             end - start + 1,
@@ -525,7 +523,7 @@ impl HeaderDownload {
         let cur_size = headers.len();
         let took = Instant::now();
 
-        self.verify_seal(&mut headers);
+        self.verify_seal(consensus_engine, txn, &mut headers)?;
 
         if cur_size == headers.len() {
             info!(
@@ -651,13 +649,32 @@ impl HeaderDownload {
         headers
     }
 
-    fn verify_seal(&self, headers: &mut Vec<(H256, BlockHeader)>) {
+    fn verify_seal<'tx, 'db, E: EnvironmentKind>(&self, mut engine: Box<dyn Consensus>, txn: &'tx mut MdbxTransaction<'db, RW, E>,
+                                                 headers: &mut Vec<(H256, BlockHeader)>) -> anyhow::Result<()> {
         let valid_till = AtomicUsize::new(0);
 
+        let mut cursor_header = txn.cursor(tables::Header)?;
+        if let Some(p) = engine.parlia() {
+            for (i, _) in headers.iter().enumerate() {
+                let header = &headers[i].1;
+                p.snapshot(txn, BlockNumber(header.number.0-1), header.parent_hash)?;
+                if i > 0 {
+                    p.validate_block_header(&header, &headers[i-1].1, false)?;
+                } else {
+                    let parent = txn.read_parent_header(&header)?
+                        .ok_or_else(|| format_err!("no parent header"))?;
+                    p.validate_block_header(&header, &parent, false)?;
+                }
+                cursor_header.put((header.number, headers[i].0), header.clone())?;
+            }
+            return Ok(());
+        }
+
         headers.par_iter().enumerate().skip(1).for_each(|(i, _)| {
+            let header = &headers[i].1;
             if self
                 .consensus
-                .validate_block_header(&headers[i].1, &headers[i - 1].1, false)
+                .validate_block_header(header, &headers[i - 1].1, false)
                 .is_err()
             {
                 let mut value = valid_till.load(Ordering::SeqCst);
@@ -677,6 +694,11 @@ impl HeaderDownload {
         if valid_till != 0 {
             headers.truncate(valid_till);
         }
+        for (h, header) in headers.iter() {
+            cursor_header.put((header.number, *h), header.clone())?;
+        }
+
+        Ok(())
     }
 }
 
