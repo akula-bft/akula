@@ -100,6 +100,8 @@ impl ChainSpec {
             self.upgrades.berlin,
             self.upgrades.london,
             // self.upgrades.paris,
+            self.upgrades.ramanujan,
+            self.upgrades.niels,
             self.upgrades.mirrorsync,
             self.upgrades.bruno,
             self.upgrades.euler,
@@ -117,6 +119,20 @@ impl ChainSpec {
         forks.remove(&BlockNumber(0));
 
         forks
+    }
+
+    pub fn is_on_ramanujan(&self, number: &BlockNumber) -> bool {
+        return match self.upgrades.ramanujan {
+            Some(m) => *number == m,
+            None => false
+        }
+    }
+
+    pub fn is_on_niels(&self, number: &BlockNumber) -> bool {
+        return match self.upgrades.niels {
+            Some(m) => *number == m,
+            None => false
+        }
     }
 
     pub fn is_on_mirror_sync(&self, number: &BlockNumber) -> bool {
@@ -328,7 +344,22 @@ pub struct Upgrades {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub paris: Option<BlockNumber>,
-    // bsc forks starts
+
+    // bsc testnet forks starts from ramanujan
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub ramanujan: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub niels: Option<BlockNumber>,
+
+    // bsc forks starts from mirrorsync
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -528,6 +559,8 @@ mod tests {
                     berlin: Some(8290928.into()),
                     london: Some(8897988.into()),
                     paris: None,
+                    ramanujan: None,
+                    niels: None,
                     mirrorsync: None,
                     bruno: None,
                     euler: None

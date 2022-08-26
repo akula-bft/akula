@@ -434,6 +434,8 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
                 berlin: Some(0.into()),
                 london: Some(0.into()),
                 paris: Some(0.into()),
+                ramanujan: Some(0.into()),
+                niels: Some(0.into()),
                 mirrorsync: Some(0.into()),
                 bruno: Some(0.into()),
                 euler: Some(0.into()),
