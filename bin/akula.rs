@@ -227,14 +227,13 @@ fn main() -> anyhow::Result<()> {
 
                             let mut api = Methods::new();
 
-                            let api_options: HashSet<String> = HashSet::from_iter(
-                                opt.enable_api
-                                    .into_iter()
-                                    .map(|s| s.to_lowercase())
-                                    .collect::<Vec<String>>(),
-                            );
+                            let api_options = opt
+                                .enable_api
+                                .into_iter()
+                                .map(|s| s.to_lowercase())
+                                .collect::<HashSet<String>>();
 
-                            if api_options.get("eth").is_some() {
+                            if !api_options.is_empty() && api_options.contains("eth") {
                                 api.merge(
                                     EthApiServerImpl {
                                         db: db.clone(),
@@ -245,22 +244,22 @@ fn main() -> anyhow::Result<()> {
                                 .unwrap();
                             }
 
-                            if api_options.get("net").is_some() {
+                            if !api_options.is_empty() && api_options.contains("net") {
                                 api.merge(NetApiServerImpl { network_id }.into_rpc())
                                     .unwrap();
                             }
 
-                            if api_options.get("erigon").is_some() {
+                            if !api_options.is_empty() && api_options.contains("erigon") {
                                 api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
                                     .unwrap();
                             }
 
-                            if api_options.get("otterscan").is_some() {
+                            if !api_options.is_empty() && api_options.contains("otterscan") {
                                 api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
                                     .unwrap();
                             }
 
-                            if api_options.get("trace").is_some() {
+                            if !api_options.is_empty() && api_options.contains("trace") {
                                 api.merge(
                                     TraceApiServerImpl {
                                         db: db.clone(),
@@ -271,7 +270,7 @@ fn main() -> anyhow::Result<()> {
                                 .unwrap();
                             }
 
-                            if api_options.get("web3").is_some() {
+                            if !api_options.is_empty() && api_options.contains("web3") {
                                 api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
                             }
 
