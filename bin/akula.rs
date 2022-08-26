@@ -21,7 +21,8 @@ use ethereum_jsonrpc::{
 use http::Uri;
 use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
 use std::{
-    fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic, sync::Arc, time::Duration,
+    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
+    sync::Arc, time::Duration,
 };
 use tokio::time::sleep;
 use tracing::*;
@@ -226,60 +227,47 @@ fn main() -> anyhow::Result<()> {
 
                             let mut api = Methods::new();
 
-                            for api_option in opt
-                                .enable_api
-                                .iter()
-                                .map(|o| o.to_lowercase())
-                                .collect::<Vec<String>>()
-                            {
-                                match api_option.as_str() {
-                                    "eth" => {
-                                        api.merge(
-                                            EthApiServerImpl {
-                                                db: db.clone(),
-                                                call_gas_limit: 100_000_000,
-                                            }
-                                            .into_rpc(),
-                                        )
-                                        .unwrap();
-                                    }
+                            let api_options: HashSet<String> = HashSet::from_iter(opt.enable_api);
 
-                                    "net" => {
-                                        api.merge(NetApiServerImpl { network_id }.into_rpc())
-                                            .unwrap();
+                            if api_options.get("eth").is_some() {
+                                api.merge(
+                                    EthApiServerImpl {
+                                        db: db.clone(),
+                                        call_gas_limit: 100_000_000,
                                     }
+                                    .into_rpc(),
+                                )
+                                .unwrap();
+                            }
 
-                                    "erigon" => {
-                                        api.merge(
-                                            ErigonApiServerImpl { db: db.clone() }.into_rpc(),
-                                        )
-                                        .unwrap();
+                            if api_options.get("net").is_some() {
+                                api.merge(NetApiServerImpl { network_id }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.get("erigon").is_some() {
+                                api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.get("otterscan").is_some() {
+                                api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.get("trace").is_some() {
+                                api.merge(
+                                    TraceApiServerImpl {
+                                        db: db.clone(),
+                                        call_gas_limit: 100_000_000,
                                     }
+                                    .into_rpc(),
+                                )
+                                .unwrap();
+                            }
 
-                                    "otterscan" => {
-                                        api.merge(
-                                            OtterscanApiServerImpl { db: db.clone() }.into_rpc(),
-                                        )
-                                        .unwrap();
-                                    }
-
-                                    "trace" => {
-                                        api.merge(
-                                            TraceApiServerImpl {
-                                                db: db.clone(),
-                                                call_gas_limit: 100_000_000,
-                                            }
-                                            .into_rpc(),
-                                        )
-                                        .unwrap();
-                                    }
-
-                                    "web3" => {
-                                        api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
-                                    }
-
-                                    _ => {}
-                                }
+                            if api_options.get("web3").is_some() {
+                                api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
                             }
 
                             let _server_handle = server.start(api).unwrap();
