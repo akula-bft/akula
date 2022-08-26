@@ -55,6 +55,37 @@ impl BlockHeader {
 
         rlp_head
     }
+
+    fn rlp_header_with_chain_id(&self) -> Header {
+        let mut rlp_head = Header {
+            list: true,
+            payload_length: 0,
+        };
+
+        rlp_head.payload_length += 1; // chain_id
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // parent_hash
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // ommers_hash
+        rlp_head.payload_length += ADDRESS_LENGTH + 1; // beneficiary
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // state_root
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // transactions_root
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // receipts_root
+        rlp_head.payload_length += BLOOM_BYTE_LENGTH + length_of_length(BLOOM_BYTE_LENGTH); // logs_bloom
+        rlp_head.payload_length += self.difficulty.length(); // difficulty
+        rlp_head.payload_length += self.number.length(); // block height
+        rlp_head.payload_length += self.gas_limit.length(); // gas_limit
+        rlp_head.payload_length += self.gas_used.length(); // gas_used
+        rlp_head.payload_length += self.timestamp.length(); // timestamp
+        rlp_head.payload_length += self.extra_data.length(); // extra_data
+
+        rlp_head.payload_length += KECCAK_LENGTH + 1; // mix_hash
+        rlp_head.payload_length += 8 + 1; // nonce
+
+        if let Some(base_fee_per_gas) = self.base_fee_per_gas {
+            rlp_head.payload_length += base_fee_per_gas.length();
+        }
+
+        rlp_head
+    }
 }
 
 impl Encodable for BlockHeader {
@@ -186,6 +217,35 @@ impl BlockHeader {
         keccak256(&out[..])
     }
 
+    #[must_use]
+    pub fn hash_with_chain_id(&self, chain_id: u64) -> H256 {
+        let mut out = BytesMut::new();
+        self.encode_with_chain_id(&mut out, chain_id);
+        keccak256(&out[..])
+    }
+
+    fn encode_with_chain_id(&self, out: &mut dyn BufMut, chain_id :u64) {
+        self.rlp_header_with_chain_id().encode(out);
+        Encodable::encode(&chain_id, out);
+        Encodable::encode(&self.parent_hash, out);
+        Encodable::encode(&self.ommers_hash, out);
+        Encodable::encode(&self.beneficiary, out);
+        Encodable::encode(&self.state_root, out);
+        Encodable::encode(&self.transactions_root, out);
+        Encodable::encode(&self.receipts_root, out);
+        Encodable::encode(&self.logs_bloom, out);
+        Encodable::encode(&self.difficulty, out);
+        Encodable::encode(&self.number, out);
+        Encodable::encode(&self.gas_limit, out);
+        Encodable::encode(&self.gas_used, out);
+        Encodable::encode(&self.timestamp, out);
+        Encodable::encode(&self.extra_data, out);
+        Encodable::encode(&self.mix_hash, out);
+        Encodable::encode(&self.nonce, out);
+        if let Some(base_fee_per_gas) = self.base_fee_per_gas {
+            Encodable::encode(&base_fee_per_gas, out);
+        }
+    }
     #[must_use]
     pub fn truncated_hash(&self) -> H256 {
         struct TruncatedHeader {

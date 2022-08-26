@@ -6,7 +6,6 @@ use crate::{
 };
 use anyhow::format_err;
 use tempfile::TempDir;
-use sha3::{Digest, Keccak256};
 
 #[derive(Clone, Debug)]
 pub struct GenesisState {
@@ -23,23 +22,11 @@ impl GenesisState {
     pub fn initial_state(&self) -> InMemoryState {
         let mut state_buffer = InMemoryState::new();
         // Allocate accounts
-        if let Some(balances) = self.chain_spec.balances.get(&BlockNumber(0)) {
+        let block_number = BlockNumber(0);
+        if let Some(balances) = self.chain_spec.balances.get(&block_number) {
             for (&address, &balance) in balances {
-                let mut code_hash = EMPTY_HASH;
-                if let Some(contracts) = self.chain_spec.contracts.get(&BlockNumber(0)) {
-                    if contracts.contains_key(&address) {
-                        code_hash = match contracts.get(&address) {
-                            Some(contract) =>
-                                {
-                                    match contract {
-                                        Contract::Contract { code } => H256::from_slice(&Keccak256::digest(&code)[..]),
-                                        _ => EMPTY_HASH,
-                                    }
-                                },
-                            _ => EMPTY_HASH,
-                        };
-                    }
-                }
+                let code_hash = self.chain_spec.try_get_code_with_hash(block_number, &address)
+                    .map(|(hash, _)| hash).unwrap_or(EMPTY_HASH);
                 println!("initial_state address{:?}, code_hash:{:?}", address, code_hash);
                 let current_account = Account {
                     balance,
@@ -113,21 +100,12 @@ where
     // Allocate accounts
     if let Some(balances) = chainspec.balances.get(&genesis) {
         for (&address, &balance) in balances {
-            let mut code_hash = EMPTY_HASH;
-            if let Some(contracts) = chainspec.contracts.get(&genesis) {
-                if contracts.contains_key(&address) {
-                    code_hash = match contracts.get(&address) {
-                        Some(contract) =>
-                            {
-                                match contract {
-                                    Contract::Contract { code } => H256::from_slice(&Keccak256::digest(&code)[..]),
-                                    _ => EMPTY_HASH,
-                                }
-                            },
-                            _ => EMPTY_HASH,
-                    };
-                }
-            }
+            let code_hash = if let Some((hash, code)) = chainspec.try_get_code_with_hash(genesis, &address) {
+                state_buffer.update_code(hash, code)?;
+                hash
+            } else {
+                EMPTY_HASH
+            };
             println!("initialize_genesis address{:?}, code_hash:{:?}", address, code_hash);
             state_buffer.update_account(
                 address,
@@ -166,7 +144,6 @@ where
         ommers_hash: EMPTY_LIST_HASH,
         transactions_root: EMPTY_ROOT,
     };
-
     let block_hash = header.hash();
     println!("initialize_genesis block_hash:{:?}", block_hash);
 

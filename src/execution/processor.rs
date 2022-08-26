@@ -14,6 +14,7 @@ use crate::{
 };
 use bytes::Bytes;
 use std::cmp::min;
+use tracing::info;
 use TransactionAction;
 
 pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
@@ -27,6 +28,7 @@ where
     header: &'h BlockHeader,
     block: &'b BlockBodyWithSenders,
     block_spec: &'c BlockExecutionSpec,
+    chain_spec: &'c ChainSpec,
     cumulative_gas_used: u64,
 }
 
@@ -37,6 +39,7 @@ fn refund_gas<'r, S>(
     message: &Message,
     sender: Address,
     mut gas_left: u64,
+    parlia_engine: bool,
 ) -> Result<u64, DuoError>
 where
     S: StateReader,
@@ -52,6 +55,11 @@ where
     };
     let max_refund = (message.gas_limit() - gas_left) / max_refund_quotient;
     refund = min(refund, max_refund);
+
+    if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary){
+        refund = 0;
+    }
+
     gas_left += refund;
 
     let base_fee_per_gas = header.base_fee_per_gas.unwrap_or(U256::ZERO);
@@ -73,6 +81,7 @@ pub fn execute_transaction<'r, S>(
     message: &Message,
     sender: Address,
     beneficiary: Address,
+    parlia_engine: bool,
 ) -> Result<(Bytes, Receipt), DuoError>
 where
     S: HeaderReader + StateReader,
@@ -83,7 +92,20 @@ where
 
     state.access_account(sender);
 
-    let base_fee_per_gas = header.base_fee_per_gas.unwrap_or(U256::ZERO);
+    let base_fee_per_gas = if parlia_engine && is_system_transaction(message, &sender, &beneficiary){
+        U256::ZERO
+    } else{
+        header.base_fee_per_gas.unwrap_or(U256::ZERO)
+    };
+    
+    if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
+        let system_balance = state.get_balance(*SYSTEM_ACCOUNT)?;
+        if system_balance != 0 {
+            state.subtract_from_balance(*SYSTEM_ACCOUNT, system_balance)?;
+            state.add_to_balance(header.beneficiary, system_balance)?;
+        }
+    }
+
     let effective_gas_price = message
         .effective_gas_price(base_fee_per_gas)
         .ok_or(ValidationError::MaxFeeLessThanBase)?;
@@ -105,11 +127,15 @@ where
         }
     }
 
-    let g0 = intrinsic_gas(
+    let mut g0 = intrinsic_gas(
         message,
         rev >= Revision::Homestead,
         rev >= Revision::Istanbul,
     );
+
+    if parlia_engine && is_system_transaction(message, &sender, &beneficiary) {
+        g0 = 0 as u128;
+    }
     let gas = u128::from(message.gas_limit())
         .checked_sub(g0)
         .ok_or(ValidationError::IntrinsicGas)?
@@ -138,13 +164,21 @@ where
             message,
             sender,
             vm_res.gas_left as u64,
+            parlia_engine,
         )?;
 
     // award the miner
     let priority_fee_per_gas = message
         .priority_fee_per_gas(base_fee_per_gas)
         .ok_or(ValidationError::MaxFeeLessThanBase)?;
-    state.add_to_balance(beneficiary, U256::from(gas_used) * priority_fee_per_gas)?;
+    let rewards = U256::from(gas_used) * priority_fee_per_gas;
+    if rewards > 0 {
+        if parlia_engine {
+            state.add_to_balance(*SYSTEM_ACCOUNT, rewards)?;
+        }else{
+            state.add_to_balance(beneficiary, rewards)?;
+        }
+    }
 
     state.destruct_selfdestructs()?;
     if rev >= Revision::Spurious {
@@ -192,6 +226,7 @@ where
         header: &'h BlockHeader,
         block: &'b BlockBodyWithSenders,
         block_spec: &'c BlockExecutionSpec,
+        chain_spec: &'c ChainSpec,
     ) -> Self {
         Self {
             state: IntraBlockState::new(state),
@@ -201,6 +236,7 @@ where
             header,
             block,
             block_spec,
+            chain_spec,
             cumulative_gas_used: 0,
         }
     }
@@ -254,32 +290,35 @@ where
             * U512::from(ethereum_types::U256::from(
                 message.max_fee_per_gas().to_be_bytes(),
             ));
-        // See YP, Eq (57) in Section 6.2 "Execution"
-        let v0 =
-            max_gas_cost + U512::from(ethereum_types::U256::from(message.value().to_be_bytes()));
-        let available_balance =
-            ethereum_types::U256::from(self.state.get_balance(sender)?.to_be_bytes()).into();
-        if available_balance < v0 {
-            return Err(TransactionValidationError::Validation(
-                BadTransactionError::InsufficientFunds {
-                    account: sender,
-                    available: available_balance,
-                    required: v0,
-                },
-            ));
-        }
 
-        let available_gas = self.available_gas();
-        if available_gas < message.gas_limit() {
-            // Corresponds to the final condition of Eq (58) in Yellow Paper Section 6.2 "Execution".
-            // The sum of the transaction’s gas limit and the gas utilized in this block prior
-            // must be no greater than the block’s gas limit.
-            return Err(TransactionValidationError::Validation(
-                BadTransactionError::BlockGasLimitExceeded {
-                    available: available_gas,
-                    required: message.gas_limit(),
-                },
-            ));
+        // if not parlia or not system_transaction in parlia, check gas
+        if !is_parlia(self.engine.name()) || !is_system_transaction(message, &sender, &self.header.beneficiary) {
+            // See YP, Eq (57) in Section 6.2 "Execution"
+            let v0 =
+                max_gas_cost + U512::from(ethereum_types::U256::from(message.value().to_be_bytes()));
+            let available_balance =
+                ethereum_types::U256::from(self.state.get_balance(sender)?.to_be_bytes()).into();
+            if available_balance < v0 {
+                return Err(TransactionValidationError::Validation(
+                    BadTransactionError::InsufficientFunds {
+                        account: sender,
+                        available: available_balance,
+                        required: v0,
+                    },
+                ));
+            }
+            let available_gas = self.available_gas();
+            if available_gas < message.gas_limit() {
+                // Corresponds to the final condition of Eq (58) in Yellow Paper Section 6.2 "Execution".
+                // The sum of the transaction’s gas limit and the gas utilized in this block prior
+                // must be no greater than the block’s gas limit.
+                return Err(TransactionValidationError::Validation(
+                    BadTransactionError::BlockGasLimitExceeded {
+                        available: available_gas,
+                        required: message.gas_limit(),
+                    },
+                ));
+            }
         }
 
         Ok(())
@@ -292,6 +331,8 @@ where
     ) -> Result<Receipt, DuoError> {
         let beneficiary = self.engine.get_beneficiary(self.header);
 
+        let parlia = is_parlia(self.engine.name());
+
         execute_transaction(
             &mut self.state,
             self.block_spec,
@@ -302,6 +343,7 @@ where
             message,
             sender,
             beneficiary,
+            parlia,
         )
         .map(|(_, receipt)| receipt)
     }
@@ -316,7 +358,47 @@ where
             self.state.set_balance(address, balance)?;
         }
 
+        let mut system_txs = Vec::new();
+        let parlia = is_parlia(self.engine.name());
+
         for (i, txn) in self.block.transactions.iter().enumerate() {
+            if !(pred)(i, txn) {
+                return Ok(receipts);
+            }
+
+            if parlia && is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
+                system_txs.push(txn);
+                continue;
+            }
+
+            self.validate_transaction(&txn.message, txn.sender)
+                .map_err(|e| match e {
+                    TransactionValidationError::Validation(error) => {
+                        DuoError::Validation(ValidationError::BadTransaction { index: i, error })
+                    }
+                    TransactionValidationError::Internal(e) => DuoError::Internal(e),
+                })?;
+            receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
+        }
+
+        for change in self.engine.finalize(
+            self.header,
+            &self.block.ommers,
+            Some(&self.block.transactions),
+            &self.state,
+        )? {
+            match change {
+                FinalizationChange::Reward {
+                    address, amount, ..
+                } => {
+                    if amount > 0 {
+                        self.state.add_to_balance(address, amount)?;
+                    }
+                }
+            }
+        }
+
+        for (i, txn) in system_txs.iter().enumerate() {
             if !(pred)(i, txn) {
                 return Ok(receipts);
             }
@@ -331,18 +413,6 @@ where
             receipts.push(self.execute_transaction(&txn.message, txn.sender)?);
         }
 
-        for change in self.engine.finalize(self.header, &self.block.ommers)? {
-            match change {
-                FinalizationChange::Reward {
-                    address, amount, ..
-                } => {
-                    if amount > 0 {
-                        self.state.add_to_balance(address, amount)?;
-                    }
-                }
-            }
-        }
-
         Ok(receipts)
     }
 
@@ -351,11 +421,14 @@ where
     }
 
     pub fn execute_and_check_block(&mut self) -> Result<Vec<Receipt>, DuoError> {
+
+        self.engine.new_block(self.header, ConsensusNewBlockState::handle(self.chain_spec, self.header, &mut self.state)?)?;
         let receipts = self.execute_block_no_post_validation()?;
 
         let gas_used = receipts.last().map(|r| r.cumulative_gas_used).unwrap_or(0);
 
         if gas_used != self.header.gas_used {
+            info!("wron gas block {}, {:?}", self.header.number, receipts);
             let transactions = receipts
                 .into_iter()
                 .enumerate()
@@ -467,6 +540,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         let receipt = processor.execute_transaction(&message, sender).unwrap();
@@ -510,6 +584,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         processor
@@ -575,6 +650,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         let t = |action, input, nonce, gas_limit| Message::EIP1559 {
@@ -693,6 +769,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         processor.state().add_to_balance(originator, ETHER).unwrap();
@@ -800,6 +877,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
         processor.state().add_to_balance(caller, ETHER).unwrap();
 
@@ -856,6 +934,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &MAINNET,
         );
 
         processor.state().add_to_balance(caller, ETHER).unwrap();

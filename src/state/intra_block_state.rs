@@ -60,6 +60,26 @@ fn get_object<'m, S: StateReader>(
     })
 }
 
+fn read_object<S: StateReader>(
+    db: &S,
+    objects: &HashMap<Address, Object>,
+    address: Address,
+) -> anyhow::Result<Option<Object>> {
+    Ok(if let Some(obj) = objects.get(&address) {
+        Some(obj.clone())
+    }else {
+        let accdata = db.read_account(address)?;
+        if let Some(account) = accdata {
+            Some(Object {
+                initial: Some(account),
+                current: Some(account),
+            })
+        } else {
+            None
+        }
+    })
+}
+
 fn ensure_object<'m: 'j, 'j, S: StateReader>(
     db: &S,
     objects: &'m mut HashMap<Address, Object>,
@@ -545,5 +565,53 @@ where
         }
 
         Ok(())
+    }
+}
+
+impl<'r, S> StateReader for IntraBlockState<'r, S>
+where
+    S: StateReader,
+{
+    fn read_account(&self, address: Address) -> anyhow::Result<Option<Account>> {
+        Ok(read_object(self.state, &self.objects, address)?
+            .and_then(|object| object.current))
+    }
+
+    fn read_code(&self, code_hash: H256) -> anyhow::Result<Bytes> {
+        if let Some(code) = self.new_code.get(&code_hash) {
+            return Ok(code.clone());
+        }
+
+        if let Some(code) = self.existing_code.get(&code_hash) {
+            return Ok(code.clone());
+        }
+
+        let code = self.state.read_code(code_hash)?;
+        return Ok(code);
+    }
+
+    fn read_storage(&self, address: Address, key: U256) -> anyhow::Result<U256> {
+        if let Some(obj) = read_object(self.state, &self.objects, address)? {
+            if obj.current.is_some() {
+                if let Some(storage) = self.storage.get(&address) {
+                    if let Some(v) = storage.current.get(&key) {
+                        return Ok(*v);
+                    }
+
+                    if let Some(v) = storage.committed.get(&key) {
+                        return Ok(v.original);
+                    }
+                }
+
+                if obj.initial.is_none() || self.incarnations.contains_key(&address) {
+                    return Ok(U256::ZERO);
+                }
+
+                let val = self.state.read_storage(address, key)?;
+                return Ok(val);
+            }
+        }
+
+        Ok(U256::ZERO)
     }
 }

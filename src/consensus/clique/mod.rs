@@ -11,8 +11,8 @@ use crate::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal},
-    BlockReader,
+    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal, MessageWithSender},
+    BlockReader,StateReader
 };
 use anyhow::bail;
 use bytes::Bytes;
@@ -175,6 +175,10 @@ impl Clique {
 }
 
 impl Consensus for Clique {
+    fn name(&self) -> &str {
+        "Clique"
+    }
+
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         if !block.ommers.is_empty() {
             return Err(ValidationError::TooManyOmmers.into());
@@ -217,6 +221,8 @@ impl Consensus for Clique {
         &self,
         block: &BlockHeader,
         _ommers: &[BlockHeader],
+        _transactions: Option<&Vec<MessageWithSender>>,
+        _state: &dyn StateReader,
     ) -> anyhow::Result<Vec<FinalizationChange>> {
         let clique_block = CliqueBlock::from_header(block)?;
 

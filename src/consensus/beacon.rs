@@ -184,6 +184,10 @@ impl BeaconConsensus {
 }
 
 impl Consensus for BeaconConsensus {
+    fn name(&self) -> &str {
+        "Beacon"
+    }
+
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::External(self.receiver.clone())
     }
@@ -243,6 +247,8 @@ impl Consensus for BeaconConsensus {
         &self,
         header: &crate::models::BlockHeader,
         ommers: &[crate::models::BlockHeader],
+        _transactions: Option<&Vec<MessageWithSender>>,
+        _state: &dyn StateReader,
     ) -> anyhow::Result<Vec<super::FinalizationChange>> {
         let block_number = header.number;
         let block_reward = self.block_reward.for_block(block_number);

@@ -25,6 +25,21 @@
 )]
 #![doc = include_str!("../README.md")]
 
+extern crate ethabi;
+extern crate ethereum_types;
+extern crate lru_cache;
+extern crate parking_lot;
+extern crate keccak_hash as hash;
+extern crate rlp;
+extern crate parity_bytes as parbytes;
+#[macro_use]
+extern crate lazy_static;
+extern crate secp256k1;
+extern crate ethabi_derive;
+extern crate rustc_hex;
+#[macro_use]
+extern crate ethabi_contract;
+
 pub mod accessors;
 #[doc(hidden)]
 pub mod binutil;
@@ -49,5 +64,3 @@ pub(crate) mod util;
 pub use stagedsync::stage::StageId;
 pub use state::*;
 pub use util::*;
-#[macro_use]
-extern crate lazy_static;

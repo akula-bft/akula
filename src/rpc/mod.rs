@@ -296,7 +296,7 @@ pub mod helpers {
         let mut buffer = Buffer::new(txn, Some(BlockNumber(block_number.0 - 1)));
 
         let block_execution_spec = chain_spec.collect_block_spec(block_number);
-        let mut engine = engine_factory(None, chain_spec, None)?;
+        let mut engine = engine_factory(None, chain_spec.clone(), None)?;
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
 
@@ -308,6 +308,7 @@ pub mod helpers {
             &header,
             &block_body,
             &block_execution_spec,
+            &chain_spec,
         );
 
         processor

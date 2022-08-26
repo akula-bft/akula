@@ -23,7 +23,7 @@ pub fn execute_block<S: State>(
     let mut engine = consensus::engine_factory(None, config.clone(), None)?;
     let mut tracer = NoopTracer;
 
-    let config = config.collect_block_spec(header.number);
+    let block_config = config.collect_block_spec(header.number);
     ExecutionProcessor::new(
         state,
         &mut tracer,
@@ -31,7 +31,8 @@ pub fn execute_block<S: State>(
         &mut *engine,
         header,
         block,
-        &config,
+        &block_config,
+        config,
     )
     .execute_and_write_block()
 }

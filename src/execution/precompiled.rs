@@ -19,6 +19,7 @@ use std::{
 use substrate_bn::*;
 use tendermint::lite::{iavl_proof, light_client};
 use parity_bytes::BytesRef;
+use tracing::*;
 
 pub type GasFunction = fn(Bytes, Revision) -> Option<u64>;
 pub type RunFunction = fn(Bytes) -> Option<Bytes>;
@@ -472,6 +473,7 @@ fn tendermint_header_verify_run(input: Bytes) -> Option<Bytes> {
     let mut output = vec![0u8, 0, 0];
     let mut bytes = BytesRef::Flexible(&mut output);
     let res = light_client::TmHeaderVerifier::execute(input.as_ref(), &mut bytes);
+    debug!("tendermint_header_verify_run input {} output {}", hex::encode(input.as_ref()), hex::encode(&output));
     return match res {
         Ok(()) => Some(Bytes::from(output)),
         Err(_) => None

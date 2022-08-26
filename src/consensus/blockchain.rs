@@ -154,6 +154,7 @@ impl<'state> Blockchain<'state> {
             &block.header,
             &body,
             &block_spec,
+            &self.config,
         );
 
         let _ = processor.execute_and_write_block()?;

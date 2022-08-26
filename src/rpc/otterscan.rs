@@ -28,6 +28,7 @@ use ethereum_jsonrpc::{
 use jsonrpsee::core::RpcResult;
 use std::{cmp::Ordering, sync::Arc};
 use tokio::pin;
+use crate::consensus::is_parlia;
 
 pub struct OtterscanApiServerImpl<SE>
 where
@@ -58,8 +59,9 @@ where
         let chainspec = tx
             .get(tables::Config, ())?
             .ok_or_else(|| format_err!("no chainspec found"))?;
+        let buffer = Buffer::new(tx, None);
         let finalization_changes =
-            engine_factory(None, chainspec, None)?.finalize(&header, &ommers)?;
+            engine_factory(None, chainspec, None)?.finalize(&header, &ommers, None, &buffer)?;
 
         let mut block_reward = U256::ZERO;
         let mut uncle_reward = U256::ZERO;
@@ -175,8 +177,8 @@ where
         last_page: false,
     };
 
-    let beneficiary = engine_factory(None, chain_spec.clone(), None)?.get_beneficiary(&header);
-
+    let engine = engine_factory(None, chain_spec.clone(), None)?;
+    let beneficiary = engine.get_beneficiary(&header);
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
         let mut tracer = TouchTracer::new(addr);
@@ -190,6 +192,7 @@ where
             &transaction.message,
             sender,
             beneficiary,
+            is_parlia(engine.name()),
         )?
         .1;
 
@@ -444,7 +447,7 @@ where
                 let mut buffer = Buffer::new(&txn, Some(BlockNumber(block_number.0 - 1)));
 
                 let block_execution_spec = chain_spec.collect_block_spec(block_number);
-                let mut engine = engine_factory(None, chain_spec, None)?;
+                let mut engine = engine_factory(None, chain_spec.clone(), None)?;
                 let mut analysis_cache = AnalysisCache::default();
                 let mut tracer = NoopTracer;
 
@@ -456,6 +459,7 @@ where
                     &header,
                     &block_body,
                     &block_execution_spec,
+                    &chain_spec,
                 );
 
                 let transaction_index = chain::block_body::read_without_senders(&txn, block_hash, block_number)?.ok_or_else(|| format_err!("where's block body"))?.transactions

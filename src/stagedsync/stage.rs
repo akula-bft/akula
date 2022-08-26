@@ -10,6 +10,7 @@ use std::{
     time::Instant,
 };
 use tracing::*;
+use crate::consensus::DuoError;
 
 #[derive(Clone, Copy, Debug)]
 pub struct StageInput {
@@ -62,6 +63,22 @@ pub enum StageError {
 impl From<anyhow::Error> for StageError {
     fn from(e: anyhow::Error) -> Self {
         StageError::Internal(e)
+    }
+}
+
+impl From<DuoError> for StageError {
+    fn from(e: DuoError) -> Self {
+        match e {
+            DuoError::Validation(inner) => {
+                StageError::Validation{
+                    block: Default::default(),
+                    error: inner,
+                }
+            },
+            DuoError::Internal(inner) => {
+                StageError::Internal(inner)
+            }
+        }
     }
 }
 

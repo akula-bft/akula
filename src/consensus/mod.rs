@@ -3,14 +3,15 @@ mod beacon;
 mod blockchain;
 mod clique;
 pub mod fork_choice_graph;
-mod upgrade;
+mod parlia;
 
 use self::fork_choice_graph::ForkChoiceGraph;
-pub use self::{base::*, beacon::*, blockchain::*, clique::*};
+pub use self::{base::*, beacon::*, blockchain::*, clique::*, parlia::*};
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
-    BlockReader,
+    BlockReader, HeaderReader,
+    state::{IntraBlockState, StateReader}
 };
 use anyhow::bail;
 use derive_more::{Display, From};
@@ -21,6 +22,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     sync::Arc,
 };
+use std::time::{SystemTimeError};
 use tokio::sync::watch;
 
 #[derive(Debug)]
@@ -44,13 +46,36 @@ impl ConsensusState {
         starting_block: BlockNumber,
     ) -> anyhow::Result<ConsensusState> {
         Ok(match chainspec.consensus.seal_verification {
-            SealVerificationParams::Parlia { period: _, epoch } => {
-                ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
-            }
             SealVerificationParams::Clique { period: _, epoch } => {
                 ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
             }
             SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
+            SealVerificationParams::Parlia {..} => ConsensusState::Stateless,
+        })
+    }
+}
+
+pub enum ConsensusNewBlockState {
+    Stateless,
+    Parlia(ParliaNewBlockState),
+}
+
+impl ConsensusNewBlockState {
+    pub(crate) fn handle<'r, S>(
+        chain_spec: &ChainSpec,
+        header: &BlockHeader,
+        state: &mut IntraBlockState<'r, S>,
+    ) -> anyhow::Result<ConsensusNewBlockState>
+        where
+            S: StateReader + HeaderReader,
+    {
+        Ok(match chain_spec.consensus.seal_verification {
+            SealVerificationParams::Parlia { .. } => {
+                ConsensusNewBlockState::Parlia(parse_parlia_new_block_state(chain_spec, header, state)?)
+            },
+            _ => {
+                ConsensusNewBlockState::Stateless
+            },
         })
     }
 }
@@ -67,6 +92,9 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
+    /// The name of this engine.
+    fn name(&self) -> &str;
+
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 
     /// Performs validation of block header & body that can be done prior to sender recovery and execution.
@@ -90,8 +118,10 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// NOTE: For Ethash See YP Section 11.3 "Reward Application".
     fn finalize(
         &self,
-        block: &BlockHeader,
+        header: &BlockHeader,
         ommers: &[BlockHeader],
+        transactions: Option<&Vec<MessageWithSender>>,
+        state: &dyn StateReader,
     ) -> anyhow::Result<Vec<FinalizationChange>>;
 
     /// See YP Section 11.3 "Reward Application".
@@ -102,6 +132,15 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
     #[allow(unused_variables)]
     fn set_state(&mut self, state: ConsensusState) {}
+
+    /// To be overridden for stateful consensus engines, e. g. PoA engines with a signer list.
+    fn new_block(
+        &mut self,
+        _header: &BlockHeader,
+        _state: ConsensusNewBlockState
+    ) -> Result<(), DuoError> {
+        Ok(())
+    }
 
     /// To be overridden for stateful consensus engines.
     ///
@@ -116,6 +155,16 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     }
 
     fn validate_header_parallel(&self, _: &BlockHeader) -> Result<(), DuoError> {
+        Ok(())
+    }
+
+    /// To be overridden for consensus validators' snap.
+    fn snapshot(
+        &mut self,
+        _db: &dyn SnapRW,
+        _block_number: BlockNumber,
+        _block_hash: H256,
+    ) -> anyhow::Result<(), DuoError> {
         Ok(())
     }
 }
@@ -167,6 +216,80 @@ pub enum CliqueError {
 }
 
 impl Display for CliqueError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParliaError {
+    WrongHeaderTime {
+        now: u64,
+        got: u64,
+    },
+    WrongHeaderExtraLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderExtraSignersLen {
+        expected: usize,
+        got: usize,
+    },
+    WrongHeaderSigner {
+        number: BlockNumber,
+        expected: Address,
+        got: Address,
+    },
+    UnknownHeader{
+        number: BlockNumber,
+        hash: H256,
+    },
+    SignerUnauthorized{
+        number: BlockNumber,
+        signer: Address,
+    },
+    SignerOverLimit{
+        signer: Address,
+    },
+    EpochChgWrongValidators {
+        expect: Vec<Address>,
+        got: Vec<Address>,
+    },
+    EpochChgCallErr,
+    SnapFutureBlock {
+        expect: BlockNumber,
+        got: BlockNumber,
+    },
+    SnapNotFound {
+        number: BlockNumber,
+        hash: H256,
+    },
+    SystemTxWrongSystemReward {
+        expect: U256,
+        got: U256,
+    },
+    SystemTxWrongCount {
+        expect: usize,
+        got: usize,
+    },
+    SystemTxWrong {
+        expect: Message,
+        got: Message,
+    },
+    CacheValidatorsUnknown,
+    WrongConsensusParam,
+    UnknownAccount {
+        block: BlockNumber,
+        account: Address,
+    },
+}
+impl From<ParliaError> for anyhow::Error {
+    fn from(err: ParliaError) -> Self {
+        DuoError::Validation(ValidationError::ParliaError(err)).into()
+    }
+}
+
+impl Display for ParliaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
     }
@@ -266,11 +389,18 @@ pub enum ValidationError {
     UnsupportedTransactionType, // EIP-2718
 
     CliqueError(CliqueError),
+    ParliaError(ParliaError),
 }
 
 impl From<CliqueError> for ValidationError {
     fn from(e: CliqueError) -> Self {
         Self::CliqueError(e)
+    }
+}
+
+impl From<ParliaError> for ValidationError {
+    fn from(e: ParliaError) -> Self {
+        Self::ParliaError(e)
     }
 }
 
@@ -292,6 +422,30 @@ impl std::error::Error for DuoError {}
 impl From<CliqueError> for DuoError {
     fn from(clique_error: CliqueError) -> Self {
         DuoError::Validation(ValidationError::CliqueError(clique_error))
+    }
+}
+
+impl From<ParliaError> for DuoError {
+    fn from(err: ParliaError) -> Self {
+        DuoError::Validation(ValidationError::ParliaError(err))
+    }
+}
+
+impl From<ethabi::Error> for DuoError {
+    fn from(err: ethabi::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
+impl From<secp256k1::Error> for DuoError {
+    fn from(err: secp256k1::Error) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
+    }
+}
+
+impl From<SystemTimeError> for DuoError {
+    fn from(err: SystemTimeError) -> Self {
+        DuoError::Internal(anyhow::Error::from(err))
     }
 }
 
@@ -326,23 +480,15 @@ pub fn engine_factory(
     listen_addr: Option<SocketAddr>,
 ) -> anyhow::Result<Box<dyn Consensus>> {
     Ok(match chain_config.consensus.seal_verification {
-        SealVerificationParams::Parlia { period, epoch } => {
-            let initial_signers = match chain_config.genesis.seal {
-                Seal::Parlia {
-                    vanity: _,
-                    score: _,
-                    signers,
-                } => signers,
-                _ => bail!("Genesis seal does not match, expected Clique seal."),
-            };
-            Box::new(Clique::new(
-                chain_config.params.chain_id,
-                chain_config.consensus.eip1559_block,
-                period,
-                epoch,
-                initial_signers,
-            ))
-        }
+        SealVerificationParams::Parlia {
+            period,
+            epoch,
+        } => Box::new(Parlia::new(
+            chain_config.params.chain_id,
+            chain_config,
+            epoch,
+            period,
+        )),
         SealVerificationParams::Clique { period, epoch } => {
             let initial_signers = match chain_config.genesis.seal {
                 Seal::Clique {

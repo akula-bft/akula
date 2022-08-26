@@ -61,6 +61,7 @@ impl ChainSpec {
             "goerli" => chainspec::GOERLI.clone(),
             "sepolia" => chainspec::SEPOLIA.clone(),
             "bsc" => chainspec::BSC.clone(),
+            "bsctest" => chainspec::BSCTEST.clone(),
             _ => return Err(format_err!("Network {name} is unknown")),
         })
     }
