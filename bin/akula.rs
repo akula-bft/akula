@@ -227,7 +227,12 @@ fn main() -> anyhow::Result<()> {
 
                             let mut api = Methods::new();
 
-                            let api_options: HashSet<String> = HashSet::from_iter(opt.enable_api);
+                            let api_options: HashSet<String> = HashSet::from_iter(
+                                opt.enable_api
+                                    .into_iter()
+                                    .map(|s| s.to_lowercase())
+                                    .collect::<Vec<String>>(),
+                            );
 
                             if api_options.get("eth").is_some() {
                                 api.merge(
