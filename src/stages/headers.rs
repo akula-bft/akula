@@ -6,7 +6,7 @@ use crate::{
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
         node::{Node, NodeStream},
-        types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
+        types::{BlockHeaders, BlockId, HeaderRequest, InboundMessage, Message, Status},
     },
     stagedsync::stage::*,
     StageId, TaskGuard,
@@ -43,6 +43,92 @@ pub struct HeaderDownload {
     pub consensus: Arc<dyn Consensus>,
     pub max_block: BlockNumber,
     pub increment: Option<BlockNumber>,
+}
+
+struct HeaderDownloadTask {
+    node: Arc<Node>,
+    consensus: Arc<dyn Consensus>,
+    graph: Arc<Mutex<ForkChoiceGraph>>,
+    requests: DashMap<BlockNumber, HeaderRequest>,
+    peer_map: DashMap<H256, hashbrown::HashSet<H512>>,
+}
+
+impl HeaderDownloadTask {
+    fn new(
+        node: Arc<Node>,
+        consensus: Arc<dyn Consensus>,
+        graph: Arc<Mutex<ForkChoiceGraph>>,
+        starting_block: BlockNumber,
+        target: BlockNumber,
+    ) -> Self {
+        let requests = (starting_block..=target)
+            .step_by(HEADERS_UPPER_BOUND)
+            .map(|start| {
+                let limit = std::cmp::min(*target - *start + 1, HEADERS_UPPER_BOUND as u64);
+
+                let request = HeaderRequest {
+                    start: BlockId::Number(start),
+                    limit,
+                    ..Default::default()
+                };
+
+                (start, request)
+            })
+            .collect();
+        Self {
+            node,
+            consensus,
+            graph,
+            requests,
+            peer_map: DashMap::new(),
+        }
+    }
+
+    async fn process_response(&self, headers: Vec<BlockHeader>, peer_id: H512) {
+        debug!(
+            "Processing response from {} with {} headers",
+            peer_id,
+            headers.len()
+        );
+
+        let headers = headers
+            .into_iter()
+            .map(|header| (header.hash(), header))
+            .collect::<Vec<_>>();
+        for (i, _) in headers.iter().enumerate().skip(1) {
+            if self
+                .consensus
+                .validate_block_header(&headers[i].1, &headers[i - 1].1, false)
+                .is_err()
+            {
+                self.node.penalize_peer(peer_id).await;
+                return;
+            }
+        }
+
+        let request_key = headers[0].1.number;
+        let last_hash = headers[headers.len() - 1].0;
+
+        let mut graph = self.graph.lock();
+
+        if let dashmap::mapref::entry::Entry::Occupied(entry) = self.requests.entry(request_key) {
+            let request_limit = entry.get().limit as usize;
+
+            if headers.len() == request_limit {
+                entry.remove();
+
+                for (hash, header) in headers {
+                    graph.insert_with_hash(hash, header);
+                    self.peer_map.entry(hash).or_default().insert(peer_id);
+                }
+            }
+        } else if !graph.contains(&last_hash) {
+            for (hash, header) in headers {
+                graph.insert_with_hash(hash, header);
+                self.peer_map.entry(hash).or_default().insert(peer_id);
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -180,7 +266,6 @@ where
 
                     let headers_cap = (target_block.0 - starting_block.0 + 1) as usize;
                     let mut headers = Vec::<(H256, BlockHeader)>::with_capacity(headers_cap);
-
                     while headers.len() < headers_cap {
                         let starting_block = if let Some((_, last_buffered_header)) = headers.last()
                         {
@@ -452,13 +537,18 @@ impl HeaderDownload {
         start: BlockNumber,
         end: BlockNumber,
     ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
-        let requests = Arc::new(Self::prepare_requests(start, end));
-        let peer_map = Arc::new(DashMap::new());
+        let this = Arc::new(HeaderDownloadTask::new(
+            self.node.clone(),
+            self.consensus.clone(),
+            fork_choice_graph,
+            start,
+            end,
+        ));
 
         info!(
             "Will download {} headers over {} requests",
             end - start + 1,
-            requests.len()
+            this.requests.len()
         );
 
         let mut stream = self.node.stream_headers().await;
@@ -468,51 +558,35 @@ impl HeaderDownload {
             let mut tasks = Vec::new();
 
             let _g = TaskGuard(tokio::task::spawn({
-                let node = self.node.clone();
-                let requests = requests.clone();
+                let this = this.clone();
 
                 async move {
                     loop {
-                        let reqs = requests
+                        let reqs = this
+                            .requests
                             .iter()
                             .map(|entry_ref| *entry_ref.value())
                             .collect::<Vec<_>>();
-                        node.clone().send_many_header_requests(reqs).await;
+                        this.node.clone().send_many_header_requests(reqs).await;
                         tokio::time::sleep(Self::BACK_OFF).await;
                     }
                 }
             }));
 
-            while !requests.is_empty() {
-                if let Some(msg) = stream.next().await {
-                    let peer_id = msg.peer_id;
-
-                    if let Message::BlockHeaders(inner) = msg.msg {
-                        if inner.headers.is_empty() {
+            while !this.requests.is_empty() {
+                if let Some(InboundMessage { msg, peer_id, .. }) = stream.next().await {
+                    if let Message::BlockHeaders(BlockHeaders { headers, .. }) = msg {
+                        if headers.is_empty() {
                             continue;
                         }
 
-                        info!(
-                            "Received {} headers from peer {peer_id}",
-                            inner.headers.len()
-                        );
+                        info!("Received {} headers from peer {peer_id}", headers.len());
 
-                        if is_bounded(inner.headers[0].number) {
+                        if is_bounded(headers[0].number) {
                             tasks.push(TaskGuard(tokio::task::spawn({
-                                let (node, consensus, requests, graph, peer_map, peer_id) = (
-                                    self.node.clone(),
-                                    self.consensus.clone(),
-                                    requests.clone(),
-                                    fork_choice_graph.clone(),
-                                    peer_map.clone(),
-                                    peer_id,
-                                );
-
+                                let this = this.clone();
                                 async move {
-                                    Self::handle_response(
-                                        node, consensus, requests, graph, peer_map, peer_id, inner,
-                                    )
-                                    .await
+                                    this.process_response(headers, peer_id).await;
                                 }
                             })));
                         }
@@ -523,7 +597,7 @@ impl HeaderDownload {
 
         let took = Instant::now();
         let mut headers = {
-            let mut graph = fork_choice_graph.lock();
+            let mut graph = this.graph.lock();
             let tail = if let Some(v) = graph.chain_head() {
                 v
             } else {
@@ -547,76 +621,36 @@ impl HeaderDownload {
         {
             headers.truncate(last_valid);
 
-            if let Some(peer_id) = peer_map.get(&invalid_hash).map(|e| *e) {
-                self.node.penalize_peer(peer_id).await;
+            if let Some(malicious_peers) = this.peer_map.get(&invalid_hash).as_deref().cloned() {
+                for peer_id in malicious_peers {
+                    this.node.penalize_peer(peer_id).await;
+                }
             }
         }
 
         if self.consensus.needs_parallel_validation() {
             if let Err((last_valid, invalid_hash)) = self.validate_parallel(&headers) {
                 headers.truncate(last_valid);
-
-                if let Some(peer_id) = peer_map.get(&invalid_hash).map(|e| *e) {
-                    self.node.penalize_peer(peer_id).await;
+                if let Some(malicious_peers) = this.peer_map.get(&invalid_hash).as_deref().cloned()
+                {
+                    for peer_id in malicious_peers {
+                        this.node.penalize_peer(peer_id).await;
+                    }
                 }
             }
         }
 
-        if cur_size == headers.len() {
-            info!(
-                "Seal verification took={:?} all headers are valid.",
-                took.elapsed()
-            );
-        } else {
-            info!(
-                "Seal verification took={:?} {} headers are invalidated.",
-                took.elapsed(),
-                cur_size - headers.len()
-            );
-        }
+        info!(
+            "Header validation took={:?}: {}",
+            took.elapsed(),
+            if cur_size == headers.len() {
+                "all headers are valid.".to_string()
+            } else {
+                format!("{} headers are invalidated.", cur_size - headers.len())
+            }
+        );
 
         Ok(Some(headers))
-    }
-
-    async fn handle_response(
-        node: Arc<Node>,
-        consensus: Arc<dyn Consensus>,
-        requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
-        graph: Arc<Mutex<ForkChoiceGraph>>,
-        peer_map: Arc<DashMap<H256, H512>>,
-        peer_id: H512,
-        response: BlockHeaders,
-    ) {
-        let cur_size = response.headers.len();
-        debug!("Handling response from {peer_id} with {cur_size} headers");
-
-        match Self::check_headers(&consensus, response.headers) {
-            Ok(headers) => {
-                let key = headers[0].1.number;
-                let last_hash = headers[headers.len() - 1].0;
-
-                let mut graph = graph.lock();
-
-                if let dashmap::mapref::entry::Entry::Occupied(entry) = requests.entry(key) {
-                    let limit = entry.get().limit as usize;
-
-                    if headers.len() == limit {
-                        entry.remove();
-
-                        for (hash, header) in headers {
-                            graph.insert_with_hash(hash, header);
-                            peer_map.insert(hash, peer_id);
-                        }
-                    }
-                } else if !graph.contains(last_hash) {
-                    for (hash, header) in headers {
-                        graph.insert_with_hash(hash, header);
-                        peer_map.insert(hash, peer_id);
-                    }
-                }
-            }
-            Err(_) => node.penalize_peer(peer_id).await,
-        }
     }
 
     async fn update_head<'tx, E: EnvironmentKind>(
@@ -651,42 +685,6 @@ impl HeaderDownload {
         } else {
             (max_incremented_from_start, false)
         }
-    }
-
-    fn prepare_requests(
-        starting_block: BlockNumber,
-        target: BlockNumber,
-    ) -> DashMap<BlockNumber, HeaderRequest> {
-        (starting_block..=target)
-            .step_by(HEADERS_UPPER_BOUND)
-            .map(|start| {
-                let limit = std::cmp::min(*target - *start + 1, HEADERS_UPPER_BOUND as u64);
-
-                let request = HeaderRequest {
-                    start: BlockId::Number(start),
-                    limit,
-                    ..Default::default()
-                };
-
-                (start, request)
-            })
-            .collect()
-    }
-
-    #[inline]
-    fn check_headers(
-        consensus: &Arc<dyn Consensus>,
-        headers: Vec<BlockHeader>,
-    ) -> Result<Vec<(H256, BlockHeader)>, DuoError> {
-        let headers = headers
-            .into_iter()
-            .map(|h| (h.hash(), h))
-            .collect::<Vec<_>>();
-        for (i, _) in headers.iter().enumerate().skip(1) {
-            consensus.validate_block_header(&headers[i].1, &headers[i - 1].1, false)?;
-        }
-
-        Ok(headers)
     }
 
     fn validate_sequentially<'a>(
@@ -738,40 +736,6 @@ impl HeaderDownload {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn prepare_requests() {
-        for (from, to, requests) in [
-            (1000, 1000, vec![(1000, 1)]),
-            (1000, 3047, vec![(1000, 1024), (2024, 1024)]),
-            (1000, 3048, vec![(1000, 1024), (2024, 1024), (3048, 1)]),
-            (
-                1000,
-                5000,
-                vec![(1000, 1024), (2024, 1024), (3048, 1024), (4072, 929)],
-            ),
-        ] {
-            assert_eq!(
-                HeaderDownload::prepare_requests(from.into(), to.into())
-                    .into_iter()
-                    .collect::<BTreeMap<_, _>>(),
-                requests
-                    .into_iter()
-                    .map(|(start, limit)| {
-                        let start = BlockNumber(start);
-                        (
-                            start,
-                            HeaderRequest {
-                                start: BlockId::Number(start),
-                                limit,
-                                ..Default::default()
-                            },
-                        )
-                    })
-                    .collect()
-            )
-        }
-    }
 
     #[test]
     fn forward_set_target_block() {
