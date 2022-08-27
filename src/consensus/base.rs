@@ -92,7 +92,7 @@ impl ConsensusEngineBase {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 
-        let expected_base_fee_per_gas = self.expected_base_fee_per_gas(header, parent);
+        let expected_base_fee_per_gas = self.expected_base_fee_per_gas(header, parent)?;
         if header.base_fee_per_gas != expected_base_fee_per_gas {
             return Err(ValidationError::WrongBaseFee {
                 expected: expected_base_fee_per_gas,
@@ -152,19 +152,21 @@ impl ConsensusEngineBase {
         &self,
         header: &BlockHeader,
         parent: &BlockHeader,
-    ) -> Option<U256> {
+    ) -> Result<Option<U256>, DuoError> {
         if let Some(fork_block) = self.eip1559_block {
             if header.number >= fork_block {
                 if header.number == fork_block {
-                    return Some(param::INITIAL_BASE_FEE.into());
+                    return Ok(Some(param::INITIAL_BASE_FEE.into()));
                 }
 
                 let parent_gas_target = parent.gas_limit / param::ELASTICITY_MULTIPLIER;
 
-                let parent_base_fee_per_gas = parent.base_fee_per_gas.unwrap();
+                let parent_base_fee_per_gas = parent
+                    .base_fee_per_gas
+                    .ok_or(DuoError::Validation(ValidationError::MissingBaseFee))?;
 
                 if parent.gas_used == parent_gas_target {
-                    return Some(parent_base_fee_per_gas);
+                    return Ok(Some(parent_base_fee_per_gas));
                 }
 
                 if parent.gas_used > parent_gas_target {
@@ -175,7 +177,7 @@ impl ConsensusEngineBase {
                             / U256::from(parent_gas_target)
                             / U256::from(param::BASE_FEE_MAX_CHANGE_DENOMINATOR),
                     );
-                    return Some(parent_base_fee_per_gas + base_fee_per_gas_delta);
+                    return Ok(Some(parent_base_fee_per_gas + base_fee_per_gas_delta));
                 } else {
                     let gas_used_delta = parent_gas_target - parent.gas_used;
                     let base_fee_per_gas_delta = parent_base_fee_per_gas
@@ -183,12 +185,14 @@ impl ConsensusEngineBase {
                         / U256::from(parent_gas_target)
                         / U256::from(param::BASE_FEE_MAX_CHANGE_DENOMINATOR);
 
-                    return Some(parent_base_fee_per_gas.saturating_sub(base_fee_per_gas_delta));
+                    return Ok(Some(
+                        parent_base_fee_per_gas.saturating_sub(base_fee_per_gas_delta),
+                    ));
                 }
             }
         }
 
-        None
+        Ok(None)
     }
 
     pub fn pre_validate_block(&self, block: &Block) -> Result<(), DuoError> {
