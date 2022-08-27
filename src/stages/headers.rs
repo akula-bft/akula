@@ -453,6 +453,7 @@ impl HeaderDownload {
         end: BlockNumber,
     ) -> anyhow::Result<Option<Vec<(H256, BlockHeader)>>> {
         let requests = Arc::new(Self::prepare_requests(start, end));
+        let peer_map = Arc::new(DashMap::new());
 
         info!(
             "Will download {} headers over {} requests",
@@ -498,17 +499,18 @@ impl HeaderDownload {
 
                         if is_bounded(inner.headers[0].number) {
                             tasks.push(TaskGuard(tokio::task::spawn({
-                                let (node, consensus, requests, graph, peer_id) = (
+                                let (node, consensus, requests, graph, peer_map, peer_id) = (
                                     self.node.clone(),
                                     self.consensus.clone(),
                                     requests.clone(),
                                     fork_choice_graph.clone(),
+                                    peer_map.clone(),
                                     peer_id,
                                 );
 
                                 async move {
                                     Self::handle_response(
-                                        node, consensus, requests, graph, peer_id, inner,
+                                        node, consensus, requests, graph, peer_map, peer_id, inner,
                                     )
                                     .await
                                 }
@@ -520,15 +522,16 @@ impl HeaderDownload {
         }
 
         let took = Instant::now();
-
-        let mut graph = fork_choice_graph.lock();
-        let tail = if let Some(v) = graph.chain_head() {
-            v
-        } else {
-            info!("Difficulty graph failure, will unwind");
-            return Ok(None);
+        let mut headers = {
+            let mut graph = fork_choice_graph.lock();
+            let tail = if let Some(v) = graph.chain_head() {
+                v
+            } else {
+                info!("Difficulty graph failure, will unwind");
+                return Ok(None);
+            };
+            graph.backtrack(&tail)
         };
-        let mut headers = graph.backtrack(&tail);
 
         info!(
             "Built canonical chain with={} headers, elapsed={:?}",
@@ -539,12 +542,24 @@ impl HeaderDownload {
         let cur_size = headers.len();
         let took = Instant::now();
 
-        if let Err(last_valid) = self.validate_sequentially(prev_progress_header, &headers) {
+        if let Err((last_valid, invalid_hash)) =
+            self.validate_sequentially(prev_progress_header, &headers)
+        {
             headers.truncate(last_valid);
+
+            if let Some(peer_id) = peer_map.get(&invalid_hash).map(|e| *e) {
+                self.node.penalize_peer(peer_id).await;
+            }
         }
 
         if self.consensus.needs_parallel_validation() {
-            self.validate_parallel(&mut headers);
+            if let Err((last_valid, invalid_hash)) = self.validate_parallel(&headers) {
+                headers.truncate(last_valid);
+
+                if let Some(peer_id) = peer_map.get(&invalid_hash).map(|e| *e) {
+                    self.node.penalize_peer(peer_id).await;
+                }
+            }
         }
 
         if cur_size == headers.len() {
@@ -568,6 +583,7 @@ impl HeaderDownload {
         consensus: Arc<dyn Consensus>,
         requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
         graph: Arc<Mutex<ForkChoiceGraph>>,
+        peer_map: Arc<DashMap<H256, H512>>,
         peer_id: H512,
         response: BlockHeaders,
     ) {
@@ -586,10 +602,17 @@ impl HeaderDownload {
 
                     if headers.len() == limit {
                         entry.remove();
-                        graph.extend(headers);
+
+                        for (hash, header) in headers {
+                            graph.insert_with_hash(hash, header);
+                            peer_map.insert(hash, peer_id);
+                        }
                     }
                 } else if !graph.contains(last_hash) {
-                    graph.extend(headers);
+                    for (hash, header) in headers {
+                        graph.insert_with_hash(hash, header);
+                        peer_map.insert(hash, peer_id);
+                    }
                 }
             }
             Err(_) => node.penalize_peer(peer_id).await,
@@ -670,14 +693,14 @@ impl HeaderDownload {
         &self,
         mut parent_header: &'a BlockHeader,
         headers: &'a [(H256, BlockHeader)],
-    ) -> Result<(), usize> {
+    ) -> Result<(), (usize, H256)> {
         for (i, (_, header)) in headers.iter().enumerate() {
             if self
                 .consensus
                 .validate_block_header(header, parent_header, false)
                 .is_err()
             {
-                return Err(i.saturating_sub(1));
+                return Err((i.saturating_sub(1), header.hash()));
             }
             parent_header = header;
         }
@@ -685,7 +708,7 @@ impl HeaderDownload {
         Ok(())
     }
 
-    fn validate_parallel(&self, headers: &mut Vec<(H256, BlockHeader)>) {
+    fn validate_parallel(&self, headers: &[(H256, BlockHeader)]) -> Result<(), (usize, H256)> {
         let valid_till = AtomicUsize::new(0);
 
         headers.par_iter().enumerate().for_each(|(i, (_, header))| {
@@ -705,7 +728,9 @@ impl HeaderDownload {
 
         let valid_till = valid_till.load(Ordering::SeqCst);
         if valid_till != 0 {
-            headers.truncate(valid_till);
+            Err((valid_till - 1, headers[valid_till].0))
+        } else {
+            Ok(())
         }
     }
 }
