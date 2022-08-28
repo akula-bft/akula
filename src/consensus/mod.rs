@@ -107,6 +107,14 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     fn is_state_valid(&self, next_header: &BlockHeader) -> bool {
         true
     }
+
+    fn needs_parallel_validation(&self) -> bool {
+        false
+    }
+
+    fn validate_header_parallel(&self, _: &BlockHeader) -> Result<(), DuoError> {
+        Ok(())
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -216,6 +224,7 @@ pub enum ValidationError {
         expected: Option<U256>,
         got: Option<U256>,
     }, // see EIP-1559
+    MissingBaseFee,  // see EIP-1559
     InvalidSeal,     // Nonce or mix_hash
 
     // See [YP] Section 6.2 "Execution", Eq (58)
@@ -325,7 +334,7 @@ pub fn engine_factory(
             chain_config.params.chain_id,
             chain_config.consensus.eip1559_block,
             duration_limit,
-            BlockRewardSchedule(block_reward),
+            block_reward.into(),
             homestead_formula,
             byzantium_formula,
             difficulty_bomb,
@@ -354,7 +363,9 @@ pub fn engine_factory(
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_number,
+            since,
             block_reward,
+            beneficiary,
         } => Box::new(BeaconConsensus::new(
             db,
             listen_addr.unwrap_or_else(|| {
@@ -363,10 +374,12 @@ pub fn engine_factory(
             chain_config.params.chain_id,
             chain_config.params.network_id,
             chain_config.consensus.eip1559_block,
-            BlockRewardSchedule(block_reward),
+            block_reward.into(),
+            beneficiary.into(),
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_number,
+            since,
         )),
     })
 }

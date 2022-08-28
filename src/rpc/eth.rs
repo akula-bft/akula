@@ -7,7 +7,7 @@ use crate::{
     },
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
-    stagedsync::stages::{self, FINISH},
+    stages::{self, FINISH},
     Buffer, IntraBlockState,
 };
 use anyhow::format_err;
@@ -443,7 +443,7 @@ where
                     .get(index)
                     .ok_or_else(|| format_err!("senders to short: {index} vs len {}", senders.len()))?;
                 return Ok(Some(types::Tx::Transaction(Box::new(
-                    helpers::new_jsonrpc_tx(transaction, sender, Some(index as u64)),
+                    helpers::new_jsonrpc_tx(transaction, sender, Some(index as u64), Some(block_hash), Some(block_number)),
                 ))));
             }
 

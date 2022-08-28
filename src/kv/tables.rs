@@ -8,7 +8,6 @@ use croaring::{treemap::NativeSerializer, Treemap as RoaringTreemap};
 use derive_more::*;
 use modular_bitfield::prelude::*;
 use once_cell::sync::Lazy;
-use secp256k1::SecretKey;
 use serde::{Deserialize, *};
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
@@ -888,24 +887,8 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
     )
 });
 
-impl TableEncode for SecretKey {
-    type Encoded = [u8; secp256k1::constants::SECRET_KEY_SIZE];
-
-    fn encode(self) -> Self::Encoded {
-        self.secret_bytes()
-    }
-}
-
-impl TableDecode for SecretKey {
-    fn decode(b: &[u8]) -> anyhow::Result<Self> {
-        Ok(SecretKey::from_slice(b)?)
-    }
-}
-
-decl_table!(SentryKey => () => SecretKey);
-
 pub static SENTRY_TABLES: Lazy<Arc<DatabaseChart>> =
-    Lazy::new(|| Arc::new([table_entry!(SentryKey)].into_iter().collect()));
+    Lazy::new(|| Arc::new([].into_iter().collect()));
 
 #[cfg(test)]
 mod tests {

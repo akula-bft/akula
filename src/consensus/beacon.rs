@@ -16,6 +16,7 @@ use jsonrpsee::{
     http_server::HttpServerBuilder,
     types::{error::CallError, ErrorObject, Params},
 };
+use serde::{Deserialize, Serialize};
 use std::{future::pending, net::SocketAddr};
 use tracing::*;
 
@@ -83,11 +84,21 @@ impl EngineApiServer for EngineApiServerImpl {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BeneficiaryFunction {
+    #[default]
+    Simple,
+    Clique,
+}
+
+pub type BeneficiarySchedule = BlockSchedule<BeneficiaryFunction>;
+
 #[derive(Debug)]
 pub struct BeaconConsensus {
     base: ConsensusEngineBase,
     block_reward: BlockRewardSchedule,
-    since: BlockNumber,
+    beneficiary_schedule: BeneficiarySchedule,
+    since: Option<BlockNumber>,
     receiver: watch::Receiver<ExternalForkChoice>,
     server_task: Option<TaskGuard<!>>,
 }
@@ -100,9 +111,11 @@ impl BeaconConsensus {
         network_id: NetworkId,
         eip1559_block: Option<BlockNumber>,
         block_reward: BlockRewardSchedule,
+        beneficiary_schedule: BeneficiarySchedule,
         terminal_total_difficulty: Option<U256>,
         terminal_block_hash: Option<H256>,
         terminal_block_number: Option<BlockNumber>,
+        since: Option<BlockNumber>,
     ) -> Self {
         let (chain_tip_sender, receiver) = tokio::sync::watch::channel(ExternalForkChoice {
             head_block: H256::zero(),
@@ -111,7 +124,8 @@ impl BeaconConsensus {
         Self {
             base: ConsensusEngineBase::new(chain_id, eip1559_block, None),
             block_reward,
-            since: terminal_block_number.unwrap_or_default() + 1,
+            beneficiary_schedule,
+            since,
             receiver,
             server_task: db.map(move |db| {
                 TaskGuard(tokio::spawn(async move {
@@ -191,7 +205,11 @@ impl Consensus for BeaconConsensus {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;
 
-        if header.number >= self.since {
+        if self
+            .since
+            .map(|since| header.number >= since)
+            .unwrap_or(true)
+        {
             if header.ommers_hash != EMPTY_LIST_HASH {
                 return Err(ValidationError::TooManyOmmers.into());
             }
@@ -210,6 +228,15 @@ impl Consensus for BeaconConsensus {
         }
 
         Ok(())
+    }
+
+    fn get_beneficiary(&self, header: &BlockHeader) -> Address {
+        match self.beneficiary_schedule.for_block(header.number) {
+            BeneficiaryFunction::Simple => header.beneficiary,
+            BeneficiaryFunction::Clique => {
+                crate::consensus::clique::recover_signer(header).unwrap()
+            }
+        }
     }
 
     fn finalize(

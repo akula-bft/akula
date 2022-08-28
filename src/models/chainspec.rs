@@ -1,4 +1,4 @@
-use crate::{models::*, util::*};
+use crate::{consensus::BeneficiaryFunction, models::*, util::*};
 use bytes::Bytes;
 use serde::*;
 use std::{
@@ -203,8 +203,16 @@ pub enum SealVerificationParams {
             with = "::serde_with::rust::unwrap_or_skip"
         )]
         terminal_block_number: Option<BlockNumber>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "::serde_with::rust::unwrap_or_skip"
+        )]
+        since: Option<BlockNumber>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         block_reward: BTreeMap<BlockNumber, U256>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        beneficiary: BTreeMap<BlockNumber, BeneficiaryFunction>,
     },
 }
 

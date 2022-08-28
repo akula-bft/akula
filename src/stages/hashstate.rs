@@ -3,9 +3,9 @@ use crate::{
     etl::collector::*,
     kv::{mdbx::*, tables},
     models::*,
-    stagedsync::{stage::*, stages::*},
+    stagedsync::stage::*,
     stages::stage_util::should_do_clean_promotion,
-    upsert_hashed_storage_value,
+    upsert_hashed_storage_value, StageId,
 };
 use anyhow::format_err;
 use async_trait::async_trait;
@@ -13,6 +13,8 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::pin;
 use tracing::*;
+
+pub const HASH_STATE: StageId = StageId("HashState");
 
 pub fn promote_clean_accounts<'db, E>(
     txn: &MdbxTransaction<'db, RW, E>,
@@ -274,7 +276,7 @@ mod tests {
         execution::{address::*, *},
         kv::new_mem_chaindata,
         res::chainspec::MAINNET,
-        u256_to_h256, Buffer, StateWriter,
+        stages, u256_to_h256, Buffer, StateWriter,
     };
     use hex_literal::*;
     use std::time::Instant;
@@ -411,7 +413,7 @@ mod tests {
                 StageInput {
                     restarted: false,
                     first_started_at: (Instant::now(), None),
-                    previous_stage: Some((EXECUTION, BlockNumber(3))),
+                    previous_stage: Some((stages::EXECUTION, BlockNumber(3))),
                     stage_progress: None,
                 },
             )

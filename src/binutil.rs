@@ -38,6 +38,10 @@ impl AkulaDataDir {
     pub fn sentry_db(&self) -> PathBuf {
         self.0.join("sentrydb")
     }
+
+    pub fn nodekey(&self) -> PathBuf {
+        self.0.join("nodekey")
+    }
 }
 
 impl Default for AkulaDataDir {
@@ -57,8 +61,8 @@ impl Display for AkulaDataDir {
 }
 
 impl ChainSpec {
-    pub fn load_from_file(path: impl AsRef<Path>) -> ron::Result<Self> {
-        ron::de::from_reader(File::open(path)?)
+    pub fn load_from_file(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Ok(ron::de::from_reader(File::open(path)?)?)
     }
 
     pub fn load_builtin(name: impl AsRef<str>) -> anyhow::Result<Self> {

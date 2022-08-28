@@ -3,7 +3,7 @@ name = "akula"
 version = "0.1.0"
 authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
 edition = "2021"
-description = "Ethereum client based on turbo-geth client architecture"
+description = "Next-generation Ethereum implementation"
 license = "GPL-3.0-only"
 default-run = "akula"
 
@@ -93,7 +93,7 @@ primitive-types = { version = "0.11", default-features = false, features = [
 rand = "0.8"
 rayon = "1"
 ripemd = "0.1"
-ron = "0.7"
+ron = "0.8"
 secp256k1 = { version = "0.24", features = [
   "global-context",
   "rand-std",
@@ -163,7 +163,7 @@ triehash = "0.8"
 
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
-enr = { git = "https://github.com/rust-ethereum/enr" }
+enr = { git = "https://github.com/sigp/enr" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls" }
 
 [[bin]]

@@ -46,6 +46,6 @@ mod state;
 pub mod trie;
 pub(crate) mod util;
 
-pub use stagedsync::stages::StageId;
+pub use stagedsync::stage::StageId;
 pub use state::*;
 pub use util::*;
