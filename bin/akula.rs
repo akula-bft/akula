@@ -177,6 +177,11 @@ fn main() -> anyhow::Result<()> {
 
                 akula::database_version::migrate_database(&db)?;
 
+                if opt.prune {
+                    warn!("Pruning is temporarily unavailable");
+                    opt.prune = false;
+                }
+
                 let snapshot_dir = opt
                     .snapshot_dir
                     .map(|v| v.0)
