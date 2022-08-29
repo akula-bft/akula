@@ -2,14 +2,20 @@ use crate::trie::util::has_prefix;
 use bytes::Bytes;
 
 #[derive(Clone)]
-pub(crate) struct PrefixSet {
+pub struct PrefixSet {
     keys: Vec<Bytes>,
     sorted: bool,
     index: usize,
 }
 
+impl Default for PrefixSet {
+    fn default() -> Self {
+        PrefixSet::new()
+    }
+}
+
 impl PrefixSet {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             keys: Vec::new(),
             sorted: true,
@@ -54,7 +60,7 @@ impl PrefixSet {
         }
     }
 
-    pub(crate) fn insert(&mut self, key: &[u8]) {
+    pub fn insert(&mut self, key: &[u8]) {
         self.keys.push(Bytes::copy_from_slice(key));
         self.sorted = false;
     }

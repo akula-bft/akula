@@ -262,7 +262,7 @@ where
     }
 }
 
-struct DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
+pub struct DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
 where
     E: EnvironmentKind,
     'db: 'tx,
@@ -283,7 +283,7 @@ where
     'tmp: 'co,
     'co: 'nc,
 {
-    fn new(
+    pub fn new(
         txn: &'tx MdbxTransaction<'db, RW, E>,
         account_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
         storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
@@ -303,7 +303,7 @@ where
         }
     }
 
-    fn calculate_root(
+    pub fn calculate_root(
         &mut self,
         account_changes: &mut PrefixSet,
         storage_changes: &mut PrefixSet,
@@ -445,7 +445,7 @@ where
     }
 }
 
-fn do_increment_intermediate_hashes<'db, 'tx, E>(
+pub fn do_increment_intermediate_hashes<'db, 'tx, E>(
     txn: &'tx MdbxTransaction<'db, RW, E>,
     etl_dir: &TempDir,
     expected_root: Option<H256>,
