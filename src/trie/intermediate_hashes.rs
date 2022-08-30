@@ -260,9 +260,13 @@ where
             false
         }
     }
+
+    fn changed_mut(&mut self) -> &mut PrefixSet {
+        self.changed
+    }
 }
 
-pub struct DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
+struct DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
 where
     E: EnvironmentKind,
     'db: 'tx,
@@ -283,7 +287,7 @@ where
     'tmp: 'co,
     'co: 'nc,
 {
-    pub fn new(
+    fn new(
         txn: &'tx MdbxTransaction<'db, RW, E>,
         account_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
         storage_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
@@ -303,15 +307,11 @@ where
         }
     }
 
-    pub fn calculate_root(
-        &mut self,
-        account_changes: &mut PrefixSet,
-        storage_changes: &mut PrefixSet,
-    ) -> Result<H256> {
+    fn calculate_root(&mut self, changed: &mut PrefixSet) -> Result<H256> {
         let mut state = self.txn.cursor(tables::HashedAccount)?;
         let mut trie_db_cursor = self.txn.cursor(tables::TrieAccount)?;
 
-        let mut trie = Cursor::new(&mut trie_db_cursor, account_changes, &[])?;
+        let mut trie = Cursor::new(&mut trie_db_cursor, changed, &[])?;
 
         let first_started_at = Instant::now();
         let mut last_message_at = Instant::now();
@@ -349,7 +349,7 @@ where
                 }
 
                 let storage_root =
-                    self.calculate_storage_root(address.as_bytes(), storage_changes)?;
+                    self.calculate_storage_root(address.as_bytes(), trie.changed_mut())?;
 
                 self.hb.add_leaf(
                     unpacked_key,
@@ -445,12 +445,11 @@ where
     }
 }
 
-pub fn do_increment_intermediate_hashes<'db, 'tx, E>(
+fn do_increment_intermediate_hashes<'db, 'tx, E>(
     txn: &'tx MdbxTransaction<'db, RW, E>,
     etl_dir: &TempDir,
     expected_root: Option<H256>,
-    account_changes: &mut PrefixSet,
-    storage_changes: &mut PrefixSet,
+    changed: &mut PrefixSet,
 ) -> std::result::Result<H256, DuoError>
 where
     'db: 'tx,
@@ -461,7 +460,7 @@ where
 
     let root = {
         let mut loader = DbTrieLoader::new(txn, &mut account_collector, &mut storage_collector);
-        loader.calculate_root(account_changes, storage_changes)?
+        loader.calculate_root(changed)?
     };
 
     if let Some(expected) = expected_root {
@@ -482,7 +481,7 @@ where
     Ok(root)
 }
 
-fn gather_account_changes<'db, 'tx, K, E>(
+fn gather_changes<'db, 'tx, K, E>(
     txn: &'tx MdbxTransaction<'db, K, E>,
     from: BlockNumber,
 ) -> Result<PrefixSet>
@@ -501,21 +500,8 @@ where
         data = account_changes.next()?;
     }
 
-    info!("Gathered {} account changes.", out.len());
-
-    Ok(out)
-}
-
-fn gather_storage_changes<'db, 'tx, K, E>(
-    txn: &'tx MdbxTransaction<'db, K, E>,
-    from: BlockNumber,
-) -> Result<PrefixSet>
-where
-    'db: 'tx,
-    K: TransactionKind,
-    E: EnvironmentKind,
-{
-    let mut out = PrefixSet::new();
+    let n_account_changes = out.len();
+    info!("Gathered {} account changes.", n_account_changes);
 
     let mut storage_changes = txn.cursor(tables::StorageChangeSet)?;
     let mut data = storage_changes.seek(from)?;
@@ -536,7 +522,10 @@ where
         data = storage_changes.next()?;
     }
 
-    info!("Gathered {} storage changes.", out.len());
+    info!(
+        "Gathered {} storage changes.",
+        out.len() - n_account_changes
+    );
 
     Ok(out)
 }
@@ -551,15 +540,8 @@ where
     'db: 'tx,
     E: EnvironmentKind,
 {
-    let mut account_changes = gather_account_changes(txn, from + 1)?;
-    let mut storage_changes = gather_storage_changes(txn, from + 1)?;
-    do_increment_intermediate_hashes(
-        txn,
-        etl_dir,
-        expected_root,
-        &mut account_changes,
-        &mut storage_changes,
-    )
+    let mut changes = gather_changes(txn, from + 1)?;
+    do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut changes)
 }
 
 pub fn unwind_intermediate_hashes<'db, 'tx, E>(
@@ -572,15 +554,8 @@ where
     'db: 'tx,
     E: EnvironmentKind,
 {
-    let mut account_changes = gather_account_changes(txn, unwind_to)?;
-    let mut storage_changes = gather_storage_changes(txn, unwind_to)?;
-    do_increment_intermediate_hashes(
-        txn,
-        etl_dir,
-        expected_root,
-        &mut account_changes,
-        &mut storage_changes,
-    )
+    let mut changes = gather_changes(txn, unwind_to)?;
+    do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut changes)
 }
 
 pub fn regenerate_intermediate_hashes<'db, 'tx, E>(
@@ -594,13 +569,8 @@ where
 {
     txn.clear_table(tables::TrieAccount)?;
     txn.clear_table(tables::TrieStorage)?;
-    do_increment_intermediate_hashes(
-        txn,
-        etl_dir,
-        expected_root,
-        &mut PrefixSet::new(),
-        &mut PrefixSet::new(),
-    )
+    let mut empty = PrefixSet::new();
+    do_increment_intermediate_hashes(txn, etl_dir, expected_root, &mut empty)
 }
 
 #[cfg(test)]
