@@ -23,7 +23,8 @@ use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
 use std::{
-    fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic, sync::Arc, time::Duration,
+    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
+    sync::Arc, time::Duration,
 };
 use tokio::time::sleep;
 use tracing::*;
@@ -98,6 +99,10 @@ pub struct Opt {
     /// Disable JSONRPC.
     #[clap(long)]
     pub no_rpc: bool,
+
+    /// Enable API options
+    #[clap(long, min_values(1))]
+    pub enable_api: Vec<String>,
 
     /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
@@ -227,29 +232,53 @@ fn main() -> anyhow::Result<()> {
                                 .unwrap();
 
                             let mut api = Methods::new();
-                            api.merge(
-                                EthApiServerImpl {
-                                    db: db.clone(),
-                                    call_gas_limit: 100_000_000,
-                                }
-                                .into_rpc(),
-                            )
-                            .unwrap();
-                            api.merge(NetApiServerImpl { network_id }.into_rpc())
+
+                            let api_options = opt
+                                .enable_api
+                                .into_iter()
+                                .map(|s| s.to_lowercase())
+                                .collect::<HashSet<String>>();
+
+                            if api_options.is_empty() || api_options.contains("eth") {
+                                api.merge(
+                                    EthApiServerImpl {
+                                        db: db.clone(),
+                                        call_gas_limit: 100_000_000,
+                                    }
+                                    .into_rpc(),
+                                )
                                 .unwrap();
-                            api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+                            }
+
+                            if api_options.is_empty() || api_options.contains("net") {
+                                api.merge(NetApiServerImpl { network_id }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("erigon") {
+                                api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("otterscan") {
+                                api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("trace") {
+                                api.merge(
+                                    TraceApiServerImpl {
+                                        db: db.clone(),
+                                        call_gas_limit: 100_000_000,
+                                    }
+                                    .into_rpc(),
+                                )
                                 .unwrap();
-                            api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
-                                .unwrap();
-                            api.merge(
-                                TraceApiServerImpl {
-                                    db,
-                                    call_gas_limit: 100_000_000,
-                                }
-                                .into_rpc(),
-                            )
-                            .unwrap();
-                            api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("web3") {
+                                api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+                            }
 
                             let _http_server_handle = http_server.start(api.clone()).unwrap();
                             info!("HTTP server listening on {}", opt.rpc_listen_address);

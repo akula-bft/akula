@@ -15,7 +15,7 @@ use ethereum_jsonrpc::{
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
-use std::{future::pending, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, future::pending, net::SocketAddr, sync::Arc};
 use tracing::*;
 use tracing_subscriber::prelude::*;
 
@@ -33,6 +33,10 @@ pub struct Opt {
 
     #[clap(long, default_value = "127.0.0.1:7545")]
     pub grpc_listen_address: SocketAddr,
+
+    /// Enable API options
+    #[clap(long, min_values(1))]
+    pub enable_api: Vec<String>,
 }
 
 #[tokio::main]
@@ -65,29 +69,53 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let mut api = Methods::new();
-    api.merge(
-        EthApiServerImpl {
-            db: db.clone(),
-            call_gas_limit: 100_000_000,
-        }
-        .into_rpc(),
-    )
-    .unwrap();
-    api.merge(NetApiServerImpl { network_id }.into_rpc())
+
+    let api_options = opt
+        .enable_api
+        .into_iter()
+        .map(|s| s.to_lowercase())
+        .collect::<HashSet<String>>();
+
+    if api_options.is_empty() || api_options.contains("eth") {
+        api.merge(
+            EthApiServerImpl {
+                db: db.clone(),
+                call_gas_limit: 100_000_000,
+            }
+            .into_rpc(),
+        )
         .unwrap();
-    api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+    }
+
+    if api_options.is_empty() || api_options.contains("net") {
+        api.merge(NetApiServerImpl { network_id }.into_rpc())
+            .unwrap();
+    }
+
+    if api_options.is_empty() || api_options.contains("erigon") {
+        api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+            .unwrap();
+    }
+
+    if api_options.is_empty() || api_options.contains("otterscan") {
+        api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+            .unwrap();
+    }
+
+    if api_options.is_empty() || api_options.contains("trace") {
+        api.merge(
+            TraceApiServerImpl {
+                db: db.clone(),
+                call_gas_limit: 100_000_000,
+            }
+            .into_rpc(),
+        )
         .unwrap();
-    api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
-        .unwrap();
-    api.merge(
-        TraceApiServerImpl {
-            db: db.clone(),
-            call_gas_limit: 100_000_000,
-        }
-        .into_rpc(),
-    )
-    .unwrap();
-    api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+    }
+
+    if api_options.is_empty() || api_options.contains("web3") {
+        api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+    }
 
     let _http_server_handle = http_server.start(api.clone())?;
     info!("HTTP server listening on {}", opt.rpc_listen_address);
