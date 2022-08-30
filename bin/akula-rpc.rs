@@ -15,23 +15,23 @@ use ethereum_jsonrpc::{
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
-
 use std::{collections::HashSet, future::pending, net::SocketAddr, sync::Arc};
+use tracing::*;
 use tracing_subscriber::prelude::*;
 
 #[derive(Parser)]
 #[clap(name = "Akula RPC", about = "RPC server for Akula")]
 pub struct Opt {
-    #[clap(long)]
+    #[clap(long, default_value_t)]
     pub datadir: AkulaDataDir,
 
-    #[clap(long)]
-    pub listen_address: SocketAddr,
+    #[clap(long, default_value = "127.0.0.1:8545")]
+    pub rpc_listen_address: String,
 
-    #[clap(long)]
-    pub websocket_listen_address: SocketAddr,
+    #[clap(long, default_value = "127.0.0.1:8546")]
+    pub websocket_listen_address: String,
 
-    #[clap(long)]
+    #[clap(long, default_value = "127.0.0.1:7545")]
     pub grpc_listen_address: SocketAddr,
 
     /// Enable API options
@@ -45,10 +45,11 @@ async fn main() -> anyhow::Result<()> {
 
     akula_tracing::build_subscriber(Component::RPCDaemon).init();
 
+    let akula_chain_data_dir = opt.datadir.chain_data_dir();
     let db: Arc<MdbxWithDirHandle<NoWriteMap>> = Arc::new(
         MdbxEnvironment::<NoWriteMap>::open_ro(
             mdbx::Environment::new(),
-            &opt.datadir,
+            &akula_chain_data_dir,
             &akula::kv::tables::CHAINDATA_TABLES,
         )?
         .into(),
@@ -60,11 +61,11 @@ async fn main() -> anyhow::Result<()> {
         .network_id;
 
     let http_server = HttpServerBuilder::default()
-        .build(opt.listen_address)
+        .build(&opt.rpc_listen_address)
         .await?;
 
     let websocket_server = WsServerBuilder::default()
-        .build(opt.websocket_listen_address)
+        .build(&opt.websocket_listen_address)
         .await?;
 
     let mut api = Methods::new();
@@ -117,12 +118,18 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let _http_server_handle = http_server.start(api.clone())?;
+    info!("HTTP server listening on {}", opt.rpc_listen_address);
+
     let _websocket_server_handle = websocket_server.start(api)?;
+    info!(
+        "WebSocket server listening on {}",
+        opt.websocket_listen_address
+    );
 
     tokio::spawn({
         let db = db.clone();
-        let listen_address = opt.grpc_listen_address;
         async move {
+            info!("Starting gRPC server on {}", opt.grpc_listen_address);
             tonic::transport::Server::builder()
                 .add_service(
                     ethereum_interfaces::web3::trace_api_server::TraceApiServer::new(
@@ -132,7 +139,7 @@ async fn main() -> anyhow::Result<()> {
                         },
                     ),
                 )
-                .serve(listen_address)
+                .serve(opt.grpc_listen_address)
                 .await
                 .unwrap();
         }

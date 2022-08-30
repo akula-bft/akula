@@ -19,7 +19,9 @@ use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer, Web3ApiServer,
 };
 use http::Uri;
-use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
+use jsonrpsee::{
+    core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
+};
 use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
     sync::Arc, time::Duration,
@@ -32,8 +34,8 @@ use tracing_subscriber::prelude::*;
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
     /// Path to database directory.
-    #[clap(long = "datadir", help = "Database directory path", default_value_t)]
-    pub data_dir: AkulaDataDir,
+    #[clap(long, help = "Database directory path", default_value_t)]
+    pub datadir: AkulaDataDir,
 
     /// Name of the network to join
     #[clap(long)]
@@ -104,11 +106,11 @@ pub struct Opt {
 
     /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
-    pub rpc_listen_address: SocketAddr,
+    pub rpc_listen_address: String,
 
     /// Enable Websocket at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8546")]
-    pub websocket_listen_address: SocketAddr,
+    pub websocket_listen_address: String,
 
     /// Enable gRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:7545")]
@@ -151,9 +153,9 @@ fn main() -> anyhow::Result<()> {
                     None
                 };
 
-                std::fs::create_dir_all(&opt.data_dir.0)?;
-                let akula_chain_data_dir = opt.data_dir.chain_data_dir();
-                let etl_temp_path = opt.data_dir.etl_temp_dir();
+                std::fs::create_dir_all(&opt.datadir.0)?;
+                let akula_chain_data_dir = opt.datadir.chain_data_dir();
+                let etl_temp_path = opt.datadir.etl_temp_dir();
                 let _ = std::fs::remove_dir_all(&etl_temp_path);
                 std::fs::create_dir_all(&etl_temp_path)?;
                 let etl_temp_dir = Arc::new(
@@ -187,7 +189,7 @@ fn main() -> anyhow::Result<()> {
                 let jwt_secret_path = opt
                     .jwt_secret_path
                     .map(|v| v.0)
-                    .unwrap_or_else(|| opt.data_dir.0.join("jwt.hex"));
+                    .unwrap_or_else(|| opt.datadir.0.join("jwt.hex"));
                 if let Ok(mut file) = OpenOptions::new()
                     .write(true)
                     .create_new(true)
@@ -218,10 +220,14 @@ fn main() -> anyhow::Result<()> {
                 if !opt.no_rpc {
                     tokio::spawn({
                         let db = db.clone();
-                        let listen_address = opt.rpc_listen_address;
                         async move {
-                            let server = HttpServerBuilder::default()
-                                .build(listen_address)
+                            let http_server = HttpServerBuilder::default()
+                                .build(&opt.rpc_listen_address)
+                                .await
+                                .unwrap();
+
+                            let websocket_server = WsServerBuilder::default()
+                                .build(&opt.websocket_listen_address)
                                 .await
                                 .unwrap();
 
@@ -274,7 +280,14 @@ fn main() -> anyhow::Result<()> {
                                 api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
                             }
 
-                            let _server_handle = server.start(api).unwrap();
+                            let _http_server_handle = http_server.start(api.clone()).unwrap();
+                            info!("HTTP server listening on {}", opt.rpc_listen_address);
+
+                            let _websocket_server_handle = websocket_server.start(api).unwrap();
+                            info!(
+                                "WebSocket server listening on {}",
+                                opt.websocket_listen_address
+                            );
 
                             pending::<()>().await
                         }
@@ -282,8 +295,8 @@ fn main() -> anyhow::Result<()> {
 
                     tokio::spawn({
                         let db = db.clone();
-                        let listen_address = opt.grpc_listen_address;
                         async move {
+                            info!("Starting gRPC server on {}", opt.grpc_listen_address);
                             tonic::transport::Server::builder()
                             .add_service(
                                 ethereum_interfaces::web3::trace_api_server::TraceApiServer::new(
@@ -293,7 +306,7 @@ fn main() -> anyhow::Result<()> {
                                     },
                                 ),
                             )
-                            .serve(listen_address)
+                            .serve(opt.grpc_listen_address)
                             .await
                             .unwrap();
                         }
@@ -337,7 +350,7 @@ fn main() -> anyhow::Result<()> {
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
                     let swarm = akula::sentry::run(
                         opt.sentry_opts,
-                        opt.data_dir,
+                        opt.datadir,
                         chain_config.chain_spec.p2p.clone(),
                     )
                     .await?;
