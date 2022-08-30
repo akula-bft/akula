@@ -26,6 +26,7 @@ impl PrefixSet {
     fn sort(&mut self) {
         self.keys.sort();
         self.keys.dedup();
+        self.sorted = true;
     }
 
     pub(crate) fn contains(&mut self, prefix: &[u8]) -> bool {
