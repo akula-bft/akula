@@ -15,7 +15,8 @@ use ethereum_jsonrpc::{
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
-use std::{future::pending, net::SocketAddr, sync::Arc};
+
+use std::{collections::HashSet, future::pending, net::SocketAddr, sync::Arc};
 use tracing_subscriber::prelude::*;
 
 #[derive(Parser)]
