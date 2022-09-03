@@ -1,11 +1,12 @@
 #![allow(dead_code, clippy::upper_case_acronyms)]
 use akula::{
     akula_tracing::{self, Component},
-    binutil::{AkulaDataDir, ExpandedPathBuf},
+    binutil::AkulaDataDir,
     models::ChainSpec,
 };
 use clap::Parser;
 use educe::Educe;
+use expanded_pathbuf::ExpandedPathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::*;

@@ -1,6 +1,6 @@
 use akula::{
     akula_tracing::{self, Component},
-    binutil::{AkulaDataDir, ExpandedPathBuf},
+    binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     kv::tables::CHAINDATA_TABLES,
     models::*,
@@ -18,6 +18,7 @@ use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer, Web3ApiServer,
 };
+use expanded_pathbuf::ExpandedPathBuf;
 use http::Uri;
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,

@@ -1,6 +1,6 @@
 #![feature(never_type)]
 use akula::{
-    binutil::{AkulaDataDir, ExpandedPathBuf},
+    binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     hex_to_bytes,
     kv::{
@@ -15,6 +15,7 @@ use akula::{
 use anyhow::{ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
+use expanded_pathbuf::ExpandedPathBuf;
 use std::{borrow::Cow, collections::BTreeMap, io::Read, sync::Arc};
 use tokio::pin;
 use tracing::*;
