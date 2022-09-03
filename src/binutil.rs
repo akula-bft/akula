@@ -2,25 +2,12 @@ use crate::{models::ChainSpec, res::chainspec};
 use anyhow::format_err;
 use derive_more::*;
 use directories::ProjectDirs;
+use expanded_pathbuf::ExpandedPathBuf;
 use std::{
     fmt::Display,
     fs::File,
     path::{Path, PathBuf},
-    str::FromStr,
 };
-
-#[derive(AsRef, Clone, Debug, Deref, DerefMut, From)]
-#[as_ref(forward)]
-#[from(forward)]
-pub struct ExpandedPathBuf(pub PathBuf);
-
-impl FromStr for ExpandedPathBuf {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(PathBuf::from_str(&shellexpand::full(s)?)?))
-    }
-}
 
 #[derive(Clone, Debug, Deref, DerefMut, FromStr)]
 
