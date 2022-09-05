@@ -306,4 +306,15 @@
         ],
         dns: "all.rinkeby.ethdisco.net",
     ),
+    snapshots: (
+        headers: [
+
+        ],
+        bodies: [
+
+        ],
+        senders: [
+
+        ],
+    ),
 )

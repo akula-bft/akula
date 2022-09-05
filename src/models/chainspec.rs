@@ -31,6 +31,8 @@ pub struct ChainSpec {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub balances: BTreeMap<BlockNumber, HashMap<Address, U256>>,
     pub p2p: P2PParams,
+    #[serde(default)]
+    pub snapshots: Snapshots,
 }
 
 impl ChainSpec {
@@ -398,6 +400,16 @@ where
     U64::deserialize(deserializer).map(|num| num.as_u64())
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Snapshots {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headers: Vec<H160>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bodies: Vec<H160>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub senders: Vec<H160>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,7 +483,8 @@ mod tests {
                         "enode://b6b28890b006743680c52e64e0d16db57f28124885595fa03a562be1d2bf0f3a1da297d56b13da25fb992888fd556d4c1a27b1f39d531bde7de1921c90061cc6@159.89.28.211:30303",
                     ].into_iter().map(ToString::to_string).collect(),
                     dns: Some("all.rinkeby.ethdisco.net".to_owned()),
-                }
+                },
+                snapshots: Default::default(),
             },
             *RINKEBY,
         );
