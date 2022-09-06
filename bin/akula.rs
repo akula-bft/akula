@@ -102,8 +102,8 @@ pub struct Opt {
     pub no_rpc: bool,
 
     /// Enable API options
-    #[clap(long, min_values(1))]
-    pub enable_api: Vec<String>,
+    #[clap(long)]
+    pub enable_api: Option<String>,
 
     /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
@@ -236,9 +236,13 @@ fn main() -> anyhow::Result<()> {
 
                             let api_options = opt
                                 .enable_api
-                                .into_iter()
-                                .map(|s| s.to_lowercase())
-                                .collect::<HashSet<String>>();
+                                .map(|v| {
+                                    v.split(',')
+                                        .into_iter()
+                                        .map(|s| s.to_lowercase())
+                                        .collect::<HashSet<String>>()
+                                })
+                                .unwrap_or_default();
 
                             if api_options.is_empty() || api_options.contains("eth") {
                                 api.merge(
