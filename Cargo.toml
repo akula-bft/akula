@@ -94,7 +94,6 @@ primitive-types = { version = "0.12", default-features = false, features = [
 ] }
 rand = "0.8"
 rayon = "1"
-rbtorrent = { git = "https://github.com/vorot93/rbtorrent" }
 ripemd = "0.1"
 ron = "0.8"
 secp256k1 = { version = "0.24", features = [
@@ -108,6 +107,7 @@ serde_with = "2"
 sha2 = "0.10"
 sha3 = "0.10"
 shellexpand = "2"
+signal-hook = "0.3"
 snap = "1"
 string = "0.3"
 strum = { version = "0.24", features = ["derive"] }
@@ -132,6 +132,7 @@ tonic-reflection = { version = "0.5", optional = true }
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+transmission-rpc = "0.3"
 trust-dns-resolver = "0.22"
 unsigned-varint = { version = "0.7", features = ["std"] }
 url = "2"
@@ -172,6 +173,7 @@ triehash = "0.8"
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 enr = { git = "https://github.com/sigp/enr" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls-3" }
+transmission-rpc = { git = "https://github.com/j0rsa/transmission-rpc" }
 
 [[bin]]
 path = "bin/akula.rs"

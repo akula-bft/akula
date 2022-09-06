@@ -26,14 +26,34 @@ use http::Uri;
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
-use rbtorrent::{AddTorrentParams, AddTorrentParamsSource, TorrentHandleTrait};
+use signal_hook::{
+    consts::*,
+    flag,
+    iterator::{exfiltrator::SignalOnly, SignalsInfo},
+};
 use std::{
-    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
-    path::PathBuf, sync::Arc, time::Duration,
+    collections::HashSet,
+    fs::OpenOptions,
+    future::pending,
+    io::Write,
+    net::SocketAddr,
+    panic,
+    path::PathBuf,
+    process::{exit, Command, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 use tokio::{sync::Mutex as AsyncMutex, time::sleep};
 use tracing::*;
 use tracing_subscriber::prelude::*;
+use transmission_rpc::{
+    types::{TorrentAddArgs, TorrentAddedOrDuplicate, TorrentSetArgs, TrackerList},
+    TransClient,
+};
+use url::Url;
 
 const TRACKERS: &[&str] = &[
     "udp://tracker.opentrackr.org:1337/announce",
@@ -65,6 +85,9 @@ pub struct Opt {
     #[clap(long, help = "Database directory path", default_value_t)]
     pub datadir: AkulaDataDir,
 
+    #[clap(long, default_value = "transmission-daemon")]
+    pub transmission_daemon_path: ExpandedPathBuf,
+
     /// Path to snapshot directory.
     #[clap(long = "snapshotdir")]
     pub snapshot_dir: Option<ExpandedPathBuf>,
@@ -76,6 +99,12 @@ pub struct Opt {
     /// Chain specification file to use
     #[clap(long)]
     pub chain_spec_file: Option<ExpandedPathBuf>,
+
+    #[clap(long, default_value = "30091")]
+    pub transmission_daemon_port: u16,
+
+    #[clap(long, default_value = "42069")]
+    pub transmission_peer_port: u16,
 
     /// Sentry GRPC service URL
     #[clap(long, help = "Sentry GRPC service URLs as 'http://host:port'")]
@@ -159,6 +188,21 @@ pub struct Opt {
 
 #[allow(unreachable_code)]
 fn main() -> anyhow::Result<()> {
+    // Make sure double CTRL+C and similar kills
+    let term_now = Arc::new(AtomicBool::new(false));
+    let mut sigs = vec![SIGHUP];
+    sigs.extend(TERM_SIGNALS);
+
+    for sig in &sigs {
+        flag::register(*sig, Arc::clone(&term_now))?;
+    }
+
+    let mut signals = SignalsInfo::<SignalOnly>::new(&sigs)?;
+
+    // Subscribe to all these signals with information about where they come from. We use the
+    // extra info only for logging in this example (it is not available on all the OSes or at
+    // all the occasions anyway, it may return `Unknown`).
+
     let mut opt: Opt = Opt::parse();
     fdlimit::raise_fd_limit();
 
@@ -206,16 +250,89 @@ fn main() -> anyhow::Result<()> {
                     opt.prune = false;
                 }
 
+                let transmission_daemon_addr: Url = format!(
+                    "http://localhost:{}/transmission/rpc",
+                    opt.transmission_daemon_port
+                )
+                .parse()?;
+
+                {
+                    let mut btclient = TransClient::new(transmission_daemon_addr.clone());
+
+                    if btclient.session_close().await.is_ok() {
+                        info!("Waiting for existing transmission-daemon instance to close");
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                }
+
                 let snapshot_dir = opt
                     .snapshot_dir
                     .map(|v| v.0)
                     .unwrap_or_else(|| opt.datadir.snapshot());
 
-                let session = Arc::new(
-                    rbtorrent::SessionBuilder::new()
-                        .with_user_agent(format!("akula/v{}", env!("VERGEN_BUILD_SEMVER")))
-                        .build(),
-                );
+                let tmpconfig = tempfile::tempdir().unwrap();
+                let btdaemon = Command::new(opt.transmission_daemon_path)
+                    .args(&[
+                        "-f",
+                        "--no-auth",
+                        "--config-dir",
+                        &tmpconfig.path().to_string_lossy(),
+                        "--port",
+                        &opt.transmission_daemon_port.to_string(),
+                        "--peerport",
+                        &opt.transmission_peer_port.to_string(),
+                        "--dht",
+                        "--lpd",
+                        "--utp",
+                        "--rpc-bind-address",
+                        "0.0.0.0",
+                        "--allowed",
+                        "127.0.0.1,::1",
+                        "-et",
+                    ])
+                    .stdin(Stdio::piped())
+                    .spawn()
+                    .context("Failed to start transmission-daemon")?;
+
+                let shutting_down = Arc::new(AtomicBool::new(false));
+
+                std::thread::spawn({
+                    let shutting_down = shutting_down.clone();
+                    let transmission_daemon_addr = transmission_daemon_addr.clone();
+                    move || {
+                        for sig in &mut signals {
+                            // Will print info about signal + where it comes from.
+                            info!("Received signal {:?}", sig);
+
+                            shutting_down.store(true, Ordering::SeqCst);
+
+                            tokio::runtime::Runtime::new().unwrap().block_on({
+                                let transmission_daemon_addr = transmission_daemon_addr.clone();
+                                async move {
+                                    let _ = tokio::time::timeout(
+                                        Duration::from_secs(5),
+                                        TransClient::new(transmission_daemon_addr.clone())
+                                            .session_close(),
+                                    )
+                                    .await;
+
+                                    exit(0)
+                                }
+                            });
+                        }
+                    }
+                });
+
+                std::thread::spawn(move || {
+                    let res = btdaemon.wait_with_output();
+
+                    if !shutting_down.load(Ordering::SeqCst) {
+                        panic!("transmission-daemon unexpectedly exited: {res:?}, shutting down");
+                    }
+                });
+
+                tokio::time::sleep(Duration::from_secs(5)).await;
+
                 let (torrent_tx, mut torrent_rx) = tokio::sync::mpsc::channel(1);
                 tokio::spawn({
                     let snapshot_base_path = snapshot_dir.clone();
@@ -226,14 +343,33 @@ fn main() -> anyhow::Result<()> {
 
                             let snapshot_path: PathBuf = snapshot_path;
 
-                            let handle = session.add_torrent(AddTorrentParams {
-                                source: AddTorrentParamsSource::Torrent(torrent_path),
-                                save_path: Some(snapshot_path),
-                                trackers: Some(TRACKERS.iter().map(|v| v.to_string()).collect()),
-                                torrent_flags: None,
-                            });
+                            let _ = TRACKERS;
 
-                            info!("Started torrent: {}", handle.get_name().unwrap());
+                            let rsp = TransClient::new(transmission_daemon_addr.clone())
+                                .torrent_add(TorrentAddArgs {
+                                    filename: Some(torrent_path.to_string_lossy().to_string()),
+                                    download_dir: Some(snapshot_path.to_string_lossy().to_string()),
+                                    ..Default::default()
+                                })
+                                .await
+                                .unwrap();
+
+                            assert!(rsp.is_ok());
+
+                            if let TorrentAddedOrDuplicate::TorrentAdded(handle) = rsp.arguments {
+                                assert!(TransClient::new(transmission_daemon_addr.clone())
+                                    .torrent_set(TorrentSetArgs {
+                                        tracker_list: Some(TrackerList(
+                                            TRACKERS.iter().map(|s| s.to_string()).collect(),
+                                        )),
+                                        ..Default::default()
+                                    }, None)
+                                    .await
+                                    .unwrap()
+                                    .is_ok());
+
+                                info!("Started torrent: {:?}: {:?}", handle.id, handle.name);
+                            }
                         }
                     }
                 });
