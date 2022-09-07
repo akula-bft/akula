@@ -508,6 +508,7 @@ where
 
 fn gather_storage_changes<'db, 'tx, K, E>(
     txn: &'tx MdbxTransaction<'db, K, E>,
+    account_changes: &mut PrefixSet,
     from: BlockNumber,
 ) -> Result<PrefixSet>
 where
@@ -522,7 +523,7 @@ where
     while let Some((key, storage_change)) = data {
         let hashed_address = keccak256(key.address);
 
-        out.insert(unpack_nibbles(hashed_address.as_bytes()).as_slice());
+        account_changes.insert(unpack_nibbles(hashed_address.as_bytes()).as_slice());
 
         let hashed_location = keccak256(storage_change.location);
 
@@ -552,7 +553,7 @@ where
     E: EnvironmentKind,
 {
     let mut account_changes = gather_account_changes(txn, from + 1)?;
-    let mut storage_changes = gather_storage_changes(txn, from + 1)?;
+    let mut storage_changes = gather_storage_changes(txn, &mut account_changes, from + 1)?;
     do_increment_intermediate_hashes(
         txn,
         etl_dir,
@@ -573,7 +574,7 @@ where
     E: EnvironmentKind,
 {
     let mut account_changes = gather_account_changes(txn, unwind_to)?;
-    let mut storage_changes = gather_storage_changes(txn, unwind_to)?;
+    let mut storage_changes = gather_storage_changes(txn, &mut account_changes, unwind_to)?;
     do_increment_intermediate_hashes(
         txn,
         etl_dir,
