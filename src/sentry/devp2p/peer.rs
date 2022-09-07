@@ -1,6 +1,6 @@
 use super::{ecies::ECIESStream, transport::Transport, types::*, util::pk2id};
 use anyhow::{anyhow, bail, Context as _};
-use bytes::{Bytes, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use derive_more::Display;
 use enum_primitive_derive::Primitive;
 use fastrlp::*;
@@ -201,18 +201,29 @@ where
         })?;
         trace!("Receiving hello message: {:02x?}", hello);
 
-        let message_id = u8::decode(&mut &hello[..1])?;
-        let payload = &mut &hello[1..];
+        let message_id = u8::decode(&mut &hello[..1]).context("failed to decode message id")?;
+        let mut payload = &hello[1..];
         match message_id {
             0 => {}
             1 => {
-                let reason = u8::decode(payload).map(DisconnectReason::from_u8)?;
-                bail!(
-                    "explicit disconnect: {}",
-                    reason
-                        .map(|r| r.to_string())
-                        .unwrap_or_else(|| "(unknown)".to_string())
-                );
+                let mut decodable_data = payload;
+                if let Some(prelude) = decodable_data.first() {
+                    if *prelude == 0xc1 {
+                        decodable_data.advance(1);
+                    }
+                }
+
+                if let Some(reason) = u8::decode(&mut decodable_data)
+                    .ok()
+                    .and_then(DisconnectReason::from_u8)
+                {
+                    bail!("explicit disconnect: {reason}");
+                } else {
+                    bail!(
+                        "explicit disconnect with malformed message: {}",
+                        hex::encode(payload)
+                    )
+                }
             }
             _ => {
                 bail!(
@@ -223,7 +234,7 @@ where
             }
         }
 
-        let val = HelloMessage::decode(payload).context("hello failed (rlp)")?;
+        let val = HelloMessage::decode(&mut payload).context("hello failed (rlp)")?;
         debug!("hello message: {:?}", val);
         let mut shared_capabilities: Vec<CapabilityInfo> = Vec::new();
 
@@ -329,7 +340,14 @@ where
                             match message_id {
                                 0x01 => {
                                     s.disconnected = true;
-                                    if let Some(reason) = u8::decode(&mut &*data)
+                                    let mut decodable_data = &*data;
+                                    if let Some(prelude) = decodable_data.first() {
+                                        if *prelude == 0xc1 {
+                                            decodable_data.advance(1);
+                                        }
+                                    }
+
+                                    if let Some(reason) = u8::decode(&mut decodable_data)
                                         .ok()
                                         .and_then(DisconnectReason::from_u8)
                                     {

@@ -10,12 +10,21 @@ mod util;
 
 use educe::Educe;
 use ethereum_types::H512;
-use std::{pin::Pin, sync::Arc};
+use std::{
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use task_group::TaskGroup;
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio_stream::Stream;
+use tracing::*;
 
 pub type NodeId = H512;
+use crate::sentry::THROTTLE_INTERVAL;
+
 pub use self::node::{Node, NodeRecord};
 
 #[derive(Educe)]
@@ -25,6 +34,7 @@ pub struct Discv4Builder {
     concurrent_lookups: usize,
     #[educe(Default(20))]
     cache: usize,
+    throttle: Arc<AtomicBool>,
 }
 
 impl Discv4Builder {
@@ -38,8 +48,13 @@ impl Discv4Builder {
         self
     }
 
+    pub fn with_throttle(mut self, throttle: Arc<AtomicBool>) -> Self {
+        self.throttle = throttle;
+        self
+    }
+
     pub fn build(self, node: Arc<Node>) -> Discv4 {
-        Discv4::new(node, self.concurrent_lookups, self.cache)
+        Discv4::new(node, self.concurrent_lookups, self.throttle, self.cache)
     }
 }
 
@@ -51,7 +66,12 @@ pub struct Discv4 {
 
 impl Discv4 {
     #[must_use]
-    fn new(node: Arc<Node>, concurrent_lookups: usize, cache: usize) -> Self {
+    fn new(
+        node: Arc<Node>,
+        concurrent_lookups: usize,
+        throttled: Arc<AtomicBool>,
+        cache: usize,
+    ) -> Self {
         let tasks = TaskGroup::default();
 
         let (tx, receiver) = channel(cache);
@@ -59,18 +79,22 @@ impl Discv4 {
         for i in 0..concurrent_lookups {
             let node = node.clone();
             let tx = tx.clone();
+            let throttled = throttled.clone();
             tasks.spawn_with_name(format!("discv4 lookup #{}", i), {
                 async move {
-                    let node = node.clone();
-                    let tx = tx.clone();
                     loop {
-                        for record in node.lookup(rand::random()).await {
-                            let _ = tx
-                                .send(crate::sentry::devp2p::types::NodeRecord {
-                                    addr: record.tcp_addr(),
-                                    id: record.id,
-                                })
-                                .await;
+                        if i > 0 && throttled.load(Ordering::SeqCst) {
+                            trace!("Throttling requested, delaying lookup");
+                            tokio::time::sleep(THROTTLE_INTERVAL).await;
+                        } else {
+                            for record in node.lookup(rand::random()).await {
+                                let _ = tx
+                                    .send(crate::sentry::devp2p::types::NodeRecord {
+                                        addr: record.tcp_addr(),
+                                        id: record.id,
+                                    })
+                                    .await;
+                            }
                         }
                     }
                 }

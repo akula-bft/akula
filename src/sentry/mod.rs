@@ -1,24 +1,17 @@
 #![allow(dead_code, clippy::upper_case_acronyms)]
 
-use self::{
-    eth::*,
-    opts::{Discv4NR, NR},
-};
+use self::eth::*;
 use crate::{
-    binutil::AkulaDataDir,
-    models::P2PParams,
-    sentry::{
-        opts::{OptsDiscStatic, OptsDiscV4, OptsDnsDisc},
-        services::SentryService,
-    },
-    version_string,
+    binutil::AkulaDataDir, models::P2PParams, sentry::services::SentryService, version_string,
 };
-use anyhow::Context;
+use anyhow::{format_err, Context};
 use async_stream::stream;
 use async_trait::async_trait;
 use cidr::IpCidr;
 use clap::Parser;
+use derive_more::FromStr;
 use devp2p::*;
+use disc::dns::Resolver;
 use educe::Educe;
 use ethereum_interfaces::sentry::{self, sentry_server::SentryServer, InboundMessage, PeerEvent};
 use fastrlp::Decodable;
@@ -45,14 +38,14 @@ use tokio::sync::{
     mpsc::{channel, Sender},
     Mutex as AsyncMutex,
 };
-use tokio_stream::{StreamExt, StreamMap};
+use tokio_stream::StreamExt;
 use tonic::transport::Server;
 use tracing::*;
+use trust_dns_resolver::TokioAsyncResolver;
 
 pub mod devp2p;
 pub mod eth;
 pub mod grpc;
-pub mod opts;
 pub mod services;
 
 type OutboundSender = Sender<OutboundEvent>;
@@ -65,6 +58,13 @@ pub const MAX_INITIAL_WINDOW_SIZE: u32 = (1 << 31) - 1;
 
 /// MAX_FRAME_SIZE upper bound
 pub const MAX_FRAME_SIZE: u32 = (1 << 24) - 1;
+const THROTTLE_INTERVAL: Duration = Duration::from_secs(5);
+
+#[derive(Debug, FromStr)]
+pub struct NR(pub NodeRecord);
+
+#[derive(Debug, FromStr)]
+pub struct Discv4NR(pub crate::sentry::devp2p::disc::v4::NodeRecord);
 
 #[derive(Clone)]
 pub struct Pipes {
@@ -386,7 +386,7 @@ pub struct Opts {
     pub discv4_bootnodes: Vec<Discv4NR>,
     #[clap(long, default_value = "1000")]
     pub discv4_cache: usize,
-    #[clap(long, default_value = "1")]
+    #[clap(long, default_value = "25")]
     pub discv4_concurrent_lookups: usize,
     #[clap(long)]
     pub static_peers: Vec<NR>,
@@ -394,7 +394,8 @@ pub struct Opts {
     pub static_peers_interval: u64,
     #[clap(long, default_value = "100")]
     pub max_peers: NonZeroUsize,
-    #[clap(long, default_value = "25")]
+    /// Minimum number of peers, below which we will search for peers more aggressively.
+    #[clap(long, default_value = "10")]
     pub min_peers: usize,
     /// Disable DNS and UDP discovery, only use static peers.
     #[clap(long, takes_value = false)]
@@ -456,7 +457,7 @@ pub async fn run(
         info!("Peers restricted to range {}", cidr_filter);
     }
 
-    let mut discovery_tasks: StreamMap<String, Discovery> = StreamMap::new();
+    let mut discovery_tasks: HashMap<String, Discovery> = HashMap::new();
 
     let bootnodes = if opts.discv4_bootnodes.is_empty() {
         network_params
@@ -469,34 +470,62 @@ pub async fn run(
     };
 
     let dns_addr = opts.dnsdisc_address.or(network_params.dns);
-    let no_dns_discovery = opts.no_dns_discovery || dns_addr.is_none();
+
+    let discv4_throttle = Arc::new(AtomicBool::new(false));
 
     if !opts.no_discovery {
-        if !no_dns_discovery {
-            let task_opts = OptsDnsDisc {
-                address: dns_addr.unwrap(),
-            };
-            let task = task_opts.make_task()?;
-            discovery_tasks.insert("dnsdisc".to_string(), Box::pin(task));
+        if !opts.no_dns_discovery {
+            if let Some(dns_addr) = dns_addr {
+                info!("Starting DNS discovery fetch from {}", dns_addr);
+
+                let dns_resolver = Resolver::new(Arc::new(
+                    TokioAsyncResolver::tokio_from_system_conf()
+                        .map_err(|err| format_err!("Failed to start DNS resolver: {err}"))?,
+                ));
+
+                let task = DnsDiscovery::new(Arc::new(dns_resolver), dns_addr, None);
+
+                discovery_tasks.insert("dnsdisc".to_string(), Box::pin(task));
+            }
         }
 
-        let task_opts = OptsDiscV4 {
-            discv4_port: opts.discv4_port,
-            discv4_bootnodes: bootnodes,
-            discv4_cache: opts.discv4_cache,
-            discv4_concurrent_lookups: opts.discv4_concurrent_lookups,
-            listen_port: opts.listen_port,
-        };
-        let task = task_opts.make_task(&secret_key).await?;
+        info!("Starting discv4 at port {}", opts.discv4_port);
+
+        let bootstrap_nodes = bootnodes
+            .into_iter()
+            .map(|Discv4NR(nr)| nr)
+            .collect::<Vec<_>>();
+
+        let node = disc::v4::Node::new(
+            format!("0.0.0.0:{}", opts.discv4_port).parse().unwrap(),
+            secret_key,
+            bootstrap_nodes,
+            None,
+            true,
+            opts.listen_port,
+        )
+        .await?;
+
+        let task = Discv4Builder::default()
+            .with_cache(opts.discv4_cache)
+            .with_concurrent_lookups(opts.discv4_concurrent_lookups)
+            .with_throttle(discv4_throttle.clone())
+            .build(node);
+
         discovery_tasks.insert("discv4".to_string(), Box::pin(task));
     }
 
     if !opts.static_peers.is_empty() {
-        let task_opts = OptsDiscStatic {
-            static_peers: opts.static_peers,
-            static_peers_interval: opts.static_peers_interval,
-        };
-        let task = task_opts.make_task()?;
+        info!("Enabling static peers: {:?}", opts.static_peers);
+
+        let task = StaticNodes::new(
+            opts.static_peers
+                .iter()
+                .map(|&NR(NodeRecord { addr, id })| (addr, id))
+                .collect::<HashMap<_, _>>(),
+            Duration::from_millis(opts.static_peers_interval),
+        );
+
         discovery_tasks.insert("static peers".to_string(), Box::pin(task));
     }
 
@@ -532,6 +561,16 @@ pub async fn run(
         )
         .await
         .context("Failed to start RLPx node")?;
+
+    if !opts.no_discovery {
+        let swarm = swarm.clone();
+        tasks.spawn_with_name("discv4 throttler", async move {
+            loop {
+                discv4_throttle.store(swarm.num_peers() >= opts.min_peers, Ordering::SeqCst);
+                tokio::time::sleep(THROTTLE_INTERVAL).await;
+            }
+        });
+    }
 
     info!("RLPx node listening at {}", listen_addr);
 
