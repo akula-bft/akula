@@ -187,6 +187,8 @@ fn main() -> anyhow::Result<()> {
                     chainspec
                 };
 
+                info!("Current network: {}", chainspec.name);
+
                 let jwt_secret_path = opt
                     .jwt_secret_path
                     .map(|v| v.0)

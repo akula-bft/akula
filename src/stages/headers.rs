@@ -695,12 +695,13 @@ impl HeaderDownload {
         headers: &'a [(H256, BlockHeader)],
     ) -> Result<(), (usize, H256)> {
         for (i, (_, header)) in headers.iter().enumerate() {
-            if self
+            if let Err(e) = self
                 .consensus
                 .validate_block_header(header, parent_header, false)
-                .is_err()
             {
-                return Err((i.saturating_sub(1), header.hash()));
+                let hash = header.hash();
+                warn!("Rejected bad block header ({hash:?}) for reason {e:?}: {header:?}");
+                return Err((i.saturating_sub(1), hash));
             }
             parent_header = header;
         }
