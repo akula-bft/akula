@@ -255,9 +255,9 @@ fn main() -> anyhow::Result<()> {
                         body_snapshotter.snapshot_paths(),
                         sender_snapshotter.snapshot_paths(),
                     ] {
-                        for (snapshot_name, snapshot_path) in snapshot_paths {
+                        for (snapshot_name, _) in snapshot_paths {
                             torrent_tx
-                                .send((snapshot_name, snapshot_path))
+                                .send((snapshot_name, snapshot_dir.clone()))
                                 .await
                                 .unwrap();
 
