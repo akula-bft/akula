@@ -192,6 +192,11 @@ name = "bench"
 path = "./src/execution/evm/benches/bench.rs"
 harness = false
 
+[[bench]]
+name = "trie-bench"
+path = "./benches/bench.rs"
+harness = false
+
 [profile.production]
 inherits = "release"
 panic = "abort"
