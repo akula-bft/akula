@@ -129,7 +129,7 @@ tonic-health = "0.7"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-trust-dns-resolver = "0.21"
+trust-dns-resolver = "0.22"
 url = "2"
 walkdir = "2"
 hashlink = "0.8.0"
