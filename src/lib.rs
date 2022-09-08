@@ -3,6 +3,7 @@
     assert_matches,
     const_for,
     const_mut_refs,
+    derive_default_enum,
     entry_insert,
     generator_trait,
     generators,
