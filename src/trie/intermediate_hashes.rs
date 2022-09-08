@@ -606,16 +606,25 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::{
-        kv::{new_mem_chaindata, tables},
-        trie::node::marshal_node,
-        u256_to_h256, upsert_hashed_storage_value,
+        crypto::{keccak256, trie_root},
+        h256_to_u256,
+        kv::{
+            new_mem_chaindata, tables,
+            tables::{AccountChange, StorageChange, StorageChangeKey},
+        },
+        trie::{node::marshal_node, regenerate_intermediate_hashes},
+        u256_to_h256, upsert_hashed_storage_value, zeroless_view,
     };
+    use anyhow::Result;
+    use bytes::BytesMut;
+    use fastrlp::Encodable;
     use hex_literal::hex;
     use maplit::hashmap;
+    use proptest::prelude::*;
+    use std::collections::{BTreeMap, HashMap};
+    use tempfile::TempDir;
 
     #[test]
     fn test_intermediate_hashes_cursor_traversal_1() {
@@ -1777,29 +1786,114 @@ mod tests {
         assert_eq!(increment_key(&[0x1, 0xF, 0xF]), Some(vec![0x2, 0x0, 0x0]));
         assert_eq!(increment_key(&[0xF, 0xF, 0xF]), None);
     }
-}
 
-#[cfg(test)]
-mod property_test {
-    use super::*;
-    use crate::{
-        crypto::{keccak256, trie_root},
-        h256_to_u256,
-        kv::{
-            new_mem_chaindata, tables,
-            tables::{AccountChange, StorageChange, StorageChangeKey},
-        },
-        trie::regenerate_intermediate_hashes,
-        u256_to_h256, zeroless_view,
-    };
-    use anyhow::Result;
-    use bytes::BytesMut;
-    use fastrlp::Encodable;
-    use proptest::prelude::*;
-    use std::collections::BTreeMap;
-    use tempfile::TempDir;
+    #[test]
+    fn test_regression_iterates_over_all_storage_changes() {
+        let db = new_mem_chaindata().unwrap();
+        let temp_dir = TempDir::new().unwrap();
 
-    // strategies
+        let address = Address::from_low_u64_be(5);
+        let hashed_address = keccak256(address);
+        let account = Account {
+            balance: 3.as_u256() * ETHER,
+            ..Default::default()
+        };
+
+        let address_2 = Address::from_low_u64_be(8);
+        let hashed_address_2 = keccak256(address_2);
+        let account_2 = Account {
+            balance: 15.as_u256() * ETHER,
+            ..Default::default()
+        };
+
+        let address_3 = Address::from_low_u64_be(15);
+        let hashed_address_3 = keccak256(address_3);
+
+        let location_1: H256 =
+            hex!("1000000000000000000000000000000000000000000000000000000000000000").into();
+        let location_2: H256 =
+            hex!("2000000000000000000000000000000000000000000000000000000000000000").into();
+
+        let hashed_location_1 = keccak256(location_1.to_fixed_bytes());
+        let hashed_location_2 = keccak256(location_2.to_fixed_bytes());
+
+        let value_1 = 1.as_u256();
+        let value_2 = 2.as_u256();
+
+        let storage = BTreeMap::from([(location_1, value_1), (location_2, value_2)]);
+
+        let state = BTreeMap::from([
+            (address, (account, storage)),
+            (address_2, (account_2, BTreeMap::new())),
+            (address_3, (account_2, BTreeMap::new())),
+        ]);
+
+        let expected_root = expected_state_root(&state);
+
+        let tx = db.begin_mutable().unwrap();
+
+        // Create a couple of accounts to populate TrieAccount with a node
+        let mut hashed_account = tx.cursor(tables::HashedAccount).unwrap();
+
+        hashed_account.upsert(hashed_address, account).unwrap();
+        hashed_account.upsert(hashed_address_2, account_2).unwrap();
+        hashed_account.upsert(hashed_address_3, account_2).unwrap();
+
+        regenerate_intermediate_hashes(&tx, &temp_dir, None).unwrap();
+
+        // Change storage entries under that node
+        // With the faulty gather_storage_changes() we would miss them.
+        let mut hashed_storage = tx.cursor(tables::HashedStorage).unwrap();
+        let mut storage_change_set = tx.cursor(tables::StorageChangeSet).unwrap();
+
+        upsert_hashed_storage_value(
+            &mut hashed_storage,
+            hashed_address,
+            hashed_location_1,
+            value_1,
+        )
+        .unwrap();
+
+        upsert_hashed_storage_value(
+            &mut hashed_storage,
+            hashed_address,
+            hashed_location_2,
+            value_2,
+        )
+        .unwrap();
+
+        storage_change_set
+            .upsert(
+                StorageChangeKey {
+                    block_number: BlockNumber(5),
+                    address,
+                },
+                StorageChange {
+                    location: hashed_location_2,
+                    value: value_2,
+                },
+            )
+            .unwrap();
+
+        storage_change_set
+            .upsert(
+                StorageChangeKey {
+                    block_number: BlockNumber(5),
+                    address,
+                },
+                StorageChange {
+                    location: hashed_location_1,
+                    value: value_1,
+                },
+            )
+            .unwrap();
+
+        let root = increment_intermediate_hashes(&tx, &temp_dir, BlockNumber(2), None).unwrap();
+
+        assert_eq!(root, expected_root);
+    }
+
+    // proptest strategies
     fn addresses() -> impl Strategy<Value = Address> {
         any::<[u8; 20]>().prop_map(Address::from)
     }
