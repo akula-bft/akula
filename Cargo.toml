@@ -90,6 +90,7 @@ primitive-types = { version = "0.11", default-features = false, features = [
   "rlp",
   "rustc-hex",
 ] }
+public-ip = "0.2.2"
 rand = "0.8"
 rayon = "1"
 ripemd = "0.1"

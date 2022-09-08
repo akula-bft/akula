@@ -230,27 +230,23 @@ impl Node {
 
         let task_group = Arc::new(TaskGroup::new());
 
+
         if enable_upnp {
             task_group.spawn_with_name("discv4 - UPnP", {
                 let node_endpoint = node_endpoint.clone();
                 async move {
                     loop {
                         match async {
-                            Ok::<_, anyhow::Error>(
-                                search_gateway(Default::default())
-                                    .await?
-                                    .get_external_ip()
-                                    .await?,
-                            )
+                        public_ip::addr().await
                         }
                         .await
                         {
-                            Ok(v) => {
+                            Some(v) => {
                                 debug!("Discovered public IP: {}", v);
                                 node_endpoint.write().address = Ip(v);
                             }
-                            Err(e) => {
-                                debug!("Failed to get public IP: {}", e);
+                            None => {
+                                debug!("Failed to get public IP");
                             }
                         }
                         sleep(UPNP_INTERVAL).await;
