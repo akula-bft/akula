@@ -27,7 +27,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: fmt
-          args: --all -- --check --config imports_granularity=Crate
+          args: --all -- --check --config=imports_granularity=Crate
 
       - uses: actions-rs/install@v0.1
         with:
