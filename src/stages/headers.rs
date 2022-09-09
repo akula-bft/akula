@@ -499,18 +499,14 @@ impl HeaderDownload {
 
                         if is_bounded(inner.headers[0].number) {
                             tasks.push(TaskGuard(tokio::task::spawn({
-                                let (node, consensus, requests, graph, peer_map, peer_id) = (
-                                    self.node.clone(),
-                                    self.consensus.clone(),
-                                    requests.clone(),
-                                    fork_choice_graph.clone(),
-                                    peer_map.clone(),
-                                    peer_id,
-                                );
+                                let node = self.node.clone();
+                                let requests = requests.clone();
+                                let graph = fork_choice_graph.clone();
+                                let peer_map = peer_map.clone();
 
                                 async move {
                                     Self::handle_response(
-                                        node, consensus, requests, graph, peer_map, peer_id, inner,
+                                        node, requests, graph, peer_map, peer_id, inner,
                                     )
                                     .await
                                 }
@@ -532,6 +528,12 @@ impl HeaderDownload {
             };
             graph.backtrack(&tail)
         };
+
+        if let Some(first) = headers.first() {
+            if prev_progress_header.hash() != first.1.parent_hash {
+                return Ok(None);
+            }
+        }
 
         info!(
             "Built canonical chain with={} headers, elapsed={:?}",
@@ -580,7 +582,6 @@ impl HeaderDownload {
 
     async fn handle_response(
         node: Arc<Node>,
-        consensus: Arc<dyn Consensus>,
         requests: Arc<DashMap<BlockNumber, HeaderRequest>>,
         graph: Arc<Mutex<ForkChoiceGraph>>,
         peer_map: Arc<DashMap<H256, H512>>,
@@ -590,7 +591,7 @@ impl HeaderDownload {
         let cur_size = response.headers.len();
         debug!("Handling response from {peer_id} with {cur_size} headers");
 
-        match Self::check_headers(&consensus, response.headers) {
+        match Self::check_contiguous(response.headers) {
             Ok(headers) => {
                 let key = headers[0].1.number;
                 let last_hash = headers[headers.len() - 1].0;
@@ -615,7 +616,10 @@ impl HeaderDownload {
                     }
                 }
             }
-            Err(_) => node.penalize_peer(peer_id).await,
+            Err(()) => {
+                warn!("Rejected discontiguous header segment from {peer_id}");
+                node.penalize_peer(peer_id).await
+            }
         }
     }
 
@@ -674,16 +678,15 @@ impl HeaderDownload {
     }
 
     #[inline]
-    fn check_headers(
-        consensus: &Arc<dyn Consensus>,
-        headers: Vec<BlockHeader>,
-    ) -> Result<Vec<(H256, BlockHeader)>, DuoError> {
+    fn check_contiguous(headers: Vec<BlockHeader>) -> Result<Vec<(H256, BlockHeader)>, ()> {
         let headers = headers
             .into_iter()
             .map(|h| (h.hash(), h))
             .collect::<Vec<_>>();
-        for (i, _) in headers.iter().enumerate().skip(1) {
-            consensus.validate_block_header(&headers[i].1, &headers[i - 1].1, false)?;
+        if headers.iter().skip(1).enumerate().any(|(i, (_, header))| {
+            header.parent_hash != headers[i].0 || header.number != headers[i].1.number + 1u8
+        }) {
+            return Err(());
         }
 
         Ok(headers)
@@ -694,14 +697,19 @@ impl HeaderDownload {
         mut parent_header: &'a BlockHeader,
         headers: &'a [(H256, BlockHeader)],
     ) -> Result<(), (usize, H256)> {
-        for (i, (_, header)) in headers.iter().enumerate() {
+        for (i, (hash, header)) in headers.iter().enumerate() {
+            let parent_hash = parent_header.hash();
+            if header.parent_hash != parent_hash || header.number != parent_header.number + 1_u8 {
+                warn!("Rejected bad block header ({hash:?}) because it doesn't attach to parent ({parent_hash:?}): {header:?} => {parent_header:?}");
+                return Err((i.saturating_sub(1), *hash));
+            }
+
             if let Err(e) = self
                 .consensus
                 .validate_block_header(header, parent_header, false)
             {
-                let hash = header.hash();
                 warn!("Rejected bad block header ({hash:?}) for reason {e:?}: {header:?}");
-                return Err((i.saturating_sub(1), hash));
+                return Err((i.saturating_sub(1), *hash));
             }
             parent_header = header;
         }
