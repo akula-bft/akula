@@ -49,7 +49,7 @@ pub mod account {
 
 pub mod storage {
     use super::*;
-    use crate::u256_to_h256;
+    use crate::{h256_to_u256, kv::tables::BitmapKey, u256_to_h256};
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
@@ -87,6 +87,59 @@ pub mod storage {
             .filter(|&(l, _)| l == location_to_find)
             .map(|(_, v)| v)
             .unwrap_or(U256::ZERO))
+    }
+
+    pub fn walk<'tx, K: TransactionKind, E: EnvironmentKind>(
+        tx: &'tx MdbxTransaction<'_, K, E>,
+        searched_address: Address,
+        offset: Option<H256>,
+        block: Option<BlockNumber>,
+    ) -> impl Iterator<Item = anyhow::Result<(H256, U256)>> + 'tx {
+        TryGenIter::from(move || {
+            if let Some(block_number) = block {
+                // Traverse history index and add to set if non-zero at our block
+
+                let mut index = tx.cursor(tables::StorageHistory)?.walk(Some(BitmapKey {
+                    inner: (searched_address, H256::zero()),
+                    block_number: BlockNumber(0),
+                }));
+
+                while let Some((
+                    BitmapKey {
+                        inner: (address, slot),
+                        ..
+                    },
+                    _,
+                )) = index.next().transpose()?
+                {
+                    if address != searched_address {
+                        break;
+                    }
+
+                    let v = crate::accessors::state::storage::read(
+                        tx,
+                        address,
+                        h256_to_u256(slot),
+                        Some(block_number),
+                    )?;
+
+                    if v != U256::ZERO {
+                        yield (slot, v);
+                    }
+                }
+            } else {
+                // Simply traverse the current state
+                let mut walker = tx
+                    .cursor(tables::Storage)?
+                    .walk_dup(searched_address, offset);
+
+                while let Some(v) = walker.next().transpose()? {
+                    yield v;
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 

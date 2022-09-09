@@ -4,13 +4,15 @@ use akula::{
     kv::{mdbx::*, MdbxWithDirHandle},
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
+        otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl, trace::TraceApiServerImpl,
+        web3::Web3ApiServerImpl,
     },
 };
 use anyhow::format_err;
 use clap::Parser;
 use ethereum_jsonrpc::{
-    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer, Web3ApiServer,
+    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
+    TraceApiServer, Web3ApiServer,
 };
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
@@ -103,6 +105,11 @@ async fn main() -> anyhow::Result<()> {
 
     if api_options.is_empty() || api_options.contains("otterscan") {
         api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+            .unwrap();
+    }
+
+    if api_options.is_empty() || api_options.contains("parity") {
+        api.merge(ParityApiServerImpl { db: db.clone() }.into_rpc())
             .unwrap();
     }
 
