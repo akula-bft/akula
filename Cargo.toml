@@ -50,7 +50,7 @@ ethereum-types = { version = "0.13", features = ["codec"] }
 ethereum-jsonrpc = { git = "https://github.com/vorot93/ethereum-jsonrpc", features = [
   "server",
 ] }
-ethnum = { version = "1", features = ["llvm-intrinsics", "rlp", "scale"] }
+ethnum = { version = "1", features = ["rlp", "scale"] }
 fastrlp = { version = "0.1", features = [
   "derive",
   "ethereum-types",
