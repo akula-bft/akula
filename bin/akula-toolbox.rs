@@ -592,7 +592,7 @@ fn read_account_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
 
     let tx = env.begin()?;
 
-    let walker = tx.cursor(tables::AccountChangeSet)?.walk_dup(block);
+    let walker = tx.cursor(tables::AccountChangeSet)?.walk_dup(block, None);
 
     pin!(walker);
 
@@ -634,7 +634,7 @@ fn read_storage(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> 
     println!(
         "{:?}",
         tx.cursor(tables::Storage)?
-            .walk_dup(address)
+            .walk_dup(address, None)
             .collect::<anyhow::Result<Vec<_>>>()?
     );
 
