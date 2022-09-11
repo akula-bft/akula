@@ -569,11 +569,11 @@ where
 
         let db = self.db.clone();
 
-        let (trace_tx, trace_rx) = tokio::sync::mpsc::channel(1);
+        let (res_tx, rx) = tokio::sync::mpsc::channel(1);
 
         tokio::task::spawn_blocking(move || {
             let f = {
-                let trace_tx = trace_tx.clone();
+                let res_tx = res_tx.clone();
                 move || {
                     let txn = db.begin()?;
 
@@ -702,7 +702,7 @@ where
 
                             false
                         }) {
-                            if trace_tx.blocking_send(Ok(trace)).is_err() {
+                            if res_tx.blocking_send(Ok(trace)).is_err() {
                                 return Ok(());
                             };
                         }
@@ -712,11 +712,11 @@ where
                 }
             };
             if let Err::<_, anyhow::Error>(e) = (f)() {
-                let _ = trace_tx.blocking_send(Err(e));
+                let _ = res_tx.blocking_send(Err(e));
             }
         });
 
-        tokio_stream::wrappers::ReceiverStream::new(trace_rx)
+        tokio_stream::wrappers::ReceiverStream::new(rx)
     }
 }
 
@@ -965,21 +965,6 @@ where
 mod convert {
     use super::*;
     use ethereum_interfaces::web3::{Eip1559Call, Eip2930Call, LegacyCall, TraceKinds};
-
-    pub fn block_id(block_id: web3::BlockId) -> Option<types::BlockId> {
-        block_id.id.and_then(|block_id| match block_id {
-            web3::block_id::Id::Hash(hash) => Some(types::BlockId::Hash(hash.into())),
-            web3::block_id::Id::Number(block_number) => block_number.block_number.map(|number| {
-                types::BlockId::Number(match number {
-                    web3::block_number::BlockNumber::Latest(_) => types::BlockNumber::Latest,
-                    web3::block_number::BlockNumber::Pending(_) => types::BlockNumber::Pending,
-                    web3::block_number::BlockNumber::Number(number) => {
-                        types::BlockNumber::Number(number.into())
-                    }
-                })
-            }),
-        })
-    }
 
     pub fn access_list(access_list: web3::AccessList) -> Option<Vec<types::AccessListEntry>> {
         access_list
@@ -1386,7 +1371,7 @@ where
     ) -> Result<Response<FullTraces>, tonic::Status> {
         let CallRequests { calls, block_id } = request.into_inner();
         let block_id = block_id
-            .map(convert::block_id)
+            .map(helpers::grpc_block_id)
             .ok_or_else(|| tonic::Status::invalid_argument("invalid block id sent"))?;
 
         <Self as TraceApiServer>::call_many(
@@ -1421,7 +1406,7 @@ where
         &self,
         request: tonic::Request<ethereum_interfaces::web3::BlockId>,
     ) -> Result<Response<OptionalTracesWithLocation>, tonic::Status> {
-        let block_id = convert::block_id(request.into_inner())
+        let block_id = helpers::grpc_block_id(request.into_inner())
             .ok_or_else(|| tonic::Status::invalid_argument("invalid block id sent"))?;
 
         <Self as TraceApiServer>::block(self, block_id)
@@ -1447,7 +1432,7 @@ where
 
         <Self as TraceApiServer>::replay_block_transactions(
             self,
-            id.and_then(convert::block_id)
+            id.and_then(helpers::grpc_block_id)
                 .ok_or_else(|| tonic::Status::invalid_argument("invalid block id sent"))?,
             kinds
                 .map(convert::trace_kinds)
@@ -1507,8 +1492,8 @@ where
         } = request.into_inner();
 
         let filter = ethereum_jsonrpc::Filter {
-            from_block: from_block.and_then(convert::block_id),
-            to_block: to_block.and_then(convert::block_id),
+            from_block: from_block.and_then(helpers::grpc_block_id),
+            to_block: to_block.and_then(helpers::grpc_block_id),
             from_address: from_addresses
                 .map(|addresses| addresses.addresses.into_iter().map(Address::from).collect()),
             to_address: to_addresses

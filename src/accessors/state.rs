@@ -5,6 +5,7 @@ use crate::{
 
 pub mod account {
     use super::*;
+    use crate::kv::tables::BitmapKey;
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
@@ -44,6 +45,54 @@ pub mod account {
 
             Ok(None)
         }
+    }
+
+    pub fn walk<'db, 'tx, K: TransactionKind, E: EnvironmentKind>(
+        tx: &'tx MdbxTransaction<'db, K, E>,
+        offset: Option<Address>,
+        block: Option<BlockNumber>,
+    ) -> impl Iterator<Item = anyhow::Result<(Address, Account)>> + 'tx
+    where
+        'db: 'tx,
+    {
+        TryGenIter::from(move || {
+            if let Some(block_number) = block {
+                // Traverse history index and add to set if non-zero at our block
+
+                let mut index = tx
+                    .cursor(tables::AccountHistory)?
+                    .walk(offset.map(|offset| BitmapKey {
+                        inner: offset,
+                        block_number: BlockNumber(0),
+                    }));
+
+                let mut last_entry = None;
+
+                while let Some((BitmapKey { inner: address, .. }, _)) = index.next().transpose()? {
+                    if last_entry != Some(address) {
+                        continue;
+                    }
+
+                    last_entry = Some(address);
+
+                    let v =
+                        crate::accessors::state::account::read(tx, address, Some(block_number))?;
+
+                    if let Some(account) = v {
+                        yield (address, account);
+                    }
+                }
+            } else {
+                // Simply traverse the current state
+                let mut walker = tx.cursor(tables::Account)?.walk(offset);
+
+                while let Some(v) = walker.next().transpose()? {
+                    yield v;
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 
@@ -89,12 +138,15 @@ pub mod storage {
             .unwrap_or(U256::ZERO))
     }
 
-    pub fn walk<'tx, K: TransactionKind, E: EnvironmentKind>(
-        tx: &'tx MdbxTransaction<'_, K, E>,
+    pub fn walk<'db, 'tx, K: TransactionKind, E: EnvironmentKind>(
+        tx: &'tx MdbxTransaction<'db, K, E>,
         searched_address: Address,
         offset: Option<H256>,
         block: Option<BlockNumber>,
-    ) -> impl Iterator<Item = anyhow::Result<(H256, U256)>> + 'tx {
+    ) -> impl Iterator<Item = anyhow::Result<(H256, U256)>> + 'tx
+    where
+        'db: 'tx,
+    {
         TryGenIter::from(move || {
             if let Some(block_number) = block {
                 // Traverse history index and add to set if non-zero at our block
@@ -103,6 +155,8 @@ pub mod storage {
                     inner: (searched_address, H256::zero()),
                     block_number: BlockNumber(0),
                 }));
+
+                let mut last_entry = None;
 
                 while let Some((
                     BitmapKey {
@@ -115,6 +169,12 @@ pub mod storage {
                     if address != searched_address {
                         break;
                     }
+
+                    if last_entry != Some((address, slot)) {
+                        continue;
+                    }
+
+                    last_entry = Some((address, slot));
 
                     let v = crate::accessors::state::storage::read(
                         tx,
@@ -140,6 +200,25 @@ pub mod storage {
 
             Ok(())
         })
+    }
+}
+
+pub mod code {
+    use super::*;
+    use anyhow::format_err;
+    use bytes::Bytes;
+
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        code_hash: H256,
+    ) -> anyhow::Result<Bytes> {
+        if code_hash == EMPTY_HASH {
+            Ok(Bytes::new())
+        } else {
+            Ok(tx
+                .get(tables::Code, code_hash)?
+                .ok_or_else(|| format_err!("code expected but not found"))?)
+        }
     }
 }
 
