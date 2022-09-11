@@ -300,16 +300,22 @@ where
     E: EnvironmentKind,
 {
     pub fn write_history(&mut self) -> anyhow::Result<()> {
-        debug!("Writing account changes");
+        info!("Writing account changes");
+        let mut changed_accounts = 0;
         let mut account_change_table = self.txn.cursor(tables::AccountChangeSet)?;
         for (block_number, account_entries) in std::mem::take(&mut self.account_changes) {
             for (address, account) in account_entries {
                 account_change_table
                     .append_dup(block_number, AccountChange { address, account })?;
+                changed_accounts += 1;
+                if changed_accounts % 100_000 == 0 {
+                    debug!("\tWrote {changed_accounts} account changes (last block={block_number} address={address}");
+                }
             }
         }
 
-        debug!("Writing storage changes");
+        info!("Writing storage changes");
+        let mut changed_storage_slots = 0;
         let mut storage_change_table = self.txn.cursor(tables::StorageChangeSet)?;
         for (block_number, storage_entries) in std::mem::take(&mut self.storage_changes) {
             for (address, storage_entries) in storage_entries {
@@ -322,23 +328,44 @@ where
                         },
                         StorageChange { location, value },
                     )?;
+                    changed_storage_slots += 1;
+                    if changed_storage_slots % 100_000 == 0 {
+                        debug!("\tWrote {changed_storage_slots} storage slot changes (last block={block_number} address={address} location={location}) value={value}");
+                    }
                 }
             }
         }
 
-        debug!("Writing logs");
+        info!("Writing logs");
+        let mut changed_logs = 0;
+        let mut changed_addresses = 0;
+        let mut changed_topics = 0;
         let mut log_addresses = self.txn.cursor(tables::LogAddressesByBlock)?;
         let mut log_topics = self.txn.cursor(tables::LogTopicsByBlock)?;
         for (block_number, (addresses, topics)) in std::mem::take(&mut self.log_index) {
             for address in addresses {
                 log_addresses.append_dup(block_number, address)?;
+                changed_addresses += 1;
+                if changed_addresses % 100_000 == 0 {
+                    debug!("\tWrote {changed_addresses} changed addresses (last block={block_number} address={address})");
+                }
             }
             for topic in topics {
                 log_topics.append_dup(block_number, topic)?;
+                changed_topics += 1;
+                if changed_topics % 100_000 == 0 {
+                    debug!("\tWrote {changed_topics} changed topics (last block={block_number} topic={topic})");
             }
         }
-
-        debug!("History write complete");
+            changed_logs += 1;
+            if changed_logs % 1000 == 0 {
+                debug!("\tWrote {changed_logs} log changes ({changed_addresses} addresses & {changed_topics} topics) at block {block_number}");
+            }
+        }
+        info!(
+            "History write complete: accounts={} storage_slots={} logs={} (addresses={} topics={})",
+            changed_accounts, changed_storage_slots, changed_logs, changed_addresses, changed_topics
+        );
 
         Ok(())
     }
@@ -350,7 +377,7 @@ where
         let mut account_table = self.txn.cursor(tables::Account)?;
         let mut storage_table = self.txn.cursor(tables::Storage)?;
 
-        debug!("Writing accounts");
+        info!("Writing accounts");
         let mut account_addresses = self.accounts.keys().collect::<Vec<_>>();
         account_addresses.sort_unstable();
         let mut written_accounts = 0;
@@ -364,17 +391,16 @@ where
             }
 
             written_accounts += 1;
-            if written_accounts % 500_000 == 0 {
+            if written_accounts % 100_000 == 0 {
                 debug!(
-                    "Written {} updated acccounts, current entry: {}",
+                    "\tWrote {} updated acccounts, current entry: {}",
                     written_accounts, address
                 )
             }
         }
+        info!("Writing {} accounts complete", written_accounts);
 
-        debug!("Writing {} accounts complete", written_accounts);
-
-        debug!("Writing storage");
+        info!("Writing storage");
         let mut storage_addresses = self.storage.keys().collect::<Vec<_>>();
         storage_addresses.sort_unstable();
         let mut written_slots = 0;
@@ -389,22 +415,30 @@ where
                 upsert_storage_value(&mut storage_table, address, k, v)?;
 
                 written_slots += 1;
-                if written_slots % 500_000 == 0 {
+                if written_slots % 100_000 == 0 {
                     debug!(
-                        "Written {} storage slots, current entry: address {}, slot {}",
+                        "\tWrote {} storage slots, current entry: address {}, slot {}",
                         written_slots, address, k
                     );
                 }
             }
         }
+        info!("Writing {} slots complete", written_slots);
 
-        debug!("Writing {} slots complete", written_slots);
-
-        debug!("Writing code");
+        info!("Writing code");
+        let mut written_code = 0;
         let mut code_table = self.txn.cursor(tables::Code)?;
         for (code_hash, code) in self.hash_to_code {
             code_table.upsert(code_hash, code)?;
+            written_code += 1;
+            if written_code % 1000 == 0 {
+                debug!(
+                    "\tWrote {} updated contracts, current code hash: {}",
+                    written_code, code_hash
+                )
+            }
         }
+        info!("Writing {} contracts complete", written_code);
 
         Ok(())
     }

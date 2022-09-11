@@ -48,8 +48,11 @@ where
 
         while let Some((block_number, block_hash)) = walker.next().transpose()? {
             if block_number.0 % 500_000 == 0 {
-                info!("Processing block {}", block_number);
+                info!("Processing block hashes (at block {})", block_number);
+            } else if block_number.0 % 10_000 == 0 {
+                debug!("[block_hashes:execute] Processing block hahes (at {})", block_number);
             }
+
             // BlockBody Key is block_number + hash, so we just separate and collect
             collector.push(block_hash, block_number);
 
