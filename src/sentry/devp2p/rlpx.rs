@@ -676,56 +676,7 @@ impl<C: CapabilityServer> Swarm<C> {
                 let task_id = format!("dialer ({disc_id})");
                 tasks.spawn_with_name(&task_id, {
                     let server = Arc::downgrade(&server);
-
                     let banlist = Arc::new(Mutex::new(LruCache::new(10_000)));
-
-<<<<<<< HEAD
-                    for worker in 0..options.max_peers.get() {
-                        tasks.spawn_with_name(format!("dialer #{worker}"), {
-                            let banlist = banlist.clone();
-                            let server = server.clone();
-                            let discovery_tasks = options.discovery_tasks.clone();
-                            let no_new_peers = options.no_new_peers.clone();
-                            async move {
-                                loop {
-                                    while let Some(num_peers) = server.upgrade().map(|server| server.num_peers()) {
-                                        if !no_new_peers.load(Ordering::SeqCst) && (num_peers < options.min_peers || worker == 1) && num_peers < max_peers {
-                                            let next_peer = discovery_tasks.lock().await.next().await;
-                                            match next_peer {
-                                                None => (),
-                                                Some((disc_id, Err(e))) => {
-                                                    trace!("Failed to get new peer: {e} ({disc_id})")
-                                                }
-                                                Some((disc_id, Ok(NodeRecord { id, addr }))) => {
-                                                    let now = Instant::now();
-                                                    if let Some(banned_timestamp) =
-                                                        banlist.lock().get_mut(&id).copied()
-                                                    {
-                                                        let time_since_ban: Duration =
-                                                            now - banned_timestamp;
-                                                        if time_since_ban <= Duration::from_secs(300) {
-                                                            let secs_since_ban = time_since_ban.as_secs();
-                                                            trace!(
-                                                                "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
-                                                            );
-                                                            continue;
-                                                        }
-                                                    }
-
-                                                    if let Some(server) = server.upgrade() {
-                                                        trace!("Dialing peer {id:?}@{addr} ({disc_id})");
-                                                        if server
-                                                            .add_peer_inner(addr, id, true)
-                                                            .await
-                                                            .is_err()
-                                                        {
-                                                            banlist.lock().put(id, Instant::now());
-                                                        }
-                                                    } else {
-                                                        break;
-                                                    }
-                                                }
-=======
                     let server = server.clone();
                     let no_new_peers = options.no_new_peers.clone();
 
@@ -736,7 +687,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                 match next_peer {
                                     None => {},
                                     Some(Err(e)) => {
-                                        debug!("Failed to get new peer: {e} ({disc_id})")
+                                        trace!("Failed to get new peer: {e} ({disc_id})")
                                     }
                                     Some(Ok(NodeRecord { id, addr })) => {
                                         let now = Instant::now();
@@ -748,11 +699,10 @@ impl<C: CapabilityServer> Swarm<C> {
                                                 now - banned_timestamp;
                                             if time_since_ban <= BAN_DURATION {
                                                 let secs_since_ban = time_since_ban.as_secs();
-                                                debug!(
+                                                trace!(
                                                     "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
                                                 );
                                                 banned = true;
->>>>>>> 1f7008e4fce16fff0abcf1a1bf034b35c3d92835
                                             }
                                         }
 
