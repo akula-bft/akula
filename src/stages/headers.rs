@@ -536,7 +536,6 @@ impl HeaderDownload {
         }
 
         info!("Built canonical chain with={}, elapsed={:?}", headers.len(), took.elapsed());
-        debug!("Tail: {}", tail);
 
         let cur_size = headers.len();
         let took = Instant::now();
