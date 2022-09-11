@@ -624,8 +624,8 @@ mod tests {
     async fn bad_node() {
         const TEST_RECORDS: &[(&str, &str)] = &[
             ("n",                            "enrtree-root:v1 e=INDMVBZEEQ4ESVYAKGIYU74EAA l=C7HRFPF3BLGF3YR4DY5KX3SMBE seq=3 sig=Vl3AmunLur0JZ3sIyJPSH6A3Vvdp4F40jWQeCmkIhmcgwE4VC5U9wpK8C_uL_CMY29fd6FAhspRvq2z_VysTLAA"),
-		    ("C7HRFPF3BLGF3YR4DY5KX3SMBE.n", "enrtree://AM5FCQLWIZX2QFPNJAP7VUERCCRNGRHWZG3YYHIUV7BVDQ5FDPRT2@morenodes.example.org"),
-		    ("INDMVBZEEQ4ESVYAKGIYU74EAA.n", "enr:-----"),
+            ("C7HRFPF3BLGF3YR4DY5KX3SMBE.n", "enrtree://AM5FCQLWIZX2QFPNJAP7VUERCCRNGRHWZG3YYHIUV7BVDQ5FDPRT2@morenodes.example.org"),
+            ("INDMVBZEEQ4ESVYAKGIYU74EAA.n", "enr:-----"),
         ];
 
         let data = test_records_to_hashmap_geth(TEST_RECORDS);

@@ -458,7 +458,7 @@ impl HeaderDownload {
             "Will download {} headers over {} requests (blocks {}-{})",
             end - start + 1,
             requests.len(),
-            start, end,
+            start, end
         );
 
         let mut stream = self.node.stream_headers().await;
@@ -535,11 +535,8 @@ impl HeaderDownload {
             }
         }
 
-        info!(
-            "Built canonical chain with={} headers, elapsed={:?}",
-            headers.len(),
-            took.elapsed()
-        );
+        info!("Built canonical chain with={}, elapsed={:?}", headers.len(), took.elapsed());
+        debug!("Tail: {}", tail);
 
         let cur_size = headers.len();
         let took = Instant::now();
