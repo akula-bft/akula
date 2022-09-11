@@ -153,7 +153,7 @@ vergen = "7"
 
 [dev-dependencies]
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
-criterion = { version = "0.3", default-features = false }
+criterion = { version = "0.4", default-features = false }
 include_dir = "0.7"
 pprof = { version = "0.10", features = ["flamegraph"] }
 proptest = "1.0.0"
