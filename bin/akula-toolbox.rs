@@ -1,6 +1,6 @@
 #![feature(never_type)]
 use akula::{
-    binutil::{AkulaDataDir, ExpandedPathBuf},
+    binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     hex_to_bytes,
     kv::{
@@ -15,6 +15,7 @@ use akula::{
 use anyhow::{ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
+use expanded_pathbuf::ExpandedPathBuf;
 use std::{borrow::Cow, collections::BTreeMap, io::Read, sync::Arc};
 use tokio::pin;
 use tracing::*;
@@ -591,7 +592,7 @@ fn read_account_changes(data_dir: AkulaDataDir, block: BlockNumber) -> anyhow::R
 
     let tx = env.begin()?;
 
-    let walker = tx.cursor(tables::AccountChangeSet)?.walk_dup(block);
+    let walker = tx.cursor(tables::AccountChangeSet)?.walk_dup(block, None);
 
     pin!(walker);
 
@@ -633,7 +634,7 @@ fn read_storage(data_dir: AkulaDataDir, address: Address) -> anyhow::Result<()> 
     println!(
         "{:?}",
         tx.cursor(tables::Storage)?
-            .walk_dup(address)
+            .walk_dup(address, None)
             .collect::<anyhow::Result<Vec<_>>>()?
     );
 

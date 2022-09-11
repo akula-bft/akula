@@ -4,13 +4,15 @@ use akula::{
     kv::{mdbx::*, MdbxWithDirHandle},
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
+        otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl, trace::TraceApiServerImpl,
+        web3::Web3ApiServerImpl,
     },
 };
 use anyhow::format_err;
 use clap::Parser;
 use ethereum_jsonrpc::{
-    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer, Web3ApiServer,
+    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
+    TraceApiServer, Web3ApiServer,
 };
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
@@ -35,8 +37,8 @@ pub struct Opt {
     pub grpc_listen_address: SocketAddr,
 
     /// Enable API options
-    #[clap(long, min_values(1))]
-    pub enable_api: Vec<String>,
+    #[clap(long)]
+    pub enable_api: Option<String>,
 }
 
 #[tokio::main]
@@ -72,9 +74,13 @@ async fn main() -> anyhow::Result<()> {
 
     let api_options = opt
         .enable_api
-        .into_iter()
-        .map(|s| s.to_lowercase())
-        .collect::<HashSet<String>>();
+        .map(|v| {
+            v.split(',')
+                .into_iter()
+                .map(|s| s.to_lowercase())
+                .collect::<HashSet<String>>()
+        })
+        .unwrap_or_default();
 
     if api_options.is_empty() || api_options.contains("eth") {
         api.merge(
@@ -99,6 +105,11 @@ async fn main() -> anyhow::Result<()> {
 
     if api_options.is_empty() || api_options.contains("otterscan") {
         api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+            .unwrap();
+    }
+
+    if api_options.is_empty() || api_options.contains("parity") {
+        api.merge(ParityApiServerImpl { db: db.clone() }.into_rpc())
             .unwrap();
     }
 

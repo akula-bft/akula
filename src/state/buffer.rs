@@ -218,7 +218,7 @@ where
         if mark_database_as_discarded {
             let storage_table = self.txn.cursor(tables::Storage)?;
 
-            let walker = storage_table.walk_dup(address);
+            let walker = storage_table.walk_dup(address, None);
             pin!(walker);
 
             let storage_changes = self
