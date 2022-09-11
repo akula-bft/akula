@@ -33,20 +33,21 @@ use tokio::{
     sync::{
         mpsc::{channel, unbounded_channel},
         oneshot::{channel as oneshot, Sender as OneshotSender},
-        Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore,
+        OwnedSemaphorePermit, Semaphore,
     },
     time::sleep,
 };
-use tokio_stream::{StreamExt, StreamMap};
+use tokio_stream::StreamExt;
 use tracing::*;
 
-const GRACE_PERIOD_SECS: u64 = 2;
-const HANDSHAKE_TIMEOUT_SECS: u64 = 10;
+const GRACE_PERIOD: Duration = Duration::from_secs(2);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_TIMEOUT: Duration = Duration::from_secs(15);
 const PING_INTERVAL: Duration = Duration::from_secs(60);
 const MAX_FAILED_PINGS: usize = 3;
-const DISCOVERY_TIMEOUT_SECS: u64 = 90;
-const DISCOVERY_CONNECT_TIMEOUT_SECS: u64 = 5;
+const BAN_DURATION: Duration = Duration::from_secs(300);
+const BAN_BACKOFF: Duration = Duration::from_millis(100);
+const DIAL_SLEEP: Duration = Duration::from_millis(2000);
 
 #[derive(Clone, Copy, Debug)]
 enum DisconnectInitiator {
@@ -309,7 +310,7 @@ where
                     debug!("Disconnecting, initiated by {initiator:?} for reason {reason:?}");
                     if let DisconnectInitiator::Local = initiator {
                         // We have sent disconnect message, wait for grace period.
-                        sleep(Duration::from_secs(GRACE_PERIOD_SECS)).await;
+                        sleep(GRACE_PERIOD).await;
                     }
                     capability_server
                         .on_peer_event(
@@ -393,7 +394,7 @@ async fn handle_incoming_request<C, Io>(
     } = handshake_data;
     // Do handshake and convert incoming connection into stream.
     let peer_res = tokio::time::timeout(
-        Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+        HANDSHAKE_TIMEOUT,
         PeerStream::incoming(
             stream,
             secret_key,
@@ -559,7 +560,7 @@ impl SwarmBuilder {
 #[educe(Debug)]
 pub struct ListenOptions {
     #[educe(Debug(ignore))]
-    discovery_tasks: Arc<AsyncMutex<StreamMap<String, Discovery>>>,
+    discovery_tasks: HashMap<String, Discovery>,
     min_peers: usize,
     max_peers: NonZeroUsize,
     addr: SocketAddr,
@@ -569,7 +570,7 @@ pub struct ListenOptions {
 
 impl ListenOptions {
     pub fn new(
-        discovery_tasks: StreamMap<String, Discovery>,
+        discovery_tasks: HashMap<String, Discovery>,
         min_peers: usize,
         max_peers: NonZeroUsize,
         addr: SocketAddr,
@@ -577,7 +578,7 @@ impl ListenOptions {
         no_new_peers: Arc<AtomicBool>,
     ) -> Self {
         Self {
-            discovery_tasks: Arc::new(AsyncMutex::new(discovery_tasks)),
+            discovery_tasks,
             min_peers,
             max_peers,
             addr,
@@ -671,77 +672,79 @@ impl<C: CapabilityServer> Swarm<C> {
         });
 
         if let Some(options) = listen_options {
-            tasks.spawn_with_name("dialer", {
-                let server = Arc::downgrade(&server);
-                let tasks = tasks.clone();
-                async move {
+            for (disc_id, mut discovery) in options.discovery_tasks {
+                let task_id = format!("dialer ({disc_id})");
+                tasks.spawn_with_name(&task_id, {
+                    let server = Arc::downgrade(&server);
+
                     let banlist = Arc::new(Mutex::new(LruCache::new(10_000)));
 
-                    for worker in 0..options.max_peers.get() {
-                        tasks.spawn_with_name(format!("dialer #{worker}"), {
-                            let banlist = banlist.clone();
-                            let server = server.clone();
-                            let discovery_tasks = options.discovery_tasks.clone();
-                            let no_new_peers = options.no_new_peers.clone();
-                            async move {
-                                loop {
-                                    while let Some(num_peers) = server.upgrade().map(|server| server.num_peers()) {
-                                        if !no_new_peers.load(Ordering::SeqCst) && (num_peers < options.min_peers || worker == 1) && num_peers < max_peers {
-                                            let next_peer = discovery_tasks.lock().await.next().await;
-                                            match next_peer {
-                                                None => (),
-                                                Some((disc_id, Err(e))) => {
-                                                    debug!("Failed to get new peer: {e} ({disc_id})")
-                                                }
-                                                Some((disc_id, Ok(NodeRecord { id, addr }))) => {
-                                                    let now = Instant::now();
-                                                    if let Some(banned_timestamp) =
-                                                        banlist.lock().get_mut(&id).copied()
-                                                    {
-                                                        let time_since_ban: Duration =
-                                                            now - banned_timestamp;
-                                                        if time_since_ban <= Duration::from_secs(300) {
-                                                            let secs_since_ban = time_since_ban.as_secs();
-                                                            debug!(
-                                                                "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
-                                                            );
-                                                            continue;
-                                                        }
-                                                    }
+                    let server = server.clone();
+                    let no_new_peers = options.no_new_peers.clone();
 
-                                                    if let Some(server) = server.upgrade() {
-                                                        debug!("Dialing peer {id:?}@{addr} ({disc_id})");
-                                                        if server
-                                                            .add_peer_inner(addr, id, true)
-                                                            .await
-                                                            .is_err()
-                                                        {
-                                                            banlist.lock().put(id, Instant::now());
-                                                        }
-                                                    } else {
-                                                        break;
-                                                    }
-                                                }
+                    async move {
+                        while let Some(num_peers) = server.upgrade().map(|server| server.num_peers()) {
+                            if !no_new_peers.load(Ordering::SeqCst) && num_peers < max_peers {
+                                let next_peer = discovery.next().await;
+                                match next_peer {
+                                    None => {},
+                                    Some(Err(e)) => {
+                                        debug!("Failed to get new peer: {e} ({disc_id})")
+                                    }
+                                    Some(Ok(NodeRecord { id, addr })) => {
+                                        let now = Instant::now();
+                                        let mut banned = false;
+                                        if let Some(banned_timestamp) =
+                                            banlist.lock().get_mut(&id).copied()
+                                        {
+                                            let time_since_ban: Duration =
+                                                now - banned_timestamp;
+                                            if time_since_ban <= BAN_DURATION {
+                                                let secs_since_ban = time_since_ban.as_secs();
+                                                debug!(
+                                                    "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
+                                                );
+                                                banned = true;
                                             }
+                                        }
+
+                                        if banned {
+                                            continue;
+                                        }
+
+                                        if let Some(server) = server.upgrade() {
+                                            let banlist = banlist.clone();
+                                            let tasks = server.tasks.clone();
+                                            let disc_id = disc_id.clone();
+                                            tasks.spawn(async move {
+                                                debug!("Dialing peer {id:?}@{addr} ({disc_id})");
+                                                if server
+                                                    .add_peer_inner(addr, id, true)
+                                                    .await
+                                                    .is_err()
+                                                {
+                                                    banlist.lock().put(id, Instant::now());
+                                                }
+                                            });
                                         } else {
-                                            let delay = 2000;
-                                            debug!("Not accepting peers, delaying dial for {delay}ms");
-                                            sleep(Duration::from_millis(delay)).await;
+                                            break;
                                         }
                                     }
                                 }
-
-                                debug!("Quitting");
+                            } else {
+                                debug!("Not accepting peers, delaying dial for {}ms", DIAL_SLEEP.as_millis());
+                                sleep(DIAL_SLEEP).await;
                             }
-                            .instrument(span!(
-                                Level::DEBUG,
-                                "dialer",
-                                worker
-                            ))
-                        });
+                        }
+
+                        debug!("Quitting");
                     }
-                }
-            });
+                    .instrument(span!(
+                        Level::DEBUG,
+                        "{}", task_id
+                    ))
+                });
+            }
         }
 
         Ok(server)
@@ -853,7 +856,7 @@ impl<C: CapabilityServer> Swarm<C> {
             }
 
             // Connecting to peer is a long running operation so we have to break the mutex lock.
-            let peer_res = async {
+            let peer_res = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
                 let transport = TcpStream::connect(addr).await?;
                 PeerStream::connect(
                     transport,
@@ -864,7 +867,7 @@ impl<C: CapabilityServer> Swarm<C> {
                     port,
                 )
                 .await
-            }
+            })
             .await;
 
             let streams = streams.clone();
@@ -875,7 +878,7 @@ impl<C: CapabilityServer> Swarm<C> {
             if let Entry::Occupied(mut peer_state) = mapping.entry(remote_id) {
                 if !peer_state.get().connection_state.is_connected() {
                     match peer_res {
-                        Ok(peer) => {
+                        Ok(Ok(peer)) => {
                             assert_eq!(peer.remote_id(), remote_id);
                             debug!("New peer connected: {}", remote_id);
 
@@ -890,10 +893,15 @@ impl<C: CapabilityServer> Swarm<C> {
                             let _ = tx.send(());
                             return Ok(true);
                         }
-                        Err(e) => {
+                        Ok(Err(e)) => {
                             debug!("Peer {:?} disconnected with error: {}", remote_id, e);
                             peer_state.remove();
                             return Err(e);
+                        }
+                        Err(e) => {
+                            debug!("Connecting to peer timed out");
+                            peer_state.remove();
+                            return Err(e.into());
                         }
                     }
                 }
