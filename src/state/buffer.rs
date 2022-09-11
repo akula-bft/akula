@@ -309,7 +309,7 @@ where
                     .append_dup(block_number, AccountChange { address, account })?;
                 changed_accounts += 1;
                 if changed_accounts % 100_000 == 0 {
-                    debug!("\tWrote {changed_accounts} account changes (last block={block_number} address={address}");
+                    debug!("\tWrote {changed_accounts} account changes (last block={block_number} address={address})");
                 }
             }
         }
@@ -330,7 +330,7 @@ where
                     )?;
                     changed_storage_slots += 1;
                     if changed_storage_slots % 100_000 == 0 {
-                        debug!("\tWrote {changed_storage_slots} storage slot changes (last block={block_number} address={address} location={location}) value={value}");
+                        debug!("\tWrote {changed_storage_slots} storage slot changes (last block={block_number} address={address} location={location}) value={value})");
                     }
                 }
             }
@@ -359,7 +359,7 @@ where
         }
             changed_logs += 1;
             if changed_logs % 1000 == 0 {
-                debug!("\tWrote {changed_logs} log changes ({changed_addresses} addresses & {changed_topics} topics) at block {block_number}");
+                debug!("\tWrote {changed_logs} log changes ({changed_addresses} addresses & {changed_topics} topics) at block {block_number})");
             }
         }
         info!(
