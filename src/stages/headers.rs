@@ -111,7 +111,7 @@ where
                     };
                     let _ = chain_finalized_hash;
 
-                    info!("Received chain tip hash: {chain_tip_hash}, starting_download (last block #{prev_progress}");
+                    info!("Received chain tip hash: {chain_tip_hash}, starting_download (last block #{prev_progress})");
 
                     let mut stream = self.node.stream_headers().await;
 
@@ -536,7 +536,6 @@ impl HeaderDownload {
         }
 
         info!("Built canonical chain with={}, elapsed={:?}", headers.len(), took.elapsed());
-        debug!("Tail: {}", tail);
 
         let cur_size = headers.len();
         let took = Instant::now();
