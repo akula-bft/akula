@@ -2,7 +2,7 @@ use crate::{
     etl::collector::*,
     kv::{mdbx::*, tables},
     models::*,
-    stagedsync::{stage::*, stages::*},
+    stagedsync::stage::*,
     StageId,
 };
 use async_trait::async_trait;
@@ -10,6 +10,8 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tokio::pin;
 use tracing::*;
+
+pub const BLOCK_HASHES: StageId = StageId("BlockHashes");
 
 /// Generate BlockHashes => BlockNumber Mapping
 #[derive(Debug)]

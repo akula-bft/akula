@@ -1,10 +1,7 @@
-use crate::{
-    kv::mdbx::*,
-    models::*,
-    stagedsync::{stage::*, stages::*},
-    StageId,
-};
+use crate::{kv::mdbx::*, models::*, stagedsync::stage::*, StageId};
 use async_trait::async_trait;
+
+pub const FINISH: StageId = StageId("Finish");
 
 #[derive(Debug)]
 pub struct Finish;

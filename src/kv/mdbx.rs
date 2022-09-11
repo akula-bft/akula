@@ -436,16 +436,24 @@ where
     }
 
     /// Walk over duplicates for some specific key.
-    pub fn walk_dup(mut self, start_key: T::Key) -> impl Iterator<Item = anyhow::Result<T::Value>>
+    pub fn walk_dup(
+        mut self,
+        start_key: T::Key,
+        seek_both_key: Option<T::SeekBothKey>,
+    ) -> impl Iterator<Item = anyhow::Result<T::Value>>
     where
-        T::Key: TableDecode,
+        T::Key: Clone + TableDecode,
     {
         TryGenIter::from(move |_| {
-            let mut v = self.seek_exact(start_key)?;
-            while let Some((_, value)) = v {
+            let mut v = if let Some(seek_both_key) = seek_both_key {
+                self.seek_both_range(start_key, seek_both_key)?
+            } else {
+                self.seek_exact(start_key)?.map(|(_, v)| v)
+            };
+            while let Some(value) = v {
                 yield value;
 
-                v = self.next_dup()?;
+                v = self.next_dup()?.map(|(_, v)| v);
             }
 
             Ok(())

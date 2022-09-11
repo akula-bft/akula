@@ -5,7 +5,7 @@ use crate::{
         traits::*,
     },
     models::*,
-    stagedsync::{format_duration, stage::*, stages::*, util::*},
+    stagedsync::{format_duration, stage::*, util::*},
     StageId,
 };
 use async_trait::async_trait;
@@ -13,6 +13,8 @@ use rayon::prelude::*;
 use std::time::{Duration, Instant};
 use tokio::pin;
 use tracing::*;
+
+pub const SENDERS: StageId = StageId("SenderRecovery");
 
 /// Recovery of senders of transactions from signatures
 #[derive(Debug)]
@@ -193,7 +195,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{accessors::*, kv::new_mem_chaindata};
+    use crate::{accessors::*, kv::new_mem_chaindata, stages};
     use bytes::Bytes;
     use hex_literal::hex;
 
@@ -360,7 +362,7 @@ mod tests {
         let stage_input = StageInput {
             restarted: false,
             first_started_at: (Instant::now(), Some(BlockNumber(0))),
-            previous_stage: Some((BODIES, 3.into())),
+            previous_stage: Some((stages::BODIES, 3.into())),
             stage_progress: Some(0.into()),
         };
 

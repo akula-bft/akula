@@ -1,9 +1,13 @@
 (
     name: "Görli",
     consensus: (
-        seal_verification: Clique(
-            period: 15,
-            epoch: 30000,
+        seal_verification: Beacon(
+            terminal_total_difficulty: "0xa4a470",
+            since: 7382819,
+            beneficiary: {
+                0: Clique,
+                7382819: Simple,
+            }
         ),
         eip1559_block: 5062605,
     ),
@@ -17,6 +21,7 @@
         istanbul: 1561651,
         berlin: 4460644,
         london: 5062605,
+        paris: 7382819,
     ),
     params: (
         chain_id: 5,

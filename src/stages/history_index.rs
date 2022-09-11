@@ -6,7 +6,7 @@ use crate::{
         traits::*,
     },
     models::*,
-    stagedsync::{stage::*, stages::*},
+    stagedsync::stage::*,
     stages::stage_util::*,
     StageId,
 };
@@ -22,6 +22,9 @@ use std::{
 use tempfile::TempDir;
 use tokio::pin;
 use tracing::info;
+
+pub const ACCOUNT_HISTORY_INDEX: StageId = StageId("AccountHistoryIndex");
+pub const STORAGE_HISTORY_INDEX: StageId = StageId("StorageHistoryIndex");
 
 /// Generate account history index
 #[derive(Debug)]
@@ -348,7 +351,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kv::new_mem_chaindata;
+    use crate::{kv::new_mem_chaindata, stages};
 
     fn collect_bitmap_and_check<'db, K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'db, K, E>,
@@ -439,7 +442,7 @@ mod tests {
                     StageInput {
                         restarted: false,
                         first_started_at: (Instant::now(), None),
-                        previous_stage: Some((EXECUTION, BlockNumber(limit))),
+                        previous_stage: Some((stages::EXECUTION, BlockNumber(limit))),
                         stage_progress,
                     },
                 )

@@ -1,29 +1,34 @@
 use akula::{
     akula_tracing::{self, Component},
-    binutil::{AkulaDataDir, ExpandedPathBuf},
+    binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
     kv::tables::CHAINDATA_TABLES,
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
         erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl, trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
+        otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl, trace::TraceApiServerImpl,
+        web3::Web3ApiServerImpl,
     },
-    stagedsync::{
-        self,
-        stages::{BODIES, HEADERS},
-    },
+    stagedsync,
     stages::*,
     version_string,
 };
 use anyhow::Context;
 use clap::Parser;
 use ethereum_jsonrpc::{
-    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, TraceApiServer, Web3ApiServer,
+    ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
+    TraceApiServer, Web3ApiServer,
 };
+use expanded_pathbuf::ExpandedPathBuf;
 use http::Uri;
-use jsonrpsee::{core::server::rpc_module::Methods, http_server::HttpServerBuilder};
-use std::{future::pending, net::SocketAddr, panic, sync::Arc, time::Duration};
+use jsonrpsee::{
+    core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
+};
+use std::{
+    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
+    sync::Arc, time::Duration,
+};
 use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
@@ -32,8 +37,8 @@ use tracing_subscriber::prelude::*;
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
     /// Path to database directory.
-    #[clap(long = "datadir", help = "Database directory path", default_value_t)]
-    pub data_dir: AkulaDataDir,
+    #[clap(long, help = "Database directory path", default_value_t)]
+    pub datadir: AkulaDataDir,
 
     /// Name of the network to join
     #[clap(long)]
@@ -98,9 +103,17 @@ pub struct Opt {
     #[clap(long)]
     pub no_rpc: bool,
 
+    /// Enable API options
+    #[clap(long)]
+    pub enable_api: Option<String>,
+
     /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
-    pub rpc_listen_address: SocketAddr,
+    pub rpc_listen_address: String,
+
+    /// Enable Websocket at this IP address and port.
+    #[clap(long, default_value = "127.0.0.1:8546")]
+    pub websocket_listen_address: String,
 
     /// Enable gRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:7545")]
@@ -109,6 +122,10 @@ pub struct Opt {
     /// Enable CL engine RPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8551")]
     pub engine_listen_address: SocketAddr,
+
+    /// Path to JWT secret file.
+    #[clap(long)]
+    pub jwt_secret_path: Option<ExpandedPathBuf>,
 }
 
 #[allow(unreachable_code)]
@@ -139,9 +156,9 @@ fn main() -> anyhow::Result<()> {
                     None
                 };
 
-                std::fs::create_dir_all(&opt.data_dir.0)?;
-                let akula_chain_data_dir = opt.data_dir.chain_data_dir();
-                let etl_temp_path = opt.data_dir.etl_temp_dir();
+                std::fs::create_dir_all(&opt.datadir.0)?;
+                let akula_chain_data_dir = opt.datadir.chain_data_dir();
+                let etl_temp_path = opt.datadir.etl_temp_dir();
                 let _ = std::fs::remove_dir_all(&etl_temp_path);
                 std::fs::create_dir_all(&etl_temp_path)?;
                 let etl_temp_dir = Arc::new(
@@ -172,6 +189,28 @@ fn main() -> anyhow::Result<()> {
                     chainspec
                 };
 
+                info!("Current network: {}", chainspec.name);
+
+                let jwt_secret_path = opt
+                    .jwt_secret_path
+                    .map(|v| v.0)
+                    .unwrap_or_else(|| opt.datadir.0.join("jwt.hex"));
+                if let Ok(mut file) = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(jwt_secret_path)
+                {
+                    file.write_all(
+                        hex::encode(
+                            std::iter::repeat_with(rand::random)
+                                .take(32)
+                                .collect::<Vec<_>>(),
+                        )
+                        .as_bytes(),
+                    )?;
+                    file.flush()?;
+                }
+
                 let consensus: Arc<dyn Consensus> = engine_factory(
                     Some(db.clone()),
                     chainspec.clone(),
@@ -186,39 +225,83 @@ fn main() -> anyhow::Result<()> {
                 if !opt.no_rpc {
                     tokio::spawn({
                         let db = db.clone();
-                        let listen_address = opt.rpc_listen_address;
                         async move {
-                            let server = HttpServerBuilder::default()
-                                .build(listen_address)
+                            let http_server = HttpServerBuilder::default()
+                                .build(&opt.rpc_listen_address)
+                                .await
+                                .unwrap();
+
+                            let websocket_server = WsServerBuilder::default()
+                                .build(&opt.websocket_listen_address)
                                 .await
                                 .unwrap();
 
                             let mut api = Methods::new();
-                            api.merge(
-                                EthApiServerImpl {
-                                    db: db.clone(),
-                                    call_gas_limit: 100_000_000,
-                                }
-                                .into_rpc(),
-                            )
-                            .unwrap();
-                            api.merge(NetApiServerImpl { network_id }.into_rpc())
-                                .unwrap();
-                            api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
-                                .unwrap();
-                            api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
-                                .unwrap();
-                            api.merge(
-                                TraceApiServerImpl {
-                                    db,
-                                    call_gas_limit: 100_000_000,
-                                }
-                                .into_rpc(),
-                            )
-                            .unwrap();
-                            api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
 
-                            let _server_handle = server.start(api).unwrap();
+                            let api_options = opt
+                                .enable_api
+                                .map(|v| {
+                                    v.split(',')
+                                        .into_iter()
+                                        .map(|s| s.to_lowercase())
+                                        .collect::<HashSet<String>>()
+                                })
+                                .unwrap_or_default();
+
+                            if api_options.is_empty() || api_options.contains("eth") {
+                                api.merge(
+                                    EthApiServerImpl {
+                                        db: db.clone(),
+                                        call_gas_limit: 100_000_000,
+                                    }
+                                    .into_rpc(),
+                                )
+                                .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("net") {
+                                api.merge(NetApiServerImpl { network_id }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("erigon") {
+                                api.merge(ErigonApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("otterscan") {
+                                api.merge(OtterscanApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("parity") {
+                                api.merge(ParityApiServerImpl { db: db.clone() }.into_rpc())
+                                    .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("trace") {
+                                api.merge(
+                                    TraceApiServerImpl {
+                                        db: db.clone(),
+                                        call_gas_limit: 100_000_000,
+                                    }
+                                    .into_rpc(),
+                                )
+                                .unwrap();
+                            }
+
+                            if api_options.is_empty() || api_options.contains("web3") {
+                                api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
+                            }
+
+                            let _http_server_handle = http_server.start(api.clone()).unwrap();
+                            info!("HTTP server listening on {}", opt.rpc_listen_address);
+
+                            let _websocket_server_handle = websocket_server.start(api).unwrap();
+                            info!(
+                                "WebSocket server listening on {}",
+                                opt.websocket_listen_address
+                            );
 
                             pending::<()>().await
                         }
@@ -226,8 +309,8 @@ fn main() -> anyhow::Result<()> {
 
                     tokio::spawn({
                         let db = db.clone();
-                        let listen_address = opt.grpc_listen_address;
                         async move {
+                            info!("Starting gRPC server on {}", opt.grpc_listen_address);
                             tonic::transport::Server::builder()
                             .add_service(
                                 ethereum_interfaces::web3::trace_api_server::TraceApiServer::new(
@@ -237,7 +320,7 @@ fn main() -> anyhow::Result<()> {
                                     },
                                 ),
                             )
-                            .serve(listen_address)
+                            .serve(opt.grpc_listen_address)
                             .await
                             .unwrap();
                         }
@@ -281,7 +364,7 @@ fn main() -> anyhow::Result<()> {
                     let sentry_api_addr = opt.sentry_opts.sentry_addr;
                     let swarm = akula::sentry::run(
                         opt.sentry_opts,
-                        opt.data_dir,
+                        opt.datadir,
                         chain_config.chain_spec.p2p.clone(),
                     )
                     .await?;
@@ -350,6 +433,7 @@ fn main() -> anyhow::Result<()> {
                 );
                 staged_sync.push(
                     Execution {
+                        max_block: opt.max_block,
                         batch_size: opt.execution_batch_size.saturating_mul(1_000_000_000_u64),
                         history_batch_size: opt
                             .execution_history_batch_size

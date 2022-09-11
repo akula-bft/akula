@@ -3,7 +3,7 @@ name = "akula"
 version = "0.1.0"
 authors = ["Artem Vorotnikov <artem@vorotnikov.me>"]
 edition = "2021"
-description = "Ethereum client based on turbo-geth client architecture"
+description = "Next-generation Ethereum implementation"
 license = "GPL-3.0-only"
 default-run = "akula"
 
@@ -38,6 +38,7 @@ enr = { version = "0.6", default-features = false, features = [
   "rust-secp256k1",
 ] }
 enum-primitive-derive = "0.2"
+expanded-pathbuf = "0.1"
 ethash = { git = "https://github.com/rust-ethereum/ethash" }
 ethereum-forkid = "0.10"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
@@ -93,7 +94,7 @@ primitive-types = { version = "0.11", default-features = false, features = [
 rand = "0.8"
 rayon = "1"
 ripemd = "0.1"
-ron = "0.7"
+ron = "0.8"
 secp256k1 = { version = "0.24", features = [
   "global-context",
   "rand-std",
@@ -128,7 +129,7 @@ tonic-health = "0.7"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-trust-dns-resolver = "0.21"
+trust-dns-resolver = "0.22"
 url = "2"
 walkdir = "2"
 hashlink = "0.8.0"

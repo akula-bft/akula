@@ -2,6 +2,7 @@ pub mod erigon;
 pub mod eth;
 pub mod net;
 pub mod otterscan;
+pub mod parity;
 pub mod trace;
 pub mod web3;
 pub mod helpers {
@@ -13,8 +14,7 @@ pub mod helpers {
         },
         kv::{mdbx::*, tables},
         models::*,
-        stagedsync::stages,
-        Buffer, StateReader,
+        stages, Buffer, StateReader,
     };
     use anyhow::format_err;
     use ethereum_jsonrpc::types;
@@ -388,6 +388,7 @@ pub mod helpers {
                 gas_price,
                 value,
                 data,
+                ..
             } => {
                 let sender = from.unwrap_or_else(Address::zero);
 
@@ -426,6 +427,7 @@ pub mod helpers {
                 value,
                 data,
                 access_list,
+                ..
             } => {
                 let sender = from.unwrap_or_else(Address::zero);
 
@@ -468,6 +470,7 @@ pub mod helpers {
                 value,
                 data,
                 access_list,
+                ..
             } => {
                 let sender = from.unwrap_or_else(Address::zero);
 

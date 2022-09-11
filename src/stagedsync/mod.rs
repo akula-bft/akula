@@ -1,5 +1,4 @@
 pub mod stage;
-pub mod stages;
 pub mod util;
 
 use self::stage::{Stage, StageInput, UnwindInput};

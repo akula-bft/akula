@@ -6,7 +6,7 @@ use crate::{
         node::{Node, NodeStream},
         types::{BlockBodies, Message},
     },
-    stagedsync::{stage::*, stages::BODIES},
+    stagedsync::stage::*,
     StageId, TaskGuard,
 };
 use anyhow::format_err;
@@ -34,6 +34,8 @@ const REQUEST_INTERVAL: Duration = Duration::from_secs(2);
 const INTERVAL_TWEAK_STEP: Duration = Duration::from_secs(2);
 const MIN_SEND_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_SEND_INTERVAL: Duration = Duration::from_secs(60);
+
+pub const BODIES: StageId = StageId("Bodies");
 
 #[derive(Debug)]
 pub struct BodyDownload {

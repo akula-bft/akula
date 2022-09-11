@@ -2,25 +2,12 @@ use crate::{models::ChainSpec, res::chainspec};
 use anyhow::format_err;
 use derive_more::*;
 use directories::ProjectDirs;
+use expanded_pathbuf::ExpandedPathBuf;
 use std::{
     fmt::Display,
     fs::File,
     path::{Path, PathBuf},
-    str::FromStr,
 };
-
-#[derive(AsRef, Clone, Debug, Deref, DerefMut, From)]
-#[as_ref(forward)]
-#[from(forward)]
-pub struct ExpandedPathBuf(pub PathBuf);
-
-impl FromStr for ExpandedPathBuf {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(PathBuf::from_str(&shellexpand::full(s)?)?))
-    }
-}
 
 #[derive(Clone, Debug, Deref, DerefMut, FromStr)]
 
@@ -37,6 +24,10 @@ impl AkulaDataDir {
 
     pub fn sentry_db(&self) -> PathBuf {
         self.0.join("sentrydb")
+    }
+
+    pub fn nodekey(&self) -> PathBuf {
+        self.0.join("nodekey")
     }
 }
 
@@ -57,8 +48,8 @@ impl Display for AkulaDataDir {
 }
 
 impl ChainSpec {
-    pub fn load_from_file(path: impl AsRef<Path>) -> ron::Result<Self> {
-        ron::de::from_reader(File::open(path)?)
+    pub fn load_from_file(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Ok(ron::de::from_reader(File::open(path)?)?)
     }
 
     pub fn load_builtin(name: impl AsRef<str>) -> anyhow::Result<Self> {

@@ -29,7 +29,7 @@ use std::{sync::Arc, time::Duration, unreachable};
 const EXTRA_VANITY: usize = 32;
 const EXTRA_SEAL: usize = 65;
 
-fn recover_signer(header: &BlockHeader) -> Result<Address, anyhow::Error> {
+pub fn recover_signer(header: &BlockHeader) -> Result<Address, anyhow::Error> {
     let signature_offset = header.extra_data.len() - EXTRA_SEAL;
 
     let sig = &header.extra_data[signature_offset..signature_offset + 64];

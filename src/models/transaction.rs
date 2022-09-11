@@ -14,11 +14,10 @@ use secp256k1::{
     ecdsa::{RecoverableSignature, RecoveryId},
     Message as SecpMessage, SECP256K1,
 };
-use serde::*;
 use sha3::*;
 use std::borrow::Cow;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TxType {
     Legacy = 0,
     EIP2930 = 1,
@@ -37,7 +36,7 @@ impl TryFrom<u8> for TxType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode)]
 pub enum TransactionAction {
     Call(Address),
     Create,
@@ -135,7 +134,7 @@ impl YParityAndChainId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub struct MessageSignature {
     odd_y_parity: bool,
     r: H256,
@@ -189,9 +188,7 @@ impl MessageSignature {
     }
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, RlpEncodable, RlpDecodable,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, RlpEncodable, RlpDecodable)]
 pub struct AccessListItem {
     pub address: Address,
     pub slots: Vec<H256>,
@@ -199,8 +196,7 @@ pub struct AccessListItem {
 
 pub type AccessList = Vec<AccessListItem>;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct OptionalChainId(pub Option<ChainId>);
 
 impl Encode for OptionalChainId {
@@ -244,7 +240,7 @@ impl<'a> From<&'a Option<ChainId>> for OptionalChainId {
     }
 }
 
-#[derive(Clone, Educe, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Educe, PartialEq, Eq, Encode, Decode)]
 #[educe(Debug)]
 pub enum Message {
     Legacy {
@@ -440,7 +436,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Debug, Deref, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, Deref, PartialEq, Eq, Encode, Decode)]
 pub struct MessageWithSignature {
     #[deref]
     pub message: Message,

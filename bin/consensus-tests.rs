@@ -1,7 +1,6 @@
 #![feature(let_else)]
 #![allow(clippy::suspicious_else_formatting)]
 use akula::{
-    binutil::ExpandedPathBuf,
     consensus::{
         difficulty::{canonical_difficulty, BlockDifficultyBombData},
         *,
@@ -15,6 +14,7 @@ use anyhow::{bail, ensure, format_err};
 use bytes::Bytes;
 use clap::Parser;
 use educe::Educe;
+use expanded_pathbuf::ExpandedPathBuf;
 use fastrlp::*;
 use maplit::*;
 use once_cell::sync::Lazy;
