@@ -19,6 +19,7 @@
         mirrorsync: 5582500,
         bruno: 13837000,
         euler: 19203503,
+        gibbs: 22800220,
     ),
     params: (
         chain_id: 97,

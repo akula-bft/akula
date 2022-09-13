@@ -155,6 +155,10 @@ impl ChainSpec {
         is_on_forked(self.upgrades.euler, number)
     }
 
+    pub fn is_on_gibbs(&self, number: &BlockNumber) -> bool {
+        is_on_forked(self.upgrades.gibbs, number)
+    }
+
     pub fn is_ramanujan(&self, number: &BlockNumber) -> bool {
         is_forked(self.upgrades.ramanujan, number)
     }
@@ -173,6 +177,10 @@ impl ChainSpec {
 
     pub fn is_euler(&self, number: &BlockNumber) -> bool {
         is_forked(self.upgrades.euler, number)
+    }
+
+    pub fn is_gibbs(&self, number: &BlockNumber) -> bool {
+        is_forked(self.upgrades.gibbs, number)
     }
 }
 
@@ -399,6 +407,12 @@ pub struct Upgrades {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub euler: Option<BlockNumber>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "::serde_with::rust::unwrap_or_skip"
+    )]
+    pub gibbs: Option<BlockNumber>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
