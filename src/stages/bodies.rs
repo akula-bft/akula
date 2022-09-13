@@ -85,7 +85,7 @@ where
             .map(|(_, v)| v)
             .ok_or_else(|| format_err!("cannot be first stage"))?;
 
-        let (mut target, done) = if prev_stage_progress > prev_progress + STAGE_UPPER_BOUND {
+        let (mut target, mut done) = if prev_stage_progress > prev_progress + STAGE_UPPER_BOUND {
             (prev_progress + STAGE_UPPER_BOUND, false)
         } else {
             (prev_stage_progress, true)
@@ -103,6 +103,7 @@ where
                 Ok(_) => {}
                 Err(DownloadError::ExitEarly(new_target)) => {
                     target = new_target;
+                    done = true;
                 }
                 Err(DownloadError::Other(e)) => return Err(*e),
             }
