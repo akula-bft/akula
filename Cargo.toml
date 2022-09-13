@@ -139,6 +139,7 @@ hashbrown = { version = "0.12.0", features = [
   "ahash-compile-time-rng",
 ] }
 dashmap = "5.3"
+public-ip = "0.2.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
