@@ -2,7 +2,7 @@ use akula::{
     crypto::keccak256,
     etl::collector::{TableCollector, OPTIMAL_BUFFER_CAPACITY},
     kv::{new_mem_chaindata, tables},
-    trie::{do_increment_intermediate_hashes, unpack_nibbles, DbTrieLoader, PrefixSet},
+    trie::{do_increment_intermediate_hashes, unpack_nibbles, PrefixSet, TrieLoader},
 };
 use criterion::*;
 use ethereum_types::Address;
@@ -43,7 +43,7 @@ pub fn benchmark_trie(c: &mut Criterion) {
         TableCollector::<tables::TrieStorage>::new(&temp_dir, OPTIMAL_BUFFER_CAPACITY);
 
     {
-        let mut loader = DbTrieLoader::new(&tx, &mut account_collector, &mut storage_collector);
+        let mut loader = TrieLoader::new(&tx, &mut account_collector, &mut storage_collector);
 
         let (account_changes, storage_changes) = generate_prefix_sets(0, 20_000);
 
@@ -71,7 +71,7 @@ pub fn benchmark_trie(c: &mut Criterion) {
     }
 
     let tx = db.begin_mutable().unwrap();
-    let mut loader = DbTrieLoader::new(&tx, &mut account_collector, &mut storage_collector);
+    let mut loader = TrieLoader::new(&tx, &mut account_collector, &mut storage_collector);
 
     let (account_changes, storage_changes) = generate_prefix_sets(0, 20_000);
 

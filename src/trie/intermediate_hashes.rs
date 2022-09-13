@@ -7,19 +7,27 @@ use crate::{
     stagedsync::format_duration,
     trie::{
         hash_builder::{pack_nibbles, unpack_nibbles, HashBuilder},
-        node::{marshal_node, unmarshal_node, Node},
+        node::Node,
         prefix_set::PrefixSet,
         util::has_prefix,
     },
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
+use bytes::{BufMut, BytesMut};
+use lru::LruCache;
 use parking_lot::Mutex;
+use std::collections::BTreeMap;
 use std::{
+    cmp,
     marker::PhantomData,
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
 use tracing::info;
+
+fn key_is_before(k1: &[u8], k2: &[u8]) -> bool {
+    k1 < k2
+}
 
 struct CursorSubNode {
     key: Vec<u8>,
@@ -77,7 +85,82 @@ impl CursorSubNode {
     }
 }
 
-fn increment_key(unpacked: &[u8]) -> Option<Vec<u8>> {
+struct SubNode {
+    node: Node,
+    key: BytesMut,
+    value: BytesMut,
+    child_id: i8,
+    max_child_id: i8,
+    hash_id: i8,
+    deleted: bool,
+}
+
+impl SubNode {
+    fn new() -> Self {
+        Self {
+            node: Default::default(),
+            key: BytesMut::new(),
+            value: BytesMut::new(),
+            child_id: 0,
+            max_child_id: 0,
+            hash_id: 0,
+            deleted: false,
+        }
+    }
+
+    fn has_tree(&self) -> bool {
+        self.node.tree_mask & (1 << self.child_id) != 0
+    }
+
+    fn has_hash(&self) -> bool {
+        self.node.hash_mask & (1 << self.child_id) != 0
+    }
+
+    fn has_state(&self) -> bool {
+        self.node.state_mask & (1 << self.child_id) != 0
+    }
+
+    fn reset(&mut self) {
+        self.key.clear();
+        self.value.clear();
+        self.node.reset();
+        self.child_id = -1;
+        self.max_child_id = 0x10;
+        self.hash_id = -1;
+        self.deleted = false;
+    }
+
+    fn parse(&mut self, k: &[u8], v: &[u8]) -> Result<()> {
+        self.key = BytesMut::from(k);
+        self.value = BytesMut::from(v);
+
+        self.node = Node::decode_from_storage(v)?;
+
+        self.child_id = self.node.state_mask.trailing_zeros() as i8 - 1;
+        self.max_child_id = 16 - self.node.state_mask.leading_zeros() as i8;
+        self.hash_id = -1;
+        self.deleted = false;
+
+        Ok(())
+    }
+
+    fn full_key(&self) -> BytesMut {
+        let mut key = self.key.clone();
+        if self.child_id != -1 {
+            key.put_i8(self.child_id);
+        }
+        key
+    }
+
+    fn hash(&self) -> Result<H256> {
+        if self.hash_id < 0 || self.hash_id > 0xf {
+            bail!("Hash id is out of bounds");
+        }
+        Ok(self.node.hashes[self.hash_id as usize])
+    }
+}
+
+fn increment_nibbled_key(unpacked: &[u8]) -> Option<Vec<u8>> {
     let mut out = unpacked.to_vec();
 
     for i in (0..out.len()).rev() {
@@ -94,16 +177,36 @@ fn increment_key(unpacked: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
-struct Cursor<'cu, 'tx, 'ps, T>
+fn prefix_to_h256(slice: &[u8]) -> H256 {
+    let mut buffer = slice.to_vec();
+    buffer.resize(32, 0u8);
+    H256::from_slice(&*buffer)
+}
+
+struct MoveOperation {
+    key: Option<Vec<u8>>,
+    hash: Option<H256>,
+    children_in_trie: bool,
+    first_uncovered: Option<Vec<u8>>,
+}
+
+pub struct Cursor<'cu, 'tx, 'ps, T>
 where
     T: Table<Key = Vec<u8>, SeekKey = Vec<u8>, Value = Vec<u8>>,
     'tx: 'cu,
 {
     cursor: Mutex<&'cu mut MdbxCursor<'tx, RW, T>>,
-    changed: &'ps mut PrefixSet,
+    changed: &'ps mut Option<PrefixSet>,
     prefix: Vec<u8>,
     stack: Vec<CursorSubNode>,
+    sub_nodes: Vec<SubNode>,
     can_skip_state: bool,
+    level: usize,
+    end_of_tree: bool,
+    curr_key: BytesMut,
+    prev_key: BytesMut,
+    next_created: BytesMut,
+    collector: Option<Vec<Vec<u8>>>,
     _marker: PhantomData<&'tx T>,
 }
 
@@ -114,7 +217,7 @@ where
 {
     fn new(
         cursor: &'cu mut MdbxCursor<'tx, RW, T>,
-        changed: &'ps mut PrefixSet,
+        changed: &'ps mut Option<PrefixSet>,
         prefix: &[u8],
     ) -> Result<Cursor<'cu, 'tx, 'ps, T>> {
         let mut new_cursor = Self {
@@ -122,11 +225,142 @@ where
             changed,
             prefix: prefix.to_vec(),
             stack: vec![],
+            sub_nodes: vec![],
             can_skip_state: false,
+            level: 0,
+            end_of_tree: false,
+            curr_key: BytesMut::new(),
+            prev_key: BytesMut::new(),
+            next_created: BytesMut::new(),
+            collector: None,
             _marker: PhantomData,
         };
         new_cursor.consume_node(&[], true)?;
         Ok(new_cursor)
+    }
+
+    fn advance_to_prefix(&mut self, prefix: Vec<u8>) -> Result<MoveOperation> {
+        if !prefix.is_empty() && prefix.len() != 40 {
+            bail!("Invalid prefix len: expected 0 or 40, got {}", prefix.len());
+        }
+        self.prefix = prefix;
+
+        let mut has_changes = self.changed.is_none();
+        if !has_changes {
+            let next_created;
+            (has_changes, next_created) = self
+                .changed
+                .as_mut()
+                .unwrap()
+                .contains_and_next_sorted(self.prefix.as_slice(), self.prefix.len());
+            self.next_created = BytesMut::from(next_created.as_slice());
+        }
+
+        let root_node_in_db = self.db_seek(&[])?;
+        if root_node_in_db {
+            let hash = self.sub_node().node.root_hash;
+
+            if hash.is_none() {
+                bail!(
+                    "Trie integrity failure. Requested root node with key 0x{} has no root hash",
+                    hex::encode(self.sub_node().full_key()),
+                );
+            }
+
+            if !has_changes {
+                self.end_of_tree = true;
+                return Ok(MoveOperation {
+                    key: Some(self.curr_key.to_vec()),
+                    hash,
+                    children_in_trie: false,
+                    first_uncovered: None,
+                });
+            }
+
+            self.db_delete_sub_node();
+        } else {
+            self.can_skip_state = false;
+            self.end_of_tree = true;
+
+            return Ok(MoveOperation {
+                key: None,
+                hash: None,
+                children_in_trie: false,
+                first_uncovered: None,
+            });
+        }
+
+        self.advance_to_next()
+    }
+
+    #[inline(always)]
+    fn sub_node(&self) -> &SubNode {
+        &self.sub_nodes[self.level]
+    }
+
+    #[inline(always)]
+    fn sub_node_mut(&mut self) -> &mut SubNode {
+        &mut self.sub_nodes[self.level]
+    }
+
+    fn advance_to_next(&mut self) -> Result<MoveOperation> {
+        if self.end_of_tree {
+            bail!("Can't move next beyond the end of tree");
+        }
+
+        self.can_skip_state = true;
+        self.prev_key = self.curr_key.clone();
+        self.curr_key.clear();
+
+        while !self.end_of_tree {
+            self.sub_node_mut().child_id += 1;
+
+            if self.sub_node().child_id == self.sub_node().max_child_id {
+                if self.level > 0 {
+                    self.level -= 1;
+                } else {
+                    self.end_of_tree = true;
+                }
+                continue;
+            }
+
+            if self.consume_sub_node() {
+                self.curr_key.put(self.sub_node().full_key());
+                return Ok(MoveOperation {
+                    key: Some(self.curr_key.as_ref().into()),
+                    hash: Some(self.sub_node().hash()?),
+                    children_in_trie: self.sub_node().has_tree(),
+                    first_uncovered: self.first_uncovered(),
+                });
+            }
+
+            if self.sub_node().has_tree() {
+                let key = self.sub_node().full_key();
+                if !self.db_seek(key.as_ref())? {
+                    bail!(
+                        "Trie integrity failure. Missing child for node key=0x{}, child_id={}",
+                        hex::encode(self.sub_node().key.as_ref()),
+                        self.sub_node().child_id,
+                    );
+                } else {
+                    self.can_skip_state = false;
+                }
+            }
+
+            if self.sub_node().has_state() {
+                self.can_skip_state = false;
+            }
+        }
+
+        let next = increment_nibbled_key(self.prev_key.as_ref());
+        self.can_skip_state &= next.is_none();
+
+        Ok(MoveOperation {
+            key: None,
+            hash: None,
+            children_in_trie: false,
+            first_uncovered: self.first_uncovered(),
+        })
     }
 
     fn next(&mut self) -> Result<()> {
@@ -161,13 +395,74 @@ where
         match &self.key() {
             Some(key) => {
                 if self.can_skip_state {
-                    increment_key(key).map(|k| pack_nibbles(k.as_slice()))
+                    increment_nibbled_key(key).map(|k| pack_nibbles(k.as_slice()))
                 } else {
                     Some(pack_nibbles(key.as_slice()))
                 }
             }
             None => None,
         }
+    }
+
+    fn consume_sub_node(&mut self) -> bool {
+        if self.sub_node().has_hash() {
+            let mut buffer = self.prefix.clone();
+            buffer.extend_from_slice(self.sub_node().full_key().as_ref());
+            let (has_changes, next_created) = self
+                .changed
+                .as_mut()
+                .unwrap()
+                .contains_and_next_sorted(buffer.as_ref(), self.prefix.len());
+            if !has_changes {
+                self.can_skip_state &= key_is_before(buffer.as_slice(), &self.next_created);
+                self.next_created.clear();
+                self.next_created.put(next_created.as_slice());
+                return true;
+            }
+        }
+
+        self.db_delete_sub_node();
+
+        false
+    }
+
+    fn first_uncovered(&mut self) -> Option<Vec<u8>> {
+        if self.can_skip_state {
+            None
+        } else if self.prev_key.is_empty() {
+            // Don't mark empty origin as overflown
+            Some(vec![])
+        } else {
+            increment_nibbled_key(self.prev_key.as_mut()).map(|n| pack_nibbles(&n))
+        }
+    }
+
+    fn db_delete_sub_node(&mut self) {
+        if self.collector.is_some() && !self.sub_node().deleted {
+            let mut buffer = self.prefix.clone();
+            buffer.extend_from_slice(self.sub_node().key.as_ref());
+            self.collector.as_mut().unwrap().push(buffer);
+            self.sub_node_mut().deleted = true;
+        }
+    }
+
+    fn db_seek(&mut self, seek_key: &[u8]) -> Result<bool> {
+        let mut buffer = self.prefix.clone();
+        buffer.extend_from_slice(seek_key);
+        let data = if buffer.is_empty() {
+            self.cursor.lock().first()
+        } else {
+            self.cursor.lock().seek_exact(buffer)
+        }?;
+
+        if let Some((ref key, ref value)) = data {
+            if !seek_key.is_empty() {
+                self.level += 1;
+            }
+            self.sub_node_mut().parse(key, value)?;
+        }
+
+        Ok(data.is_some())
     }
 
     fn consume_node(&mut self, to: &[u8], exact: bool) -> Result<()> {
@@ -193,11 +488,15 @@ where
             key.drain(0..self.prefix.len());
         }
 
-        let mut node: Option<Node> = None;
-        if entry.is_some() {
-            node = Some(unmarshal_node(entry.as_ref().unwrap().1.as_slice()).unwrap());
-            assert_ne!(node.as_ref().unwrap().state_mask, 0);
-        }
+        let node = if let Some((_, ref v)) = entry {
+            let n = Node::decode_from_storage(v)?;
+            if n.state_mask == 0 {
+                bail!("Node with empty state mask");
+            }
+            Some(n)
+        } else {
+            None
+        };
 
         let nibble = match &node {
             Some(n) if n.root_hash.is_none() => {
@@ -255,14 +554,199 @@ where
     fn update_skip_state(&mut self) {
         self.can_skip_state = if let Some(key) = self.key() {
             let s = [self.prefix.as_slice(), key.as_slice()].concat();
-            !self.changed.contains(s.as_slice()) && self.stack.last().unwrap().hash_flag()
+            !self.changed.as_mut().unwrap().contains(s.as_slice())
+                && self.stack.last().unwrap().hash_flag()
         } else {
             false
         }
     }
 }
 
-pub struct DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
+pub struct TrieLoader2<'db, 'tx, 'tmp, 'co, E>
+where
+    E: EnvironmentKind,
+    'db: 'tx,
+    'tmp: 'co,
+{
+    txn: &'tx MdbxTransaction<'db, RW, E>,
+    account_changes: Option<PrefixSet>,
+    storage_changes: Option<PrefixSet>,
+    account_trie_node_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
+    storage_trie_node_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
+}
+
+impl<'db, 'tx, 'tmp, 'co, E> TrieLoader2<'db, 'tx, 'tmp, 'co, E>
+where
+    E: EnvironmentKind,
+    'db: 'tx,
+    'tmp: 'co,
+{
+    fn new(
+        txn: &'tx MdbxTransaction<'db, RW, E>,
+        account_changes: Option<PrefixSet>,
+        storage_changes: Option<PrefixSet>,
+        account_trie_node_collector: &'co mut TableCollector<'tmp, tables::TrieAccount>,
+        storage_trie_node_collector: &'co mut TableCollector<'tmp, tables::TrieStorage>,
+    ) -> Result<Self> {
+        if account_changes.is_none() != storage_changes.is_none() {
+            bail!("TrieLoader requires account and storage changes to be both provided, or both none.")
+        }
+        Ok(Self {
+            txn,
+            account_changes,
+            storage_changes,
+            account_trie_node_collector,
+            storage_trie_node_collector,
+        })
+    }
+
+    pub fn calculate_root(&mut self) -> Result<H256> {
+        let mut hashed_accounts = self.txn.cursor(tables::HashedAccount)?;
+        let mut hashed_storage = self.txn.cursor(tables::HashedStorage)?;
+        let mut trie_accounts = self.txn.cursor(tables::TrieAccount)?;
+        let mut trie_storage = self.txn.cursor(tables::TrieStorage)?;
+
+        if self.account_changes.is_none()
+            && (trie_accounts.next()?.is_some() || trie_storage.next()?.is_some())
+        {
+            bail!("Full regeneration detected but trie tables aren't empty.");
+        }
+
+        let storage_prefix_buffer = vec![];
+
+        let account_node_collector = |nibbled_key: &[u8], node: &Node| {
+            let value = if node.state_mask != 0 {
+                node.encode_for_storage()
+            } else {
+                vec![]
+            };
+            self.account_trie_node_collector
+                .push(nibbled_key.to_vec(), value);
+        };
+
+        let storage_node_collector = |nibbled_key: &[u8], node: &Node| {
+            let mut full_key = storage_prefix_buffer.clone();
+            full_key.extend_from_slice(nibbled_key);
+            let value = if node.state_mask != 0 {
+                node.encode_for_storage()
+            } else {
+                vec![]
+            };
+            self.storage_trie_node_collector.push(full_key, value);
+        };
+
+        let mut account_hash_builder = HashBuilder::new(Some(Box::new(account_node_collector)));
+        let mut storage_hash_builder = HashBuilder::new(Some(Box::new(storage_node_collector)));
+
+        let mut trie_account_cursor =
+            Cursor::new(&mut trie_accounts, &mut self.account_changes, &[])?;
+        let mut trie_storage_cursor =
+            Cursor::new(&mut trie_storage, &mut self.storage_changes, &[])?;
+
+        let mut trie_account_data = trie_account_cursor.advance_to_prefix(vec![])?;
+        loop {
+            if let Some(ref first_uncovered) = trie_account_data.first_uncovered {
+                let mut hashed_account_data = if first_uncovered.is_empty() {
+                    hashed_accounts.first()
+                } else {
+                    let seek_key = prefix_to_h256(first_uncovered);
+                    hashed_accounts.seek(seek_key)
+                }?;
+
+                while let Some((address_hash, ref account)) = hashed_account_data {
+                    let hashed_account_data_key_nibbled = unpack_nibbles(address_hash.as_bytes());
+
+                    if let Some(ref key) = trie_account_data.key {
+                        if *key < hashed_account_data_key_nibbled {
+                            break;
+                        }
+                    }
+
+                    let storage_root = caclulate_storage_root(
+                        &mut trie_storage_cursor,
+                        &mut storage_hash_builder,
+                        &mut hashed_storage,
+                        address_hash,
+                    )?;
+
+                    account_hash_builder.add_leaf(
+                        hashed_account_data_key_nibbled,
+                        &fastrlp::encode_fixed_size(&account.to_rlp(storage_root)),
+                    );
+
+                    hashed_account_data = hashed_accounts.next()?;
+                }
+            }
+
+            if let Some(ref key) = trie_account_data.key {
+                account_hash_builder.add_branch_node(
+                    key.clone(),
+                    &trie_account_data.hash.unwrap(),
+                    trie_account_data.children_in_trie,
+                );
+                if key.is_empty() {
+                    break;
+                }
+            } else {
+                break;
+            }
+
+            trie_account_data = trie_account_cursor.advance_to_next()?;
+        }
+
+        Ok(account_hash_builder.compute_root_hash())
+    }
+}
+
+pub fn caclulate_storage_root(
+    trie_storage_cursor: &mut Cursor<tables::TrieStorage>,
+    storage_hash_builder: &mut HashBuilder,
+    hashed_storage: &mut MdbxCursor<RW, tables::HashedStorage>,
+    db_storage_prefix: H256,
+) -> Result<H256> {
+    let trie_storage_data =
+        trie_storage_cursor.advance_to_prefix(db_storage_prefix.as_ref().to_vec())?;
+    loop {
+        if let Some(ref first_uncovered) = trie_storage_data.first_uncovered {
+            let seek_key = prefix_to_h256(first_uncovered);
+            let mut hash_storage_data =
+                hashed_storage.seek_both_range(db_storage_prefix, seek_key)?;
+            while let Some((location_hash, value)) = hash_storage_data {
+                let nibbled_location = unpack_nibbles(location_hash.as_ref());
+
+                if let Some(ref key) = trie_storage_data.key {
+                    if *key < nibbled_location {
+                        break;
+                    }
+                }
+
+                let encoded = fastrlp::encode_fixed_size(&value);
+                storage_hash_builder.add_leaf(nibbled_location, encoded.as_slice());
+                hash_storage_data = hashed_storage.next_dup()?.map(|(_, v)| v);
+            }
+        }
+
+        if let Some(ref key) = trie_storage_data.key {
+            storage_hash_builder.add_branch_node(
+                key.clone(),
+                &trie_storage_data.hash.unwrap(),
+                trie_storage_data.children_in_trie,
+            );
+            if key.is_empty() {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    let storage_root = storage_hash_builder.compute_root_hash();
+    storage_hash_builder.reset();
+
+    Ok(storage_root)
+}
+
+pub struct TrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
 where
     E: EnvironmentKind,
     'db: 'tx,
@@ -276,7 +760,7 @@ where
     _marker: PhantomData<&'db ()>,
 }
 
-impl<'db, 'tx, 'tmp, 'co, 'nc, E> DbTrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
+impl<'db, 'tx, 'tmp, 'co, 'nc, E> TrieLoader<'db, 'tx, 'tmp, 'co, 'nc, E>
 where
     E: EnvironmentKind,
     'db: 'tx,
@@ -290,7 +774,7 @@ where
     ) -> Self {
         let node_collector = |unpacked_key: &[u8], node: &Node| {
             if !unpacked_key.is_empty() {
-                account_collector.push(unpacked_key.to_vec(), marshal_node(node));
+                account_collector.push(unpacked_key.to_vec(), node.encode_for_storage());
             }
         };
 
@@ -311,7 +795,8 @@ where
         let mut state = self.txn.cursor(tables::HashedAccount)?;
         let mut trie_db_cursor = self.txn.cursor(tables::TrieAccount)?;
 
-        let mut trie = Cursor::new(&mut trie_db_cursor, account_changes, &[])?;
+        let mut changed = Some(account_changes.clone());
+        let mut trie = Cursor::new(&mut trie_db_cursor, &mut changed, &[])?;
 
         let first_started_at = Instant::now();
         let mut last_message_at = Instant::now();
@@ -396,11 +881,12 @@ where
         let mut hb = HashBuilder::new(Some(Box::new(
             |unpacked_storage_key: &[u8], node: &Node| {
                 let key = [account_key, unpacked_storage_key].concat();
-                self.storage_collector.push(key, marshal_node(node));
+                self.storage_collector.push(key, node.encode_for_storage());
             },
         )));
 
-        let mut trie = Cursor::new(&mut trie_db_cursor, changed, account_key)?;
+        let mut changed = Some(changed.clone());
+        let mut trie = Cursor::new(&mut trie_db_cursor, &mut changed, account_key)?;
         while let Some(key) = trie.key() {
             if trie.can_skip_state {
                 if state.seek_exact(H256::from_slice(account_key))?.is_none() {
@@ -460,7 +946,7 @@ where
     let mut storage_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
 
     let root = {
-        let mut loader = DbTrieLoader::new(txn, &mut account_collector, &mut storage_collector);
+        let mut loader = TrieLoader::new(txn, &mut account_collector, &mut storage_collector);
         loader.calculate_root(account_changes, storage_changes)?
     };
 
@@ -506,6 +992,70 @@ where
     Ok(out)
 }
 
+fn collect_account_changes<'db, 'tx, K, E>(
+    txn: &'tx MdbxTransaction<'db, K, E>,
+    from: BlockNumber,
+    to: BlockNumber,
+    hashed_addresses: &mut BTreeMap<Address, H256>,
+) -> Result<PrefixSet>
+where
+    'db: 'tx,
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
+    let forward = to > from;
+    let mut expected_blocknum = BlockNumber(cmp::min(from.0, to.0) + 1);
+    let max_blocknum = cmp::max(from, to);
+
+    // let mut deleted_ts_prefixes = BTreeSet::new();
+    let mut plainstate_accounts = LruCache::new(100_000usize);
+
+    let mut ret = PrefixSet::new();
+
+    let mut account_changeset = txn.cursor(tables::AccountChangeSet)?;
+    let mut plain_state = txn.cursor(tables::Account)?;
+
+    let mut changeset_data = account_changeset.seek(expected_blocknum)?;
+    while let Some((reached_blocknum, _)) = changeset_data {
+        if reached_blocknum > max_blocknum {
+            break;
+        }
+        while let Some((_, ref change)) = changeset_data {
+            let hashed_address = match hashed_addresses.get(&change.address) {
+                Some(hash) => *hash,
+                None => {
+                    let hash = keccak256(&change.address);
+                    hashed_addresses.insert(change.address, hash);
+                    hash
+                }
+            };
+
+            if !plainstate_accounts.contains(&change.address) {
+                if let Some((_, account)) = plain_state.seek_exact(change.address)? {
+                    plainstate_accounts.put(change.address, account);
+                }
+            }
+
+            let plainstate_account = plainstate_accounts.get(&change.address);
+
+            let mut account_created = false;
+
+            if (forward && change.account.is_none()) || (!forward && plainstate_account.is_none()) {
+                account_created = true;
+            }
+            // todo delete_ts_prefixes if not None
+
+            ret.insert2(&unpack_nibbles(hashed_address.as_ref()), account_created);
+            changeset_data = account_changeset.next_dup()?;
+        }
+
+        expected_blocknum += BlockNumber(expected_blocknum.0 + 1);
+        changeset_data = account_changeset.next_no_dup()?;
+    }
+
+    Ok(ret)
+}
+
 fn gather_storage_changes<'db, 'tx, K, E>(
     txn: &'tx MdbxTransaction<'db, K, E>,
     account_changes: &mut PrefixSet,
@@ -542,6 +1092,56 @@ where
     Ok(out)
 }
 
+fn collect_storage_changes<'db, 'tx, K, E>(
+    txn: &'tx MdbxTransaction<'db, K, E>,
+    from: BlockNumber,
+    to: BlockNumber,
+    hashed_addresses: &mut BTreeMap<Address, H256>,
+) -> Result<PrefixSet>
+where
+    'db: 'tx,
+    K: TransactionKind,
+    E: EnvironmentKind,
+{
+    let expected_blocknum = BlockNumber(from.0 + 1);
+
+    let mut ret = PrefixSet::new();
+
+    let mut storage_changeset = txn.cursor(tables::StorageChangeSet)?;
+    let mut changeset_data = storage_changeset.seek(expected_blocknum)?;
+
+    while let Some((ref key, _)) = changeset_data {
+        if key.block_number > to {
+            break;
+        }
+
+        let hashed_address = match hashed_addresses.get(&key.address) {
+            Some(hash) => *hash,
+            None => {
+                let hash = keccak256(&key.address);
+                hashed_addresses.insert(key.address, hash);
+                hash
+            }
+        };
+
+        while let Some((_, ref value)) = changeset_data {
+            let unpacked_hashed_location = unpack_nibbles(keccak256(value.location).as_ref());
+            let mut prefix = Vec::with_capacity(ADDRESS_LENGTH + 2 * KECCAK_LENGTH);
+            prefix.extend_from_slice(hashed_address.as_ref());
+            prefix.extend_from_slice(unpacked_hashed_location.as_ref());
+
+            let created = value.value == U256::ZERO;
+            ret.insert2(prefix.as_slice(), created);
+
+            changeset_data = storage_changeset.next_dup()?;
+        }
+
+        changeset_data = storage_changeset.next_no_dup()?;
+    }
+
+    Ok(ret)
+}
+
 pub fn increment_intermediate_hashes<'db, 'tx, E>(
     txn: &'tx MdbxTransaction<'db, RW, E>,
     etl_dir: &TempDir,
@@ -561,6 +1161,53 @@ where
         &mut account_changes,
         &mut storage_changes,
     )
+}
+
+pub fn increment_intermediate_hashes2<'db, 'tx, E>(
+    txn: &'tx MdbxTransaction<'db, RW, E>,
+    etl_dir: &TempDir,
+    from: BlockNumber,
+    to: BlockNumber,
+    expected_root: Option<H256>,
+) -> std::result::Result<H256, DuoError>
+where
+    'db: 'tx,
+    E: EnvironmentKind,
+{
+    let mut account_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
+    let mut storage_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
+
+    let mut hashed_addresses = BTreeMap::new();
+    let account_changes = collect_account_changes(txn, from, to, &mut hashed_addresses)?;
+    let storage_changes = collect_storage_changes(txn, from, to, &mut hashed_addresses)?;
+    drop(hashed_addresses);
+
+    let mut trie_loader = TrieLoader2::new(
+        txn,
+        Some(account_changes),
+        Some(storage_changes),
+        &mut account_collector,
+        &mut storage_collector,
+    )?;
+
+    let computed_root = trie_loader.calculate_root()?;
+
+    if let Some(expected) = expected_root {
+        if computed_root != expected {
+            return Err(DuoError::Validation(ValidationError::WrongStateRoot {
+                expected,
+                got: computed_root,
+            }));
+        }
+    }
+
+    let mut target = txn.cursor(tables::TrieAccount.erased())?;
+    account_collector.load(&mut target)?;
+
+    let mut target = txn.cursor(tables::TrieStorage.erased())?;
+    storage_collector.load(&mut target)?;
+
+    Ok(computed_root)
 }
 
 pub fn unwind_intermediate_hashes<'db, 'tx, E>(
@@ -584,6 +1231,33 @@ where
     )
 }
 
+pub fn unwind_intermediate_hashes2<'db, 'tx, E>(
+    txn: &'tx MdbxTransaction<'db, RW, E>,
+    etl_dir: &TempDir,
+    from: BlockNumber,
+    to: BlockNumber,
+) -> std::result::Result<(), DuoError>
+where
+    'db: 'tx,
+    E: EnvironmentKind,
+{
+    if to >= from {
+        return Ok(());
+    }
+
+    let segment_width = from - to;
+
+    let expected_root = None; // TODO fetch from db
+
+    if segment_width > 100_000 {
+        regenerate_intermediate_hashes2(txn, etl_dir, expected_root)?;
+    } else {
+        increment_intermediate_hashes2(txn, etl_dir, from, to, expected_root)?;
+    }
+
+    Ok(())
+}
+
 pub fn regenerate_intermediate_hashes<'db, 'tx, E>(
     txn: &'tx MdbxTransaction<'db, RW, E>,
     etl_dir: &TempDir,
@@ -604,6 +1278,49 @@ where
     )
 }
 
+pub fn regenerate_intermediate_hashes2<'db, 'tx, E>(
+    txn: &'tx MdbxTransaction<'db, RW, E>,
+    etl_dir: &TempDir,
+    expected_root: Option<H256>,
+) -> std::result::Result<H256, DuoError>
+where
+    'db: 'tx,
+    E: EnvironmentKind,
+{
+    txn.clear_table(tables::TrieAccount)?;
+    txn.clear_table(tables::TrieStorage)?;
+
+    let mut account_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
+    let mut storage_collector = TableCollector::new(etl_dir, OPTIMAL_BUFFER_CAPACITY);
+
+    let mut trie_loader = TrieLoader2::new(
+        txn,
+        None,
+        None,
+        &mut account_collector,
+        &mut storage_collector,
+    )?;
+
+    let computed_root = trie_loader.calculate_root()?;
+
+    if let Some(expected) = expected_root {
+        if computed_root != expected {
+            return Err(DuoError::Validation(ValidationError::WrongStateRoot {
+                expected,
+                got: computed_root,
+            }));
+        }
+    }
+
+    let mut target = txn.cursor(tables::TrieAccount.erased())?;
+    account_collector.load(&mut target)?;
+
+    let mut target = txn.cursor(tables::TrieStorage.erased())?;
+    storage_collector.load(&mut target)?;
+
+    Ok(computed_root)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,7 +1331,7 @@ mod tests {
             new_mem_chaindata, tables,
             tables::{AccountChange, StorageChange, StorageChangeKey},
         },
-        trie::{node::marshal_node, regenerate_intermediate_hashes},
+        trie::regenerate_intermediate_hashes,
         u256_to_h256, upsert_hashed_storage_value, zeroless_view,
     };
     use anyhow::Result;
@@ -634,17 +1351,17 @@ mod tests {
 
         let key1 = vec![0x1u8];
         let node1 = Node::new(0b1011, 0b1001, 0, vec![], None);
-        trie.upsert(key1, marshal_node(&node1)).unwrap();
+        trie.upsert(key1, node1.encode_for_storage()).unwrap();
 
         let key2 = vec![0x1u8, 0x0, 0xB];
         let node2 = Node::new(0b1010, 0, 0, vec![], None);
-        trie.upsert(key2, marshal_node(&node2)).unwrap();
+        trie.upsert(key2, node2.encode_for_storage()).unwrap();
 
         let key3 = vec![0x1u8, 0x3];
         let node3 = Node::new(0b1110, 0, 0, vec![], None);
-        trie.upsert(key3, marshal_node(&node3)).unwrap();
+        trie.upsert(key3, node3.encode_for_storage()).unwrap();
 
-        let mut changed = PrefixSet::new();
+        let mut changed = Some(PrefixSet::new());
         let mut cursor = Cursor::new(&mut trie, &mut changed, &[]).unwrap();
 
         assert!(cursor.key().unwrap().is_empty());
@@ -693,7 +1410,7 @@ mod tests {
             ))],
             None,
         );
-        trie.upsert(key1, marshal_node(&node1)).unwrap();
+        trie.upsert(key1, node1.encode_for_storage()).unwrap();
 
         let key2 = vec![0x6u8];
         let node2 = Node::new(
@@ -705,9 +1422,9 @@ mod tests {
             ))],
             None,
         );
-        trie.upsert(key2, marshal_node(&node2)).unwrap();
+        trie.upsert(key2, node2.encode_for_storage()).unwrap();
 
-        let mut changed = PrefixSet::new();
+        let mut changed = Some(PrefixSet::new());
         let mut cursor = Cursor::new(&mut trie, &mut changed, &[]).unwrap();
 
         assert!(cursor.key().unwrap().is_empty());
@@ -747,7 +1464,7 @@ mod tests {
                 "2e1b81393448317fc1834241119c23f9e1763f7a662f8078949accc35b0d3b13"
             ))),
         );
-        trie.upsert(prefix_a, marshal_node(&node_a)).unwrap();
+        trie.upsert(prefix_a, node_a.encode_for_storage()).unwrap();
 
         let node_b1 = Node::new(
             0b10100,
@@ -758,7 +1475,7 @@ mod tests {
                 "c570b66136e99d07c6c6360769de1d9397805849879dd7c79cf0b8e6694bfb0e"
             ))),
         );
-        trie.upsert(prefix_b.clone(), marshal_node(&node_b1))
+        trie.upsert(prefix_b.clone(), node_b1.encode_for_storage())
             .unwrap();
 
         let node_b2 = Node::new(
@@ -772,7 +1489,7 @@ mod tests {
         );
         let mut key_b2 = prefix_b.clone();
         key_b2.push(0x2);
-        trie.upsert(key_b2, marshal_node(&node_b2)).unwrap();
+        trie.upsert(key_b2, node_b2.encode_for_storage()).unwrap();
 
         let node_c = Node::new(
             0b11110,
@@ -783,10 +1500,10 @@ mod tests {
                 "0f12bed8e3cc4cce692d234e69a4d79c0e74ab05ecb808dad588212eab788c31"
             ))),
         );
-        trie.upsert(prefix_c.clone(), marshal_node(&node_c))
+        trie.upsert(prefix_c.clone(), node_c.encode_for_storage())
             .unwrap();
 
-        let mut changed = PrefixSet::new();
+        let mut changed = Some(PrefixSet::new());
         let mut cursor = Cursor::new(&mut trie, &mut changed, prefix_b.as_slice()).unwrap();
 
         assert!(cursor.key().unwrap().is_empty());
@@ -798,6 +1515,7 @@ mod tests {
         let mut changed = PrefixSet::new();
         changed.insert([prefix_b.as_slice(), &[0xdu8, 0x5]].concat().as_slice());
         changed.insert([prefix_c.as_slice(), &[0xbu8, 0x8]].concat().as_slice());
+        let mut changed = Some(changed);
         let mut cursor = Cursor::new(&mut trie, &mut changed, prefix_b.as_slice()).unwrap();
 
         assert!(cursor.key().unwrap().is_empty());
@@ -832,7 +1550,7 @@ mod tests {
             vec![],
             Some(hex!("2e1b81393448317fc1834241119c23f9e1763f7a662f8078949accc35b0d3b13").into()),
         );
-        trie.upsert(prefix_a.to_vec(), marshal_node(&node_a))
+        trie.upsert(prefix_a.to_vec(), node_a.encode_for_storage())
             .unwrap();
 
         let node_b1 = Node::new(
@@ -849,11 +1567,11 @@ mod tests {
             vec![hex!("6fc81f58df057a25ca6b687a6db54aaa12fbea1baf03aa3db44d499fb8a7af65").into()],
             None,
         );
-        trie.upsert(prefix_b.to_vec(), marshal_node(&node_b1))
+        trie.upsert(prefix_b.to_vec(), node_b1.encode_for_storage())
             .unwrap();
         trie.upsert(
             [&prefix_b as &[u8], &([0x2] as [u8; 1]) as &[u8]].concat(),
-            marshal_node(&node_b2),
+            node_b2.encode_for_storage(),
         )
         .unwrap();
 
@@ -864,11 +1582,11 @@ mod tests {
             vec![],
             Some(hex!("0f12bed8e3cc4cce692d234e69a4d79c0e74ab05ecb808dad588212eab788c31").into()),
         );
-        trie.upsert(prefix_c.to_vec(), marshal_node(&node_c))
+        trie.upsert(prefix_c.to_vec(), node_c.encode_for_storage())
             .unwrap();
 
         // No changes
-        let mut changed = PrefixSet::new();
+        let mut changed = Some(PrefixSet::new());
         let mut cursor = Cursor::new(&mut trie, &mut changed, &prefix_b).unwrap();
 
         assert_eq!(cursor.key(), Some(vec![])); // root
@@ -880,6 +1598,7 @@ mod tests {
         let mut changed = PrefixSet::new();
         changed.insert(&[&prefix_b as &[u8], &([0xD, 0x5] as [u8; 2]) as &[u8]].concat());
         changed.insert(&[&prefix_c as &[u8], &([0xB, 0x8] as [u8; 2]) as &[u8]].concat());
+        let mut changed = Some(changed);
         let mut cursor = Cursor::new(&mut trie, &mut changed, &prefix_b).unwrap();
 
         assert_eq!(cursor.key(), Some(vec![])); // root
@@ -944,7 +1663,7 @@ mod tests {
             .walk(None)
             .map(|res| {
                 let (k, v) = res.unwrap();
-                (k, unmarshal_node(&v).unwrap())
+                (k, Node::decode_from_storage(&v).unwrap())
             })
             .collect::<Vec<_>>()
             .into_iter()
@@ -1776,15 +2495,27 @@ mod tests {
 
     #[test]
     fn test_intermediate_hashes_increment_key() {
-        assert_eq!(increment_key(&[]), None);
-        assert_eq!(increment_key(&[0x1, 0x2]), Some(vec![0x1, 0x3]));
-        assert_eq!(increment_key(&[0x1, 0xF]), Some(vec![0x2, 0x0]));
-        assert_eq!(increment_key(&[0xF, 0xF]), None);
-        assert_eq!(increment_key(&[0x1, 0x2, 0x0]), Some(vec![0x1, 0x2, 0x1]));
-        assert_eq!(increment_key(&[0x1, 0x2, 0xE]), Some(vec![0x1, 0x2, 0xF]));
-        assert_eq!(increment_key(&[0x1, 0x2, 0xF]), Some(vec![0x1, 0x3, 0x0]));
-        assert_eq!(increment_key(&[0x1, 0xF, 0xF]), Some(vec![0x2, 0x0, 0x0]));
-        assert_eq!(increment_key(&[0xF, 0xF, 0xF]), None);
+        assert_eq!(increment_nibbled_key(&[]), None);
+        assert_eq!(increment_nibbled_key(&[0x1, 0x2]), Some(vec![0x1, 0x3]));
+        assert_eq!(increment_nibbled_key(&[0x1, 0xF]), Some(vec![0x2, 0x0]));
+        assert_eq!(increment_nibbled_key(&[0xF, 0xF]), None);
+        assert_eq!(
+            increment_nibbled_key(&[0x1, 0x2, 0x0]),
+            Some(vec![0x1, 0x2, 0x1])
+        );
+        assert_eq!(
+            increment_nibbled_key(&[0x1, 0x2, 0xE]),
+            Some(vec![0x1, 0x2, 0xF])
+        );
+        assert_eq!(
+            increment_nibbled_key(&[0x1, 0x2, 0xF]),
+            Some(vec![0x1, 0x3, 0x0])
+        );
+        assert_eq!(
+            increment_nibbled_key(&[0x1, 0xF, 0xF]),
+            Some(vec![0x2, 0x0, 0x0])
+        );
+        assert_eq!(increment_nibbled_key(&[0xF, 0xF, 0xF]), None);
     }
 
     #[test]

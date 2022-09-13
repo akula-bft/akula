@@ -341,6 +341,15 @@ impl<'nc> HashBuilder<'nc> {
 
         child_hashes
     }
+
+    pub(crate) fn reset(&mut self) {
+        self.key.clear();
+        self.value = HashBuilderValue::Bytes(vec![]);
+        self.is_in_db_trie = false;
+        self.groups.clear();
+        self.hash_masks.clear();
+        self.stack.clear();
+    }
 }
 
 pub(crate) fn pack_nibbles(nibbles: &[u8]) -> Vec<u8> {
