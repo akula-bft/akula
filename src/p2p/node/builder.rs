@@ -75,6 +75,7 @@ impl NodeBuilder {
             block_cache: Mutex::new(LruCache::new(64)),
             block_cache_notify: Notify::new(),
             forks,
+            metrics: Default::default(),
         })
     }
 }

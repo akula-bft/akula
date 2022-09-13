@@ -1,4 +1,4 @@
-use super::Sentry;
+use super::{Metrics, Sentry};
 use crate::p2p::types::InboundMessage;
 use ethereum_interfaces::sentry::{self as grpc_sentry, PenalizePeerRequest};
 use futures::Stream;
@@ -17,6 +17,7 @@ impl SentryStream {
     pub async fn new(
         sentry: &Sentry,
         sentry_id: usize,
+        metrics: Metrics,
         pred: Vec<i32>,
     ) -> anyhow::Result<NodeStream> {
         let (penalize_tx, mut penalize_rx) = mpsc::channel(4);
@@ -46,6 +47,10 @@ impl SentryStream {
                     if let Some(Ok(msg)) = inner_stream.next().await {
                         let peer_id = msg.peer_id.clone();
 
+                        if let Some(peer_id) = msg.peer_id.clone() {
+                            metrics.entry(peer_id.into()).or_default().1 += 1;
+                        }
+
                         if let Ok(msg) = InboundMessage::new(msg, sentry_id) {
                             yield msg;
                         } else {
@@ -59,7 +64,7 @@ impl SentryStream {
         Ok::<_, anyhow::Error>(stream)
     }
 
-    pub async fn join_all<'sentry, T, P>(iter: T, pred: P) -> NodeStream
+    pub async fn join_all<'sentry, T, P>(iter: T, metrics: Metrics, pred: P) -> NodeStream
     where
         T: IntoIterator<Item = &'sentry Sentry>,
         P: IntoIterator<Item = i32>,
@@ -70,7 +75,9 @@ impl SentryStream {
             futures::future::join_all(
                 iter.into_iter()
                     .enumerate()
-                    .map(|(sentry_id, sentry)| Self::new(sentry, sentry_id, pred.clone()))
+                    .map(|(sentry_id, sentry)| {
+                        Self::new(sentry, sentry_id, metrics.clone(), pred.clone())
+                    })
                     .collect::<Vec<_>>(),
             )
             .await

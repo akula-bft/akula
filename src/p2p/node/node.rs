@@ -6,7 +6,7 @@ use crate::{
     p2p::types::*,
 };
 use bytes::{BufMut, BytesMut};
-use dashmap::DashSet;
+use dashmap::{DashMap, DashSet};
 use ethereum_interfaces::{
     sentry as grpc_sentry,
     sentry::{sentry_client::SentryClient, PeerMinBlockRequest, SentPeers},
@@ -36,6 +36,8 @@ pub type PeerId = H512;
 
 pub type RequestId = u64;
 
+pub type Metrics = Arc<DashMap<PeerId, (usize, usize)>>;
+
 #[derive(Debug)]
 pub struct Node {
     pub stash: Arc<dyn Stash>,
@@ -55,10 +57,14 @@ pub struct Node {
     pub bad_blocks: DashSet<H256>,
     /// Chain forks.
     pub forks: Vec<u64>,
+    pub metrics: Metrics,
 }
 
 impl Node {
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
+
+    const PENALIZE_INTERVAL: Duration = Duration::from_secs(300);
+    const PENALIZE_THRESHOLD: usize = 20;
 
     /// Start node synchronization.
     pub async fn start_sync(self: Arc<Self>, tip_discovery: bool) -> anyhow::Result<()> {
@@ -261,6 +267,33 @@ impl Node {
                 }
 
                 Ok::<(), anyhow::Error>(())
+            }
+        });
+
+        tasks.spawn({
+            let handler = self.clone();
+            async move {
+                loop {
+                    let inactive_peers = handler
+                        .metrics
+                        .iter()
+                        .filter_map(|shared_ref| {
+                            let (peer_id, (request_count, response_count)) = shared_ref.pair();
+                            let avoid_rate = *request_count / std::cmp::max(1, *response_count);
+                            if avoid_rate > Self::PENALIZE_THRESHOLD {
+                                Some(*peer_id)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    for peer_id in inactive_peers {
+                        handler.metrics.remove(&peer_id);
+                        handler.penalize_peer(peer_id).await;
+                    }
+
+                    tokio::time::sleep(Self::PENALIZE_INTERVAL).await;
+                }
             }
         });
 
@@ -468,8 +501,12 @@ impl Node {
     async fn sync_stream(&self) -> NodeStream {
         self.update_chain_head(None).await;
 
-        let sentries = self.sentries.iter().collect::<Vec<_>>();
-        SentryStream::join_all(sentries, Self::SYNC_PREDICATE).await
+        SentryStream::join_all(
+            self.sentries.iter(),
+            self.metrics.clone(),
+            Self::SYNC_PREDICATE,
+        )
+        .await
     }
 
     const RAW_PREDICATE: [i32; 4] = [
@@ -482,8 +519,12 @@ impl Node {
     pub async fn stream_raw(&self) -> NodeStream {
         self.update_chain_head(None).await;
 
-        let sentries = self.sentries.iter().collect::<Vec<_>>();
-        SentryStream::join_all(sentries, Self::RAW_PREDICATE).await
+        SentryStream::join_all(
+            self.sentries.iter(),
+            self.metrics.clone(),
+            Self::RAW_PREDICATE,
+        )
+        .await
     }
 
     const TRANSACTIONS_PREDICATE: [i32; 4] = [
@@ -494,21 +535,30 @@ impl Node {
     ];
 
     pub async fn stream_transactions(&self) -> NodeStream {
-        SentryStream::join_all(self.sentries.iter(), Self::TRANSACTIONS_PREDICATE).await
+        SentryStream::join_all(
+            self.sentries.iter(),
+            self.metrics.clone(),
+            Self::TRANSACTIONS_PREDICATE,
+        )
+        .await
     }
 
     pub async fn stream_by_predicate<T>(&self, pred: T) -> NodeStream
     where
         T: IntoIterator<Item = i32>,
     {
-        SentryStream::join_all(self.sentries.iter(), pred).await
+        SentryStream::join_all(self.sentries.iter(), self.metrics.clone(), pred).await
     }
 
     const HEADERS_PREDICATE: [i32; 1] = [grpc_sentry::MessageId::BlockHeaders66 as i32];
 
     pub async fn stream_headers(&self) -> NodeStream {
-        let sentries = self.sentries.iter().collect::<Vec<_>>();
-        SentryStream::join_all(sentries, Self::HEADERS_PREDICATE).await
+        SentryStream::join_all(
+            self.sentries.iter(),
+            self.metrics.clone(),
+            Self::HEADERS_PREDICATE,
+        )
+        .await
     }
 
     const BODIES_PREDICATE: [i32; 1] = [grpc_sentry::MessageId::BlockBodies66 as i32];
@@ -516,8 +566,12 @@ impl Node {
     pub async fn stream_bodies(&self) -> NodeStream {
         self.update_chain_head(None).await;
 
-        let sentries = self.sentries.iter().collect::<Vec<_>>();
-        SentryStream::join_all(sentries, Self::BODIES_PREDICATE).await
+        SentryStream::join_all(
+            self.sentries.iter(),
+            self.metrics.clone(),
+            Self::BODIES_PREDICATE,
+        )
+        .await
     }
 
     #[inline]
@@ -614,7 +668,7 @@ impl Node {
                 .collect()
         }
 
-        match predicate {
+        let sent_peers = match predicate {
             PeerFilter::All => {
                 map_await(
                     self.sentries.iter().cloned().enumerate(),
@@ -667,7 +721,11 @@ impl Node {
                 )
                 .await
             }
+        };
+        for &(_, peer_id) in &sent_peers {
+            self.metrics.entry(peer_id).or_default().0 += 1;
         }
+        sent_peers
     }
     async fn set_status(&self, status_data: grpc_sentry::StatusData) {
         self.sentries
