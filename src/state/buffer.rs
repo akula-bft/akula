@@ -413,7 +413,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{h256_to_u256, kv::new_mem_chaindata};
+    use crate::{
+        h256_to_u256,
+        kv::{new_mem_chaindata, tables::BitmapKey},
+    };
     use hex_literal::hex;
 
     #[test]
@@ -474,5 +477,142 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(db_value_b, value_b);
+    }
+
+    #[test]
+    fn historical_block() {
+        let address = hex!("deadbeef00000000000000000000000000000000").into();
+        let location = h256_to_u256(H256(hex!(
+            "baadcafe00000000000000000000000000000000000000000000000000000000"
+        )));
+        let acc_at_10 = Some(Account {
+            nonce: 100,
+            ..Default::default()
+        });
+        let acc_at_20 = Some(Account {
+            nonce: 200,
+            ..Default::default()
+        });
+
+        for i in 0..0b1111 {
+            let db = new_mem_chaindata().unwrap();
+            let txn = db.begin_mutable().unwrap();
+
+            let mut buffer = Buffer::new(&txn, None);
+            buffer.begin_block(BlockNumber(10));
+            buffer.update_account(address, None, acc_at_10);
+
+            buffer.begin_block(BlockNumber(20));
+            buffer.update_account(address, acc_at_10, acc_at_20);
+            buffer
+                .update_storage(address, location, U256::ZERO, 20.as_u256())
+                .unwrap();
+
+            if i & 0b0001 == 0b0001 {
+                buffer.write_to_db().unwrap();
+                buffer = Buffer::new(&txn, None);
+            }
+
+            // 1. Erase and update in the same block
+            buffer.begin_block(BlockNumber(30));
+            buffer.erase_storage(address).unwrap();
+            buffer
+                .update_storage(address, location, 20.as_u256(), 30.as_u256())
+                .unwrap();
+
+            if i & 0b0010 == 0b0010 {
+                buffer.write_to_db().unwrap();
+                buffer = Buffer::new(&txn, None);
+            }
+
+            // 2. Just erase
+            buffer.begin_block(BlockNumber(40));
+            buffer.erase_storage(address).unwrap();
+
+            if i & 0b0100 == 0b0100 {
+                buffer.write_to_db().unwrap();
+                buffer = Buffer::new(&txn, None);
+            }
+
+            // 3. First update...
+            buffer.begin_block(BlockNumber(50));
+            buffer
+                .update_storage(address, location, U256::ZERO, 50.as_u256())
+                .unwrap();
+
+            if i & 0b1000 == 0b1000 {
+                buffer.write_to_db().unwrap();
+                buffer = Buffer::new(&txn, None);
+            }
+
+            // ...then erase
+            buffer.begin_block(BlockNumber(60));
+            buffer.erase_storage(address).unwrap();
+
+            buffer.write_to_db().unwrap();
+
+            txn.set(
+                tables::AccountHistory,
+                BitmapKey {
+                    inner: address,
+                    block_number: BlockNumber(10),
+                },
+                [10].into_iter().collect(),
+            )
+            .unwrap();
+            txn.set(
+                tables::AccountHistory,
+                BitmapKey {
+                    inner: address,
+                    block_number: BlockNumber(u64::MAX),
+                },
+                [20].into_iter().collect(),
+            )
+            .unwrap();
+            txn.set(
+                tables::StorageHistory,
+                BitmapKey {
+                    inner: (address, u256_to_h256(location)),
+                    block_number: BlockNumber(40),
+                },
+                [20, 30, 40].into_iter().collect(),
+            )
+            .unwrap();
+            txn.set(
+                tables::StorageHistory,
+                BitmapKey {
+                    inner: (address, u256_to_h256(location)),
+                    block_number: BlockNumber(u64::MAX),
+                },
+                [50, 60].into_iter().collect(),
+            )
+            .unwrap();
+
+            for (historical_block, expected_account, expected_value) in [
+                (0, None, 0),
+                (5, None, 0),
+                (10, acc_at_10, 0),
+                (15, acc_at_10, 0),
+                (20, acc_at_20, 20),
+                (25, acc_at_20, 20),
+                (30, acc_at_20, 30),
+                (35, acc_at_20, 30),
+                (40, acc_at_20, 0),
+                (45, acc_at_20, 0),
+                (50, acc_at_20, 50),
+                (55, acc_at_20, 50),
+                (60, acc_at_20, 0),
+                (65, acc_at_20, 0),
+            ] {
+                // Buffer with the state at the end of `historical_block` block
+                let buffer = Buffer::new(&txn, Some(historical_block.into()));
+
+                assert_eq!(buffer.read_account(address).unwrap(), expected_account);
+                assert_eq!(
+                    buffer.read_storage(address, location).unwrap(),
+                    expected_value
+                );
+            }
+        }
     }
 }
