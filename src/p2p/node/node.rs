@@ -63,8 +63,8 @@ pub struct Node {
 impl Node {
     const SYNC_INTERVAL: Duration = Duration::from_secs(5);
 
-    const PENALIZE_INTERVAL: Duration = Duration::from_secs(300);
-    const PENALIZE_THRESHOLD: usize = 20;
+    const PENALIZATION_INTERVAL: Duration = Duration::from_secs(300);
+    const PENALIZATION_THRESHOLD: usize = 5;
 
     /// Start node synchronization.
     pub async fn start_sync(self: Arc<Self>, tip_discovery: bool) -> anyhow::Result<()> {
@@ -280,7 +280,7 @@ impl Node {
                         .filter_map(|shared_ref| {
                             let (peer_id, (request_count, response_count)) = shared_ref.pair();
                             let avoid_rate = *request_count / std::cmp::max(1, *response_count);
-                            if avoid_rate > Self::PENALIZE_THRESHOLD {
+                            if avoid_rate > Self::PENALIZATION_THRESHOLD {
                                 Some(*peer_id)
                             } else {
                                 None
@@ -292,7 +292,7 @@ impl Node {
                         handler.penalize_peer(peer_id).await;
                     }
 
-                    tokio::time::sleep(Self::PENALIZE_INTERVAL).await;
+                    tokio::time::sleep(Self::PENALIZATION_INTERVAL).await;
                 }
             }
         });
