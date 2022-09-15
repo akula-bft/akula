@@ -1,25 +1,15 @@
 (
     name: "Ethereum",
     consensus: (
-        seal_verification: Ethash(
-            duration_limit: 13,
+        seal_verification: Beacon(
+            terminal_total_difficulty: "0xc70d808a128d7380000",
+            since: 15537394,
             block_reward: {
                 0: "0x4563918244f40000",
                 4370000: "0x29a2241af62c0000",
-                7280000: "0x1bc16d674ec80000"
+                7280000: "0x1bc16d674ec80000",
+                15537394: "0x0",
             },
-            homestead_formula: 1150000,
-            byzantium_formula: 4370000,
-            difficulty_bomb: DifficultyBomb(
-                delays: {
-                    4370000: 3000000,
-                    7280000: 5000000,
-                    9200000: 9000000,
-                    12965000: 9700000,
-                    13773000: 10700000,
-                    15050000: 11400000,
-                },
-            ),
         ),
         eip1559_block: 12965000,
     ),
@@ -33,10 +23,12 @@
         istanbul: 9069000,
         berlin: 12244000,
         london: 12965000,
+        paris: 15537394,
     ),
     params: (
         chain_id: 1,
         network_id: 1,
+        additional_forks: [9200000, 13773000, 15050000],
     ),
     genesis: (
         number: 0,
