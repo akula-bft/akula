@@ -142,6 +142,7 @@ enum Network {
     BerlinToLondonAt5,
     EIP2384,
     ArrowGlacier,
+    ArrowGlacierToMergeAtDiffC0000,
     Merge,
 }
 
@@ -168,6 +169,7 @@ impl FromStr for Network {
             "BerlinToLondonAt5" => Self::BerlinToLondonAt5,
             "EIP2384" => Self::EIP2384,
             "ArrowGlacier" => Self::ArrowGlacier,
+            "ArrowGlacierToMergeAtDiffC0000" => Self::ArrowGlacierToMergeAtDiffC0000,
             "Merge" => Self::Merge,
             _ => return Err(s.to_string()),
         })
@@ -188,6 +190,9 @@ fn testconfig(name: Network, upgrades: Upgrades, dao_block: Option<BlockNumber>)
     }
     if let Some(block) = spec.upgrades.constantinople {
         block_reward.insert(block, (2 * ETHER).as_u256());
+    }
+    if let Some(block) = spec.upgrades.paris {
+        block_reward.insert(block, U256::ZERO);
     }
 
     let mainnet_dao_fork_block_num = BlockNumber(1_920_000);
@@ -406,22 +411,6 @@ static NETWORK_CONFIG: Lazy<HashMap<Network, ChainSpec>> = Lazy::new(|| {
             },
             None,
         ),
-        (
-            Network::Merge,
-            Upgrades {
-                homestead: Some(0.into()),
-                tangerine: Some(0.into()),
-                spurious: Some(0.into()),
-                byzantium: Some(0.into()),
-                constantinople: Some(0.into()),
-                petersburg: Some(0.into()),
-                istanbul: Some(0.into()),
-                berlin: Some(0.into()),
-                london: Some(0.into()),
-                paris: Some(0.into()),
-            },
-            None,
-        ),
     ]
     .into_iter()
     .map(|(network, upgrades, dao_block)| (network, testconfig(network, upgrades, dao_block)))
@@ -630,7 +619,10 @@ fn blockchain_test(testdata: BlockchainTest) -> anyhow::Result<()> {
     let genesis_block = <Block as Decodable>::decode(&mut &*testdata.genesis_rlp).unwrap();
 
     let mut state = InMemoryState::default();
-    let config = NETWORK_CONFIG[&testdata.network].clone();
+    let Some(config) = NETWORK_CONFIG.get(&testdata.network).cloned() else {
+        warn!("Network config {:?} not found, skipping test", testdata.network);
+        return Ok(());
+    };
 
     init_pre_state(&testdata.pre, &mut state);
 
@@ -693,7 +685,11 @@ fn transaction_test(testdata: TransactionTest) -> anyhow::Result<()> {
                     .context("Failed to decode valid transaction"));
             }
             (Ok(txn), t) => {
-                let config = &NETWORK_CONFIG[&key.parse().unwrap()];
+                let key = key.parse().unwrap();
+                let Some(config) = &NETWORK_CONFIG.get(&key) else {
+                    warn!("Network config {key:?} not found, skipping test");
+                    continue;
+                };
 
                 if let Err(e) = pre_validate_transaction(txn, config.params.chain_id, None) {
                     match t {
