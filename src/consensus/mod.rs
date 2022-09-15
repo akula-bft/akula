@@ -2,10 +2,10 @@ mod base;
 mod beacon;
 mod blockchain;
 mod clique;
-mod ethash;
+pub mod fork_choice_graph;
 
 use self::fork_choice_graph::ForkChoiceGraph;
-pub use self::{base::*, beacon::*, blockchain::*, clique::*, ethash::*};
+pub use self::{base::*, beacon::*, blockchain::*, clique::*};
 use crate::{
     kv::{mdbx::*, MdbxWithDirHandle},
     models::*,
@@ -43,7 +43,6 @@ impl ConsensusState {
         starting_block: BlockNumber,
     ) -> anyhow::Result<ConsensusState> {
         Ok(match chainspec.consensus.seal_verification {
-            SealVerificationParams::Ethash { .. } => ConsensusState::Stateless,
             SealVerificationParams::Clique { period: _, epoch } => {
                 ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
             }
@@ -323,24 +322,6 @@ pub fn engine_factory(
     listen_addr: Option<SocketAddr>,
 ) -> anyhow::Result<Box<dyn Consensus>> {
     Ok(match chain_config.consensus.seal_verification {
-        SealVerificationParams::Ethash {
-            duration_limit,
-            homestead_formula,
-            byzantium_formula,
-            difficulty_bomb,
-            skip_pow_verification,
-            block_reward,
-        } => Box::new(Ethash::new(
-            chain_config.params.chain_id,
-            chain_config.consensus.eip1559_block,
-            duration_limit,
-            block_reward.into(),
-            homestead_formula,
-            byzantium_formula,
-            difficulty_bomb,
-            skip_pow_verification,
-        )),
-
         SealVerificationParams::Clique { period, epoch } => {
             let initial_signers = match chain_config.genesis.seal {
                 Seal::Clique {

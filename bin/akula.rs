@@ -6,9 +6,9 @@ use akula::{
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
-        erigon::ErigonApiServerImpl, eth::EthApiServerImpl, net::NetApiServerImpl,
-        otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl, trace::TraceApiServerImpl,
-        web3::Web3ApiServerImpl,
+        debug::DebugApiServerImpl, erigon::ErigonApiServerImpl, eth::EthApiServerImpl,
+        net::NetApiServerImpl, otterscan::OtterscanApiServerImpl, parity::ParityApiServerImpl,
+        trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
     },
     stagedsync,
     stages::*,
@@ -319,6 +319,13 @@ fn main() -> anyhow::Result<()> {
                         async move {
                             info!("Starting gRPC server on {}", opt.grpc_listen_address);
                             tonic::transport::Server::builder()
+                            .add_service(
+                                ethereum_interfaces::web3::debug_api_server::DebugApiServer::new(
+                                    DebugApiServerImpl {
+                                        db: db.clone(),
+                                    }
+                                )
+                            )
                             .add_service(
                                 ethereum_interfaces::web3::trace_api_server::TraceApiServer::new(
                                     TraceApiServerImpl {

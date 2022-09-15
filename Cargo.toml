@@ -39,7 +39,6 @@ enr = { version = "0.6", default-features = false, features = [
 ] }
 enum-primitive-derive = "0.2"
 expanded-pathbuf = "0.1"
-ethash = { git = "https://github.com/rust-ethereum/ethash" }
 ethereum-forkid = "0.10"
 ethereum-interfaces = { git = "https://github.com/ledgerwatch/interfaces", features = [
   "remotekv",
@@ -139,6 +138,7 @@ hashbrown = { version = "0.12.0", features = [
   "ahash-compile-time-rng",
 ] }
 dashmap = "5.3"
+public-ip = "0.2.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
