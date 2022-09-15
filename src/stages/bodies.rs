@@ -20,7 +20,7 @@ use rayon::iter::{ParallelDrainRange, ParallelIterator};
 use std::{
     collections::{HashSet, VecDeque},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -43,6 +43,23 @@ pub struct BodyDownload {
     pub node: Arc<Node>,
     /// Consensus engine used.
     pub consensus: Arc<dyn Consensus>,
+}
+
+enum DownloadError {
+    ExitEarly(BlockNumber),
+    Other(Box<StageError>),
+}
+
+impl From<anyhow::Error> for DownloadError {
+    fn from(e: anyhow::Error) -> Self {
+        DownloadError::Other(Box::new(StageError::from(e)))
+    }
+}
+
+impl From<StageError> for DownloadError {
+    fn from(e: StageError) -> Self {
+        DownloadError::Other(Box::new(e))
+    }
 }
 
 #[async_trait]
@@ -68,7 +85,7 @@ where
             .map(|(_, v)| v)
             .ok_or_else(|| format_err!("cannot be first stage"))?;
 
-        let (target, done) = if prev_stage_progress > prev_progress + STAGE_UPPER_BOUND {
+        let (mut target, mut done) = if prev_stage_progress > prev_progress + STAGE_UPPER_BOUND {
             (prev_progress + STAGE_UPPER_BOUND, false)
         } else {
             (prev_stage_progress, true)
@@ -79,8 +96,17 @@ where
             let starting_block = prev_progress + 1;
 
             let mut stream = self.node.stream_bodies().await;
-            self.download_bodies(&mut stream, txn, starting_block, target, done)
-                .await?;
+            match self
+                .download_bodies(&mut stream, txn, starting_block, target, done)
+                .await
+            {
+                Ok(_) => {}
+                Err(DownloadError::ExitEarly(new_target)) => {
+                    target = new_target;
+                    done = true;
+                }
+                Err(DownloadError::Other(e)) => return Err(*e),
+            }
         }
 
         Ok(ExecOutput::Progress {
@@ -172,6 +198,13 @@ impl PendingResponses {
     }
 }
 
+struct DownloadSession {
+    handler: Arc<Node>,
+    requests: RwLock<HashMap<(H256, H256), (BlockNumber, H256)>>,
+    pending_responses: Mutex<PendingResponses>,
+    exit_early: AtomicBool,
+}
+
 impl BodyDownload {
     async fn download_bodies<E: EnvironmentKind>(
         &mut self,
@@ -180,32 +213,33 @@ impl BodyDownload {
         starting_block: BlockNumber,
         target: BlockNumber,
         will_reach_tip: bool,
-    ) -> Result<(), StageError> {
-        let requests = Arc::new(RwLock::new(Self::prepare_requests(
-            txn,
-            starting_block,
-            target,
-        )?));
+    ) -> Result<(), DownloadError> {
         let (pending_responses, mut pending_responses_watch) = PendingResponses::new();
-        let pending_responses = Arc::new(Mutex::new(pending_responses));
-        let handler = self.node.clone();
+        let session = Arc::new(DownloadSession {
+            handler: self.node.clone(),
+            requests: RwLock::new(Self::prepare_requests(txn, starting_block, target)?),
+            pending_responses: Mutex::new(pending_responses),
+            exit_early: AtomicBool::new(false),
+        });
+
         let mut min_block: BlockNumber = BlockNumber(0);
         let mut max_block: BlockNumber = BlockNumber(0);
 
-        info!("[BodyDownload] starting_block={starting_block} target={target} will_reach_tip={will_reach_tip}");
-
         let mut bodies = {
             let _requester_task = TaskGuard(tokio::spawn({
-                let handler = handler.clone();
-                let requests = requests.clone();
-                let pending_responses = pending_responses.clone();
+                let session = session.clone();
 
                 async move {
                     let mut send_interval = REQUEST_INTERVAL;
                     let mut cycles_without_progress = 0;
-                    let mut last_left_requests = requests.read().len();
+                    let mut last_left_requests = session.requests.read().len();
                     loop {
-                        let left_requests = requests.read().values().copied().collect::<Vec<_>>();
+                        let left_requests = session
+                            .requests
+                            .read()
+                            .values()
+                            .copied()
+                            .collect::<Vec<_>>();
 
                         if left_requests.is_empty() {
                             break;
@@ -213,23 +247,26 @@ impl BodyDownload {
 
                         // Apply additional delay on no progress to prevent busy loop
                         cycles_without_progress = if left_requests.len() == last_left_requests {
-                            if cycles_without_progress == 3 {
+                            if cycles_without_progress % 3 == 0 && cycles_without_progress > 0 {
                                 tokio::time::sleep(send_interval).await;
-
-                                // TODO: save already downloaded and contiguous blocks and exit stage
-                                3
-                            } else {
-                                cycles_without_progress + 1
                             }
+
+                            if cycles_without_progress > 9 {
+                                session.exit_early.store(true, Ordering::SeqCst);
+                                break;
+                            }
+
+                            cycles_without_progress + 1
                         } else {
                             0
                         };
+
                         last_left_requests = left_requests.len();
                         let chunk = 16;
 
                         let mut will_reach_tip_this_cycle = false;
 
-                        let mut total_chunks_this_cycle = 32 * handler.total_peers().await;
+                        let mut total_chunks_this_cycle = 32 * session.handler.total_peers().await;
                         let left_chunks = (left_requests.len() + chunk - 1) / chunk;
                         if left_chunks < total_chunks_this_cycle {
                             total_chunks_this_cycle = left_chunks;
@@ -247,13 +284,14 @@ impl BodyDownload {
                             .chunks(chunk)
                             .take(total_chunks_this_cycle)
                             .map(|chunk| {
-                                let handler = handler.clone();
-                                let pending_responses = pending_responses.clone();
+                                let session = session.clone();
                                 let total_sent = total_sent.clone();
+
                                 async move {
                                     let _ = tokio::time::timeout(send_interval, async move {
-                                        let request_id = pending_responses.lock().get_id();
-                                        if handler
+                                        let request_id = session.pending_responses.lock().get_id();
+                                        if session
+                                            .handler
                                             .send_block_request(
                                                 request_id,
                                                 chunk,
@@ -262,7 +300,7 @@ impl BodyDownload {
                                             .await
                                             .is_none()
                                         {
-                                            pending_responses.lock().remove(request_id);
+                                            session.pending_responses.lock().remove(request_id);
                                             total_sent.fetch_sub(1, Ordering::SeqCst);
                                         } else {
                                             trace!("Sent block request with id {request_id}");
@@ -308,18 +346,18 @@ impl BodyDownload {
                             debug!("Request cycle interval increased to {send_interval:?}");
                         }
 
-                        pending_responses.lock().clear();
+                        session.pending_responses.lock().clear();
                     }
                 }
             }));
 
-            let mut bodies = HashMap::with_capacity(requests.read().len());
+            let mut bodies = HashMap::with_capacity(session.requests.read().len());
             let mut stats = VecDeque::new();
             let mut total_received = 0;
             let started_at = Instant::now();
             loop {
-                let requests_length = requests.read().len();
-                if requests_length == 0 {
+                let requests_length = session.requests.read().len();
+                if requests_length == 0 || session.exit_early.load(Ordering::SeqCst) {
                     break;
                 };
                 let batch_size = match requests_length * 5 / 256 {
@@ -338,14 +376,14 @@ impl BodyDownload {
                 let receive_window = tokio::time::sleep(Duration::from_secs(1));
                 tokio::pin!(receive_window);
 
-                let notified = handler.block_cache_notify.notified();
+                let notified = session.handler.block_cache_notify.notified();
                 tokio::pin!(notified);
 
                 loop {
                     select! {
                         res = s.next() => {
                             if let Some(BlockBodies { request_id, bodies }) = res {
-                                let mut pending_responses = pending_responses.lock();
+                                let mut pending_responses = session.pending_responses.lock();
                                 pending_responses.remove(request_id);
                                 trace!("Accepted block bodies with id {request_id}");
                                 pending_bodies.push(bodies);
@@ -358,7 +396,7 @@ impl BodyDownload {
                             }
                         }
                         _ = &mut notified, if will_reach_tip => {
-                            let cached_blocks: Vec<BlockBody> = handler.block_cache.lock().drain().map(|(
+                            let cached_blocks: Vec<BlockBody> = session.handler.block_cache.lock().drain().map(|(
                                 _,
                                 (
                                     _,
@@ -394,7 +432,7 @@ impl BodyDownload {
                         .map(|body| ((body.ommers_hash(), body.transactions_root()), body))
                         .collect::<Vec<_>>();
 
-                    let mut requests = requests.write();
+                    let mut requests = session.requests.write();
                     for (key, value) in tmp {
                         if let Some((number, hash)) = requests.remove(&key) {
                             trace!("Block key {key:?} number {number} hash {hash}");
@@ -443,6 +481,13 @@ impl BodyDownload {
 
         info!("Saving {} block bodies", bodies.len());
 
+        let undownloaded_bodies = session
+            .requests
+            .read()
+            .iter()
+            .map(|(_, (b, _))| *b)
+            .collect::<HashSet<_>>();
+
         let mut cursor = txn.cursor(tables::BlockBody)?;
         let mut header_cur = txn.cursor(tables::Header)?;
         let mut block_tx_cursor = txn.cursor(tables::BlockTransaction)?;
@@ -453,6 +498,12 @@ impl BodyDownload {
             .unwrap();
 
         for block_number in starting_block..=target {
+            if undownloaded_bodies.contains(&block_number) {
+                return Err(DownloadError::ExitEarly(BlockNumber(
+                    block_number.saturating_sub(1),
+                )));
+            }
+
             let (hash, body) = bodies.remove(&block_number).unwrap_or_else(|| {
                 let (_, hash) = hash_cur.seek_exact(block_number).unwrap().unwrap();
                 (hash, BlockBody::default())

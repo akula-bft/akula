@@ -122,7 +122,7 @@ impl BeaconConsensus {
             finalized_block: H256::zero(),
         });
         Self {
-            base: ConsensusEngineBase::new(chain_id, eip1559_block, None),
+            base: ConsensusEngineBase::new(chain_id, eip1559_block, Some(32)),
             block_reward,
             beneficiary_schedule,
             since,

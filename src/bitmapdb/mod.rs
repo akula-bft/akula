@@ -37,8 +37,8 @@ where
     pin!(s);
 
     while let Some((BitmapKey { block_number, .. }, v)) = s.next().transpose()? {
-        if out.is_some() {
-            out = Some(out.unwrap() | v);
+        if let Some(total) = out {
+            out = Some(total | v);
         } else {
             out = Some(v);
         }

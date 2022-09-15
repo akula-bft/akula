@@ -5,6 +5,7 @@ use crate::{
 
 pub mod account {
     use super::*;
+    use crate::kv::tables::BitmapKey;
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
@@ -44,6 +45,54 @@ pub mod account {
 
             Ok(None)
         }
+    }
+
+    pub fn walk<'db, 'tx, K: TransactionKind, E: EnvironmentKind>(
+        tx: &'tx MdbxTransaction<'db, K, E>,
+        offset: Option<Address>,
+        block: Option<BlockNumber>,
+    ) -> impl Iterator<Item = anyhow::Result<(Address, Account)>> + 'tx
+    where
+        'db: 'tx,
+    {
+        TryGenIter::from(move || {
+            if let Some(block_number) = block {
+                // Traverse history index and add to set if non-zero at our block
+
+                let mut index = tx
+                    .cursor(tables::AccountHistory)?
+                    .walk(offset.map(|offset| BitmapKey {
+                        inner: offset,
+                        block_number: BlockNumber(0),
+                    }));
+
+                let mut last_entry = None;
+
+                while let Some((BitmapKey { inner: address, .. }, _)) = index.next().transpose()? {
+                    if last_entry != Some(address) {
+                        continue;
+                    }
+
+                    last_entry = Some(address);
+
+                    let v =
+                        crate::accessors::state::account::read(tx, address, Some(block_number))?;
+
+                    if let Some(account) = v {
+                        yield (address, account);
+                    }
+                }
+            } else {
+                // Simply traverse the current state
+                let mut walker = tx.cursor(tables::Account)?.walk(offset);
+
+                while let Some(v) = walker.next().transpose()? {
+                    yield v;
+                }
+            }
+
+            Ok(())
+        })
     }
 }
 
@@ -89,12 +138,15 @@ pub mod storage {
             .unwrap_or(U256::ZERO))
     }
 
-    pub fn walk<'tx, K: TransactionKind, E: EnvironmentKind>(
-        tx: &'tx MdbxTransaction<'_, K, E>,
+    pub fn walk<'db, 'tx, K: TransactionKind, E: EnvironmentKind>(
+        tx: &'tx MdbxTransaction<'db, K, E>,
         searched_address: Address,
         offset: Option<H256>,
         block: Option<BlockNumber>,
-    ) -> impl Iterator<Item = anyhow::Result<(H256, U256)>> + 'tx {
+    ) -> impl Iterator<Item = anyhow::Result<(H256, U256)>> + 'tx
+    where
+        'db: 'tx,
+    {
         TryGenIter::from(move || {
             if let Some(block_number) = block {
                 // Traverse history index and add to set if non-zero at our block
@@ -103,6 +155,8 @@ pub mod storage {
                     inner: (searched_address, H256::zero()),
                     block_number: BlockNumber(0),
                 }));
+
+                let mut last_entry = None;
 
                 while let Some((
                     BitmapKey {
@@ -115,6 +169,12 @@ pub mod storage {
                     if address != searched_address {
                         break;
                     }
+
+                    if last_entry != Some((address, slot)) {
+                        continue;
+                    }
+
+                    last_entry = Some((address, slot));
 
                     let v = crate::accessors::state::storage::read(
                         tx,
@@ -143,6 +203,25 @@ pub mod storage {
     }
 }
 
+pub mod code {
+    use super::*;
+    use anyhow::format_err;
+    use bytes::Bytes;
+
+    pub fn read<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        code_hash: H256,
+    ) -> anyhow::Result<Bytes> {
+        if code_hash == EMPTY_HASH {
+            Ok(Bytes::new())
+        } else {
+            Ok(tx
+                .get(tables::Code, code_hash)?
+                .ok_or_else(|| format_err!("code expected but not found"))?)
+        }
+    }
+}
+
 pub mod history_index {
     use super::*;
     use crate::kv::{mdbx::MdbxTransaction, tables::BitmapKey};
@@ -164,7 +243,7 @@ pub mod history_index {
         let mut ch = tx.cursor(table)?;
         if let Some((index_key, change_blocks)) = ch.seek(BitmapKey {
             inner: needle,
-            block_number,
+            block_number: block_number + 1,
         })? {
             if index_key.inner == needle {
                 return Ok(change_blocks
@@ -183,7 +262,10 @@ pub mod tests {
     use super::*;
     use crate::{
         h256_to_u256,
-        kv::{new_mem_chaindata, tables},
+        kv::{
+            new_mem_chaindata,
+            tables::{self, BitmapKey},
+        },
     };
     use hex_literal::hex;
 
@@ -226,5 +308,76 @@ pub mod tests {
             super::storage::read(&txn, address, h256_to_u256(loc4), None).unwrap(),
             0.as_u256()
         );
+    }
+
+    #[test]
+    fn find_next_block() {
+        let db = new_mem_chaindata().unwrap();
+        let txn = db.begin_mutable().unwrap();
+
+        let address = hex!("b000000000000000000000000000000000000008").into();
+
+        txn.set(
+            tables::AccountHistory,
+            BitmapKey {
+                inner: address,
+                block_number: 20.into(),
+            },
+            [10, 20].into_iter().collect(),
+        )
+        .unwrap();
+
+        txn.set(
+            tables::AccountHistory,
+            BitmapKey {
+                inner: address,
+                block_number: 50.into(),
+            },
+            [30, 40, 50].into_iter().collect(),
+        )
+        .unwrap();
+
+        txn.set(
+            tables::AccountHistory,
+            BitmapKey {
+                inner: address,
+                block_number: u64::MAX.into(),
+            },
+            [60, 70, 80].into_iter().collect(),
+        )
+        .unwrap();
+
+        for (block, next_block) in [
+            (0, Some(10)),
+            (5, Some(10)),
+            (10, Some(20)),
+            (15, Some(20)),
+            (20, Some(30)),
+            (25, Some(30)),
+            (30, Some(40)),
+            (35, Some(40)),
+            (40, Some(50)),
+            (45, Some(50)),
+            (50, Some(60)),
+            (55, Some(60)),
+            (60, Some(70)),
+            (65, Some(70)),
+            (70, Some(80)),
+            (75, Some(80)),
+            (80, None),
+            (85, None),
+            (90, None),
+        ] {
+            assert_eq!(
+                super::history_index::find_next_block(
+                    &txn,
+                    tables::AccountHistory,
+                    address,
+                    block.into()
+                )
+                .unwrap(),
+                next_block.map(BlockNumber)
+            );
+        }
     }
 }

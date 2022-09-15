@@ -160,30 +160,6 @@ pub enum SealVerificationParams {
         period: Duration,
         epoch: u64,
     },
-    Ethash {
-        duration_limit: u64,
-        block_reward: BTreeMap<BlockNumber, U256>,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            with = "::serde_with::rust::unwrap_or_skip"
-        )]
-        homestead_formula: Option<BlockNumber>,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            with = "::serde_with::rust::unwrap_or_skip"
-        )]
-        byzantium_formula: Option<BlockNumber>,
-        #[serde(
-            default,
-            skip_serializing_if = "Option::is_none",
-            with = "::serde_with::rust::unwrap_or_skip"
-        )]
-        difficulty_bomb: Option<DifficultyBomb>,
-        #[serde(default)]
-        skip_pow_verification: bool,
-    },
     Beacon {
         #[serde(
             default,
@@ -219,24 +195,6 @@ pub enum SealVerificationParams {
 impl SealVerificationParams {
     pub fn gather_forks(&self) -> BTreeSet<BlockNumber> {
         match self {
-            SealVerificationParams::Ethash {
-                block_reward,
-                homestead_formula,
-                byzantium_formula,
-                difficulty_bomb,
-                ..
-            } => block_reward
-                .keys()
-                .copied()
-                .chain(*homestead_formula)
-                .chain(*byzantium_formula)
-                .chain(
-                    difficulty_bomb
-                        .as_ref()
-                        .map(|v| v.delays.keys().copied().collect::<Vec<_>>())
-                        .unwrap_or_default(),
-                )
-                .collect(),
             SealVerificationParams::Beacon { .. } => BTreeSet::new(),
             _ => BTreeSet::new(),
         }
