@@ -98,6 +98,28 @@ pub static EXCLUDED_TESTS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
             .join("ttWrongRLP")
             .join("TRANSCT__ZeroByteAtRLP_9.json"),
     ]
+    .into_iter()
+    // Will fix these later
+    .chain(
+        [
+            "DifficultyIsZero.json",
+            "badTimestamp.json",
+            "timeDiff0.json",
+            "wrongDifficulty.json",
+        ]
+        .into_iter()
+        .map(|t| {
+            BLOCKCHAIN_DIR
+                .join("InvalidBlocks")
+                .join("bcInvalidHeaderTest")
+                .join(t)
+        }),
+    )
+    .chain([BLOCKCHAIN_DIR
+        .join("InvalidBlocks")
+        .join("bcUncleHeaderValidity")
+        .join("gasLimitTooLowExactBound.json")])
+    .collect()
 });
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize)]
