@@ -139,8 +139,8 @@ pub fn find_ancient_header(
     for _ in 0..count {
         result = db.read_parent_header(&result)?
             .ok_or_else(|| ParliaError::UnknownHeader{
-                number: BlockNumber(header.number.0 - 1),
-                hash: header.parent_hash,
+                number: result.number,
+                hash: result.hash(),
             })?;
     }
     Ok(result)

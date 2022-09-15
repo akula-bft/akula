@@ -1,7 +1,6 @@
 /// Uniform distribution
 /// algorithm by
 /// DP Mitchell and JA Reeds
-/// moved from golang lib
 
 const RNG_LEN: usize = 607;
 const RNG_TAP: usize = 273;
@@ -9,7 +8,7 @@ const RNG_MAX: u64 = 1 << 63;
 const RNG_MASK: u64 = RNG_MAX - 1;
 const INT32_MAX: i64 = (1 << 31) - 1;
 
-// rngCooked used for seeding. See gen_cooked.go for details.
+// rngCooked used for seeding.
 const RNG_COOKED: [i64; RNG_LEN] = [
     -4181792142133755926,
     -4576982950128230565,
@@ -722,9 +721,6 @@ impl RngSource {
 
     /// int31n returns, as an int32, a non-negative pseudo-random number in the half-open interval [0,n).
     /// n must be > 0, but int31n does not check this; the caller must ensure it.
-    /// int31n exists because Int31n is inefficient, but Go 1 compatibility
-    /// requires that the stream of values produced by math/rand remain unchanged.
-    /// int31n can thus only be used internally, by newly introduced APIs.
     ///
     /// For implementation details, see:
     /// https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction

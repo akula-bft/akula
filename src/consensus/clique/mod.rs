@@ -175,9 +175,6 @@ impl Clique {
 }
 
 impl Consensus for Clique {
-    fn name(&self) -> &str {
-        "Clique"
-    }
 
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
         if !block.ommers.is_empty() {

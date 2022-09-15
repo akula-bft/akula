@@ -39,7 +39,6 @@ fn refund_gas<'r, S>(
     message: &Message,
     sender: Address,
     mut gas_left: u64,
-    parlia_engine: bool,
 ) -> Result<u64, DuoError>
 where
     S: StateReader,
@@ -56,6 +55,7 @@ where
     let max_refund = (message.gas_limit() - gas_left) / max_refund_quotient;
     refund = min(refund, max_refund);
 
+    let parlia_engine = block_spec.consensus.is_parlia();
     if parlia_engine && is_system_transaction(message, &sender, &header.beneficiary){
         refund = 0;
     }
@@ -81,7 +81,6 @@ pub fn execute_transaction<'r, S>(
     message: &Message,
     sender: Address,
     beneficiary: Address,
-    parlia_engine: bool,
 ) -> Result<(Bytes, Receipt), DuoError>
 where
     S: HeaderReader + StateReader,
@@ -92,6 +91,7 @@ where
 
     state.access_account(sender);
 
+    let parlia_engine = block_spec.consensus.is_parlia();
     let base_fee_per_gas = if parlia_engine && is_system_transaction(message, &sender, &beneficiary){
         U256::ZERO
     } else{
@@ -164,7 +164,6 @@ where
             message,
             sender,
             vm_res.gas_left as u64,
-            parlia_engine,
         )?;
 
     // award the miner
@@ -292,7 +291,7 @@ where
             ));
 
         // if not parlia or not system_transaction in parlia, check gas
-        if !is_parlia(self.engine.name()) || !is_system_transaction(message, &sender, &self.header.beneficiary) {
+        if !self.block_spec.consensus.is_parlia() || !is_system_transaction(message, &sender, &self.header.beneficiary) {
             // See YP, Eq (57) in Section 6.2 "Execution"
             let v0 =
                 max_gas_cost + U512::from(ethereum_types::U256::from(message.value().to_be_bytes()));
@@ -331,8 +330,6 @@ where
     ) -> Result<Receipt, DuoError> {
         let beneficiary = self.engine.get_beneficiary(self.header);
 
-        let parlia = is_parlia(self.engine.name());
-
         execute_transaction(
             &mut self.state,
             self.block_spec,
@@ -343,7 +340,6 @@ where
             message,
             sender,
             beneficiary,
-            parlia,
         )
         .map(|(_, receipt)| receipt)
     }
@@ -359,14 +355,14 @@ where
         }
 
         let mut system_txs = Vec::new();
-        let parlia = is_parlia(self.engine.name());
+        let parlia_engine = self.block_spec.consensus.is_parlia();
 
         for (i, txn) in self.block.transactions.iter().enumerate() {
             if !(pred)(i, txn) {
                 return Ok(receipts);
             }
 
-            if parlia && is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
+            if parlia_engine && is_system_transaction(&txn.message, &txn.sender, &self.header.beneficiary) {
                 system_txs.push(txn);
                 continue;
             }

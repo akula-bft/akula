@@ -32,7 +32,6 @@ use std::{
 use tokio_stream::{Stream, StreamExt};
 use tonic::Response;
 use tracing::*;
-use crate::consensus::is_parlia;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StateUpdate {
@@ -283,7 +282,6 @@ where
                 &message,
                 sender,
                 engine.get_beneficiary(&header),
-                is_parlia(engine.name()),
             )?;
 
             state.write_to_state_same_block()?;

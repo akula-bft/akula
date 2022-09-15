@@ -50,7 +50,7 @@ impl ConsensusState {
                 ConsensusState::Clique(recover_clique_state(tx, chainspec, epoch, starting_block)?)
             }
             SealVerificationParams::Beacon { .. } => ConsensusState::Stateless,
-            SealVerificationParams::Parlia {..} => ConsensusState::Stateless,
+            SealVerificationParams::Parlia { .. } => ConsensusState::Stateless,
         })
     }
 }
@@ -92,8 +92,6 @@ pub enum ForkChoiceMode {
 }
 
 pub trait Consensus: Debug + Send + Sync + 'static {
-    /// The name of this engine.
-    fn name(&self) -> &str;
 
     fn fork_choice_mode(&self) -> ForkChoiceMode;
 

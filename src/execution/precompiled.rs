@@ -16,6 +16,7 @@ use std::{
     convert::TryFrom,
     io::{repeat, Read},
 };
+use lazy_static::lazy_static;
 use substrate_bn::*;
 use tendermint::lite::{iavl_proof, light_client};
 use parity_bytes::BytesRef;
@@ -83,8 +84,9 @@ lazy_static! {
 
 pub const NUM_OF_FRONTIER_CONTRACTS: usize = 4;
 pub const NUM_OF_BYZANTIUM_CONTRACTS: usize = 8;
-pub const NUM_OF_ISTANBUL_CONTRACTS: usize = 11;
-pub const MAX_NUM_OF_PRECOMPILED: usize = 127;
+pub const NUM_OF_ISTANBUL_CONTRACTS: usize = 9;
+pub const NUM_OF_PARLIA_ISTANBUL_CONTRACTS: usize = 11;
+pub const MAX_NUM_OF_PARLIA_PRECOMPILED: usize = 127;
 
 fn ecrecover_gas(_: Bytes, _: Revision) -> Option<u64> {
     Some(3_000)

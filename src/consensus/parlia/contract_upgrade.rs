@@ -4,6 +4,7 @@ use crate::models::{Address, BlockNumber, ChainSpec};
 use std::str::FromStr;
 use rustc_hex::FromHex;
 use bytes::Bytes;
+use lazy_static::lazy_static;
 use crate::consensus::DuoError;
 use super::*;
 
@@ -48,6 +49,7 @@ pub fn apply_system_contract_upgrade<'r, S>(
     where S: StateReader+HeaderReader,
 {
     for x in upgrade.iter() {
+        debug!("apply_system_contract_upgrade {}", x.contract_addr);
         let addr: Address = Address::from_str(x.contract_addr).unwrap();
         statedb.set_code(addr, Bytes::from(x.code.from_hex().unwrap()))?;
     }

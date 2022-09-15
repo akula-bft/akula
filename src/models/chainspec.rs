@@ -14,6 +14,7 @@ pub struct BlockExecutionSpec {
     pub revision: Revision,
     pub active_transitions: HashSet<Revision>,
     pub params: Params,
+    pub consensus: ConsensusParams,
     pub system_contract_changes: HashMap<Address, Contract>,
     pub balance_changes: HashMap<Address, U256>,
 }
@@ -69,6 +70,7 @@ impl ChainSpec {
             revision,
             active_transitions,
             params: self.params.clone(),
+            consensus: self.consensus.clone(),
             system_contract_changes: self.contracts.iter().fold(
                 HashMap::new(),
                 |mut acc, (bn, contracts)| {
@@ -230,6 +232,18 @@ pub struct ConsensusParams {
         with = "::serde_with::rust::unwrap_or_skip"
     )]
     pub eip1559_block: Option<BlockNumber>,
+}
+
+impl ConsensusParams {
+
+    pub fn is_parlia(&self) -> bool {
+        match self.seal_verification {
+            SealVerificationParams::Parlia { .. } => {
+                true
+            },
+            _ => false
+        }
+    }
 }
 
 pub fn switch_is_active(switch: Option<BlockNumber>, block_number: BlockNumber) -> bool {

@@ -37,15 +37,10 @@ use std::{
     collections::BTreeSet,
     time::{SystemTime},
 };
+use ethabi_contract::use_contract;
 use tracing::*;
 use TransactionAction;
 
-/// Type alias for a function we can make calls through synchronously.
-/// Returns the call result and state proof for each call.
-pub type Call<'a> = dyn Fn(Address, Vec<u8>) -> Result<(Vec<u8>, Vec<Vec<u8>>), String> + 'a;
-
-/// parlia consensus name
-pub const PARLIA_CONSENSUS: &'static str = "Parlia";
 /// Fixed number of extra-data prefix bytes reserved for signer vanity
 pub const VANITY_LENGTH: usize = 32;
 /// Fixed number of extra-data suffix bytes reserved for signer signature
@@ -75,8 +70,8 @@ pub const SYSTEM_REWARD_PERCENT: usize = 4;
 const MAX_SYSTEM_REWARD: &str = "0x56bc75e2d63100000";
 const INIT_TX_NUM: usize = 7;
 
-use_contract!(validator_ins, "src/contracts/bsc_validators.json");
-use_contract!(slash_ins, "src/contracts/bsc_slash.json");
+use_contract!(validator_ins, "src/consensus/parlia/contracts/bsc_validators.json");
+use_contract!(slash_ins, "src/consensus/parlia/contracts/bsc_slash.json");
 
 /// Parlia Engine implementation
 #[derive(Debug)]
@@ -140,15 +135,7 @@ impl Parlia {
     }
 }
 
-/// whether it is a parlia engine
-pub fn is_parlia(engine: &str) -> bool {
-    engine == PARLIA_CONSENSUS
-}
-
 impl Consensus for Parlia {
-    fn name(&self) -> &str {
-        PARLIA_CONSENSUS
-    }
 
     fn fork_choice_mode(&self) -> ForkChoiceMode {
         ForkChoiceMode::Difficulty(self.fork_choice_graph.clone())
@@ -242,7 +229,7 @@ impl Consensus for Parlia {
 
             let actual_validators = util::parse_epoch_validators(&header.extra_data[VANITY_LENGTH..(header.extra_data.len() - SIGNATURE_LENGTH)])?;
 
-            info!("epoch validators check {}, {}:{}", header.number, actual_validators.len(), expect_validators.len());
+            debug!("epoch validators check {}, {}:{}", header.number, actual_validators.len(), expect_validators.len());
             if actual_validators != *expect_validators {
                 return Err(ParliaError::EpochChgWrongValidators {
                     expect: expect_validators.clone(),
@@ -264,7 +251,7 @@ impl Consensus for Parlia {
 
             let mut expect_txs = Vec::new();
             if header.difficulty != DIFF_INTURN {
-                info!("check in turn {}", header.number);
+                debug!("check in turn {}", header.number);
                 let snap = self.query_snap(header.number.0 - 1, header.parent_hash)?;
                 let proposer = snap.suppose_validator();
                 let had_proposed = snap.recent_proposers.iter().find(|(_, v)| **v == proposer)
@@ -306,11 +293,11 @@ impl Consensus for Parlia {
                         input: Bytes::new(),
                     });
                     total_reward -= to_sys_reward;
-                    info!("SYSTEM_REWARD_CONTRACT, block {}, reward {}", header.number, to_sys_reward);
+                    debug!("SYSTEM_REWARD_CONTRACT, block {}, reward {}", header.number, to_sys_reward);
                 }
 
                 // left reward contribute to VALIDATOR_CONTRACT
-                info!("VALIDATOR_CONTRACT, block {}, reward {}", header.number, total_reward);
+                debug!("VALIDATOR_CONTRACT, block {}, reward {}", header.number, total_reward);
                 let input_data = validator_ins::functions::deposit::encode_input(header.beneficiary);
                 expect_txs.push(Message::Legacy {
                     chain_id: Some(self.chain_id),
@@ -374,7 +361,7 @@ impl Consensus for Parlia {
             }
             if block_number % CHECKPOINT_INTERVAL == 0 {
                 if let Some(cached) = db.read_snap(block_hash)? {
-                    info!("snap find from db {} {:?}", block_number, block_hash);
+                    debug!("snap find from db {} {:?}", block_number, block_hash);
                     snap = cached;
                     break;
                 }
@@ -404,7 +391,7 @@ impl Consensus for Parlia {
 
         snap_cache.insert(snap.block_hash, snap.clone());
         if snap.block_number % CHECKPOINT_INTERVAL == 0 {
-            info!("snap save {} {:?}", snap.block_number, snap.block_hash);
+            debug!("snap save {} {:?}", snap.block_number, snap.block_hash);
             db.write_snap(&snap)?;
         }
         return Ok(());

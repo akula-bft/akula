@@ -384,20 +384,38 @@ where
         }
     }
 
+    fn number_of_parlia_precompiles(&self) -> u8 {
+        match self.block_spec.revision {
+            Revision::Frontier | Revision::Homestead | Revision::Tangerine | Revision::Spurious => {
+                precompiled::NUM_OF_FRONTIER_CONTRACTS as u8
+            }
+            Revision::Byzantium | Revision::Constantinople | Revision::Petersburg => {
+                precompiled::NUM_OF_BYZANTIUM_CONTRACTS as u8
+            }
+            Revision::Istanbul | Revision::Berlin | Revision::London | Revision::Paris => {
+                precompiled::NUM_OF_PARLIA_ISTANBUL_CONTRACTS as u8
+            }
+        }
+    }
+
     fn is_precompiled(&self, contract: Address) -> bool {
         if contract.is_zero() {
             false
-        } else {
-            let num_of_precompiles = self.number_of_precompiles();
+        } else if self.block_spec.consensus.is_parlia() {
             let mut max_precompiled = Address::zero();
-            if num_of_precompiles < precompiled::NUM_OF_ISTANBUL_CONTRACTS as u8 {
-                max_precompiled.0[ADDRESS_LENGTH - 1] = num_of_precompiles;
+            let num_of_precompiled = self.number_of_parlia_precompiles();
+            if num_of_precompiled < precompiled::NUM_OF_PARLIA_ISTANBUL_CONTRACTS as u8 {
+                max_precompiled.0[ADDRESS_LENGTH - 1] = num_of_precompiled;
             } else {
-                max_precompiled.0[ADDRESS_LENGTH - 1] = precompiled::MAX_NUM_OF_PRECOMPILED as u8;
+                max_precompiled.0[ADDRESS_LENGTH - 1] = precompiled::MAX_NUM_OF_PARLIA_PRECOMPILED as u8;
             }
 
             let num_of_contract= contract.0[ADDRESS_LENGTH -1] as u8;
             contract <= max_precompiled && precompiled::CONTRACTS.contains_key(&num_of_contract)
+        } else {
+            let mut max_precompiled = Address::zero();
+            max_precompiled.0[ADDRESS_LENGTH - 1] = self.number_of_precompiles() as u8;
+            contract <= max_precompiled
         }
     }
 }

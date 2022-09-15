@@ -28,7 +28,6 @@ use ethereum_jsonrpc::{
 use jsonrpsee::core::RpcResult;
 use std::{cmp::Ordering, sync::Arc};
 use tokio::pin;
-use crate::consensus::is_parlia;
 
 pub struct OtterscanApiServerImpl<SE>
 where
@@ -192,7 +191,6 @@ where
             &transaction.message,
             sender,
             beneficiary,
-            is_parlia(engine.name()),
         )?
         .1;
 
