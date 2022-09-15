@@ -85,7 +85,6 @@ dependencies = [
  "educe",
  "enr",
  "enum-primitive-derive",
- "ethash",
  "ethereum-forkid",
  "ethereum-interfaces",
  "ethereum-jsonrpc",
@@ -1256,20 +1255,6 @@ name = "error-chain"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9435d864e017c3c6afeac1654189b06cdb491cf2ff73dbf0d73b0f292f42ff8"
-
-[[package]]
-name = "ethash"
-version = "0.4.0"
-source = "git+https://github.com/rust-ethereum/ethash#246f0b98295ffdce529c43918b412b88a7ede1b6"
-dependencies = [
- "byteorder",
- "bytes",
- "ethereum-types",
- "ethnum",
- "fastrlp",
- "primitive-types",
- "sha3",
-]
 
 [[package]]
 name = "ethbloom"
