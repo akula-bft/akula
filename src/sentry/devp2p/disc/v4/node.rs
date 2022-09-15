@@ -250,7 +250,14 @@ impl Node {
                                 node_endpoint.write().address = Ip(v);
                             }
                             Err(e) => {
-                                debug!("Failed to get public IP: {}", e);
+                                debug!("Failed to get public IP via UPNP: {}", e);
+                                debug!("Trying with public_ip DNS/HTTP resolvers");
+                                if let Some(v) = public_ip::addr().await {
+                                    debug!("Discovered public IP: {}", v);
+                                    node_endpoint.write().address = Ip(v);
+                                } else {
+                                    debug!("Failed to get public IP via DNS/HTTP resolvers");
+                                }
                             }
                         }
                         sleep(UPNP_INTERVAL).await;

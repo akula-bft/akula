@@ -1,3 +1,4 @@
+pub mod debug;
 pub mod erigon;
 pub mod eth;
 pub mod net;
@@ -5,6 +6,7 @@ pub mod otterscan;
 pub mod parity;
 pub mod trace;
 pub mod web3;
+
 pub mod helpers {
     use crate::{
         accessors::chain,
@@ -139,6 +141,29 @@ pub mod helpers {
             block_hash,
             block_number: block_number.map(|v| v.0.into()),
         }
+    }
+
+    pub fn grpc_block_id(block_id: ethereum_interfaces::web3::BlockId) -> Option<types::BlockId> {
+        block_id.id.and_then(|block_id| match block_id {
+            ethereum_interfaces::web3::block_id::Id::Hash(hash) => {
+                Some(types::BlockId::Hash(hash.into()))
+            }
+            ethereum_interfaces::web3::block_id::Id::Number(block_number) => {
+                block_number.block_number.map(|number| {
+                    types::BlockId::Number(match number {
+                        ethereum_interfaces::web3::block_number::BlockNumber::Latest(_) => {
+                            types::BlockNumber::Latest
+                        }
+                        ethereum_interfaces::web3::block_number::BlockNumber::Pending(_) => {
+                            types::BlockNumber::Pending
+                        }
+                        ethereum_interfaces::web3::block_number::BlockNumber::Number(number) => {
+                            types::BlockNumber::Number(number.into())
+                        }
+                    })
+                })
+            }
+        })
     }
 
     pub fn resolve_block_number<K: TransactionKind, E: EnvironmentKind>(
