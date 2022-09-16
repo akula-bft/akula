@@ -26,7 +26,7 @@ where
     E: EnvironmentKind,
 {
     fn get_headers(&self, params: GetBlockHeadersParams) -> anyhow::Result<Vec<BlockHeader>> {
-        let txn = self.begin().expect("Failed to begin transaction");
+        let txn = self.begin()?;
 
         let limit = std::cmp::min(params.limit, 1024);
         let reverse = params.reverse == 1;
@@ -41,15 +41,8 @@ where
         }
 
         let mut headers = Vec::with_capacity(limit as usize);
-        let mut number_cursor = txn
-            .cursor(tables::HeaderNumber)
-            .expect("Failed to open cursor, likely a DB corruption");
-        let mut canonical_cursor = txn
-            .cursor(tables::CanonicalHeader)
-            .expect("Failed to open cursor, likely a DB corruption");
-        let mut header_cursor = txn
-            .cursor(tables::Header)
-            .expect("Failed to open cursor, likely a DB corruption");
+        let mut number_cursor = txn.cursor(tables::HeaderNumber)?;
+        let mut header_cursor = txn.cursor(tables::Header)?;
 
         let mut next_number = match params.start {
             BlockId::Hash(hash) => number_cursor.seek_exact(hash)?.map(|(_, k)| k),
@@ -59,10 +52,8 @@ where
         for _ in 0..limit {
             match next_number {
                 Some(block_number) => {
-                    if let Some(header_key) = canonical_cursor.seek_exact(block_number)? {
-                        if let Some((_, header)) = header_cursor.seek_exact(header_key)? {
-                            headers.push(header);
-                        }
+                    if let Some((_, header)) = header_cursor.seek_exact(block_number)? {
+                        headers.push(header);
                     }
                     next_number = u64::try_from(block_number.0 as i64 + add_op)
                         .ok()
@@ -80,13 +71,9 @@ where
 
         Ok(hashes
             .into_iter()
-            .filter_map(|hash| {
-                txn.get(tables::HeaderNumber, hash)
-                    .unwrap_or(None)
-                    .map(|number| (hash, number))
-            })
-            .filter_map(|(hash, number)| {
-                chain::block_body::read_without_senders(&txn, hash, number).unwrap_or(None)
+            .filter_map(|hash| txn.get(tables::HeaderNumber, hash).unwrap_or(None))
+            .filter_map(|number| {
+                chain::block_body::read_without_senders(&txn, number).unwrap_or(None)
             })
             .collect::<Vec<_>>())
     }

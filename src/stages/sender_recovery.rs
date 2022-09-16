@@ -59,7 +59,7 @@ where
             let mut read_again = false;
             let mut batch_txs = 0;
             debug!("Reading bodies");
-            while let Some(((block_number, hash), body)) = walker.next().transpose()? {
+            while let Some((block_number, body)) = walker.next().transpose()? {
                 let txs = tx
                     .cursor(tables::BlockTransaction.erased())?
                     .walk(Some(body.base_tx_id.encode().to_vec()))
@@ -67,7 +67,7 @@ where
                     .map(|res| res.map(|(_, tx)| tx))
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 batch_txs += txs.len();
-                batch.push((block_number, hash, txs));
+                batch.push((block_number, txs));
 
                 highest_block = block_number;
 
@@ -80,7 +80,7 @@ where
             debug!("Recovering senders from batch of {} bodies", batch.len());
             let recovered_senders = batch
                 .par_drain(..)
-                .filter_map(move |(block_number, hash, txs)| {
+                .filter_map(move |(block_number, txs)| {
                     if !txs.is_empty() {
                         let senders = txs
                             .into_iter()
@@ -95,8 +95,7 @@ where
 
                         Some(senders.map(|senders| {
                             (
-                                ErasedTable::<tables::TxSender>::encode_key((block_number, hash))
-                                    .to_vec(),
+                                ErasedTable::<tables::TxSender>::encode_key(block_number).to_vec(),
                                 senders.encode(),
                             )
                         }))
@@ -173,7 +172,7 @@ where
     where
         'db: 'tx,
     {
-        unwind_by_block_key(tx, tables::TxSender, input, |(block_num, _)| block_num)?;
+        unwind_by_block_key(tx, tables::TxSender, input, std::convert::identity)?;
 
         Ok(UnwindOutput {
             stage_progress: input.unwind_to,
@@ -188,7 +187,7 @@ where
     where
         'db: 'tx,
     {
-        prune_by_block_key(tx, tables::TxSender, input, |(block_num, _)| block_num)
+        prune_by_block_key(tx, tables::TxSender, input, std::convert::identity)
     }
 }
 
@@ -344,9 +343,9 @@ mod tests {
         let hash2 = H256::random();
         let hash3 = H256::random();
 
-        chain::storage_body::write(&tx, hash1, 1, &block1).unwrap();
-        chain::storage_body::write(&tx, hash2, 2, &block2).unwrap();
-        chain::storage_body::write(&tx, hash3, 3, &block3).unwrap();
+        chain::storage_body::write(&tx, 1, &block1).unwrap();
+        chain::storage_body::write(&tx, 2, &block2).unwrap();
+        chain::storage_body::write(&tx, 3, &block3).unwrap();
 
         tx.set(tables::CanonicalHeader, 1.into(), hash1).unwrap();
         tx.set(tables::CanonicalHeader, 2.into(), hash2).unwrap();
@@ -377,13 +376,13 @@ mod tests {
             }
         );
 
-        let senders1 = chain::tx_sender::read(&tx, hash1, 1);
+        let senders1 = chain::tx_sender::read(&tx, 1);
         assert_eq!(senders1.unwrap(), [sender1, sender1]);
 
-        let senders2 = chain::tx_sender::read(&tx, hash2, 2);
+        let senders2 = chain::tx_sender::read(&tx, 2);
         assert_eq!(senders2.unwrap(), [sender1, sender2, sender2]);
 
-        let senders3 = chain::tx_sender::read(&tx, hash3, 3);
+        let senders3 = chain::tx_sender::read(&tx, 3);
         assert!(senders3.unwrap().is_empty());
     }
 }

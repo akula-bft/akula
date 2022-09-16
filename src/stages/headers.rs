@@ -1,6 +1,7 @@
 #![allow(unreachable_code)]
 
 use crate::{
+    accessors,
     consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, ForkChoiceMode},
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
@@ -8,7 +9,7 @@ use crate::{
         node::{Node, NodeStream},
         types::{BlockHeaders, BlockId, HeaderRequest, Message, Status},
     },
-    stagedsync::stage::*,
+    stagedsync::{stage::*, util::unwind_by_block_key},
     StageId, TaskGuard,
 };
 use anyhow::format_err;
@@ -20,6 +21,7 @@ use rand::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
     collections::BTreeMap,
+    convert::identity,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -69,15 +71,13 @@ where
         let mut reached_tip = true;
 
         if prev_progress < self.max_block {
-            let prev_progress_hash = txn
-                .get(tables::CanonicalHeader, prev_progress)?
+            let prev_progress_hash = accessors::chain::canonical_hash::read(txn, prev_progress)?
                 .ok_or_else(|| {
                     StageError::Internal(format_err!(
                         "no canonical hash for block #{prev_progress}"
                     ))
                 })?;
-            let prev_progress_header = txn
-                .get(tables::Header, (prev_progress, prev_progress_hash))?
+            let prev_progress_header = accessors::chain::header::read(txn, prev_progress)?
                 .ok_or_else(|| {
                     StageError::Internal(format_err!(
                         "no canonical header for block #{prev_progress}:{prev_progress_hash:?}"
@@ -89,9 +89,8 @@ where
                 ForkChoiceMode::External(mut chain_tip_watch) => {
                     // Reverse download mode
 
-                    let prev_progress_block = txn
-                        .get(tables::Header, (prev_progress, prev_progress_hash))?
-                        .ok_or_else(|| {
+                    let prev_progress_block =
+                        txn.get(tables::Header, prev_progress)?.ok_or_else(|| {
                             StageError::Internal(format_err!(
                                 "no header for block #{prev_progress}"
                             ))
@@ -236,7 +235,7 @@ where
             let mut cursor_header = txn.cursor(tables::Header)?;
             let mut cursor_canonical = txn.cursor(tables::CanonicalHeader)?;
             let mut cursor_td = txn.cursor(tables::HeadersTotalDifficulty)?;
-            let mut td = cursor_td.last()?.map(|((_, _), v)| v).unwrap();
+            let mut td = cursor_td.last()?.map(|(_, v)| v).unwrap();
 
             for (hash, header) in headers {
                 if header.number == 0 {
@@ -250,9 +249,9 @@ where
                 td += header.difficulty;
 
                 cursor_header_number.put(hash, block_number)?;
-                cursor_header.put((block_number, hash), header)?;
-                cursor_canonical.put(block_number, hash)?;
-                cursor_td.put((block_number, hash), td)?;
+                cursor_header.append(block_number, header)?;
+                cursor_canonical.append(block_number, hash)?;
+                cursor_td.append(block_number, td)?;
 
                 stage_progress = block_number;
             }
@@ -267,7 +266,7 @@ where
 
     async fn unwind<'tx>(
         &mut self,
-        txn: &'tx mut MdbxTransaction<'db, RW, E>,
+        tx: &'tx mut MdbxTransaction<'db, RW, E>,
         input: UnwindInput,
     ) -> anyhow::Result<UnwindOutput>
     where
@@ -276,25 +275,27 @@ where
         if let ForkChoiceMode::Difficulty(graph) = self.consensus.fork_choice_mode() {
             graph.lock().clear();
         }
-        let mut cur = txn.cursor(tables::CanonicalHeader)?;
 
         if let Some(bad_block) = input.bad_block {
-            if let Some((_, hash)) = cur.seek_exact(bad_block)? {
+            if let Some(hash) = tx.get(tables::CanonicalHeader, bad_block)? {
                 self.node.mark_bad_block(hash);
             }
         }
 
-        let mut stage_progress = BlockNumber(0);
-        while let Some((number, _)) = cur.last()? {
-            if number <= input.unwind_to {
-                stage_progress = number;
-                break;
-            }
-
-            cur.delete_current()?;
+        let mut walker = tx
+            .cursor(tables::CanonicalHeader)?
+            .walk(Some(input.unwind_to + 1));
+        while let Some((_, hash)) = walker.next().transpose()? {
+            tx.del(tables::HeaderNumber, hash, None)?;
         }
 
-        Ok(UnwindOutput { stage_progress })
+        unwind_by_block_key(tx, tables::Header, input, identity)?;
+        unwind_by_block_key(tx, tables::CanonicalHeader, input, identity)?;
+        unwind_by_block_key(tx, tables::HeadersTotalDifficulty, input, identity)?;
+
+        Ok(UnwindOutput {
+            stage_progress: input.unwind_to,
+        })
     }
 }
 
@@ -641,9 +642,7 @@ impl HeaderDownload {
         height: BlockNumber,
     ) -> anyhow::Result<()> {
         let hash = txn.get(tables::CanonicalHeader, height)?.unwrap();
-        let td = txn
-            .get(tables::HeadersTotalDifficulty, (height, hash))?
-            .unwrap();
+        let td = txn.get(tables::HeadersTotalDifficulty, height)?.unwrap();
         let status = Status::new(height, hash, td);
         self.node.update_chain_head(Some(status)).await;
         Ok(())

@@ -74,7 +74,7 @@ fn get_header<K: TransactionKind>(
     height: BlockNumber,
 ) -> anyhow::Result<BlockHeader> {
     Ok(match cursor.seek(height)? {
-        Some(((found_height, _), header)) if found_height == height => header,
+        Some((found_height, header)) if found_height == height => header,
         _ => bail!("Header for block {} missing from database.", height),
     })
 }

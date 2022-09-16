@@ -1,6 +1,7 @@
 use crate::{
+    accessors,
     consensus::DuoError,
-    kv::{mdbx::*, tables},
+    kv::mdbx::*,
     models::*,
     stagedsync::stage::{ExecOutput, Stage, StageError, StageInput, UnwindInput, UnwindOutput},
     stages::stage_util::should_do_clean_promotion,
@@ -56,16 +57,7 @@ where
         let past_progress = input.stage_progress.unwrap_or(genesis);
 
         if max_block > past_progress {
-            let block_state_root = tx
-                .get(
-                    tables::Header,
-                    (
-                        max_block,
-                        tx.get(tables::CanonicalHeader, max_block)?.ok_or_else(|| {
-                            format_err!("No canonical hash for block {}", max_block)
-                        })?,
-                    ),
-                )?
+            let block_state_root = accessors::chain::header::read(tx, max_block)?
                 .ok_or_else(|| format_err!("No header for block {}", max_block))?
                 .state_root;
 
@@ -115,17 +107,7 @@ where
     where
         'db: 'tx,
     {
-        let block_state_root = tx
-            .get(
-                tables::Header,
-                (
-                    input.unwind_to,
-                    tx.get(tables::CanonicalHeader, input.unwind_to)?
-                        .ok_or_else(|| {
-                            format_err!("No canonical hash for block {}", input.unwind_to)
-                        })?,
-                ),
-            )?
+        let block_state_root = accessors::chain::header::read(tx, input.unwind_to)?
             .ok_or_else(|| format_err!("No header for block {}", input.unwind_to))?
             .state_root;
 

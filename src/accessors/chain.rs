@@ -48,13 +48,12 @@ pub mod header {
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BlockHeader>> {
         let number = number.into();
         trace!("Reading header for block number {}", number);
 
-        tx.get(tables::Header, (number, hash))
+        tx.get(tables::Header, number)
     }
 }
 
@@ -111,37 +110,28 @@ pub mod tx_sender {
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Vec<Address>> {
         let number = number.into();
 
-        trace!(
-            "Reading transaction senders for block {}/{:?}",
-            number,
-            hash
-        );
+        trace!("Reading transaction senders for block {}", number,);
 
-        Ok(tx
-            .get(tables::TxSender, (number, hash))?
-            .unwrap_or_default())
+        Ok(tx.get(tables::TxSender, number)?.unwrap_or_default())
     }
 
     pub fn write<E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, RW, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
         senders: Vec<Address>,
     ) -> anyhow::Result<()> {
         let number = number.into();
         trace!(
-            "Writing {} transaction senders for block {}/{:?}",
+            "Writing {} transaction senders for block {}",
             senders.len(),
             number,
-            hash
         );
 
-        tx.set(tables::TxSender, (number, hash), senders)?;
+        tx.set(tables::TxSender, number, senders)?;
 
         Ok(())
     }
@@ -152,7 +142,6 @@ pub mod storage_body {
 
     pub fn read<K, E>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BodyForStorage>>
     where
@@ -160,26 +149,13 @@ pub mod storage_body {
         E: EnvironmentKind,
     {
         let number = number.into();
-        trace!("Reading storage body for block {}/{:?}", number, hash);
+        trace!("Reading storage body for block {number}");
 
-        tx.get(tables::BlockBody, (number, hash))
-    }
-
-    pub fn has<K, E>(
-        tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
-        number: impl Into<BlockNumber>,
-    ) -> anyhow::Result<bool>
-    where
-        K: TransactionKind,
-        E: EnvironmentKind,
-    {
-        Ok(read(tx, hash, number)?.is_some())
+        tx.get(tables::BlockBody, number)
     }
 
     pub fn write<E>(
         tx: &MdbxTransaction<'_, RW, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
         body: &BodyForStorage,
     ) -> anyhow::Result<()>
@@ -187,9 +163,9 @@ pub mod storage_body {
         E: EnvironmentKind,
     {
         let number = number.into();
-        trace!("Writing storage body for block {}/{:?}", number, hash);
+        trace!("Writing storage body for block {number}");
 
-        tx.set(tables::BlockBody, (number, hash), body.clone())?;
+        tx.set(tables::BlockBody, number, body.clone())?;
 
         Ok(())
     }
@@ -200,14 +176,13 @@ pub mod block_body {
 
     fn read_base<K, E>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<(BlockBody, TxIndex)>>
     where
         K: TransactionKind,
         E: EnvironmentKind,
     {
-        if let Some(body) = super::storage_body::read(tx, hash, number)? {
+        if let Some(body) = super::storage_body::read(tx, number)? {
             let transactions = super::tx::read(tx, body.base_tx_id, body.tx_amount.try_into()?)?;
 
             return Ok(Some((
@@ -224,20 +199,18 @@ pub mod block_body {
 
     pub fn read_without_senders<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BlockBody>> {
-        Ok(read_base(tx, hash, number)?.map(|(v, _)| v))
+        Ok(read_base(tx, number)?.map(|(v, _)| v))
     }
 
     pub fn read_with_senders<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<BlockBodyWithSenders>> {
         let number = number.into();
-        if let Some((body, _)) = read_base(tx, hash, number)? {
-            let senders = super::tx_sender::read(tx, hash, number)?;
+        if let Some((body, _)) = read_base(tx, number)? {
+            let senders = super::tx_sender::read(tx, number)?;
 
             return Ok(Some(BlockBodyWithSenders {
                 transactions: body
@@ -262,13 +235,12 @@ pub mod td {
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
-        hash: H256,
         number: impl Into<BlockNumber>,
     ) -> anyhow::Result<Option<U256>> {
         let number = number.into();
-        trace!("Reading total difficulty at block {}/{:?}", number, hash);
+        trace!("Reading total difficulty at block {number}");
 
-        tx.get(tables::HeadersTotalDifficulty, (number, hash))
+        tx.get(tables::HeadersTotalDifficulty, number)
     }
 }
 
@@ -354,13 +326,13 @@ mod tests {
         let rwtx = db.begin_mutable().unwrap();
         let rwtx = &rwtx;
 
-        storage_body::write(rwtx, block1_hash, 1, &body).unwrap();
+        storage_body::write(rwtx, 1, &body).unwrap();
         rwtx.set(tables::CanonicalHeader, 1.into(), block1_hash)
             .unwrap();
         tx::write(rwtx, 1, &txs).unwrap();
-        tx_sender::write(rwtx, block1_hash, 1, senders.to_vec()).unwrap();
+        tx_sender::write(rwtx, 1, senders.to_vec()).unwrap();
 
-        let recovered_body = storage_body::read(rwtx, block1_hash, 1)
+        let recovered_body = storage_body::read(rwtx, 1)
             .unwrap()
             .expect("Could not recover storage body.");
         let recovered_hash = rwtx
@@ -368,7 +340,7 @@ mod tests {
             .unwrap()
             .expect("Could not recover block hash");
         let recovered_txs = tx::read(rwtx, 1, 2).unwrap();
-        let recovered_senders = tx_sender::read(rwtx, block1_hash, 1).unwrap();
+        let recovered_senders = tx_sender::read(rwtx, 1).unwrap();
 
         assert_eq!(body, recovered_body);
         assert_eq!(block1_hash, recovered_hash);

@@ -747,8 +747,6 @@ impl TableDecode for StorageChange {
     }
 }
 
-pub type HeaderKey = (BlockNumber, H256);
-
 #[bitfield]
 #[derive(Clone, Copy, Debug, Default)]
 struct CallTraceSetFlags {
@@ -809,9 +807,9 @@ decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
-decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
-decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
-decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
+decl_table!(Header => BlockNumber => BlockHeader);
+decl_table!(HeadersTotalDifficulty => BlockNumber => U256);
+decl_table!(BlockBody => BlockNumber => BodyForStorage);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(TotalGas => BlockNumber => u64);
 decl_table!(TotalTx => BlockNumber => u64);
@@ -826,8 +824,7 @@ decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => () => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(PruneProgress => StageId => BlockNumber);
-decl_table!(TxSender => HeaderKey => Vec<Address>);
-decl_table!(LastHeader => () => HeaderKey);
+decl_table!(TxSender => BlockNumber => Vec<Address>);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 decl_table!(Version => () => u64);
 
@@ -878,7 +875,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
             table_entry!(SyncStage),
             table_entry!(PruneProgress),
             table_entry!(TxSender),
-            table_entry!(LastHeader),
             table_entry!(Issuance),
             table_entry!(Version),
         ]

@@ -127,7 +127,7 @@ where
         let mut block_body_cur = txn.cursor(tables::BlockBody)?;
         let mut block_tx_cur = txn.cursor(tables::BlockTransaction)?;
 
-        while let Some(((number, _), body)) = block_body_cur.last()? {
+        while let Some((number, body)) = block_body_cur.last()? {
             if number <= input.unwind_to {
                 break;
             }
@@ -481,10 +481,9 @@ impl BodyDownload {
         let mut cursor = txn.cursor(tables::BlockBody)?;
         let mut header_cur = txn.cursor(tables::Header)?;
         let mut block_tx_cursor = txn.cursor(tables::BlockTransaction)?;
-        let mut hash_cur = txn.cursor(tables::CanonicalHeader)?;
         let mut base_tx_id = cursor
             .last()?
-            .map(|((_, _), body)| *body.base_tx_id + body.tx_amount)
+            .map(|(_, body)| *body.base_tx_id + body.tx_amount)
             .unwrap();
 
         for block_number in starting_block..=target {
@@ -494,17 +493,13 @@ impl BodyDownload {
                 )));
             }
 
-            let (hash, body) = bodies.remove(&block_number).unwrap_or_else(|| {
-                let (_, hash) = hash_cur.seek_exact(block_number).unwrap().unwrap();
-                (hash, BlockBody::default())
-            });
+            let body = bodies
+                .remove(&block_number)
+                .map(|(_, body)| body)
+                .unwrap_or_default();
 
             let block = Block {
-                header: header_cur
-                    .seek_exact((block_number, hash))
-                    .unwrap()
-                    .unwrap()
-                    .1,
+                header: header_cur.seek_exact(block_number).unwrap().unwrap().1,
                 transactions: body.transactions,
                 ommers: body.ommers,
             };
@@ -520,7 +515,7 @@ impl BodyDownload {
                 })?;
 
             cursor.append(
-                (block_number, hash),
+                block_number,
                 BodyForStorage {
                     base_tx_id: TxIndex(base_tx_id),
                     tx_amount: block.transactions.len() as u64,
@@ -548,18 +543,17 @@ impl BodyDownload {
         };
         let mut map = HashMap::with_capacity(cap);
 
-        let mut canonical_cursor = txn
-            .cursor(tables::CanonicalHeader)?
+        let mut header_cursor = txn
+            .cursor(tables::Header)?
             .walk(Some(starting_block))
             .take_while(ttw(|&(block_number, _)| block_number <= target));
-        let mut header_cursor = txn.cursor(tables::Header)?;
 
-        while let Some(Ok((block_number, hash))) = canonical_cursor.next() {
-            let (_, header) = header_cursor.seek_exact((block_number, hash))?.unwrap();
+        while let Some(Ok((block_number, header))) = header_cursor.next() {
             if header.ommers_hash == EMPTY_LIST_HASH && header.transactions_root == EMPTY_ROOT {
                 continue;
             }
 
+            let hash = crate::accessors::chain::canonical_hash::read(txn, block_number)?.unwrap();
             map.insert(
                 (header.ommers_hash, header.transactions_root),
                 (block_number, hash),

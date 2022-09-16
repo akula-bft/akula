@@ -65,16 +65,13 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
     let mut last_message = Instant::now();
     let mut printed_at_least_once = false;
     loop {
-        let block_hash = tx
-            .get(tables::CanonicalHeader, block_number)?
+        let block_hash = accessors::chain::canonical_hash::read(tx, block_number)?
             .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
-        let header = tx
-            .get(tables::Header, (block_number, block_hash))?
+        let header = accessors::chain::header::read(tx, block_number)?
             .ok_or_else(|| format_err!("Header not found: {}/{:?}", block_number, block_hash))?;
-        let block = accessors::chain::block_body::read_with_senders(tx, block_hash, block_number)?
-            .ok_or_else(|| {
-                format_err!("Block body not found: {}/{:?}", block_number, block_hash)
-            })?;
+        let block = accessors::chain::block_body::read_with_senders(tx, block_number)?.ok_or_else(
+            || format_err!("Block body not found: {}/{:?}", block_number, block_hash),
+        )?;
 
         let block_spec = chain_config.collect_block_spec(block_number);
 

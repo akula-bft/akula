@@ -215,7 +215,7 @@ where
 
     let (historical_block, block_number, header) = match kind {
         CallManyMode::Replay(b) => {
-            let (block_number, block_hash) =
+            let (block_number, _) =
                 helpers::resolve_block_id(txn, b)?.ok_or_else(|| format_err!("block not found"))?;
             (
                 Some(
@@ -225,30 +225,25 @@ where
                         .into(),
                 ),
                 block_number,
-                crate::accessors::chain::header::read(txn, block_hash, block_number)?
+                crate::accessors::chain::header::read(txn, block_number)?
                     .ok_or_else(|| format_err!("header not found"))?,
             )
         }
         CallManyMode::Speculative(b) => match b {
             types::BlockId::Number(types::BlockNumber::Latest)
             | types::BlockId::Number(types::BlockNumber::Pending) => {
-                let (latest_block_number, latest_block_hash) =
-                    helpers::resolve_block_id(txn, b)?
-                        .ok_or_else(|| format_err!("block not found"))?;
+                let (latest_block_number, _) = helpers::resolve_block_id(txn, b)?
+                    .ok_or_else(|| format_err!("block not found"))?;
 
-                let header = crate::accessors::chain::header::read(
-                    txn,
-                    latest_block_hash,
-                    latest_block_number,
-                )?
-                .ok_or_else(|| format_err!("header not found"))?;
+                let header = crate::accessors::chain::header::read(txn, latest_block_number)?
+                    .ok_or_else(|| format_err!("header not found"))?;
                 (None, latest_block_number, header)
             }
             other => {
-                let (block_number, block_hash) = helpers::resolve_block_id(txn, other)?
+                let (block_number, _) = helpers::resolve_block_id(txn, other)?
                     .ok_or_else(|| format_err!("block not found"))?;
 
-                let header = crate::accessors::chain::header::read(txn, block_hash, block_number)?
+                let header = crate::accessors::chain::header::read(txn, block_number)?
                     .ok_or_else(|| format_err!("header not found"))?;
 
                 (Some(block_number), block_number, header)
@@ -437,13 +432,11 @@ where
             let BlockBody {
                 transactions,
                 ommers,
-            } = crate::accessors::chain::block_body::read_without_senders(
-                txn,
-                block_hash,
-                block_number,
-            )?
-            .ok_or_else(|| format_err!("body not found for block #{block_number}/{block_hash}"))?;
-            let senders = crate::accessors::chain::tx_sender::read(txn, block_hash, block_number)?;
+            } = crate::accessors::chain::block_body::read_without_senders(txn, block_number)?
+                .ok_or_else(|| {
+                    format_err!("body not found for block #{block_number}/{block_hash}")
+                })?;
+            let senders = crate::accessors::chain::tx_sender::read(txn, block_number)?;
 
             let signed_messages = transactions;
 
@@ -750,7 +743,7 @@ where
 
             let block_id = block_id.unwrap_or(types::BlockId::Number(types::BlockNumber::Latest));
 
-            let (block_number, block_hash) = helpers::resolve_block_id(&txn, block_id)?
+            let (block_number, _) = helpers::resolve_block_id(&txn, block_id)?
                 .ok_or_else(|| format_err!("failed to resolve block {block_id:?}"))?;
             let historical = matches!(block_id, types::BlockId::Number(types::BlockNumber::Latest));
 
@@ -760,7 +753,7 @@ where
                 .params
                 .chain_id;
 
-            let header = crate::accessors::chain::header::read(&txn, block_hash, block_number)?
+            let header = crate::accessors::chain::header::read(&txn, block_number)?
                 .ok_or_else(|| format_err!("header not found"))?;
 
             let msgs = calls
@@ -848,7 +841,6 @@ where
                     .ok_or_else(|| format_err!("canonical hash for block #{block_number} not found"))?;
                 let transactions = crate::accessors::chain::block_body::read_without_senders(
                         &txn,
-                        block_hash,
                         block_number,
                     )?.ok_or_else(|| format_err!("body not found for block #{block_number}/{block_hash}"))?
                     .transactions;
@@ -863,7 +855,7 @@ where
                     })?;
 
                 let message = signed_message.message.clone();
-                let senders = crate::accessors::chain::tx_sender::read(&txn, block_hash, block_number)?;
+                let senders = crate::accessors::chain::tx_sender::read(&txn, block_number)?;
                 let sender = *senders
                     .get(index)
                     .ok_or_else(|| format_err!("senders too short: {index} vs len {}", senders.len()))?;
