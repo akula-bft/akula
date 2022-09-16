@@ -1,66 +1,129 @@
 use super::common::InterpreterMessage;
-use arrayvec::ArrayVec;
 use bytes::{Bytes, BytesMut};
 use derive_more::{Deref, DerefMut};
 use ethnum::U256;
 use getset::{Getters, MutGetters};
-use serde::Serialize;
+use core::{ptr, mem};
+use std::io;
 
+/// Size of EVM stack in U256s
 pub const STACK_SIZE: usize = 1024;
+/// Size of EVM stack in bytes
+const STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * STACK_SIZE;
 
 /// EVM stack.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Stack(pub ArrayVec<U256, STACK_SIZE>);
+//#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Debug)]
+pub struct Stack {
+    pos: usize,
+    /// Pointer to memory of [U256; STACK_SIZE]
+    p: *mut U256,
+}
 
 impl Stack {
     #[inline]
-    pub const fn new() -> Self {
-        Self(ArrayVec::new_const())
-    }
-
-    #[inline]
-    const fn get_pos(&self, pos: usize) -> usize {
-        self.len() - 1 - pos
-    }
-
-    #[inline]
-    pub fn get(&self, pos: usize) -> &U256 {
-        let pos = self.get_pos(pos);
-        unsafe { self.0.get_unchecked(pos) }
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, pos: usize) -> &mut U256 {
-        let pos = self.get_pos(pos);
-        unsafe { self.0.get_unchecked_mut(pos) }
+    pub fn new() -> Self {
+        unsafe {
+            // TODO: add MAP_HUGETLB for huge tables
+            let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
+            let mmap_res = libc::mmap(
+                ptr::null_mut(),
+                STACK_SIZE_BYTES,
+                libc::PROT_READ | libc::PROT_WRITE,
+                flags,
+                -1,
+                0,
+            );
+            if mmap_res == libc::MAP_FAILED {
+                let err = io::Error::last_os_error();
+                panic!("Failed to allocate memory for EVM stack: {err}");
+            }
+            Self {
+                pos: 0,
+                p: mmap_res.cast(),
+            }
+        }
     }
 
     #[inline(always)]
-    pub const fn len(&self) -> usize {
-        self.0.len()
+    pub fn get(&self, pos: usize) -> &U256 {
+        assert!(pos < STACK_SIZE);
+        unsafe { &*self.p.add(pos) }
+    }
+
+    #[inline(always)]
+    pub fn get_mut(&mut self, pos: usize) -> &mut U256 {
+        assert!(pos < STACK_SIZE);
+        unsafe { &mut *self.p.add(pos) }
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.pos
     }
 
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
+        // println!("is_empty: {}", self.len() == 0);
         self.len() == 0
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn push(&mut self, v: U256) {
-        unsafe { self.0.push_unchecked(v) }
-    }
-
-    #[inline]
-    pub fn pop(&mut self) -> U256 {
-        unsafe { self.0.pop_unchecked() }
-    }
-
-    #[inline]
-    pub fn swap_top(&mut self, pos: usize) {
-        let top = self.0.len() - 1;
-        let pos = self.get_pos(pos);
+        // println!("push {}", self.pos);
+        assert!(self.pos < STACK_SIZE);
         unsafe {
-            self.0.swap_unchecked(top, pos);
+            let p = self.p.add(self.pos);
+            ptr::write(p, v);
+            self.pos += 1;
+        }
+    }
+
+    #[inline(always)]
+    pub fn pop(&mut self) -> U256 {
+        // println!("pop {}", self.pos);
+        assert_ne!(self.pos, 0);
+        unsafe {
+            self.pos -= 1;
+            let p = self.p.add(self.pos);
+            ptr::read(p)
+        }
+    }
+
+    #[inline(always)]
+    pub fn swap_top(&mut self, pos: usize) {
+        // println!("swap {} {pos}", self.pos);
+        assert!(pos < STACK_SIZE);
+        assert!(self.pos - 1 < STACK_SIZE);
+        unsafe {
+            let p1 = self.p.add(self.pos - 1);
+            let p2 = self.p.add(pos);
+            ptr::swap_nonoverlapping(p1, p2, 1);
+        }
+    }
+
+    #[inline(always)]
+    pub fn clone_to_vec(&self) -> Vec<U256> {
+        unsafe {
+            core::slice::from_raw_parts(self.p, self.pos).to_vec()
+        }
+    }
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Stack {
+    fn drop(&mut self) {
+        unsafe {
+            let res = libc::munmap(self.p.cast(), STACK_SIZE_BYTES);
+            if res != 0 {
+                let err = io::Error::last_os_error();
+                panic!("Failed to deallocate stack memory: {err}")
+            }
         }
     }
 }
@@ -94,7 +157,8 @@ impl Default for Memory {
 }
 
 /// EVM execution state.
-#[derive(Clone, Debug, Getters, MutGetters)]
+// #[derive(Clone, Debug, Getters, MutGetters)]
+#[derive(Debug, Getters, MutGetters)]
 pub struct ExecutionState<'m> {
     #[getset(get = "pub", get_mut = "pub")]
     pub(crate) gas_left: i64,
@@ -112,7 +176,7 @@ impl<'m> ExecutionState<'m> {
     pub fn new(message: &'m InterpreterMessage) -> Self {
         Self {
             gas_left: message.gas,
-            stack: Stack::default(),
+            stack: Stack::new(),
             memory: Memory::new(),
             message,
             return_data: Default::default(),
@@ -127,7 +191,7 @@ mod tests {
 
     #[test]
     fn stack() {
-        let mut stack = Stack::default();
+        let mut stack = Stack::new();
 
         let items: [u128; 4] = [0xde, 0xad, 0xbe, 0xef];
 

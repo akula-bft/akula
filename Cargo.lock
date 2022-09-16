@@ -112,6 +112,7 @@ dependencies = [
  "include_dir",
  "itertools",
  "jsonrpsee",
+ "libc",
  "libmdbx",
  "lru",
  "maplit",
@@ -1287,7 +1288,6 @@ dependencies = [
 [[package]]
 name = "ethereum-interfaces"
 version = "0.1.0"
-source = "git+https://github.com/ledgerwatch/interfaces#c0a83c57f877d98096dde4bda1ec56a80f4a88eb"
 dependencies = [
  "arrayref",
  "ethereum-types",

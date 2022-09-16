@@ -152,8 +152,6 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
     state: &mut ExecutionState,
     host: &mut H,
 ) -> Result<(), StatusCode> {
-    use arrayvec::ArrayVec;
-
     if state.message.is_static {
         return Err(StatusCode::StaticModeViolation);
     }
@@ -172,10 +170,7 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
         }
     }
 
-    let mut topics = ArrayVec::<U256, 4>::new();
-    for _ in 0..NUM_TOPICS {
-        topics.push(state.stack.pop());
-    }
+    let topics = [(); NUM_TOPICS].map(|()| state.stack.pop());
 
     let data = if let Some(region) = region {
         &state.memory[region.offset..region.offset + region.size.get()]
