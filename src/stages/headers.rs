@@ -1,7 +1,7 @@
 #![allow(unreachable_code)]
 
 use crate::{
-    consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, DuoError, ForkChoiceMode},
+    consensus::{fork_choice_graph::ForkChoiceGraph, Consensus, ForkChoiceMode},
     kv::{mdbx::*, tables},
     models::{BlockHeader, BlockNumber, H256},
     p2p::{
@@ -316,6 +316,7 @@ impl HeaderDownload {
         chain_tip: H256,
         finalized: H256,
     ) -> LinearDownloadResult {
+        // TODO: BTreeMap keyed by block number for quick and dirty sorting - need to tweak downloader logic and replace with simple Vec
         let mut buffered_headers = BTreeMap::<BlockNumber, (H256, BlockHeader)>::new();
         let mut remaining_attempts = Some(10_usize);
         loop {
@@ -382,6 +383,7 @@ impl HeaderDownload {
 
                     let num_headers = headers.len();
 
+                    // Headers batch received in reverse order, let's unreverse to check sequentially
                     for header in headers.into_iter().rev() {
                         let header_hash = header.hash();
 
@@ -393,24 +395,34 @@ impl HeaderDownload {
                             return LinearDownloadResult::DoesNotAttach;
                         }
 
+                        // Take earliest block from buffered batch
                         if let Some((_, (_, earliest_block))) = buffered_headers.iter().next() {
-                            if earliest_block.number.0 - 1 != header.number.0
-                                && earliest_block.parent_hash != header_hash
-                            {
+                            let mut is_parent_of_batch = false;
+                            if let Some(b) = header.number.0.checked_add(1) {
+                                if earliest_block.number.0 == b
+                                    && earliest_block.parent_hash == header_hash
+                                {
+                                    is_parent_of_batch = true;
+                                }
+                            }
+
+                            if !is_parent_of_batch {
+                                // Block does not attach to batch, discard
                                 break;
                             }
 
-                            self.consensus
-                                .validate_block_header(earliest_block, &header, true)
-                                .map_err(|e| match e {
-                                    DuoError::Validation(error) => StageError::Validation {
-                                        block: header.number,
-                                        error,
-                                    },
-                                    DuoError::Internal(error) => StageError::Internal(error),
-                                })
-                                .unwrap();
-                        } else if chain_tip != header.hash() {
+                            if let Err(e) =
+                                self.consensus
+                                    .validate_block_header(earliest_block, &header, true)
+                            {
+                                warn!(
+                                    "Failed to validate block header #{}/{header_hash:?}: {e:?}",
+                                    header.number
+                                );
+                                return LinearDownloadResult::NoResponse;
+                            }
+                        } else if chain_tip != header_hash {
+                            // If we don't have buffered batch, then the first block in response (latest block) must be chain tip else is bogus.
                             break;
                         }
 
