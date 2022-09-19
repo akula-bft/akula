@@ -8,14 +8,14 @@ pub const MIN_GAS_LIMIT: u64 = 5000;
 pub struct ConsensusEngineBase {
     chain_id: ChainId,
     eip1559_block: Option<BlockNumber>,
-    max_extra_data_length: Option<usize>,
+    max_extra_data_length: Option<(Option<BlockNumber>, usize)>,
 }
 
 impl ConsensusEngineBase {
     pub fn new(
         chain_id: ChainId,
         eip1559_block: Option<BlockNumber>,
-        max_extra_data_length: Option<usize>,
+        max_extra_data_length: Option<(Option<BlockNumber>, usize)>,
     ) -> Self {
         Self {
             chain_id,
@@ -62,8 +62,8 @@ impl ConsensusEngineBase {
             return Err(ValidationError::InvalidGasLimit.into());
         }
 
-        if let Some(limit) = self.max_extra_data_length {
-            if header.extra_data.len() > limit {
+        if let Some((since, limit)) = self.max_extra_data_length {
+            if header.number >= since.unwrap_or(BlockNumber(0)) && header.extra_data.len() > limit {
                 return Err(ValidationError::ExtraDataTooLong.into());
             }
         }

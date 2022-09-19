@@ -106,6 +106,9 @@ pub static EXCLUDED_TESTS: Lazy<Vec<PathBuf>> = Lazy::new(|| {
             "badTimestamp.json",
             "timeDiff0.json",
             "wrongDifficulty.json",
+            "DifferentExtraData1025.json",
+            "ExtraData1024.json",
+            "ExtraData33.json",
         ]
         .into_iter()
         .map(|t| {
