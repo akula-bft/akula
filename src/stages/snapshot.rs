@@ -62,8 +62,7 @@ where
             |last_snapshotted_block| {
                 Ok(tx
                     .cursor(tables::Header)?
-                    .walk(last_snapshotted_block.map(|v| v + 1))
-                    .map(|res| res.map(|((block_number, _), header)| (block_number, header))))
+                    .walk(last_snapshotted_block.map(|v| v + 1)))
             },
             prev_stage_progress,
         )?;
@@ -127,20 +126,13 @@ where
                         .map(|v| v + 1)
                         .unwrap_or(BlockNumber(0));
                     for number in walk_from.. {
-                        if let Some(hash) =
-                            crate::accessors::chain::canonical_hash::read(tx, number)?
+                        if let Some(v) =
+                            crate::accessors::chain::block_body::read_without_senders(tx, number)?
                         {
-                            if let Some(v) =
-                                crate::accessors::chain::block_body::read_without_senders(
-                                    tx, hash, number,
-                                )?
-                            {
-                                yield (number, v);
-
-                                continue;
-                            }
+                            yield (number, v);
+                        } else {
+                            break;
                         }
-                        break;
                     }
 
                     Ok::<_, anyhow::Error>(())
@@ -208,17 +200,14 @@ where
                         .map(|v| v + 1)
                         .unwrap_or(BlockNumber(0));
                     for number in walk_from.. {
-                        if let Some(hash) =
-                            crate::accessors::chain::canonical_hash::read(tx, number)?
-                        {
+                        if crate::accessors::chain::canonical_hash::read(tx, number)?.is_some() {
                             yield (
                                 number,
-                                crate::accessors::chain::tx_sender::read(tx, hash, number)?,
+                                crate::accessors::chain::tx_sender::read(tx, number)?,
                             );
-
-                            continue;
+                        } else {
+                            break;
                         }
-                        break;
                     }
 
                     Ok::<_, anyhow::Error>(())
