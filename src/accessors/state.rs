@@ -4,6 +4,7 @@ use crate::{
 };
 
 pub mod account {
+    use anyhow::format_err;
     use super::*;
     use crate::kv::tables::BitmapKey;
 
@@ -18,15 +19,26 @@ pub mod account {
                 tables::AccountHistory,
                 address_to_find,
                 block_number,
-            )? {
-                return Ok(tx
-                    .cursor(tables::AccountChangeSet)?
-                    .find_account(block_number, address_to_find)?
-                    .flatten());
-            }
+            )?;
+            return read_from_block(tx,address_to_find, block_number)
         }
 
-        tx.get(tables::Account, address_to_find)
+        read_from_block(tx, address_to_find, None)
+    }
+
+    pub fn read_from_block<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        address: Address,
+        block_number: Option<BlockNumber>,
+    ) -> anyhow::Result<Option<Account>> {
+        if let Some(block_number) = block_number {
+            return Ok(tx
+                .cursor(tables::AccountChangeSet)?
+                .find_account(block_number, address)?
+                .flatten());
+        } else {
+            tx.get(tables::Account, address)
+        }
     }
 
     impl<'tx, K: TransactionKind> MdbxCursor<'tx, K, tables::AccountChangeSet> {
@@ -68,15 +80,27 @@ pub mod account {
 
                 let mut last_entry = None;
 
-                while let Some((BitmapKey { inner: address, .. }, _)) = index.next().transpose()? {
+                while let Some((BitmapKey { inner: address, block_number: mut changes_blocks_number }, mut change_blocks)) = index.next().transpose()? {
                     if last_entry == Some(address) {
                         continue;
                     }
 
                     last_entry = Some(address);
 
-                    let v =
-                        crate::accessors::state::account::read(tx, address, Some(block_number))?;
+                    if *block_number < change_blocks
+                        .minimum()
+                        .ok_or_else(|| format_err!("Index chunk should not be empty"))? {
+                        continue;
+                    }
+
+                    while block_number > changes_blocks_number {
+                        (BitmapKey { inner: _, block_number: changes_blocks_number }, change_blocks) = index.next().transpose()?.ok_or_else(|| format_err!("Unexpected end of history index"))?;
+                    }
+
+                    let v = crate::accessors::state::account::read_from_block(tx, address, change_blocks
+                        .iter()
+                        .find(|&change_block| *block_number < change_block)
+                        .map(BlockNumber))?;
 
                     if let Some(account) = v {
                         yield (address, account);
@@ -97,8 +121,9 @@ pub mod account {
 }
 
 pub mod storage {
+    use anyhow::format_err;
     use super::*;
-    use crate::{h256_to_u256, kv::tables::BitmapKey, u256_to_h256};
+    use crate::{kv::tables::BitmapKey, u256_to_h256};
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
@@ -107,35 +132,45 @@ pub mod storage {
         block_number: Option<BlockNumber>,
     ) -> anyhow::Result<U256> {
         let location_to_find = u256_to_h256(location_to_find);
+
         if let Some(block_number) = block_number {
             if let Some(block_number) = super::history_index::find_next_block(
                 tx,
                 tables::StorageHistory,
                 (address, location_to_find),
                 block_number,
-            )? {
-                if let Some(tables::StorageChange { location, value }) =
-                    tx.cursor(tables::StorageChangeSet)?.seek_both_range(
-                        tables::StorageChangeKey {
-                            block_number,
-                            address,
-                        },
-                        location_to_find,
-                    )?
-                {
-                    if location == location_to_find {
-                        return Ok(value);
-                    }
-                }
-            }
+            )?;
+            return read_from_block(tx, address, location_to_find, block_number);
         }
 
-        Ok(tx
-            .cursor(tables::Storage)?
-            .seek_both_range(address, location_to_find)?
-            .filter(|&(l, _)| l == location_to_find)
-            .map(|(_, v)| v)
-            .unwrap_or(U256::ZERO))
+        return read_from_block(tx, address, location_to_find, None);
+    }
+
+    pub fn read_from_block<K: TransactionKind, E: EnvironmentKind>(
+        tx: &MdbxTransaction<'_, K, E>,
+        address: Address,
+        location_to_find: H256,
+        block_number: Option<BlockNumber>,
+    ) -> anyhow::Result<U256> {
+        if let Some(block_number) = block_number {
+            let tables::StorageChange { location, value } =
+            tx.cursor(tables::StorageChangeSet)?.seek_both_range(
+                tables::StorageChangeKey {
+                    block_number,
+                    address,
+                },
+                location_to_find,
+            )?.ok_or_else(|| format_err!("Entry missing from StorageChangeSet"))?;
+            anyhow::ensure!(location == location_to_find);
+            Ok(value)
+        } else {
+            Ok(tx
+                .cursor(tables::Storage)?
+                .seek_both_range(address, location_to_find)?
+                .filter(|&(l, _)| l == location_to_find)
+                .map(|(_, v)| v)
+                .unwrap_or(U256::ZERO))
+        }
     }
 
     pub fn walk<'db, 'tx, K: TransactionKind, E: EnvironmentKind>(
@@ -161,9 +196,9 @@ pub mod storage {
                 while let Some((
                     BitmapKey {
                         inner: (address, slot),
-                        ..
+                        block_number: mut change_blocks_number,
                     },
-                    _,
+                    mut change_blocks,
                 )) = index.next().transpose()?
                 {
                     if address != searched_address {
@@ -176,11 +211,29 @@ pub mod storage {
 
                     last_entry = Some((address, slot));
 
-                    let v = crate::accessors::state::storage::read(
+                    if *block_number < change_blocks
+                        .minimum()
+                        .ok_or_else(|| format_err!("Index chunk should not be empty"))? {
+                        continue;
+                    }
+
+                    while block_number > change_blocks_number {
+                        (
+                                 BitmapKey {
+                                     inner: _,
+                                     block_number: change_blocks_number,
+                                 },
+                             change_blocks,
+                        ) = index.next().transpose()?.ok_or_else(|| format_err!("Unexpected end of history index"))?;
+                    }
+
+                    let v = crate::accessors::state::storage::read_from_block(
                         tx,
                         address,
-                        h256_to_u256(slot),
-                        Some(block_number),
+                        slot,
+                        change_blocks.iter()
+                            .find(|&change_block| *block_number < change_block)
+                            .map(BlockNumber)
                     )?;
 
                     if v != U256::ZERO {
