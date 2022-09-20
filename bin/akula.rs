@@ -416,11 +416,7 @@ fn main() -> anyhow::Result<()> {
                 // If an internet connection is unavailable, akula will normally hang at stage 1.
                 // Passing --skip-headers and --skip-bodies makes it possible complet the remaining
                 // stages even without an internet connection
-<<<<<<< HEAD
-                if opt.skip_headers {
-=======
                 if !opt.skip_headers {
->>>>>>> add-extra-syncing-logs
                     let increment = opt.increment.or({
                         if opt.prune {
                             Some(BlockNumber(90_000))
@@ -447,11 +443,7 @@ fn main() -> anyhow::Result<()> {
                     );
                 }
 
-<<<<<<< HEAD
-                if opt.skip_bodies {
-=======
                 if !opt.skip_bodies {
->>>>>>> add-extra-syncing-logs
                     staged_sync.push(BodyDownload { node, consensus }, false);
                     staged_sync.push(TotalTxIndex, false);
                 }
