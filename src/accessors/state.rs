@@ -4,9 +4,9 @@ use crate::{
 };
 
 pub mod account {
-    use anyhow::format_err;
     use super::*;
     use crate::kv::tables::BitmapKey;
+    use anyhow::format_err;
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
@@ -14,13 +14,13 @@ pub mod account {
         block_number: Option<BlockNumber>,
     ) -> anyhow::Result<Option<Account>> {
         if let Some(block_number) = block_number {
-            if let Some(block_number) = super::history_index::find_next_block(
+            let block_number = super::history_index::find_next_block(
                 tx,
                 tables::AccountHistory,
                 address_to_find,
                 block_number,
             )?;
-            return read_from_block(tx,address_to_find, block_number)
+            return read_from_block(tx, address_to_find, block_number);
         }
 
         read_from_block(tx, address_to_find, None)
@@ -32,10 +32,10 @@ pub mod account {
         block_number: Option<BlockNumber>,
     ) -> anyhow::Result<Option<Account>> {
         if let Some(block_number) = block_number {
-            return Ok(tx
+            Ok(tx
                 .cursor(tables::AccountChangeSet)?
                 .find_account(block_number, address)?
-                .flatten());
+                .flatten())
         } else {
             tx.get(tables::Account, address)
         }
@@ -80,27 +80,49 @@ pub mod account {
 
                 let mut last_entry = None;
 
-                while let Some((BitmapKey { inner: address, block_number: mut changes_blocks_number }, mut change_blocks)) = index.next().transpose()? {
+                while let Some((
+                    BitmapKey {
+                        inner: address,
+                        block_number: mut changes_blocks_number,
+                    },
+                    mut change_blocks,
+                )) = index.next().transpose()?
+                {
                     if last_entry == Some(address) {
                         continue;
                     }
 
                     last_entry = Some(address);
 
-                    if *block_number < change_blocks
-                        .minimum()
-                        .ok_or_else(|| format_err!("Index chunk should not be empty"))? {
+                    if *block_number
+                        < change_blocks
+                            .minimum()
+                            .ok_or_else(|| format_err!("Index chunk should not be empty"))?
+                    {
                         continue;
                     }
 
                     while block_number > changes_blocks_number {
-                        (BitmapKey { inner: _, block_number: changes_blocks_number }, change_blocks) = index.next().transpose()?.ok_or_else(|| format_err!("Unexpected end of history index"))?;
+                        (
+                            BitmapKey {
+                                inner: _,
+                                block_number: changes_blocks_number,
+                            },
+                            change_blocks,
+                        ) = index
+                            .next()
+                            .transpose()?
+                            .ok_or_else(|| format_err!("Unexpected end of history index"))?;
                     }
 
-                    let v = crate::accessors::state::account::read_from_block(tx, address, change_blocks
-                        .iter()
-                        .find(|&change_block| *block_number < change_block)
-                        .map(BlockNumber))?;
+                    let v = crate::accessors::state::account::read_from_block(
+                        tx,
+                        address,
+                        change_blocks
+                            .iter()
+                            .find(|&change_block| *block_number < change_block)
+                            .map(BlockNumber),
+                    )?;
 
                     if let Some(account) = v {
                         yield (address, account);
@@ -121,9 +143,9 @@ pub mod account {
 }
 
 pub mod storage {
-    use anyhow::format_err;
     use super::*;
     use crate::{kv::tables::BitmapKey, u256_to_h256};
+    use anyhow::format_err;
 
     pub fn read<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
@@ -134,7 +156,7 @@ pub mod storage {
         let location_to_find = u256_to_h256(location_to_find);
 
         if let Some(block_number) = block_number {
-            if let Some(block_number) = super::history_index::find_next_block(
+            let block_number = super::history_index::find_next_block(
                 tx,
                 tables::StorageHistory,
                 (address, location_to_find),
@@ -143,7 +165,7 @@ pub mod storage {
             return read_from_block(tx, address, location_to_find, block_number);
         }
 
-        return read_from_block(tx, address, location_to_find, None);
+        read_from_block(tx, address, location_to_find, None)
     }
 
     pub fn read_from_block<K: TransactionKind, E: EnvironmentKind>(
@@ -153,14 +175,16 @@ pub mod storage {
         block_number: Option<BlockNumber>,
     ) -> anyhow::Result<U256> {
         if let Some(block_number) = block_number {
-            let tables::StorageChange { location, value } =
-            tx.cursor(tables::StorageChangeSet)?.seek_both_range(
-                tables::StorageChangeKey {
-                    block_number,
-                    address,
-                },
-                location_to_find,
-            )?.ok_or_else(|| format_err!("Entry missing from StorageChangeSet"))?;
+            let tables::StorageChange { location, value } = tx
+                .cursor(tables::StorageChangeSet)?
+                .seek_both_range(
+                    tables::StorageChangeKey {
+                        block_number,
+                        address,
+                    },
+                    location_to_find,
+                )?
+                .ok_or_else(|| format_err!("Entry missing from StorageChangeSet"))?;
             anyhow::ensure!(location == location_to_find);
             Ok(value)
         } else {
@@ -211,29 +235,35 @@ pub mod storage {
 
                     last_entry = Some((address, slot));
 
-                    if *block_number < change_blocks
-                        .minimum()
-                        .ok_or_else(|| format_err!("Index chunk should not be empty"))? {
+                    if *block_number
+                        < change_blocks
+                            .minimum()
+                            .ok_or_else(|| format_err!("Index chunk should not be empty"))?
+                    {
                         continue;
                     }
 
                     while block_number > change_blocks_number {
                         (
-                                 BitmapKey {
-                                     inner: _,
-                                     block_number: change_blocks_number,
-                                 },
-                             change_blocks,
-                        ) = index.next().transpose()?.ok_or_else(|| format_err!("Unexpected end of history index"))?;
+                            BitmapKey {
+                                inner: _,
+                                block_number: change_blocks_number,
+                            },
+                            change_blocks,
+                        ) = index
+                            .next()
+                            .transpose()?
+                            .ok_or_else(|| format_err!("Unexpected end of history index"))?;
                     }
 
                     let v = crate::accessors::state::storage::read_from_block(
                         tx,
                         address,
                         slot,
-                        change_blocks.iter()
+                        change_blocks
+                            .iter()
                             .find(|&change_block| *block_number < change_block)
-                            .map(BlockNumber)
+                            .map(BlockNumber),
                     )?;
 
                     if v != U256::ZERO {
