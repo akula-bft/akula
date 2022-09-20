@@ -87,7 +87,14 @@ pub struct Opt {
     #[clap(long)]
     pub execution_exit_after_batch: bool,
 
-    /// Skip commitment (state root) verification.
+    /// Skip HeadersDownload stage
+    #[clap(long)]
+    pub skip_headers: bool,
+
+    /// Skip BodyDownload stage
+    #[clap(long)]
+    pub skip_bodies: bool,
+
     #[clap(long)]
     pub skip_commitment: bool,
 
@@ -334,14 +341,6 @@ fn main() -> anyhow::Result<()> {
                     });
                 }
 
-                let increment = opt.increment.or({
-                    if opt.prune {
-                        Some(BlockNumber(90_000))
-                    } else {
-                        None
-                    }
-                });
-
                 // staged sync setup
                 let mut staged_sync = stagedsync::StagedSync::new();
                 staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
@@ -414,24 +413,41 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
 
-                staged_sync.push(
-                    HeaderDownload {
-                        node: node.clone(),
-                        consensus: consensus.clone(),
-                        max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
-                        increment,
-                    },
-                    false,
-                );
-                staged_sync.push(TotalGasIndex, false);
-                staged_sync.push(
-                    BlockHashes {
-                        temp_dir: etl_temp_dir.clone(),
-                    },
-                    false,
-                );
-                staged_sync.push(BodyDownload { node, consensus }, false);
-                staged_sync.push(TotalTxIndex, false);
+                // If an internet connection is unavailable, akula will normally hang at stage 1.
+                // Passing --skip-headers and --skip-bodies makes it possible complet the remaining
+                // stages even without an internet connection
+                if opt.skip_headers {
+                    let increment = opt.increment.or({
+                        if opt.prune {
+                            Some(BlockNumber(90_000))
+                        } else {
+                            None
+                        }
+                    });
+
+                    staged_sync.push(
+                        HeaderDownload {
+                            node: node.clone(),
+                            consensus: consensus.clone(),
+                            max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
+                            increment,
+                        },
+                        false,
+                    );
+                    staged_sync.push(TotalGasIndex, false);
+                    staged_sync.push(
+                        BlockHashes {
+                            temp_dir: etl_temp_dir.clone(),
+                        },
+                        false,
+                    );
+                }
+
+                if opt.skip_bodies {
+                    staged_sync.push(BodyDownload { node, consensus }, false);
+                    staged_sync.push(TotalTxIndex, false);
+                }
+
                 staged_sync.push(
                     SenderRecovery {
                         batch_size: opt.sender_recovery_batch_size.try_into().unwrap(),

@@ -190,7 +190,7 @@ where
                     while let Some(message) = stream.next().await {
                         match message {
                             Err(e) => {
-                                debug!("Peer incoming error: {}", e);
+                                trace!("Peer incoming error: {}", e);
                                 break;
                             }
                             Ok(PeerMessage::Subprotocol(SubprotocolMessage {
@@ -294,7 +294,7 @@ where
 
                     // Send egress message, force disconnect on error.
                     if let Err(e) = sink.send(message).await {
-                        debug!("peer disconnected with error {:?}", e);
+                        trace!("peer disconnected with error {:?}", e);
                         disconnecting.get_or_insert(DisconnectSignal {
                             initiator: DisconnectInitiator::LocalForceful,
                             reason: DisconnectReason::TcpSubsystemError,
@@ -307,7 +307,7 @@ where
                 }
 
                 if let Some(DisconnectSignal { initiator, reason }) = disconnecting {
-                    debug!("Disconnecting, initiated by {initiator:?} for reason {reason:?}");
+                    trace!("Disconnecting, initiated by {initiator:?} for reason {reason:?}");
                     if let DisconnectInitiator::Local = initiator {
                         // We have sent disconnect message, wait for grace period.
                         sleep(GRACE_PERIOD).await;
@@ -417,7 +417,7 @@ async fn handle_incoming_request<C, Io>(
 
             match mapping.entry(remote_id) {
                 Entry::Occupied(entry) => {
-                    debug!(
+                    trace!(
                         "We are already {} to remote peer {}!",
                         if entry.get().connection_state.is_connected() {
                             "connected"
@@ -430,7 +430,7 @@ async fn handle_incoming_request<C, Io>(
                 Entry::Vacant(entry) => {
                     if let Ok(sem_permit) = semaphore.clone().try_acquire_owned() {
                         if node_filter.lock().is_allowed(total_connections, remote_id) {
-                            debug!("New incoming peer connected: {}", remote_id);
+                            trace!("New incoming peer connected: {}", remote_id);
                             entry.insert(PeerState {
                                 connection_state: PeerConnectionState::Connected(setup_peer_state(
                                     Arc::downgrade(&streams),
@@ -448,7 +448,7 @@ async fn handle_incoming_request<C, Io>(
             }
         }
         Err(e) => {
-            debug!("Peer disconnected with error {}", e);
+            trace!("Peer disconnected with error {}", e);
         }
     }
 }
@@ -689,7 +689,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                 match next_peer {
                                     None => {},
                                     Some(Err(e)) => {
-                                        debug!("Failed to get new peer: {e} ({disc_id})")
+                                        trace!("Failed to get new peer: {e} ({disc_id})")
                                     }
                                     Some(Ok(NodeRecord { id, addr })) => {
                                         let now = Instant::now();
@@ -701,7 +701,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                                 now - banned_timestamp;
                                             if time_since_ban <= BAN_DURATION {
                                                 let secs_since_ban = time_since_ban.as_secs();
-                                                debug!(
+                                                trace!(
                                                     "Skipping failed peer ({id}, failed {secs_since_ban}s ago)",
                                                 );
                                                 banned = true;
@@ -717,7 +717,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                             let tasks = server.tasks.clone();
                                             let disc_id = disc_id.clone();
                                             tasks.spawn(async move {
-                                                debug!("Dialing peer {id:?}@{addr} ({disc_id})");
+                                                trace!("Dialing peer {id:?}@{addr} ({disc_id})");
                                                 if server
                                                     .add_peer_inner(addr, id, true)
                                                     .await
@@ -732,7 +732,7 @@ impl<C: CapabilityServer> Swarm<C> {
                                     }
                                 }
                             } else {
-                                debug!("Not accepting peers, delaying dial for {}ms", DIAL_SLEEP.as_millis());
+                                trace!("Not accepting peers, delaying dial for {}ms", DIAL_SLEEP.as_millis());
                                 sleep(DIAL_SLEEP).await;
                             }
                         }
@@ -825,7 +825,7 @@ impl<C: CapabilityServer> Swarm<C> {
 
                 match streams.mapping.entry(remote_id) {
                     Entry::Occupied(key) => {
-                        debug!(
+                        trace!(
                             "We are already {} to remote peer {}!",
                             if key.get().connection_state.is_connected() {
                                 "connected"
@@ -839,7 +839,7 @@ impl<C: CapabilityServer> Swarm<C> {
                         if untrusted_peer && !node_filter.is_allowed(connection_num, remote_id) {
                             trace!("rejecting peer {}", remote_id);
                         } else {
-                            debug!("connecting to peer {} at {}", remote_id, addr);
+                            trace!("connecting to peer {} at {}", remote_id, addr);
 
                             vacant.insert(PeerState {
                                 connection_state: PeerConnectionState::Connecting { connection_id },
@@ -880,7 +880,7 @@ impl<C: CapabilityServer> Swarm<C> {
                     match peer_res {
                         Ok(Ok(peer)) => {
                             assert_eq!(peer.remote_id(), remote_id);
-                            debug!("New peer connected: {}", remote_id);
+                            trace!("New peer connected: {}", remote_id);
 
                             peer_state.get_mut().connection_state =
                                 PeerConnectionState::Connected(setup_peer_state(
@@ -894,12 +894,12 @@ impl<C: CapabilityServer> Swarm<C> {
                             return Ok(true);
                         }
                         Ok(Err(e)) => {
-                            debug!("Peer {:?} disconnected with error: {}", remote_id, e);
+                            trace!("Peer {:?} disconnected with error: {}", remote_id, e);
                             peer_state.remove();
                             return Err(e);
                         }
                         Err(e) => {
-                            debug!("Connecting to peer timed out");
+                            trace!("Connecting to peer timed out");
                             peer_state.remove();
                             return Err(e.into());
                         }
@@ -910,7 +910,7 @@ impl<C: CapabilityServer> Swarm<C> {
             Ok(false)
         }
         .instrument(span!(
-            Level::DEBUG,
+            Level::TRACE,
             "add peer",
             "remote_id={}",
             &*remote_id.to_string()
