@@ -188,7 +188,7 @@ pub mod block_body {
             return Ok(Some((
                 BlockBody {
                     transactions,
-                    ommers: body.uncles,
+                    ommers: body.ommers,
                 },
                 body.base_tx_id,
             )));
@@ -319,7 +319,7 @@ mod tests {
         let body = BodyForStorage {
             base_tx_id: 1.into(),
             tx_amount: 2,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let db = new_mem_chaindata().unwrap();

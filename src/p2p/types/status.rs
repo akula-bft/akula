@@ -1,4 +1,4 @@
-use crate::models::{BlockNumber, ChainConfig, H256, U256};
+use crate::models::*;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Status {

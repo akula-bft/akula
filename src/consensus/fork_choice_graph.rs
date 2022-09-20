@@ -1,6 +1,5 @@
 use super::*;
-use crate::models::{BlockHeader, BlockNumber, H256};
-use ethnum::U256;
+use crate::models::*;
 use hashbrown::HashSet;
 use hashlink::LruCache;
 use std::borrow::Borrow;

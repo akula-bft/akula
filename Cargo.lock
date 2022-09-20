@@ -82,6 +82,7 @@ dependencies = [
  "directories",
  "e2p-fileflags",
  "educe",
+ "eio",
  "enr",
  "enum-primitive-derive",
  "ethereum-forkid",
@@ -118,8 +119,8 @@ dependencies = [
  "num-bigint",
  "num-traits",
  "num_cpus",
+ "num_enum",
  "once_cell",
- "parity-scale-codec",
  "parking_lot 0.12.1",
  "pprof",
  "primitive-types",
@@ -158,6 +159,7 @@ dependencies = [
  "tracing-subscriber",
  "triehash",
  "trust-dns-resolver",
+ "unsigned-varint",
  "url",
  "vergen",
  "walkdir",
@@ -1211,6 +1213,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "eio"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f49f253efa8cf9ddc16a96a88c8fbea982282d0361a07375a1bfff7ad7a40b77"
+
+[[package]]
 name = "either"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1405,10 +1413,10 @@ dependencies = [
 [[package]]
 name = "ethnum"
 version = "1.3.2"
-source = "git+https://github.com/vorot93/ethnum-rs?branch=impls#168043b69e6f8b0202c1e23ca2efa32647d3e9eb"
+source = "git+https://github.com/vorot93/ethnum-rs?branch=impls-3#9e47f746213325c073c5f972281435d0e1d94764"
 dependencies = [
+ "eio",
  "ethnum-intrinsics",
- "parity-scale-codec",
  "rlp",
  "serde",
 ]
@@ -1416,7 +1424,7 @@ dependencies = [
 [[package]]
 name = "ethnum-intrinsics"
 version = "1.1.0"
-source = "git+https://github.com/vorot93/ethnum-rs?branch=impls#168043b69e6f8b0202c1e23ca2efa32647d3e9eb"
+source = "git+https://github.com/vorot93/ethnum-rs?branch=impls-3#9e47f746213325c073c5f972281435d0e1d94764"
 dependencies = [
  "cc",
 ]
@@ -2653,6 +2661,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_enum"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf5395665662ef45796a4ff5486c5d41d29e0c09640af4c5f17fd94ee2c119c9"
+dependencies = [
+ "num_enum_derive",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0498641e53dd6ac1a4f22547548caa6864cc4933784319cd1775271c5a46ce"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "num_threads"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2709,7 +2738,6 @@ dependencies = [
  "arrayvec 0.7.2",
  "bitvec",
  "byte-slice-cast",
- "bytes",
  "impl-trait-for-tuples",
  "parity-scale-codec-derive",
  "serde",
@@ -4274,6 +4302,12 @@ name = "unicode-width"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b"
+
+[[package]]
+name = "unsigned-varint"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d86a8dc7f45e4c1b0d30e43038c38f274e77af056aa5f74b93c2cf9eb3c1c836"
 
 [[package]]
 name = "url"

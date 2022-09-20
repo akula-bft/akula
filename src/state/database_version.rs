@@ -3,7 +3,7 @@ use anyhow::format_err;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
-const DATABASE_VERSION: u64 = 2;
+const DATABASE_VERSION: u64 = 3;
 
 type Migration<'db, E> = fn(&mut MdbxTransaction<'db, RW, E>) -> anyhow::Result<u64>;
 

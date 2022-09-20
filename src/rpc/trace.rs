@@ -10,6 +10,7 @@ use crate::{
     u256_to_h256, Buffer, HeaderReader, IntraBlockState, StateReader, StateWriter,
 };
 use anyhow::format_err;
+use arrayvec::ArrayVec;
 use async_trait::async_trait;
 use bytes::Bytes;
 use ethereum_interfaces::web3::{
@@ -201,7 +202,7 @@ fn do_call_many<K, E>(
     txn: &MdbxTransaction<'_, K, E>,
     kind: CallManyMode,
     calls: Vec<(Address, Message, HashSet<types::TraceType>)>,
-    finalization: Option<Vec<BlockHeader>>,
+    ommers_for_finalization: Option<ArrayVec<BlockHeader, 2>>,
 ) -> anyhow::Result<(Vec<types::FullTrace>, Vec<types::RewardAction>)>
 where
     K: TransactionKind,
@@ -387,7 +388,7 @@ where
     }
 
     let mut rewards = vec![];
-    if let Some(ommers) = finalization {
+    if let Some(ommers) = ommers_for_finalization {
         for change in engine_factory(None, chain_spec, None)?.finalize(&header, &ommers)? {
             match change {
                 crate::consensus::FinalizationChange::Reward {

@@ -217,7 +217,7 @@ mod tests {
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
             tx_amount: 2,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx1_1 = MessageWithSignature {
@@ -269,7 +269,7 @@ mod tests {
         let block2 = BodyForStorage {
             base_tx_id: 3.into(),
             tx_amount: 3,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx2_1 = MessageWithSignature {
@@ -347,7 +347,7 @@ mod tests {
         let block3 = BodyForStorage {
             base_tx_id: 6.into(),
             tx_amount: 0,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         chain::storage_body::write(&tx, 1, &block1).unwrap();
@@ -431,7 +431,7 @@ mod tests {
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
             tx_amount: 2,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx1_1 = MessageWithSignature {
@@ -483,7 +483,7 @@ mod tests {
         let block2 = BodyForStorage {
             base_tx_id: 3.into(),
             tx_amount: 3,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx2_1 = MessageWithSignature {
@@ -561,7 +561,7 @@ mod tests {
         let block3 = BodyForStorage {
             base_tx_id: 6.into(),
             tx_amount: 0,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         chain::storage_body::write(&tx, 1, &block1).unwrap();
