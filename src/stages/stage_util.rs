@@ -11,6 +11,7 @@ use crate::{
 use anyhow::format_err;
 use itertools::Itertools;
 use std::collections::{BTreeSet, HashMap};
+use tracing::*;
 
 pub fn should_do_clean_promotion<'db, 'tx, K, E>(
     tx: &'tx MdbxTransaction<'db, K, E>,
@@ -39,6 +40,7 @@ where
         )
     })?;
 
+    debug!("should_do_clean_promotion: past_progress={} gas_progress={} threshold={}", past_progress, gas_progress, threshold);
     Ok(past_progress == genesis || gas_progress > threshold)
 }
 

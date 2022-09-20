@@ -111,7 +111,7 @@ where
                     };
                     let _ = chain_finalized_hash;
 
-                    info!("Received chain tip hash: {chain_tip_hash}, starting_download");
+                    info!("Received chain tip hash: {chain_tip_hash}, starting_download (last block #{prev_progress})");
 
                     let mut stream = self.node.stream_headers().await;
 
@@ -362,7 +362,7 @@ impl HeaderDownload {
                                 if sent.contains(&(msg.sentry_id, msg.peer_id)) {
                                     if let Message::BlockHeaders(BlockHeaders { request_id, headers }) = msg.msg.clone() {
                                         if sent_request_id == request_id && !headers.is_empty() {
-                                            info!("Received {} headers from peer {}/{}", headers.len(), msg.sentry_id, msg.peer_id);
+                                            info!("Received {} headers from peer {}/{} (request id {})", headers.len(), msg.sentry_id, msg.peer_id, request_id);
 
                                             break Some(headers);
                                         }
@@ -456,9 +456,10 @@ impl HeaderDownload {
         let peer_map = Arc::new(DashMap::new());
 
         info!(
-            "Will download {} headers over {} requests",
+            "Will download {} headers over {} requests (blocks {}-{})",
             end - start + 1,
-            requests.len()
+            requests.len(),
+            start, end
         );
 
         let mut stream = self.node.stream_headers().await;
