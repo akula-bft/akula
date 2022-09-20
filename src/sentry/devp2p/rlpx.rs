@@ -676,9 +676,7 @@ impl<C: CapabilityServer> Swarm<C> {
                 let task_id = format!("dialer ({disc_id})");
                 tasks.spawn_with_name(&task_id, {
                     let server = Arc::downgrade(&server);
-
                     let banlist = Arc::new(Mutex::new(LruCache::new(10_000)));
-
                     let server = server.clone();
                     let no_new_peers = options.no_new_peers.clone();
 

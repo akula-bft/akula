@@ -52,6 +52,7 @@ where
             } else if block_number.0 % 10_000 == 0 {
                 debug!("[block_hashes:execute] Processing block hahes (at {})", block_number);
             }
+
             // BlockBody Key is block_number + hash, so we just separate and collect
             collector.push(block_hash, block_number);
 

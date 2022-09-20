@@ -964,12 +964,12 @@ mod tests {
                 value: 10.as_u256() * 1_000_000_000 * 1_000_000_000,
                 input: hex!("a9059cbb000000000213ed0f886efd100b67c7e4ec0a85a7d20dc971600000000000000000000015af1d78b58c4000").to_vec().into(),
             },
-			signature: MessageSignature::new(
+            signature: MessageSignature::new(
                 true,
                 hex!("be67e0a07db67da8d446f76add590e54b6e92cb6b8f9835aeb67540579a27717"),
                 hex!("2d690516512020171c1ec870f6ff45398cc8609250326be89915fb538e7bd718"),
             ).unwrap(),
-		};
+        };
 
         check_transaction(&v, 0);
     }
