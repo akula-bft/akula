@@ -24,6 +24,8 @@ use std::{
 };
 use std::time::{SystemTimeError};
 use tokio::sync::watch;
+use tracing::{*};
+use crate::kv::tables;
 
 #[derive(Debug)]
 pub enum FinalizationChange {
@@ -159,7 +161,7 @@ pub trait Consensus: Debug + Send + Sync + 'static {
     /// To be overridden for consensus validators' snap.
     fn snapshot(
         &mut self,
-        _db: &dyn SnapRW,
+        _db: &dyn SnapDB,
         _block_number: BlockNumber,
         _block_hash: H256,
     ) -> anyhow::Result<(), DuoError> {
@@ -528,4 +530,32 @@ pub fn engine_factory(
             since,
         )),
     })
+}
+
+/// to handle snap from db
+pub trait SnapDB: HeaderReader {
+    /// read snap from db
+    fn read_parlia_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>>;
+    /// write snap into db
+    fn write_parlia_snap(&self, snap: &Snapshot) -> anyhow::Result<()>;
+}
+
+impl<E: EnvironmentKind> SnapDB for MdbxTransaction<'_, RW, E> {
+    fn read_parlia_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>> {
+        let snap_op = self.get(tables::ColParliaSnapshot, block_hash)?;
+        Ok(match snap_op {
+            None => {
+                None
+            }
+            Some(val) => {
+                Some(serde_json::from_slice(&val)?)
+            }
+        })
+    }
+
+    fn write_parlia_snap(&self, snap: &Snapshot) -> anyhow::Result<()> {
+        debug!("snap store {}, {}", snap.block_number, snap.block_hash);
+        let value = serde_json::to_vec(snap)?;
+        self.set(tables::ColParliaSnapshot, snap.block_hash, value)
+    }
 }

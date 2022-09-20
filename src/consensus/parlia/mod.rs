@@ -4,8 +4,8 @@ mod snapshot;
 mod contract_upgrade;
 mod util;
 mod state;
+pub use snapshot::Snapshot;
 pub use state::{ParliaNewBlockState};
-pub use snapshot::{SnapRW};
 pub use util::{is_system_transaction, SYSTEM_ACCOUNT};
 
 use super::*;
@@ -20,9 +20,6 @@ use std::str;
 
 use crate::{
     consensus::{
-        parlia::{
-            snapshot::{Snapshot},
-        },
         ValidationError, ParliaError
     },
     crypto::go_rng::{RngSource, Shuffle},
@@ -343,7 +340,7 @@ impl Consensus for Parlia {
 
     fn snapshot(
         &mut self,
-        db: &dyn SnapRW,
+        db: &dyn SnapDB,
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<(), DuoError> {
@@ -360,7 +357,7 @@ impl Consensus for Parlia {
                 break;
             }
             if block_number % CHECKPOINT_INTERVAL == 0 {
-                if let Some(cached) = db.read_snap(block_hash)? {
+                if let Some(cached) = db.read_parlia_snap(block_hash)? {
                     debug!("snap find from db {} {:?}", block_number, block_hash);
                     snap = cached;
                     break;
@@ -392,7 +389,7 @@ impl Consensus for Parlia {
         snap_cache.insert(snap.block_hash, snap.clone());
         if snap.block_number % CHECKPOINT_INTERVAL == 0 {
             debug!("snap save {} {:?}", snap.block_number, snap.block_hash);
-            db.write_snap(&snap)?;
+            db.write_parlia_snap(&snap)?;
         }
         return Ok(());
     }

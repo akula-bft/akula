@@ -2,15 +2,12 @@ use crate::{
     consensus::{
         parlia::{util, SIGNATURE_LENGTH, VANITY_LENGTH},*
     },
-    kv::{mdbx::*, tables},
-    HeaderReader,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap},
 };
 use ethereum_types::{Address};
-use tracing::*;
 
 /// Snapshot, record validators and proposal from epoch chg.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -45,7 +42,7 @@ impl Snapshot {
 
     pub fn apply(
         &mut self,
-        db: &dyn SnapRW,
+        db: &dyn SnapDB,
         header: &BlockHeader,
         chain_id: ChainId,
     ) -> Result<Snapshot, DuoError> {
@@ -115,33 +112,5 @@ impl Snapshot {
             }
         }
         -1
-    }
-}
-
-/// to handle snap from db
-pub trait SnapRW: HeaderReader {
-    /// read snap from db
-    fn read_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>>;
-    /// write snap into db
-    fn write_snap(&self, snap: &Snapshot) -> anyhow::Result<()>;
-}
-
-impl<E: EnvironmentKind> SnapRW for MdbxTransaction<'_, RW, E> {
-    fn read_snap(&self, block_hash: H256) -> anyhow::Result<Option<Snapshot>> {
-        let snap_op = self.get(tables::ColParliaSnapshot, block_hash)?;
-        Ok(match snap_op {
-            None => {
-                None
-            }
-            Some(val) => {
-                Some(serde_json::from_slice(&val)?)
-            }
-        })
-    }
-
-    fn write_snap(&self, snap: &Snapshot) -> anyhow::Result<()> {
-        debug!("snap store {}, {}", snap.block_number, snap.block_hash);
-        let value = serde_json::to_vec(snap)?;
-        self.set(tables::ColParliaSnapshot, snap.block_hash, value)
     }
 }

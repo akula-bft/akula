@@ -131,7 +131,7 @@ pub fn is_similar_tx(actual: &Message, expect: &Message) -> bool {
 
 /// find header.block_number - count, block header
 pub fn find_ancient_header(
-    db: &dyn SnapRW,
+    db: &dyn SnapDB,
     header: &BlockHeader,
     count: u64,
 ) -> Result<BlockHeader, DuoError> {
