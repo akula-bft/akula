@@ -227,7 +227,7 @@ impl Host for MockedHost {
         });
     }
 
-    fn call(&mut self, msg: Call) -> Output {
+    fn call(&mut self, msg: Call, _stack: EvmStack) -> Output {
         let msg = match msg {
             Call::Call(message) => message.clone(),
             Call::Create(message) => message.clone().into(),

@@ -24,7 +24,10 @@ fn exec(
     }
     let code = AnalyzedCode::analyze(&code);
 
-    code.execute(host, &message, revision)
+    let mut super_stack = EvmSuperStack::new();
+    let stack = super_stack.get_origin_stack();
+
+    code.execute(host, &message, stack, revision)
 }
 
 #[derive(Clone, Copy, Debug)]

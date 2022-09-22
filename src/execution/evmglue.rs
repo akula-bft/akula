@@ -8,7 +8,7 @@ use crate::{
     chain::protocol_param::{fee, param},
     crypto::keccak256,
     execution::evm::{
-        host::*, AnalyzedCode, CallKind, CreateMessage, InterpreterMessage, Output, StatusCode,
+        host::*, AnalyzedCode, CallKind, CreateMessage, EvmStack, EvmSuperStack, InterpreterMessage, Output, StatusCode,
     },
     h256_to_u256,
     models::*,
@@ -63,6 +63,9 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
         beneficiary,
     };
 
+    let mut super_stack = EvmSuperStack::new();
+    let stack = super_stack.get_origin_stack();
+
     let res = if let TransactionAction::Call(to) = message.action() {
         evm.call(&InterpreterMessage {
             kind: CallKind::Call,
@@ -75,7 +78,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
             real_sender: sender,
             recipient: to,
             code_address: to,
-        })?
+        }, stack)?
     } else {
         evm.create(&CreateMessage {
             depth: 0,
@@ -84,7 +87,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
             initcode: message.input().clone(),
             endowment: message.value(),
             salt: None,
-        })?
+        }, stack)?
     };
 
     Ok(CallResult {
@@ -99,7 +102,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
     B: HeaderReader + StateReader,
 {
-    fn create(&mut self, message: &CreateMessage) -> anyhow::Result<Output> {
+    fn create(&mut self, message: &CreateMessage, stack: EvmStack) -> anyhow::Result<Output> {
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
@@ -178,7 +181,7 @@ where
             value: message.endowment,
         };
 
-        res = self.execute(&deploy_message, &message.initcode, None)?;
+        res = self.execute(&deploy_message, &message.initcode, None, stack)?;
 
         if res.status_code == StatusCode::Success {
             let code_len = res.output_data.len();
@@ -216,7 +219,7 @@ where
         Ok(res)
     }
 
-    fn call(&mut self, message: &InterpreterMessage) -> anyhow::Result<Output> {
+    fn call(&mut self, message: &InterpreterMessage, stack: EvmStack) -> anyhow::Result<Output> {
         if message.kind != CallKind::DelegateCall
             && self.state.get_balance(message.sender)? < message.value
         {
@@ -298,7 +301,7 @@ where
 
                 let code_hash = self.state.get_code_hash(message.code_address)?;
 
-                self.execute(message, code, Some(&code_hash))?
+                self.execute(message, code, Some(&code_hash), stack)?
             }
             CodeKind::Precompile => {
                 let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
@@ -344,6 +347,7 @@ where
         msg: &InterpreterMessage,
         code: &[u8],
         code_hash: Option<&H256>,
+        stack: EvmStack,
     ) -> anyhow::Result<Output> {
         let analysis = if let Some(code_hash) = code_hash {
             if let Some(cache) = self.analysis_cache.get(code_hash).cloned() {
@@ -359,7 +363,7 @@ where
 
         let revision = self.block_spec.revision;
 
-        let output = analysis.execute(self, msg, revision);
+        let output = analysis.execute(self, msg, stack, revision);
 
         self.tracer.capture_end(
             msg.depth.try_into().unwrap(),
@@ -545,10 +549,10 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
         self.tracer(|t| t.capture_self_destruct(address, beneficiary, balance));
     }
 
-    fn call(&mut self, msg: Call) -> Output {
+    fn call(&mut self, msg: Call, stack: EvmStack) -> Output {
         match msg {
             Call::Create(message) => {
-                let mut res = self.create(message).unwrap();
+                let mut res = self.create(message, stack).unwrap();
 
                 // https://eips.ethereum.org/EIPS/eip-211
                 if res.status_code != StatusCode::Revert {
@@ -558,7 +562,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
 
                 res
             }
-            Call::Call(message) => self.call(message).unwrap(),
+            Call::Call(message) => self.call(message, stack).unwrap(),
         }
     }
 

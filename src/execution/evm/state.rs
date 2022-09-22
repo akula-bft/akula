@@ -1,4 +1,4 @@
-use super::common::InterpreterMessage;
+use super::{common::InterpreterMessage};
 use bytes::{Bytes, BytesMut};
 use derive_more::{Deref, DerefMut};
 use ethnum::U256;
@@ -11,16 +11,15 @@ pub const STACK_SIZE: usize = 1024;
 /// Size of EVM stack in bytes
 const STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * STACK_SIZE;
 
-/// EVM stack.
-//#[derive(Clone, Debug, Default, Serialize)]
-#[derive(Debug)]
-pub struct Stack {
-    head: *mut U256,
-    /// Pointer to memory of [U256; STACK_SIZE]
-    base: *mut U256,
+pub(crate) const MAX_CONTEXT_DEPTH: usize = 1024;
+
+const SUPER_STACK_SIZE_BYTES: usize = STACK_SIZE_BYTES * MAX_CONTEXT_DEPTH;
+
+pub struct EvmSuperStack {
+    p: *mut [U256; SUPER_STACK_SIZE_BYTES],
 }
 
-impl Stack {
+impl EvmSuperStack {
     #[inline]
     pub fn new() -> Self {
         unsafe {
@@ -28,7 +27,7 @@ impl Stack {
             let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS;
             let mmap_res = libc::mmap(
                 ptr::null_mut(),
-                STACK_SIZE_BYTES,
+                SUPER_STACK_SIZE_BYTES,
                 libc::PROT_READ | libc::PROT_WRITE,
                 flags,
                 -1,
@@ -38,12 +37,50 @@ impl Stack {
                 let err = io::Error::last_os_error();
                 panic!("Failed to allocate memory for EVM stack: {err}");
             }
-            let p: *mut U256 = mmap_res.cast();
-            let base = p.add(STACK_SIZE);
-            Self {
-                head: base,
-                base,
+            Self { p: mmap_res.cast() }
+        }
+    }
+
+    pub fn get_origin_stack(&mut self) -> EvmStack {
+        let p = unsafe { self.p.add(1).cast() };
+        EvmStack {
+            head: p,
+            base: p,
+            origin: self,
+        }
+    }
+}
+
+impl Drop for EvmSuperStack {
+    fn drop(&mut self) {
+        unsafe {
+            let res = libc::munmap(self.p.cast(), SUPER_STACK_SIZE_BYTES);
+            if res != 0 {
+                let err = io::Error::last_os_error();
+                panic!("Failed to deallocate stack memory: {err}")
             }
+        }
+    }
+}
+
+
+/// EVM stack.
+//#[derive(Clone, Debug, Default, Serialize)]
+pub struct EvmStack<'a> {
+    head: *mut U256,
+    /// Pointer to memory of [U256; STACK_SIZE]
+    base: *mut U256,
+    origin: &'a mut EvmSuperStack,
+}
+
+impl<'a> EvmStack<'a> {
+    #[inline(always)]
+    pub fn next_substack<'b>(&'b mut self) -> EvmStack<'b> {
+        let p = unsafe { self.head.sub(16) };
+        EvmStack {
+            head: p,
+            base: p,
+            origin: self.origin,
         }
     }
 
@@ -106,25 +143,6 @@ impl Stack {
     }
 }
 
-impl Default for Stack {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for Stack {
-    fn drop(&mut self) {
-        unsafe {
-            let p = self.base.sub(STACK_SIZE);
-            let res = libc::munmap(p.cast(), STACK_SIZE_BYTES);
-            if res != 0 {
-                let err = io::Error::last_os_error();
-                panic!("Failed to deallocate stack memory: {err}")
-            }
-        }
-    }
-}
-
 const PAGE_SIZE: usize = 4 * 1024;
 
 #[derive(Clone, Debug, Deref, DerefMut)]
@@ -155,12 +173,12 @@ impl Default for Memory {
 
 /// EVM execution state.
 // #[derive(Clone, Debug, Getters, MutGetters)]
-#[derive(Debug, Getters, MutGetters)]
+#[derive(Getters, MutGetters)]
 pub struct ExecutionState<'m> {
     #[getset(get = "pub", get_mut = "pub")]
     pub(crate) gas_left: i64,
     #[getset(get = "pub", get_mut = "pub")]
-    pub(crate) stack: Stack,
+    pub(crate) stack: EvmStack<'m>,
     #[getset(get = "pub", get_mut = "pub")]
     pub(crate) memory: Memory,
     pub(crate) message: &'m InterpreterMessage,
@@ -170,10 +188,10 @@ pub struct ExecutionState<'m> {
 }
 
 impl<'m> ExecutionState<'m> {
-    pub fn new(message: &'m InterpreterMessage) -> Self {
+    pub fn new(message: &'m InterpreterMessage, stack: EvmStack<'m>) -> Self {
         Self {
             gas_left: message.gas,
-            stack: Stack::new(),
+            stack,
             memory: Memory::new(),
             message,
             return_data: Default::default(),
@@ -188,7 +206,8 @@ mod tests {
 
     #[test]
     fn stack() {
-        let mut stack = Stack::new();
+        let mut super_stack = EvmSuperStack::new();
+        let mut stack = super_stack.get_origin_stack();
 
         let items: [u128; 4] = [0xde, 0xad, 0xbe, 0xef];
 

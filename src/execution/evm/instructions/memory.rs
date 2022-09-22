@@ -191,7 +191,7 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
 }
 
 #[inline]
-pub(crate) fn codesize(stack: &mut Stack, code: &[u8]) {
+pub(crate) fn codesize(stack: &mut EvmStack, code: &[u8]) {
     stack.push(u128::try_from(code.len()).unwrap().into())
 }
 

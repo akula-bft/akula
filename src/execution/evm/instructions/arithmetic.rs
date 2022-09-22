@@ -1,5 +1,5 @@
 use crate::{
-    execution::evm::{state::*, StatusCode},
+    execution::evm::{state::{EvmStack, ExecutionState}, StatusCode},
     models::*,
 };
 use ethereum_types::U512;
@@ -7,35 +7,35 @@ use ethnum::U256;
 use i256::{i256_div, i256_mod};
 
 #[inline]
-pub(crate) fn add(stack: &mut Stack) {
+pub(crate) fn add(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.pop();
     stack.push(a.overflowing_add(b).0);
 }
 
 #[inline]
-pub(crate) fn mul(stack: &mut Stack) {
+pub(crate) fn mul(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.pop();
     stack.push(a.overflowing_mul(b).0);
 }
 
 #[inline]
-pub(crate) fn sub(stack: &mut Stack) {
+pub(crate) fn sub(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.pop();
     stack.push(a.overflowing_sub(b).0);
 }
 
 #[inline]
-pub(crate) fn div(stack: &mut Stack) {
+pub(crate) fn div(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
     *b = if *b == 0 { U256::ZERO } else { a / *b };
 }
 
 #[inline]
-pub(crate) fn sdiv(stack: &mut Stack) {
+pub(crate) fn sdiv(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.pop();
     let v = i256_div(a, b);
@@ -43,14 +43,14 @@ pub(crate) fn sdiv(stack: &mut Stack) {
 }
 
 #[inline]
-pub(crate) fn modulo(stack: &mut Stack) {
+pub(crate) fn modulo(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
     *b = if *b == 0 { U256::ZERO } else { a % *b };
 }
 
 #[inline]
-pub(crate) fn smod(stack: &mut Stack) {
+pub(crate) fn smod(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
 
@@ -62,7 +62,7 @@ pub(crate) fn smod(stack: &mut Stack) {
 }
 
 #[inline]
-pub(crate) fn addmod(stack: &mut Stack) {
+pub(crate) fn addmod(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.pop();
     let c = stack.pop();
@@ -84,7 +84,7 @@ pub(crate) fn addmod(stack: &mut Stack) {
 }
 
 #[inline]
-pub(crate) fn mulmod(stack: &mut Stack) {
+pub(crate) fn mulmod(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.pop();
     let c = stack.pop();
@@ -160,7 +160,7 @@ pub(crate) fn exp<const REVISION: Revision>(state: &mut ExecutionState) -> Resul
 }
 
 #[inline]
-pub(crate) fn signextend(stack: &mut Stack) {
+pub(crate) fn signextend(stack: &mut EvmStack) {
     let a = stack.pop();
     let b = stack.get_mut(0);
 

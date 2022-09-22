@@ -1,5 +1,5 @@
 use crate::{
-    execution::evm::{instructions::memory, CallKind, ExecutionState, Host, StatusCode},
+    execution::evm::{instructions::memory, state::MAX_CONTEXT_DEPTH, CallKind, ExecutionState, Host, StatusCode},
     models::Revision,
 };
 use bytes::Bytes;
@@ -118,11 +118,12 @@ pub(crate) fn do_call<
 
     state.return_data.clear();
 
-    if state.message.depth < 1024
+    if state.message.depth < MAX_CONTEXT_DEPTH as i32
         && !(has_value && host.get_balance(state.message.recipient) < value)
     {
         let msg_gas = msg.gas;
-        let result = host.call(Call::Call(&msg));
+        let next_stack = state.stack_mut().next_substack();
+        let result = host.call(Call::Call(&msg), next_stack);
         state.return_data = result.output_data.clone();
         *state.stack.get_mut(0) = if matches!(result.status_code, StatusCode::Success) {
             U256::ONE
@@ -186,7 +187,7 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
     state.stack.push(U256::ZERO);
     state.return_data.clear();
 
-    if state.message.depth < 1024
+    if state.message.depth < MAX_CONTEXT_DEPTH as i32
         && !(endowment != 0 && host.get_balance(state.message.recipient) < endowment)
     {
         let msg = CreateMessage {
@@ -210,7 +211,8 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
             endowment,
         };
         let msg_gas = msg.gas;
-        let result = host.call(Call::Create(&msg));
+        let next_stack = state.stack_mut().next_substack();
+        let result = host.call(Call::Create(&msg), next_stack);
         state.gas_left -= msg_gas - result.gas_left;
 
         state.return_data = result.output_data;

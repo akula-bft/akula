@@ -52,53 +52,27 @@ pub struct AnalyzedCode {
 impl AnalyzedCode {
     /// Analyze code and prepare it for execution.
     pub fn analyze(code: &[u8]) -> Self {
-        let mut jumpdest_map = vec![false; code.len()];
+        const JUMPDEST: u8 = OpCode::JUMPDEST.0;
+        const PUSH1: u8 = OpCode::PUSH1.0;
+        const PUSH32: u8 = OpCode::PUSH32.0;
+
+        let code_len = code.len();
+        let mut jumpdest_map = vec![false; code_len];
 
         let mut i = 0;
-        while i < code.len() {
-            let opcode = OpCode(code[i]);
+        while i < code_len {
+            let opcode = code[i];
             i += match opcode {
-                OpCode::JUMPDEST => {
+                JUMPDEST => {
                     jumpdest_map[i] = true;
                     1
                 }
-                OpCode::PUSH1
-                | OpCode::PUSH2
-                | OpCode::PUSH3
-                | OpCode::PUSH4
-                | OpCode::PUSH5
-                | OpCode::PUSH6
-                | OpCode::PUSH7
-                | OpCode::PUSH8
-                | OpCode::PUSH9
-                | OpCode::PUSH10
-                | OpCode::PUSH11
-                | OpCode::PUSH12
-                | OpCode::PUSH13
-                | OpCode::PUSH14
-                | OpCode::PUSH15
-                | OpCode::PUSH16
-                | OpCode::PUSH17
-                | OpCode::PUSH18
-                | OpCode::PUSH19
-                | OpCode::PUSH20
-                | OpCode::PUSH21
-                | OpCode::PUSH22
-                | OpCode::PUSH23
-                | OpCode::PUSH24
-                | OpCode::PUSH25
-                | OpCode::PUSH26
-                | OpCode::PUSH27
-                | OpCode::PUSH28
-                | OpCode::PUSH29
-                | OpCode::PUSH30
-                | OpCode::PUSH31
-                | OpCode::PUSH32 => (opcode.0 - OpCode::PUSH1.0 + 2) as usize,
+                PUSH1..=PUSH32 => {
+                    (opcode - PUSH1 + 2) as usize
+                }
                 _ => 1,
             }
         }
-
-        let code_len = code.len();
 
         let mut padded_code = code.to_vec();
         padded_code.resize(i + 1, OpCode::STOP.to_u8());
@@ -120,80 +94,38 @@ impl AnalyzedCode {
         &self,
         host: &mut H,
         message: &InterpreterMessage,
+        stack: EvmStack,
         revision: Revision,
     ) -> Output
     where
         H: Host,
     {
-        let mut state = ExecutionState::new(message);
-        let res = match (host.trace_instructions(), revision) {
-            (true, Revision::Frontier) => {
-                execute_message::<H, true, { Revision::Frontier }>(self, &mut state, host)
-            }
-            (true, Revision::Homestead) => {
-                execute_message::<H, true, { Revision::Homestead }>(self, &mut state, host)
-            }
-            (true, Revision::Tangerine) => {
-                execute_message::<H, true, { Revision::Tangerine }>(self, &mut state, host)
-            }
-            (true, Revision::Spurious) => {
-                execute_message::<H, true, { Revision::Spurious }>(self, &mut state, host)
-            }
-            (true, Revision::Byzantium) => {
-                execute_message::<H, true, { Revision::Byzantium }>(self, &mut state, host)
-            }
-            (true, Revision::Constantinople) => {
-                execute_message::<H, true, { Revision::Constantinople }>(self, &mut state, host)
-            }
-            (true, Revision::Petersburg) => {
-                execute_message::<H, true, { Revision::Petersburg }>(self, &mut state, host)
-            }
-            (true, Revision::Istanbul) => {
-                execute_message::<H, true, { Revision::Istanbul }>(self, &mut state, host)
-            }
-            (true, Revision::Berlin) => {
-                execute_message::<H, true, { Revision::Berlin }>(self, &mut state, host)
-            }
-            (true, Revision::London) => {
-                execute_message::<H, true, { Revision::London }>(self, &mut state, host)
-            }
-            (true, Revision::Paris) => {
-                execute_message::<H, true, { Revision::Paris }>(self, &mut state, host)
-            }
-            (false, Revision::Frontier) => {
-                execute_message::<H, false, { Revision::Frontier }>(self, &mut state, host)
-            }
-            (false, Revision::Homestead) => {
-                execute_message::<H, false, { Revision::Homestead }>(self, &mut state, host)
-            }
-            (false, Revision::Tangerine) => {
-                execute_message::<H, false, { Revision::Tangerine }>(self, &mut state, host)
-            }
-            (false, Revision::Spurious) => {
-                execute_message::<H, false, { Revision::Spurious }>(self, &mut state, host)
-            }
-            (false, Revision::Byzantium) => {
-                execute_message::<H, false, { Revision::Byzantium }>(self, &mut state, host)
-            }
-            (false, Revision::Constantinople) => {
-                execute_message::<H, false, { Revision::Constantinople }>(self, &mut state, host)
-            }
-            (false, Revision::Petersburg) => {
-                execute_message::<H, false, { Revision::Petersburg }>(self, &mut state, host)
-            }
-            (false, Revision::Istanbul) => {
-                execute_message::<H, false, { Revision::Istanbul }>(self, &mut state, host)
-            }
-            (false, Revision::Berlin) => {
-                execute_message::<H, false, { Revision::Berlin }>(self, &mut state, host)
-            }
-            (false, Revision::London) => {
-                execute_message::<H, false, { Revision::London }>(self, &mut state, host)
-            }
-            (false, Revision::Paris) => {
-                execute_message::<H, false, { Revision::Paris }>(self, &mut state, host)
-            }
-        };
+        let mut state = ExecutionState::new(message, stack);
+
+        macro_rules! execute_revisions {
+            (
+                $trace:expr, $revision:expr, $self:expr, $state:expr, $host:expr,
+                $($rev:ident, )*
+            ) => {
+                match ($trace, $revision) {
+                    $(
+                        (true, Revision::$rev) => {
+                            execute_message::<H, true, { Revision::$rev }>(self, &mut state, host)
+                        }
+                        (false, Revision::$rev) => {
+                            execute_message::<H, false, { Revision::$rev }>(self, &mut state, host)
+                        }
+                    )*
+                }
+            };
+        }
+
+        let res = execute_revisions!(
+            host.trace_instructions(), revision, self, &mut state, host,
+            Frontier, Homestead, Tangerine, Spurious, Byzantium,
+            Constantinople, Petersburg, Istanbul, Berlin, London,
+            Paris,  
+        );
 
         match res {
             Ok(output) => output.into(),
