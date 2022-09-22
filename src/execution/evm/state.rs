@@ -15,9 +15,9 @@ const STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * STACK_SIZE;
 //#[derive(Clone, Debug, Default, Serialize)]
 #[derive(Debug)]
 pub struct Stack {
-    pos: usize,
+    head: *mut U256,
     /// Pointer to memory of [U256; STACK_SIZE]
-    p: *mut U256,
+    base: *mut U256,
 }
 
 impl Stack {
@@ -38,74 +38,70 @@ impl Stack {
                 let err = io::Error::last_os_error();
                 panic!("Failed to allocate memory for EVM stack: {err}");
             }
+            let p: *mut U256 = mmap_res.cast();
+            let base = p.add(STACK_SIZE);
             Self {
-                pos: 0,
-                p: mmap_res.cast(),
+                head: base,
+                base,
             }
         }
     }
 
     #[inline(always)]
     pub fn get(&self, pos: usize) -> &U256 {
-        assert!(pos < STACK_SIZE);
-        unsafe { &*self.p.add(pos) }
+        debug_assert!(pos < self.len());
+        unsafe { &*self.head.add(pos) }
     }
 
     #[inline(always)]
     pub fn get_mut(&mut self, pos: usize) -> &mut U256 {
-        assert!(pos < STACK_SIZE);
-        unsafe { &mut *self.p.add(pos) }
+        debug_assert!(pos < self.len());
+        unsafe { &mut *self.head.add(pos) }
     }
 
     #[inline(always)]
     pub fn len(&self) -> usize {
-        self.pos
+        // TODO: use sub_ptr on stabilization
+        unsafe { self.base.offset_from(self.head) as usize }
     }
 
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
-        // println!("is_empty: {}", self.len() == 0);
         self.len() == 0
     }
 
     #[inline(always)]
     pub fn push(&mut self, v: U256) {
-        // println!("push {}", self.pos);
-        assert!(self.pos < STACK_SIZE);
+        debug_assert!(self.len() < STACK_SIZE);
         unsafe {
-            let p = self.p.add(self.pos);
-            ptr::write(p, v);
-            self.pos += 1;
+            self.head = self.head.sub(1);
+            ptr::write(self.head, v);
         }
     }
 
     #[inline(always)]
     pub fn pop(&mut self) -> U256 {
-        // println!("pop {}", self.pos);
-        assert_ne!(self.pos, 0);
+        debug_assert_ne!(self.len(), 0);
         unsafe {
-            self.pos -= 1;
-            let p = self.p.add(self.pos);
-            ptr::read(p)
+            let val = ptr::read(self.head);
+            self.head = self.head.add(1);
+            val
         }
     }
 
     #[inline(always)]
     pub fn swap_top(&mut self, pos: usize) {
-        // println!("swap {} {pos}", self.pos);
-        assert!(pos < STACK_SIZE);
-        assert!(self.pos - 1 < STACK_SIZE);
+        debug_assert_ne!(pos, 0);
+        debug_assert!(pos < self.len());
         unsafe {
-            let p1 = self.p.add(self.pos - 1);
-            let p2 = self.p.add(pos);
-            ptr::swap_nonoverlapping(p1, p2, 1);
+            ptr::swap_nonoverlapping(self.head, self.head.add(pos), 1);
         }
     }
 
     #[inline(always)]
     pub fn clone_to_vec(&self) -> Vec<U256> {
         unsafe {
-            core::slice::from_raw_parts(self.p, self.pos).to_vec()
+            core::slice::from_raw_parts(self.head, self.len()).to_vec()
         }
     }
 }
@@ -119,7 +115,8 @@ impl Default for Stack {
 impl Drop for Stack {
     fn drop(&mut self) {
         unsafe {
-            let res = libc::munmap(self.p.cast(), STACK_SIZE_BYTES);
+            let p = self.base.sub(STACK_SIZE);
+            let res = libc::munmap(p.cast(), STACK_SIZE_BYTES);
             if res != 0 {
                 let err = io::Error::last_os_error();
                 panic!("Failed to deallocate stack memory: {err}")
