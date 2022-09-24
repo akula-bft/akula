@@ -69,7 +69,7 @@ pub mod account {
                 let mut last_entry = None;
 
                 while let Some((BitmapKey { inner: address, .. }, _)) = index.next().transpose()? {
-                    if last_entry != Some(address) {
+                    if last_entry == Some(address) {
                         continue;
                     }
 
@@ -170,7 +170,7 @@ pub mod storage {
                         break;
                     }
 
-                    if last_entry != Some((address, slot)) {
+                    if last_entry == Some((address, slot)) {
                         continue;
                     }
 
