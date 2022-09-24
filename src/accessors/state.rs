@@ -13,29 +13,30 @@ pub mod account {
         address_to_find: Address,
         block_number: Option<BlockNumber>,
     ) -> anyhow::Result<Option<Account>> {
-        if let Some(block_number) = block_number {
-            let block_number = super::history_index::find_next_block(
+        let changeset_block = if let Some(block_number) = block_number {
+            super::history_index::find_next_block(
                 tx,
                 tables::AccountHistory,
                 address_to_find,
                 block_number,
-            )?;
-            return read_from_block(tx, address_to_find, block_number);
-        }
+            )?
+        } else {
+            None
+        };
 
-        read_from_block(tx, address_to_find, None)
+        read_inner(tx, address_to_find, changeset_block)
     }
 
-    pub fn read_from_block<K: TransactionKind, E: EnvironmentKind>(
+    fn read_inner<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
         address: Address,
-        block_number: Option<BlockNumber>,
+        changeset_block: Option<BlockNumber>,
     ) -> anyhow::Result<Option<Account>> {
-        if let Some(block_number) = block_number {
+        if let Some(block_number) = changeset_block {
             Ok(tx
                 .cursor(tables::AccountChangeSet)?
                 .find_account(block_number, address)?
-                .flatten())
+                .ok_or_else(|| format_err!("changeset does not contain account"))?)
         } else {
             tx.get(tables::Account, address)
         }
@@ -83,7 +84,7 @@ pub mod account {
                 while let Some((
                     BitmapKey {
                         inner: address,
-                        block_number: mut changes_blocks_number,
+                        block_number: mut max_bitmap_block,
                     },
                     mut change_blocks,
                 )) = index.next().transpose()?
@@ -102,11 +103,11 @@ pub mod account {
                         continue;
                     }
 
-                    while block_number > changes_blocks_number {
+                    while block_number >= max_bitmap_block {
                         (
                             BitmapKey {
                                 inner: _,
-                                block_number: changes_blocks_number,
+                                block_number: max_bitmap_block,
                             },
                             change_blocks,
                         ) = index
@@ -115,7 +116,7 @@ pub mod account {
                             .ok_or_else(|| format_err!("Unexpected end of history index"))?;
                     }
 
-                    let v = crate::accessors::state::account::read_from_block(
+                    let v = crate::accessors::state::account::read_inner(
                         tx,
                         address,
                         change_blocks
@@ -155,26 +156,27 @@ pub mod storage {
     ) -> anyhow::Result<U256> {
         let location_to_find = u256_to_h256(location_to_find);
 
-        if let Some(block_number) = block_number {
-            let block_number = super::history_index::find_next_block(
+        let changeset_block = if let Some(block_number) = block_number {
+            super::history_index::find_next_block(
                 tx,
                 tables::StorageHistory,
                 (address, location_to_find),
                 block_number,
-            )?;
-            return read_from_block(tx, address, location_to_find, block_number);
-        }
+            )?
+        } else {
+            None
+        };
 
-        read_from_block(tx, address, location_to_find, None)
+        read_inner(tx, address, location_to_find, changeset_block)
     }
 
-    pub fn read_from_block<K: TransactionKind, E: EnvironmentKind>(
+    fn read_inner<K: TransactionKind, E: EnvironmentKind>(
         tx: &MdbxTransaction<'_, K, E>,
         address: Address,
         location_to_find: H256,
-        block_number: Option<BlockNumber>,
+        changeset_block: Option<BlockNumber>,
     ) -> anyhow::Result<U256> {
-        if let Some(block_number) = block_number {
+        if let Some(block_number) = changeset_block {
             let tables::StorageChange { location, value } = tx
                 .cursor(tables::StorageChangeSet)?
                 .seek_both_range(
@@ -184,7 +186,7 @@ pub mod storage {
                     },
                     location_to_find,
                 )?
-                .ok_or_else(|| format_err!("Entry missing from StorageChangeSet"))?;
+                .ok_or_else(|| format_err!("changeset does not contain storage entry"))?;
             anyhow::ensure!(location == location_to_find);
             Ok(value)
         } else {
@@ -220,7 +222,7 @@ pub mod storage {
                 while let Some((
                     BitmapKey {
                         inner: (address, slot),
-                        block_number: mut change_blocks_number,
+                        block_number: mut max_bitmap_block,
                     },
                     mut change_blocks,
                 )) = index.next().transpose()?
@@ -243,11 +245,11 @@ pub mod storage {
                         continue;
                     }
 
-                    while block_number > change_blocks_number {
+                    while block_number >= max_bitmap_block {
                         (
                             BitmapKey {
                                 inner: _,
-                                block_number: change_blocks_number,
+                                block_number: max_bitmap_block,
                             },
                             change_blocks,
                         ) = index
@@ -256,7 +258,7 @@ pub mod storage {
                             .ok_or_else(|| format_err!("Unexpected end of history index"))?;
                     }
 
-                    let v = crate::accessors::state::storage::read_from_block(
+                    let v = crate::accessors::state::storage::read_inner(
                         tx,
                         address,
                         slot,
