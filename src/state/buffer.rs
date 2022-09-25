@@ -612,6 +612,18 @@ mod tests {
                     buffer.read_storage(address, location).unwrap(),
                     expected_value
                 );
+
+                assert_eq!(
+                    accessors::state::account::walk(
+                        &txn,
+                        Some(address),
+                        Some(historical_block.into())
+                    )
+                    .next()
+                    .transpose()
+                    .unwrap(),
+                    expected_account.map(|acc| (address, acc))
+                );
             }
         }
     }
