@@ -71,7 +71,7 @@ dependencies = [
  "chrono",
  "cidr",
  "cipher",
- "clap 4.0.2",
+ "clap 4.0.4",
  "console-subscriber",
  "criterion",
  "croaring",
@@ -306,6 +306,15 @@ name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
+
+[[package]]
+name = "autotools"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8138adefca3e5d2e73bfba83bd6eeaf904b26a7ac1b4a19892cfe16cc7e1701"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "axum"
@@ -660,9 +669,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.0.2"
+version = "4.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31c9484ccdc4cb8e7b117cbd0eb150c7c0f04464854e4679aeb50ef03b32d003"
+checksum = "7f78ad8e84aa8e8aa3e821857be40eb4b925ff232de430d4dd2ae6aa058cbd92"
 dependencies = [
  "atty",
  "bitflags",
@@ -887,26 +896,24 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.10"
+version = "0.9.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "045ebe27666471bb549370b4b0b3e51b07f56325befa4284db65fc89c02511b1"
+checksum = "f916dfc5d356b0ed9dae65f1db9fc9770aa2851d2662b988ccf4fe3516e86348"
 dependencies = [
  "autocfg",
  "cfg-if",
  "crossbeam-utils",
  "memoffset",
- "once_cell",
  "scopeguard",
 ]
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51887d4adc7b564537b15adcfb307936f8075dfcd5f00dde9a9f1d29383682bc"
+checksum = "edbafec5fa1f196ca66527c1b12c2ec4745ca14b50f1ad8f9f6f720b55d11fac"
 dependencies = [
  "cfg-if",
- "once_cell",
 ]
 
 [[package]]
@@ -927,9 +934,9 @@ dependencies = [
 
 [[package]]
 name = "ctr"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d14f329cfbaf5d0e06b5e87fff7e265d2673c5ea7d2c27691a2c107db1442a0"
+checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
 dependencies = [
  "cipher",
 ]
@@ -1310,13 +1317,14 @@ dependencies = [
 [[package]]
 name = "ethereum-interfaces"
 version = "0.1.0"
-source = "git+https://github.com/ledgerwatch/interfaces#d34761b041ade22e403e967570c97ca2a108ff03"
+source = "git+https://github.com/ledgerwatch/interfaces#5bb08c6060b9aad0d5074da6cd8350ae2d9a4bda"
 dependencies = [
  "arrayref",
  "ethereum-types",
  "ethnum",
  "prost",
  "prost-build",
+ "protobuf-src",
  "tonic",
  "tonic-build",
 ]
@@ -2020,9 +2028,9 @@ dependencies = [
 
 [[package]]
 name = "inferno"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70acd717b8821298c8b801f32684864ead3a3a470f1485a716ebb4343f9e42d7"
+checksum = "bb31a5d9068fccb34562007cd564bb08fff1478255b0534c549e93fcb658cd90"
 dependencies = [
  "ahash",
  "atty",
@@ -2242,9 +2250,9 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "libc"
-version = "0.2.133"
+version = "0.2.134"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f80d65747a3e43d1596c7c5492d95d5edddaabd45a7fcdb02b95f644164966"
+checksum = "329c933548736bc49fd575ee68c89e8be4d260064184389a5b77517cddd99ffb"
 
 [[package]]
 name = "libgit2-sys"
@@ -2844,9 +2852,9 @@ checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.45"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3edcd08cf4fea98d1ae6c9ddd3b8ccb1acac7c3693d62625969a7daa04a2ae36"
+checksum = "94e2ef8dbfc347b10c094890f778ee2e36ca9bb4262e86dc99cd217e35f3470b"
 dependencies = [
  "unicode-ident",
 ]
@@ -2922,6 +2930,15 @@ checksum = "4dfaa718ad76a44b3415e6c4d53b17c8f99160dcb3a99b10470fce8ad43f6e3e"
 dependencies = [
  "bytes",
  "prost",
+]
+
+[[package]]
+name = "protobuf-src"
+version = "1.1.0+21.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7ac8852baeb3cc6fb83b93646fb93c0ffe5d14bf138c945ceb4b9948ee0e3c1"
+dependencies = [
+ "autotools",
 ]
 
 [[package]]
