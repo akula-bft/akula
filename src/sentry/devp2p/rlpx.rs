@@ -677,7 +677,7 @@ impl<C: CapabilityServer> Swarm<C> {
                 tasks.spawn_with_name(&task_id, {
                     let server = Arc::downgrade(&server);
 
-                    let banlist = Arc::new(Mutex::new(LruCache::new(10_000)));
+                    let banlist = Arc::new(Mutex::new(LruCache::new(NonZeroUsize::new(10_000).unwrap())));
 
                     let server = server.clone();
                     let no_new_peers = options.no_new_peers.clone();

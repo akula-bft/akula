@@ -44,7 +44,7 @@ pub enum OptCommand {
     DbQuery {
         #[clap(long)]
         table: String,
-        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, value_parser(hex_to_bytes))]
         key: Bytes,
     },
 
@@ -52,7 +52,7 @@ pub enum OptCommand {
     DbWalk {
         #[clap(long)]
         table: String,
-        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, value_parser(hex_to_bytes))]
         starting_key: Option<Bytes>,
         #[clap(long)]
         max_entries: Option<usize>,
@@ -62,9 +62,9 @@ pub enum OptCommand {
     DbSet {
         #[clap(long)]
         table: String,
-        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, value_parser(hex_to_bytes))]
         key: Bytes,
-        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, value_parser(hex_to_bytes))]
         value: Bytes,
     },
 
@@ -72,7 +72,7 @@ pub enum OptCommand {
     DbUnset {
         #[clap(long)]
         table: String,
-        #[clap(long, parse(try_from_str = hex_to_bytes))]
+        #[clap(long, value_parser(hex_to_bytes))]
         key: Bytes,
     },
 
@@ -84,9 +84,9 @@ pub enum OptCommand {
 
     /// Check table equality in two databases
     CheckEqual {
-        #[clap(long, parse(from_os_str))]
+        #[clap(long)]
         db1: ExpandedPathBuf,
-        #[clap(long, parse(from_os_str))]
+        #[clap(long)]
         db2: ExpandedPathBuf,
         #[clap(long)]
         table: String,

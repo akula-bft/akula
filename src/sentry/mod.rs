@@ -60,10 +60,10 @@ pub const MAX_INITIAL_WINDOW_SIZE: u32 = (1 << 31) - 1;
 pub const MAX_FRAME_SIZE: u32 = (1 << 24) - 1;
 const THROTTLE_INTERVAL: Duration = Duration::from_secs(5);
 
-#[derive(Debug, FromStr)]
+#[derive(Clone, Debug, FromStr)]
 pub struct NR(pub NodeRecord);
 
-#[derive(Debug, FromStr)]
+#[derive(Clone, Debug, FromStr)]
 pub struct Discv4NR(pub crate::sentry::devp2p::disc::v4::NodeRecord);
 
 #[derive(Clone)]
@@ -398,10 +398,10 @@ pub struct Opts {
     #[clap(long, default_value = "10")]
     pub min_peers: usize,
     /// Disable DNS and UDP discovery, only use static peers.
-    #[clap(long, takes_value = false)]
+    #[clap(long, num_args = 0)]
     pub no_discovery: bool,
     /// Disable DNS discovery
-    #[clap(long, takes_value = false)]
+    #[clap(long, num_args = 0)]
     pub no_dns_discovery: bool,
 }
 

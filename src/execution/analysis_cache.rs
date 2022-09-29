@@ -1,6 +1,7 @@
 use super::evm::AnalyzedCode;
 use ethereum_types::H256;
 use lru::LruCache;
+use std::num::NonZeroUsize;
 
 #[derive(Debug)]
 pub struct AnalysisCache {
@@ -9,12 +10,12 @@ pub struct AnalysisCache {
 
 impl Default for AnalysisCache {
     fn default() -> Self {
-        Self::new(5000)
+        Self::new(NonZeroUsize::new(5000).unwrap())
     }
 }
 
 impl AnalysisCache {
-    pub fn new(cap: usize) -> Self {
+    pub fn new(cap: NonZeroUsize) -> Self {
         Self {
             inner: LruCache::new(cap),
         }
