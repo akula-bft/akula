@@ -312,6 +312,11 @@ fn main() -> anyhow::Result<()> {
                         async move {
                             info!("Starting gRPC server on {}", opt.grpc_listen_address);
                             tonic::transport::Server::builder()
+                            .add_service(tonic_reflection::server::Builder::configure()
+                                .register_encoded_file_descriptor_set(ethereum_interfaces::FILE_DESCRIPTOR_SET)
+                                .build()
+                                .unwrap()
+                            )
                             .add_service(
                                 ethereum_interfaces::web3::debug_api_server::DebugApiServer::new(
                                     DebugApiServerImpl {
