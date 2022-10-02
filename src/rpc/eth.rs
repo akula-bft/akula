@@ -13,7 +13,7 @@ use crate::{
 use anyhow::format_err;
 use async_trait::async_trait;
 use ethereum_jsonrpc::{
-    types::{self, TransactionLog},
+    types::{self, BlockId, BlockNumber, TransactionLog},
     EthApiServer, LogFilter, SyncStatus,
 };
 use jsonrpsee::core::RpcResult;
@@ -351,6 +351,63 @@ where
                     )?
                     .gas_left,
             ))
+        })
+        .await
+        .unwrap_or_else(helpers::joinerror_to_result)
+    }
+
+    async fn gas_price(&self) -> RpcResult<U256> {
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let latest_block = BlockId::from(BlockNumber::Latest);
+            let txn = db.begin()?;
+
+            let (block_number, _) = helpers::resolve_block_id(&txn, latest_block)?
+                .ok_or_else(|| format_err!("failed to resolve block {latest_block:?}"))?;
+
+            let block = chain::block_body::read_without_senders(&txn, block_number)?
+                .ok_or_else(|| format_err!("body not found for block #{block_number}"))?;
+
+            let average_gas_price = block
+                .transactions
+                .iter()
+                .map(|tx| tx.max_fee_per_gas())
+                .reduce(|a, b| a + b)
+                .unwrap_or({
+                    let header = chain::header::read(&txn, block_number)?
+                        .ok_or_else(|| format_err!("header not found for block #{block_number}"))?;
+
+                    header.base_fee_per_gas.unwrap_or_default()
+                });
+
+            Ok(average_gas_price)
+        })
+        .await
+        .unwrap_or_else(helpers::joinerror_to_result)
+    }
+
+    async fn max_priority_fee_per_gas(&self) -> RpcResult<U256> {
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let latest_block = BlockId::from(BlockNumber::Latest);
+            let txn = db.begin()?;
+
+            let (block_number, _) = helpers::resolve_block_id(&txn, latest_block)?
+                .ok_or_else(|| format_err!("failed to resolve block {latest_block:?}"))?;
+
+            let txs = chain::block_body::read_without_senders(&txn, block_number)?
+                .ok_or_else(|| format_err!("body not found for block #{block_number}"))?
+                .transactions;
+
+            let average_tip = txs
+                .iter()
+                .map(|tx| tx.max_priority_fee_per_gas())
+                .reduce(|a, b| a + b)
+                .unwrap_or_default();
+
+            Ok(average_tip)
         })
         .await
         .unwrap_or_else(helpers::joinerror_to_result)
