@@ -126,9 +126,8 @@ fn log2floor(value: U256) -> u64 {
 
 #[inline]
 pub(crate) fn exp<const REVISION: Revision>(state: &mut ExecutionState) -> Result<(), StatusCode> {
-    let mut stack = state.mem.stack();
-    let mut base = stack.pop();
-    let mut power = stack.pop();
+    let mut base = state.stack().pop();
+    let mut power = state.stack().pop();
 
     if power > 0 {
         let factor = if REVISION >= Revision::Spurious {
@@ -155,7 +154,7 @@ pub(crate) fn exp<const REVISION: Revision>(state: &mut ExecutionState) -> Resul
         base = base.overflowing_mul(base).0;
     }
 
-    stack.push(v);
+    state.stack().push(v);
 
     Ok(())
 }

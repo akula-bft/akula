@@ -105,7 +105,7 @@ mod tests {
             assert_eq!(result, U256::from(5 * (i + 1)));
         }
 
-        let mut mem = evm_mem.get_origin();
+        let mut mem = mem.next_submem();
         let mut stack = mem.stack();
         stack.push(value);
         stack.push(U256::from(100u128));
@@ -114,7 +114,7 @@ mod tests {
         let result = stack.pop();
         assert_eq!(result, U256::ZERO);
 
-        let mut mem = evm_mem.get_origin();
+        let mut mem = mem.next_submem();
         let mut stack = mem.stack();
         stack.push(value);
         stack.push(U256::from_words(1, 0));

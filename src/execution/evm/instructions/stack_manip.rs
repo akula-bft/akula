@@ -1,21 +1,17 @@
-use crate::execution::evm::{common::*, state::EvmStack};
+use crate::execution::evm::{common::*, state::EvmStack, AnalyzedCode};
 use arrayref::array_ref;
 use ethnum::U256;
 
-#[inline]
-pub(crate) fn push<const LEN: usize>(stack: &mut EvmStack, code: &[u8]) -> usize {
-    stack.push(u256_from_slice(&code[..LEN]));
+#[inline(always)]
+pub(crate) fn push<const LEN: usize>(stack: &mut EvmStack, s: &AnalyzedCode, pc: usize) -> usize {
+    let code = &s.padded_code()[pc + 1..];
+    match LEN {
+        1 => stack.push(code[0].into()),
+        2..=31 => stack.push(u256_from_slice(&code[..LEN])),
+        32 => stack.push(U256::from_be_bytes(*array_ref!(code, 0, 32))),
+        _ => unreachable!(),
+    }
     LEN
-}
-
-#[inline]
-pub(crate) fn push1(stack: &mut EvmStack, v: u8) {
-    stack.push(v.into());
-}
-
-#[inline]
-pub(crate) fn push32(stack: &mut EvmStack, code: &[u8]) {
-    stack.push(U256::from_be_bytes(*array_ref!(code, 0, 32)));
 }
 
 #[inline]

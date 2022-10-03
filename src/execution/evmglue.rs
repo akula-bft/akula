@@ -347,7 +347,7 @@ where
         msg: &InterpreterMessage,
         code: &[u8],
         code_hash: Option<&H256>,
-        stack: EvmSubMemory,
+        mem: EvmSubMemory,
     ) -> anyhow::Result<Output> {
         let analysis = if let Some(code_hash) = code_hash {
             if let Some(cache) = self.analysis_cache.get(code_hash).cloned() {
@@ -363,7 +363,7 @@ where
 
         let revision = self.block_spec.revision;
 
-        let output = analysis.execute(self, msg, stack, revision);
+        let output = analysis.execute(self, msg, mem, revision);
 
         self.tracer.capture_end(
             msg.depth.try_into().unwrap(),
@@ -802,7 +802,7 @@ mod tests {
     #[test]
     fn maximum_call_depth() {
         std::thread::Builder::new()
-            .stack_size(128 * 1024 * 1024)
+            .stack_size(16 * (1 << 20))
             .spawn(move || {
                 let header = PartialHeader {
                     number: 1_431_916.into(),

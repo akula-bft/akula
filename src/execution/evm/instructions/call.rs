@@ -135,7 +135,7 @@ pub(crate) fn do_call<
         if let Some(MemoryRegion { offset, size }) = output_region {
             let copy_size = min(size.get(), result.output_data.len());
             if copy_size > 0 {
-                state.mem.heap()[offset..offset + copy_size]
+                state.mem.heap()[offset..][..copy_size]
                     .copy_from_slice(&result.output_data[..copy_size]);
             }
         }
@@ -201,10 +201,9 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
 
             salt,
             initcode: if init_code_size != 0 {
-                state.mem.heap()[init_code_offset.as_usize()
-                    ..init_code_offset.as_usize() + init_code_size.as_usize()]
-                    .to_vec()
-                    .into()
+                let offset = init_code_offset.as_usize();
+                let size = init_code_size.as_usize();
+                state.mem.heap()[offset..][..size].to_vec().into()
             } else {
                 Bytes::new()
             },

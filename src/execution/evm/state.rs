@@ -187,10 +187,12 @@ impl<'a, 'b> EvmHeap<'a, 'b> {
 
     #[inline]
     pub fn grow(&mut self, size: usize) {
-        let head = &mut self.mem.heap_head;
-        let new_head = unsafe { self.mem.heap_base.add(size) };
-        if new_head > *head {
-            *head = new_head;
+        let old_size = self.size();
+        if size > old_size {
+            unsafe {
+                ptr::write_bytes(self.mem.heap_head, 0, size - old_size);
+                self.mem.heap_head = self.mem.heap_base.add(size);
+            }
         }
     }
 }

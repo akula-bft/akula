@@ -10,9 +10,9 @@ pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
     if let Some(region) =
         super::memory::get_memory_region(state, offset, size).map_err(|_| StatusCode::OutOfGas)?
     {
-        state.output_data = state.mem.heap()[region.offset..region.offset + region.size.get()]
-            .to_vec()
-            .into();
+        let offset = region.offset;
+        let size = region.size.get();
+        state.output_data = state.mem.heap()[offset..][..size].to_vec().into();
     }
 
     Ok(())
@@ -37,26 +37,22 @@ pub(crate) fn calldataload(state: &mut ExecutionState) {
 
     let input_len = state.message.input_data.len();
 
-    stack.push({
-        if index > u128::try_from(input_len).unwrap() {
-            U256::ZERO
-        } else {
-            let index_usize = index.as_usize();
-            let end = core::cmp::min(index_usize + 32, input_len);
+    let res = if index > u128::try_from(input_len).unwrap() {
+        U256::ZERO
+    } else {
+        let index_usize = index.as_usize();
+        let end = core::cmp::min(index_usize + 32, input_len);
 
-            let mut data = [0; 32];
-            data[..end - index_usize].copy_from_slice(&state.message.input_data[index_usize..end]);
+        let mut data = [0; 32];
+        data[..end - index_usize].copy_from_slice(&state.message.input_data[index_usize..end]);
 
-            U256::from_be_bytes(data)
-        }
-    });
+        U256::from_be_bytes(data)
+    };
+    stack.push(res);
 }
 
 #[inline]
 pub(crate) fn calldatasize(state: &mut ExecutionState) {
-    state.mem.stack().push(
-        u128::try_from(state.message.input_data.len())
-            .unwrap()
-            .into(),
-    );
+    let res = u128::try_from(state.message.input_data.len()).unwrap().into();
+    state.stack().push(res);
 }

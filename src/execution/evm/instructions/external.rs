@@ -14,17 +14,20 @@ fn ok_or_out_of_gas(gas_left: i64) -> Result<(), StatusCode> {
 
 #[inline]
 pub(crate) fn address(state: &mut ExecutionState) {
-    state.mem.stack().push(address_to_u256(state.message.recipient));
+    let res = address_to_u256(state.message.recipient);
+    state.stack().push(res);
 }
 
 #[inline]
 pub(crate) fn caller(state: &mut ExecutionState) {
-    state.mem.stack().push(address_to_u256(state.message.sender));
+    let res = address_to_u256(state.message.sender);
+    state.stack().push(res);
 }
 
 #[inline]
 pub(crate) fn callvalue(state: &mut ExecutionState) {
-    state.mem.stack().push(state.message.value);
+    let res = state.message.value;
+    state.stack().push(res);
 }
 
 #[inline]
@@ -38,15 +41,14 @@ pub(crate) fn balance<H: Host, const REVISION: Revision>(
         models::*,
     };
 
-    let mut stack = state.mem.stack();
-    let address = u256_to_address(stack.pop());
+    let address = u256_to_address(state.stack().pop());
 
     let is_cold =
         REVISION >= Revision::Berlin && host.access_account(address) == AccessStatus::Cold;
     let additional_cost = is_cold as i64 * ADDITIONAL_COLD_ACCOUNT_ACCESS_COST as i64;
     state.gas_left -= additional_cost;
 
-    stack.push(host.get_balance(address));
+    state.stack().push(host.get_balance(address));
 
     ok_or_out_of_gas(state.gas_left)
 }
@@ -62,14 +64,13 @@ pub(crate) fn extcodesize<H: Host, const REVISION: Revision>(
         models::*,
     };
 
-    let mut stack = state.mem.stack();
-    let address = u256_to_address(stack.pop());
+    let address = u256_to_address(state.stack().pop());
 
     let is_cold =
         REVISION >= Revision::Berlin && host.access_account(address) == AccessStatus::Cold;
     let additional_cost = is_cold as i64 * ADDITIONAL_COLD_ACCOUNT_ACCESS_COST as i64;
 
-    stack.push(host.get_code_size(address));
+    state.stack().push(host.get_code_size(address));
     state.gas_left -= additional_cost;
 
     ok_or_out_of_gas(state.gas_left)
@@ -122,7 +123,8 @@ pub(crate) fn basefee_accessor(tx_context: TxContext) -> U256 {
 
 #[inline]
 pub(crate) fn selfbalance<H: Host>(state: &mut ExecutionState, host: &mut H) {
-    state.mem.stack().push(host.get_balance(state.message.recipient));
+    let res = host.get_balance(state.message.recipient);
+    state.stack().push(res);
 }
 
 #[inline]
@@ -130,8 +132,7 @@ pub(crate) fn blockhash<H: Host>(
     state: &mut ExecutionState,
     host: &mut H,
 ) -> Result<(), StatusCode> {
-    let mut stack = state.mem.stack();
-    let number = stack.pop();
+    let number = state.stack().pop();
 
     let upper_bound = host.get_tx_context()?.block_number;
     let lower_bound = upper_bound.saturating_sub(256);
@@ -144,7 +145,7 @@ pub(crate) fn blockhash<H: Host>(
         }
     }
 
-    stack.push(header);
+    state.stack().push(header);
 
     Ok(())
 }
@@ -159,9 +160,8 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
         return Err(StatusCode::StaticModeViolation);
     }
 
-    let mut stack = state.mem.stack();
-    let offset = stack.pop();
-    let size = stack.pop();
+    let offset = state.stack().pop();
+    let size = state.stack().pop();
 
     let region =
         memory::get_memory_region(state, offset, size).map_err(|_| StatusCode::OutOfGas)?;
@@ -204,8 +204,7 @@ pub(crate) fn sload<H: Host, const REVISION: Revision>(
         models::*,
     };
 
-    let mut stack = state.mem.stack();
-    let location = stack.pop();
+    let location = state.stack().pop();
 
     const ADDITIONAL_COLD_SLOAD_COST: u16 = COLD_SLOAD_COST - WARM_STORAGE_READ_COST;
     let is_cold = REVISION >= Revision::Berlin
@@ -213,7 +212,7 @@ pub(crate) fn sload<H: Host, const REVISION: Revision>(
     let additional_cost = is_cold as i64 * ADDITIONAL_COLD_SLOAD_COST as i64;
 
     let res = host.get_storage(state.message.recipient, location);
-    stack.push(res);
+    state.stack().push(res);
 
     state.gas_left -= additional_cost;
     ok_or_out_of_gas(state.gas_left)
@@ -295,7 +294,7 @@ pub(crate) fn selfdestruct<H: Host, const REVISION: Revision>(
         return Err(StatusCode::StaticModeViolation);
     }
 
-    let beneficiary = u256_to_address(state.mem.stack().pop());
+    let beneficiary = u256_to_address(state.stack().pop());
 
     let is_cold =
         REVISION >= Revision::Berlin && host.access_account(beneficiary) == AccessStatus::Cold;
