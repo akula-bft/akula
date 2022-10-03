@@ -32,8 +32,7 @@ impl EvmMemory {
             // TODO: add MAP_HUGETLB for huge tables
             let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE;
             let mmap_res = libc::mmap(
-                // ptr::null_mut(),
-                0x0000_1000_0000_0000 as *mut _,
+                ptr::null_mut(),
                 TOTAL_MEM_SIZE,
                 libc::PROT_READ | libc::PROT_WRITE,
                 flags,
