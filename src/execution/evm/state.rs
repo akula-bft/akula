@@ -61,7 +61,6 @@ impl EvmMemory {
 
 impl Drop for EvmMemory {
     fn drop(&mut self) {
-        println!("Super stack drop: {:?}", self.p);
         unsafe {
             let res = libc::munmap(self.p.cast(), TOTAL_MEM_SIZE);
             if res != 0 {
@@ -89,7 +88,6 @@ impl<'a> EvmSubMemory<'a> {
     pub fn next_submem<'b>(&'b mut self) -> EvmSubMemory<'b> {
         let stack_ptr = self.stack_head;
         let heap_ptr = self.heap_head;
-        println!("next submem: {stack_ptr:?} {heap_ptr:?}");
         Self {
             stack_head: stack_ptr,
             stack_base: stack_ptr,
@@ -119,14 +117,12 @@ pub struct EvmStack<'a, 'b> {
 impl<'a, 'b> EvmStack<'a, 'b> {
     #[inline(always)]
     pub fn get(&self, pos: usize) -> &U256 {
-        println!("Get: {pos:?}", );
         debug_assert!(pos < self.len());
         unsafe { &*self.mem.stack_head.add(pos) }
     }
 
     #[inline(always)]
     pub fn get_mut(&mut self, pos: usize) -> &mut U256 {
-        println!("Get mut: {pos:?}", );
         debug_assert!(pos < self.len());
         unsafe { &mut *self.mem.stack_head.add(pos) }
     }
@@ -135,9 +131,7 @@ impl<'a, 'b> EvmStack<'a, 'b> {
     #[inline(always)]
     pub fn len(&self) -> usize {
         // TODO: use sub_ptr on stabilization
-        let len = unsafe { self.mem.stack_base.offset_from(self.mem.stack_head) as usize };
-        println!("Len: {len:?}");
-        len
+        unsafe { self.mem.stack_base.offset_from(self.mem.stack_head) as usize }
     }
 
     #[inline(always)]
@@ -157,7 +151,6 @@ impl<'a, 'b> EvmStack<'a, 'b> {
 
     #[inline(always)]
     pub fn pop(&mut self) -> U256 {
-        println!("pop {:?}", self.len());
         debug_assert_ne!(self.len(), 0);
         let head = &mut self.mem.stack_head;
         unsafe {
@@ -169,7 +162,6 @@ impl<'a, 'b> EvmStack<'a, 'b> {
 
     #[inline(always)]
     pub fn swap_top(&mut self, pos: usize) {
-        println!("swap_top");
         debug_assert_ne!(pos, 0);
         debug_assert!(pos < self.len());
         let head = self.mem.stack_head;
@@ -190,9 +182,7 @@ impl<'a, 'b> EvmHeap<'a, 'b> {
     #[inline(always)]
     fn size(&self) -> usize {
         // TODO: use sub_ptr on stabilization
-        let len = unsafe { self.mem.heap_head.offset_from(self.mem.heap_base) as usize };
-        println!("Heap len: {len:?}");
-        len
+        unsafe { self.mem.heap_head.offset_from(self.mem.heap_base) as usize }
     }
 
     #[inline]
