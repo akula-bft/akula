@@ -3,13 +3,14 @@ use ethnum::U256;
 
 #[inline]
 pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
-    let offset = *state.stack.get(0);
-    let size = *state.stack.get(1);
+    let stack = state.mem.stack();
+    let offset = *stack.get(0);
+    let size = *stack.get(1);
 
     if let Some(region) =
         super::memory::get_memory_region(state, offset, size).map_err(|_| StatusCode::OutOfGas)?
     {
-        state.output_data = state.memory[region.offset..region.offset + region.size.get()]
+        state.output_data = state.mem.heap()[region.offset..region.offset + region.size.get()]
             .to_vec()
             .into();
     }
@@ -19,10 +20,9 @@ pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
 
 #[inline]
 pub(crate) fn op_jump(
-    state: &mut ExecutionState,
+    dst: U256,
     jumpdest_map: &JumpdestMap,
 ) -> Result<usize, StatusCode> {
-    let dst = state.stack.pop();
     if !jumpdest_map.contains(dst) {
         return Err(StatusCode::BadJumpDestination);
     }
@@ -32,11 +32,12 @@ pub(crate) fn op_jump(
 
 #[inline]
 pub(crate) fn calldataload(state: &mut ExecutionState) {
-    let index = state.stack.pop();
+    let mut stack = state.mem.stack();
+    let index = stack.pop();
 
     let input_len = state.message.input_data.len();
 
-    state.stack.push({
+    stack.push({
         if index > u128::try_from(input_len).unwrap() {
             U256::ZERO
         } else {
@@ -53,7 +54,7 @@ pub(crate) fn calldataload(state: &mut ExecutionState) {
 
 #[inline]
 pub(crate) fn calldatasize(state: &mut ExecutionState) {
-    state.stack.push(
+    state.mem.stack().push(
         u128::try_from(state.message.input_data.len())
             .unwrap()
             .into(),

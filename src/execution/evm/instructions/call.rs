@@ -26,20 +26,21 @@ pub(crate) fn do_call<
     };
     use std::cmp::min;
 
-    let gas = state.stack.pop();
-    let dst = u256_to_address(state.stack.pop());
+    let mut stack = state.mem.stack();
+    let gas = stack.pop();
+    let dst = u256_to_address(stack.pop());
     let value = if IS_STATIC || matches!(KIND, CallKind::DelegateCall) {
         U256::ZERO
     } else {
-        state.stack.pop()
+        stack.pop()
     };
     let has_value = value != 0;
-    let input_offset = state.stack.pop();
-    let input_size = state.stack.pop();
-    let output_offset = state.stack.pop();
-    let output_size = state.stack.pop();
+    let input_offset = stack.pop();
+    let input_size = stack.pop();
+    let output_offset = stack.pop();
+    let output_size = stack.pop();
 
-    state.stack.push(U256::ZERO); // Assume failure.
+    stack.push(U256::ZERO); // Assume failure.
 
     if REVISION >= Revision::Berlin {
         if host.access_account(dst) == AccessStatus::Cold {
@@ -79,7 +80,7 @@ pub(crate) fn do_call<
         },
         input_data: input_region
             .map(|MemoryRegion { offset, size }| {
-                state.memory[offset..offset + size.get()].to_vec().into()
+                state.mem.heap()[offset..offset + size.get()].to_vec().into()
             })
             .unwrap_or_default(),
     };
@@ -122,10 +123,10 @@ pub(crate) fn do_call<
         && !(has_value && host.get_balance(state.message.recipient) < value)
     {
         let msg_gas = msg.gas;
-        let next_stack = state.stack_mut().next_substack();
-        let result = host.call(Call::Call(&msg), next_stack);
+        let next_submem = state.mem.next_submem();
+        let result = host.call(Call::Call(&msg), next_submem);
         state.return_data = result.output_data.clone();
-        *state.stack.get_mut(0) = if matches!(result.status_code, StatusCode::Success) {
+        *state.mem.stack().get_mut(0) = if matches!(result.status_code, StatusCode::Success) {
             U256::ONE
         } else {
             U256::ZERO
@@ -134,7 +135,7 @@ pub(crate) fn do_call<
         if let Some(MemoryRegion { offset, size }) = output_region {
             let copy_size = min(size.get(), result.output_data.len());
             if copy_size > 0 {
-                state.memory[offset..offset + copy_size]
+                state.mem.heap()[offset..offset + copy_size]
                     .copy_from_slice(&result.output_data[..copy_size]);
             }
         }
@@ -161,15 +162,16 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
         return Err(StatusCode::StaticModeViolation);
     }
 
-    let endowment = state.stack.pop();
-    let init_code_offset = state.stack.pop();
-    let init_code_size = state.stack.pop();
+    let mut stack = state.mem.stack();
+    let endowment = stack.pop();
+    let init_code_offset = stack.pop();
+    let init_code_size = stack.pop();
 
     let region = memory::get_memory_region(state, init_code_offset, init_code_size)
         .map_err(|_| StatusCode::OutOfGas)?;
 
     let salt = if CREATE2 {
-        let salt = state.stack.pop();
+        let salt = state.mem.stack().pop();
 
         if let Some(region) = &region {
             let salt_cost = memory::num_words(region.size.get()) * 6;
@@ -184,7 +186,7 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
         None
     };
 
-    state.stack.push(U256::ZERO);
+    state.mem.stack().push(U256::ZERO);
     state.return_data.clear();
 
     if state.message.depth < MAX_CONTEXT_DEPTH as i32
@@ -199,7 +201,7 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
 
             salt,
             initcode: if init_code_size != 0 {
-                state.memory[init_code_offset.as_usize()
+                state.mem.heap()[init_code_offset.as_usize()
                     ..init_code_offset.as_usize() + init_code_size.as_usize()]
                     .to_vec()
                     .into()
@@ -211,13 +213,13 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
             endowment,
         };
         let msg_gas = msg.gas;
-        let next_stack = state.stack_mut().next_substack();
-        let result = host.call(Call::Create(&msg), next_stack);
+        let next_submem = state.mem.next_submem();
+        let result = host.call(Call::Create(&msg), next_submem);
         state.gas_left -= msg_gas - result.gas_left;
 
         state.return_data = result.output_data;
         if result.status_code == StatusCode::Success {
-            *state.stack.get_mut(0) =
+            *state.mem.stack().get_mut(0) =
                 address_to_u256(result.create_address.expect("expected create address"));
         }
     }

@@ -1,4 +1,4 @@
-use crate::execution::{evm::EvmStack, tracer::{NoopTracer, Tracer}};
+use crate::execution::{evm::EvmSubMemory, tracer::{NoopTracer, Tracer}};
 
 use super::{
     common::{InterpreterMessage, Output},
@@ -99,7 +99,7 @@ pub trait Host {
     /// Self-destruct account.
     fn selfdestruct(&mut self, address: Address, beneficiary: Address);
     /// Call to another account.
-    fn call(&mut self, msg: Call, stack: EvmStack) -> Output;
+    fn call(&mut self, msg: Call, mem: EvmSubMemory) -> Output;
     /// Retrieve transaction context.
     fn get_tx_context(&mut self) -> Result<TxContext, StatusCode>;
     /// Get block hash.

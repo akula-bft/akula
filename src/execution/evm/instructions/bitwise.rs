@@ -79,7 +79,7 @@ pub(crate) fn sar(stack: &mut EvmStack) {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution::evm::state::EvmSuperStack;
+    use crate::execution::evm::state::EvmMemory;
     use super::*;
 
     #[test]
@@ -92,9 +92,10 @@ mod tests {
                 .unwrap(),
         );
 
-        let mut super_stack = EvmSuperStack::new();
+        let mut evm_mem = EvmMemory::new();
+        let mut mem = evm_mem.get_origin();
         for i in 0u16..32 {
-            let mut stack = super_stack.get_origin_stack();
+            let mut stack = mem.stack();
             stack.push(value);
             stack.push(U256::from(i));
 
@@ -104,7 +105,8 @@ mod tests {
             assert_eq!(result, U256::from(5 * (i + 1)));
         }
 
-        let mut stack = super_stack.get_origin_stack();
+        let mut mem = evm_mem.get_origin();
+        let mut stack = mem.stack();
         stack.push(value);
         stack.push(U256::from(100u128));
 
@@ -112,7 +114,8 @@ mod tests {
         let result = stack.pop();
         assert_eq!(result, U256::ZERO);
 
-        let mut stack = super_stack.get_origin_stack();
+        let mut mem = evm_mem.get_origin();
+        let mut stack = mem.stack();
         stack.push(value);
         stack.push(U256::from_words(1, 0));
 

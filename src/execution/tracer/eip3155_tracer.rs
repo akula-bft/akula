@@ -71,8 +71,8 @@ impl Tracer for StdoutTracer {
                 op: op.0,
                 op_name: op.name(),
                 gas: env.gas_left as u64,
-                stack: env.stack.clone_to_vec(),
-                memory_size: env.memory.len()
+                stack: env.clone_stack_to_vec(),
+                memory_size: env.heap_size(),
             })
             .unwrap()
         )

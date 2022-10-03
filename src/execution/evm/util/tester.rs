@@ -24,10 +24,10 @@ fn exec(
     }
     let code = AnalyzedCode::analyze(&code);
 
-    let mut super_stack = EvmSuperStack::new();
-    let stack = super_stack.get_origin_stack();
+    let mut evm_mem = EvmMemory::new();
+    let mem = evm_mem.get_origin();
 
-    code.execute(host, &message, stack, revision)
+    code.execute(host, &message, mem, revision)
 }
 
 #[derive(Clone, Copy, Debug)]
