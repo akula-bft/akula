@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn maximum_call_depth() {
         std::thread::Builder::new()
-            .stack_size(16 * (1 << 20))
+            .stack_size(64 * (1 << 20))
             .spawn(move || {
                 let header = PartialHeader {
                     number: 1_431_916.into(),
