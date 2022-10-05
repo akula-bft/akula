@@ -47,7 +47,7 @@ impl EvmMemory {
         }
     }
 
-    pub fn get_origin<'b>(&'b mut self) -> EvmSubMemory<'b> {
+    pub fn get_origin(&mut self) -> EvmSubMemory {
         let p = unsafe { self.p.add(SUPER_STACK_SIZE_BYTES).cast() };
         EvmSubMemory {
             stack_head: p,
@@ -71,6 +71,12 @@ impl Drop for EvmMemory {
     }
 }
 
+impl Default for EvmMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Note that stack grows down, while heap grows up, i.e. the following
 /// conditions MUST be always true:
 /// - `stack_base` >= `stack_head`
@@ -85,7 +91,7 @@ pub struct EvmSubMemory<'a> {
 
 impl<'a> EvmSubMemory<'a> {
     #[inline(always)]
-    pub fn next_submem<'b>(&'b mut self) -> EvmSubMemory<'b> {
+    pub fn next_submem(&mut self) -> Self {
         let stack_ptr = self.stack_head;
         let heap_ptr = self.heap_head;
         Self {
