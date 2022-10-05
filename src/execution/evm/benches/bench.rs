@@ -2,7 +2,7 @@ use akula::{
     execution::evm::{
         instructions::{instruction_table::get_instruction_table, PROPERTIES},
         util::{mocked_host::MockedHost, Bytecode},
-        AnalyzedCode, CallKind, InterpreterMessage, OpCode, Output, StatusCode,
+        AnalyzedCode, CallKind, EvmMemory, InterpreterMessage, OpCode, Output, StatusCode,
     },
     models::Revision,
 };
@@ -324,9 +324,15 @@ fn generate_code(params: &CodeParams) -> Bytecode {
 
 #[inline]
 fn execute(
-    (code, mut host, msg, rev): (AnalyzedCode, MockedHost, InterpreterMessage, Revision),
+    (code, mut host, msg, mut mem, rev): (
+        AnalyzedCode,
+        MockedHost,
+        InterpreterMessage,
+        EvmMemory,
+        Revision,
+    ),
 ) -> Output {
-    code.execute(&mut host, &msg, rev)
+    code.execute(&mut host, &msg, mem.get_origin(), rev)
 }
 
 fn synthetic_benchmarks(c: &mut Criterion) {
@@ -461,7 +467,13 @@ fn synthetic_benchmarks(c: &mut Criterion) {
 fn prepare(
     code: AnalyzedCode,
     input_data: Bytes,
-) -> (AnalyzedCode, MockedHost, InterpreterMessage, Revision) {
+) -> (
+    AnalyzedCode,
+    MockedHost,
+    InterpreterMessage,
+    EvmMemory,
+    Revision,
+) {
     get_instruction_table(Revision::Istanbul);
     (
         code,
@@ -478,6 +490,7 @@ fn prepare(
             input_data,
             value: U256::ZERO,
         },
+        EvmMemory::new(),
         Revision::Istanbul,
     )
 }
@@ -553,7 +566,7 @@ fn main_benchmarks(c: &mut Criterion) {
                 let analyzed_code = analyzed_code.clone();
                 let input_data = input_data.clone();
                 b.iter_batched(
-                    move || prepare(analyzed_code.clone(), input_data.clone()),
+                    || prepare(analyzed_code.clone(), input_data.clone()),
                     execute,
                     BatchSize::SmallInput,
                 )
