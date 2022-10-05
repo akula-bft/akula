@@ -4,8 +4,8 @@ use crate::{
     models::*,
 };
 use bytes::Bytes;
-use serde::Serialize;
 use ethnum::U256;
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct ExecutionStart {

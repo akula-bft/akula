@@ -19,10 +19,7 @@ pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
 }
 
 #[inline]
-pub(crate) fn op_jump(
-    dst: U256,
-    jumpdest_map: &JumpdestMap,
-) -> Result<usize, StatusCode> {
+pub(crate) fn op_jump(dst: U256, jumpdest_map: &JumpdestMap) -> Result<usize, StatusCode> {
     if !jumpdest_map.contains(dst) {
         return Err(StatusCode::BadJumpDestination);
     }
@@ -53,6 +50,8 @@ pub(crate) fn calldataload(state: &mut ExecutionState) {
 
 #[inline]
 pub(crate) fn calldatasize(state: &mut ExecutionState) {
-    let res = u128::try_from(state.message.input_data.len()).unwrap().into();
+    let res = u128::try_from(state.message.input_data.len())
+        .unwrap()
+        .into();
     state.stack().push(res);
 }

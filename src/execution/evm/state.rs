@@ -1,8 +1,8 @@
-use super::{common::InterpreterMessage};
+use super::common::InterpreterMessage;
 use bytes::Bytes;
+use core::{marker::PhantomData, mem, ptr, slice};
 use ethnum::U256;
 use getset::{Getters, MutGetters};
-use core::{ptr, mem, slice, marker::PhantomData};
 use std::io;
 
 /// Size of EVM stack in U256s
@@ -80,7 +80,7 @@ pub struct EvmSubMemory<'a> {
     stack_base: *mut U256,
     heap_head: *mut u8,
     heap_base: *mut u8,
-    origin: PhantomData<&'a mut ()>,  
+    origin: PhantomData<&'a mut ()>,
 }
 
 impl<'a> EvmSubMemory<'a> {
@@ -98,15 +98,11 @@ impl<'a> EvmSubMemory<'a> {
     }
 
     pub fn stack<'b>(&'b mut self) -> EvmStack<'a, 'b> {
-        EvmStack {
-            mem: self,
-        }
+        EvmStack { mem: self }
     }
 
     pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
-        EvmHeap {
-            mem: self,
-        }
+        EvmHeap { mem: self }
     }
 }
 
@@ -174,7 +170,7 @@ impl<'a, 'b> EvmStack<'a, 'b> {
 const PAGE_SIZE: usize = 4 * 1024;
 
 pub struct EvmHeap<'a, 'b> {
-    mem: &'b mut EvmSubMemory<'a>, 
+    mem: &'b mut EvmSubMemory<'a>,
 }
 
 impl<'a, 'b> EvmHeap<'a, 'b> {
@@ -201,17 +197,13 @@ impl<'a, 'b> core::ops::Deref for EvmHeap<'a, 'b> {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        unsafe {
-            slice::from_raw_parts(self.mem.heap_base, self.size())
-        }
+        unsafe { slice::from_raw_parts(self.mem.heap_base, self.size()) }
     }
 }
 
 impl<'a, 'b> core::ops::DerefMut for EvmHeap<'a, 'b> {
     fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe {
-            slice::from_raw_parts_mut(self.mem.heap_base, self.size())
-        }
+        unsafe { slice::from_raw_parts_mut(self.mem.heap_base, self.size()) }
     }
 }
 
@@ -250,9 +242,7 @@ impl<'a> ExecutionState<'a> {
 
     pub fn clone_stack_to_vec(&self) -> Vec<U256> {
         let len = unsafe { self.mem.stack_base.offset_from(self.mem.stack_head) as usize };
-        unsafe {
-            slice::from_raw_parts(self.mem.stack_head, len).to_vec()
-        }
+        unsafe { slice::from_raw_parts(self.mem.stack_head, len).to_vec() }
     }
 
     pub fn heap_size(&self) -> usize {

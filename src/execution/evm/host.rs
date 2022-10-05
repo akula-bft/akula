@@ -1,4 +1,7 @@
-use crate::execution::{evm::EvmSubMemory, tracer::{NoopTracer, Tracer}};
+use crate::execution::{
+    evm::EvmSubMemory,
+    tracer::{NoopTracer, Tracer},
+};
 
 use super::{
     common::{InterpreterMessage, Output},

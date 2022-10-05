@@ -79,8 +79,8 @@ pub(crate) fn sar(stack: &mut EvmStack) {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution::evm::state::EvmMemory;
     use super::*;
+    use crate::execution::evm::state::EvmMemory;
 
     #[test]
     fn test_instruction_byte() {

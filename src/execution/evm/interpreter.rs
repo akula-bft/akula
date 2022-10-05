@@ -67,9 +67,7 @@ impl AnalyzedCode {
                     jumpdest_map[i] = true;
                     1
                 }
-                PUSH1..=PUSH32 => {
-                    (opcode - PUSH1 + 2) as usize
-                }
+                PUSH1..=PUSH32 => (opcode - PUSH1 + 2) as usize,
                 _ => 1,
             }
         }
@@ -121,10 +119,22 @@ impl AnalyzedCode {
         }
 
         let res = execute_revisions!(
-            host.trace_instructions(), revision, self, &mut state, host,
-            Frontier, Homestead, Tangerine, Spurious, Byzantium,
-            Constantinople, Petersburg, Istanbul, Berlin, London,
-            Paris,  
+            host.trace_instructions(),
+            revision,
+            self,
+            &mut state,
+            host,
+            Frontier,
+            Homestead,
+            Tangerine,
+            Spurious,
+            Byzantium,
+            Constantinople,
+            Petersburg,
+            Istanbul,
+            Berlin,
+            London,
+            Paris,
         );
 
         match res {

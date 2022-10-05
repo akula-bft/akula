@@ -8,7 +8,8 @@ use crate::{
     chain::protocol_param::{fee, param},
     crypto::keccak256,
     execution::evm::{
-        host::*, AnalyzedCode, CallKind, CreateMessage, EvmSubMemory, EvmMemory, InterpreterMessage, Output, StatusCode,
+        host::*, AnalyzedCode, CallKind, CreateMessage, EvmMemory, EvmSubMemory,
+        InterpreterMessage, Output, StatusCode,
     },
     h256_to_u256,
     models::*,
@@ -67,27 +68,33 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
     let submem = evm_mem.get_origin();
 
     let res = if let TransactionAction::Call(to) = message.action() {
-        evm.call(&InterpreterMessage {
-            kind: CallKind::Call,
-            is_static: false,
-            depth: 0,
-            sender,
-            input_data: message.input().clone(),
-            value: message.value(),
-            gas: gas as i64,
-            real_sender: sender,
-            recipient: to,
-            code_address: to,
-        }, submem)?
+        evm.call(
+            &InterpreterMessage {
+                kind: CallKind::Call,
+                is_static: false,
+                depth: 0,
+                sender,
+                input_data: message.input().clone(),
+                value: message.value(),
+                gas: gas as i64,
+                real_sender: sender,
+                recipient: to,
+                code_address: to,
+            },
+            submem,
+        )?
     } else {
-        evm.create(&CreateMessage {
-            depth: 0,
-            gas: gas as i64,
-            sender,
-            initcode: message.input().clone(),
-            endowment: message.value(),
-            salt: None,
-        }, submem)?
+        evm.create(
+            &CreateMessage {
+                depth: 0,
+                gas: gas as i64,
+                sender,
+                initcode: message.input().clone(),
+                endowment: message.value(),
+                salt: None,
+            },
+            submem,
+        )?
     };
 
     Ok(CallResult {

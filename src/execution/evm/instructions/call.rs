@@ -1,5 +1,7 @@
 use crate::{
-    execution::evm::{instructions::memory, state::MAX_CONTEXT_DEPTH, CallKind, ExecutionState, Host, StatusCode},
+    execution::evm::{
+        instructions::memory, state::MAX_CONTEXT_DEPTH, CallKind, ExecutionState, Host, StatusCode,
+    },
     models::Revision,
 };
 use bytes::Bytes;
@@ -80,7 +82,9 @@ pub(crate) fn do_call<
         },
         input_data: input_region
             .map(|MemoryRegion { offset, size }| {
-                state.mem.heap()[offset..offset + size.get()].to_vec().into()
+                state.mem.heap()[offset..offset + size.get()]
+                    .to_vec()
+                    .into()
             })
             .unwrap_or_default(),
     };

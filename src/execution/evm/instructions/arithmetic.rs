@@ -1,5 +1,8 @@
 use crate::{
-    execution::evm::{state::{EvmStack, ExecutionState}, StatusCode},
+    execution::evm::{
+        state::{EvmStack, ExecutionState},
+        StatusCode,
+    },
     models::*,
 };
 use ethereum_types::U512;
