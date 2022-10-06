@@ -23,7 +23,6 @@ byteorder = "1"
 bytes = { version = "1", features = ["serde"] }
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 bytesize = "1"
-chrono = "0.4"
 cidr = "0.2"
 cipher = { version = "0.4", features = ["block-padding"] }
 clap = { version = "4", features = ["derive"] }
