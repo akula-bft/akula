@@ -132,18 +132,14 @@ where
     };
     let block_hash = header.hash();
 
-    txn.set(tables::Header, (genesis, block_hash), header.clone())?;
+    txn.set(tables::Header, genesis, header.clone())?;
     txn.set(tables::CanonicalHeader, genesis, block_hash)?;
     txn.set(tables::HeaderNumber, block_hash, genesis)?;
-    txn.set(
-        tables::HeadersTotalDifficulty,
-        (genesis, block_hash),
-        header.difficulty,
-    )?;
+    txn.set(tables::HeadersTotalDifficulty, genesis, header.difficulty)?;
 
     txn.set(
         tables::BlockBody,
-        (genesis, block_hash),
+        genesis,
         BodyForStorage {
             base_tx_id: 0.into(),
             tx_amount: 0,
@@ -153,8 +149,6 @@ where
 
     txn.set(tables::TotalGas, genesis, 0)?;
     txn.set(tables::TotalTx, genesis, 0)?;
-
-    txn.set(tables::LastHeader, (), (BlockNumber(0), block_hash))?;
 
     txn.set(tables::Config, (), chainspec.clone())?;
 
