@@ -49,7 +49,7 @@ where
         let block_number = block.number.unwrap().as_u64().into();
 
         let header = crate::accessors::chain::header::read(tx, block_number)?.unwrap();
-        let ommers = tx.get(tables::BlockBody, block_number)?.unwrap().uncles;
+        let ommers = tx.get(tables::BlockBody, block_number)?.unwrap().ommers;
 
         let chainspec = tx
             .get(tables::Config, ())?

@@ -519,7 +519,7 @@ impl BodyDownload {
                 BodyForStorage {
                     base_tx_id: TxIndex(base_tx_id),
                     tx_amount: block.transactions.len() as u64,
-                    uncles: block.ommers,
+                    ommers: block.ommers,
                 },
             )?;
 

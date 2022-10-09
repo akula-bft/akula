@@ -762,7 +762,7 @@ where
                 .ok_or_else(|| format_err!("failed to resolve block {block_hash}"))?;
             Ok(U64::from(
                 chain::storage_body::read(&txn, block_number)?
-                    .map(|body| body.uncles.len())
+                    .map(|body| body.ommers.len())
                     .unwrap_or(0),
             ))
         })
@@ -782,7 +782,7 @@ where
                 .ok_or_else(|| format_err!("failed to resolve block #{block_number:?}"))?;
             Ok(U64::from(
                 chain::storage_body::read(&txn, block_number)?
-                    .map(|body| body.uncles.len())
+                    .map(|body| body.ommers.len())
                     .unwrap_or(0),
             ))
         })

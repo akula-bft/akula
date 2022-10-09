@@ -33,6 +33,7 @@ derive_more = "0.99"
 digest = "0.10"
 directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
+eio = "0.1"
 enr = { version = "0.6", default-features = false, features = [
   "rust-secp256k1",
 ] }
@@ -48,7 +49,7 @@ ethereum-types = { version = "0.14", features = ["codec"] }
 ethereum-jsonrpc = { git = "https://github.com/vorot93/ethereum-jsonrpc", features = [
   "server",
 ] }
-ethnum = { version = "1", features = ["llvm-intrinsics", "rlp", "scale"] }
+ethnum = { version = "1", features = ["eio", "llvm-intrinsics", "rlp"] }
 fastrlp = { version = "0.2", features = [
   "derive",
   "ethbloom",
@@ -82,9 +83,9 @@ mdbx = { package = "libmdbx", version = "0.1" }
 modular-bitfield = "0.11"
 num-bigint = "0.4"
 num_cpus = "1.13"
+num_enum = "0.5"
 num-traits = "0.2"
 once_cell = "1"
-parity-scale-codec = { version = "3", features = ["bytes"] }
 parking_lot = "0.12"
 primitive-types = { version = "0.12", default-features = false, features = [
   "rlp",
@@ -130,6 +131,7 @@ tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 trust-dns-resolver = "0.22"
+unsigned-varint = { version = "0.7", features = ["std"] }
 url = "2"
 walkdir = "2"
 hashlink = "0.8.0"
@@ -166,7 +168,7 @@ triehash = "0.8"
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 enr = { git = "https://github.com/sigp/enr" }
-ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls" }
+ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls-3" }
 
 [[bin]]
 path = "bin/akula.rs"

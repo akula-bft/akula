@@ -143,7 +143,7 @@ where
         BodyForStorage {
             base_tx_id: 0.into(),
             tx_amount: 0,
-            uncles: vec![],
+            ommers: Default::default(),
         },
     )?;
 

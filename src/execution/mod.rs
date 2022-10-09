@@ -149,7 +149,7 @@ mod tests {
             &header,
             &BlockBodyWithSenders {
                 transactions: vec![tx],
-                ommers: vec![],
+                ommers: Default::default(),
             },
         )
         .unwrap();
@@ -200,7 +200,7 @@ mod tests {
             &header,
             &BlockBodyWithSenders {
                 transactions: vec![tx],
-                ommers: vec![],
+                ommers: Default::default(),
             },
         )
         .unwrap();

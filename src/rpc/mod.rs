@@ -208,7 +208,7 @@ pub mod helpers {
             if let Some((block_number, block_hash, header)) = {
                 if let Some(n) = uncle_index {
                     txn.get(tables::BlockBody, block_number)?.and_then(|body| {
-                        body.uncles
+                        body.ommers
                             .get(n.as_usize())
                             .cloned()
                             .map(|uncle| (uncle.number, uncle.hash(), uncle))

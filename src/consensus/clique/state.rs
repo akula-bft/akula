@@ -1,9 +1,8 @@
 use crate::{
     consensus::{clique, clique::EXTRA_VANITY, CliqueError, DuoError, ValidationError},
-    models::{BlockHeader, BlockNumber},
+    models::*,
 };
 use ethereum_types::Address;
-use ethnum::U256;
 use primitive_types::H256;
 use std::collections::BTreeMap;
 use tracing::*;

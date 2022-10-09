@@ -56,7 +56,7 @@ where
                     .get(tables::BlockBody, block_num)?
                     .ok_or_else(|| format_err!("Body not found for block #{block_num}"))?;
 
-                tx_num += body.tx_amount as u64;
+                tx_num += body.tx_amount;
 
                 cumulative_index_cur.append(block_num, tx_num)?;
             }

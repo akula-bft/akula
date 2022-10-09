@@ -1,15 +1,17 @@
-use super::*;
+use super::{util::*, *};
 use crate::{crypto::keccak256, trie::*};
-use bytes::BytesMut;
+use anyhow::{bail, format_err};
+use arrayvec::ArrayVec;
+use bytes::{Buf, BytesMut};
 use derive_more::Deref;
 use fastrlp::*;
-use parity_scale_codec::*;
+use modular_bitfield::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<MessageWithSignature>,
-    pub ommers: Vec<BlockHeader>,
+    pub ommers: ArrayVec<BlockHeader, 2>,
 }
 
 impl Block {
@@ -17,7 +19,7 @@ impl Block {
     pub fn new(
         partial_header: PartialHeader,
         transactions: Vec<MessageWithSignature>,
-        ommers: Vec<BlockHeader>,
+        ommers: ArrayVec<BlockHeader, 2>,
     ) -> Self {
         let ommers_hash = Self::ommers_hash(&ommers);
         let transactions_root = root_hash(&transactions);
@@ -40,7 +42,7 @@ impl Block {
 pub struct BlockWithSenders {
     pub header: BlockHeader,
     pub transactions: Vec<MessageWithSender>,
-    pub ommers: Vec<BlockHeader>,
+    pub ommers: ArrayVec<BlockHeader, 2>,
 }
 
 impl From<Block> for BlockWithSenders {
@@ -69,7 +71,7 @@ impl From<Block> for BlockWithSenders {
 #[derive(Clone, Debug, Default, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct BlockBody {
     pub transactions: Vec<MessageWithSignature>,
-    pub ommers: Vec<BlockHeader>,
+    pub ommers: ArrayVec<BlockHeader, 2>,
 }
 
 impl BlockBody {
@@ -94,14 +96,100 @@ impl From<Block> for BlockBody {
 #[derive(Clone, Debug, Default)]
 pub struct BlockBodyWithSenders {
     pub transactions: Vec<MessageWithSender>,
-    pub ommers: Vec<BlockHeader>,
+    pub ommers: ArrayVec<BlockHeader, 2>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, RlpDecodable)]
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BodyForStorageFlags {
+    base_tx_id_len: B3,
+    tx_amount_len: B3,
+    ommer1_size_len: B2,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BodyForStorage {
     pub base_tx_id: TxIndex,
     pub tx_amount: u64,
-    pub uncles: Vec<BlockHeader>,
+    pub ommers: ArrayVec<BlockHeader, 2>,
+}
+
+impl BodyForStorage {
+    pub fn compact_encode(&self) -> Vec<u8> {
+        let mut flags = BodyForStorageFlags::default();
+
+        let base_tx_id_encoded = variable_to_compact(self.base_tx_id.0);
+        flags.set_base_tx_id_len(base_tx_id_encoded.len() as u8);
+
+        let tx_amount_encoded = variable_to_compact(self.tx_amount);
+        flags.set_tx_amount_len(tx_amount_encoded.len() as u8);
+
+        let ommer1_encoded = self
+            .ommers
+            .get(0)
+            .map(|uncle| uncle.compact_encode())
+            .unwrap_or_default();
+
+        let ommer1_encoded_size = variable_to_compact(ommer1_encoded.len());
+        flags.set_ommer1_size_len(ommer1_encoded_size.len() as u8);
+
+        let mut out = vec![];
+
+        out.extend_from_slice(&flags.into_bytes());
+        out.extend_from_slice(&base_tx_id_encoded[..]);
+        out.extend_from_slice(&tx_amount_encoded[..]);
+
+        out.extend_from_slice(&ommer1_encoded_size[..]);
+        out.extend_from_slice(&ommer1_encoded[..]);
+
+        out.extend_from_slice(
+            &self
+                .ommers
+                .get(1)
+                .map(|uncle| uncle.compact_encode())
+                .unwrap_or_default()[..],
+        );
+
+        out
+    }
+
+    pub fn compact_decode(mut buf: &[u8]) -> anyhow::Result<Self> {
+        if buf.is_empty() {
+            bail!("input too short");
+        }
+
+        let flags = BodyForStorageFlags::from_bytes([buf.get_u8()]);
+
+        let base_tx_id;
+        (base_tx_id, buf) = variable_from_compact(buf, flags.base_tx_id_len() as u8)?;
+        let base_tx_id = TxIndex(base_tx_id);
+
+        let tx_amount;
+        (tx_amount, buf) = variable_from_compact(buf, flags.tx_amount_len() as u8)?;
+
+        let ommer1_size;
+        (ommer1_size, buf) = variable_from_compact(buf, flags.ommer1_size_len() as u8)?;
+
+        let mut ommers = ArrayVec::new();
+
+        if ommer1_size > 0 {
+            ommers.push(BlockHeader::compact_decode(
+                buf.get(..ommer1_size)
+                    .ok_or_else(|| format_err!("input too short"))?,
+            )?);
+            buf.advance(ommer1_size);
+
+            if !buf.is_empty() {
+                ommers.push(BlockHeader::compact_decode(buf)?);
+            }
+        }
+
+        Ok(Self {
+            base_tx_id,
+            tx_amount,
+            ommers,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deref, Default)]
@@ -141,7 +229,7 @@ mod tests {
             base_fee_per_gas: Some(0x18aac2ec3d_u64.into()),
         };
 
-        let ommers = vec![];
+        let ommers = Default::default();
 
         let transactions = vec![
             MessageWithSignature {
@@ -321,9 +409,9 @@ mod tests {
         assert!(buf.is_empty());
 
         assert_eq!(bb.transactions, []);
-        assert_eq!(
-            bb.ommers,
-            vec![BlockHeader {
+        assert_eq!(bb.ommers, {
+            let mut v = ArrayVec::new();
+            v.push(BlockHeader {
                 parent_hash: hex!(
                     "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
                 )
@@ -347,8 +435,9 @@ mod tests {
                     .into(),
                 nonce: hex!("68b769c5451a7aea").into(),
                 base_fee_per_gas: None,
-            }]
-        );
+            });
+            v
+        });
 
         let mut out = BytesMut::new();
         bb.encode(&mut out);
@@ -400,31 +489,37 @@ mod tests {
                     .unwrap(),
                 },
             ],
-            ommers: vec![BlockHeader {
-                parent_hash: hex!(
-                    "b397a22bb95bf14753ec174f02f99df3f0bdf70d1851cdff813ebf745f5aeb55"
-                )
-                .into(),
-                ommers_hash: EMPTY_LIST_HASH,
-                beneficiary: hex!("0c729be7c39543c3d549282a40395299d987cec2").into(),
-                state_root: hex!(
-                    "c2bcdfd012534fa0b19ffba5fae6fc81edd390e9b7d5007d1e92e8e835286e9d"
-                )
-                .into(),
-                transactions_root: EMPTY_ROOT,
-                receipts_root: EMPTY_ROOT,
-                logs_bloom: Bloom::zero(),
-                difficulty: 12_555_442_155_599_u128.into(),
-                number: 13_000_013.into(),
-                gas_limit: 3_141_592,
-                gas_used: 0,
-                timestamp: 1455404305,
-                extra_data: vec![].into(),
-                mix_hash: hex!("f0a53dfdd6c2f2a661e718ef29092de60d81d45f84044bec7bf4b36630b2bc08")
+            ommers: {
+                let mut v = ArrayVec::new();
+                v.push(BlockHeader {
+                    parent_hash: hex!(
+                        "b397a22bb95bf14753ec174f02f99df3f0bdf70d1851cdff813ebf745f5aeb55"
+                    )
                     .into(),
-                nonce: hex!("0000000000000023").into(),
-                base_fee_per_gas: None,
-            }],
+                    ommers_hash: EMPTY_LIST_HASH,
+                    beneficiary: hex!("0c729be7c39543c3d549282a40395299d987cec2").into(),
+                    state_root: hex!(
+                        "c2bcdfd012534fa0b19ffba5fae6fc81edd390e9b7d5007d1e92e8e835286e9d"
+                    )
+                    .into(),
+                    transactions_root: EMPTY_ROOT,
+                    receipts_root: EMPTY_ROOT,
+                    logs_bloom: Bloom::zero(),
+                    difficulty: 12_555_442_155_599_u128.into(),
+                    number: 13_000_013.into(),
+                    gas_limit: 3_141_592,
+                    gas_used: 0,
+                    timestamp: 1455404305,
+                    extra_data: vec![].into(),
+                    mix_hash: hex!(
+                        "f0a53dfdd6c2f2a661e718ef29092de60d81d45f84044bec7bf4b36630b2bc08"
+                    )
+                    .into(),
+                    nonce: hex!("0000000000000023").into(),
+                    base_fee_per_gas: None,
+                });
+                v
+            },
         };
 
         let mut out = BytesMut::new();
