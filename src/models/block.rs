@@ -68,6 +68,16 @@ impl From<Block> for BlockWithSenders {
     }
 }
 
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BlockBodyFlags {
+    tx_amount_len: B3,
+    ommer1_size_len: B3,
+
+    #[skip]
+    unused: B2,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, RlpEncodable, RlpDecodable)]
 pub struct BlockBody {
     pub transactions: Vec<MessageWithSignature>,
@@ -75,6 +85,91 @@ pub struct BlockBody {
 }
 
 impl BlockBody {
+    pub fn compact_encode(&self) -> Vec<u8> {
+        let mut flags = BlockBodyFlags::default();
+
+        let tx_amount_encoded = variable_to_compact(self.transactions.len());
+        flags.set_tx_amount_len(tx_amount_encoded.len() as u8);
+
+        let ommer1_encoded = self
+            .ommers
+            .get(0)
+            .map(|ommer| ommer.compact_encode())
+            .unwrap_or_default();
+
+        let ommer1_encoded_len = variable_to_compact(ommer1_encoded.len());
+        flags.set_ommer1_size_len(ommer1_encoded_len.len() as u8);
+
+        let mut out = flags.into_bytes().to_vec();
+
+        out.extend_from_slice(&tx_amount_encoded);
+
+        let mut buffer = unsigned_varint::encode::usize_buffer();
+        for tx in &self.transactions {
+            let tx_encoded = tx.compact_encode();
+            out.extend_from_slice(unsigned_varint::encode::usize(
+                tx_encoded.len(),
+                &mut buffer,
+            ));
+            out.extend_from_slice(&tx_encoded);
+        }
+
+        out.extend_from_slice(&ommer1_encoded);
+        out.extend_from_slice(
+            &self
+                .ommers
+                .get(1)
+                .map(|ommer| ommer.compact_encode())
+                .unwrap_or_default(),
+        );
+
+        out
+    }
+
+    pub fn compact_decode(mut buf: &[u8]) -> anyhow::Result<Self> {
+        if buf.is_empty() {
+            bail!("buf too short");
+        }
+
+        let flags = BlockBodyFlags::from_bytes([buf.get_u8()]);
+
+        let tx_amount;
+        (tx_amount, buf) = variable_from_compact(buf, flags.tx_amount_len() as u8)?;
+
+        let ommer1_size;
+        (ommer1_size, buf) = variable_from_compact(buf, flags.ommer1_size_len() as u8)?;
+
+        let mut transactions = vec![];
+        for _ in 0..tx_amount {
+            let len;
+            (len, buf) = unsigned_varint::decode::usize(buf)?;
+
+            transactions.push(MessageWithSignature::compact_decode(
+                buf.get(..len).ok_or_else(|| format_err!("buf too short"))?,
+            )?);
+            buf.advance(len);
+        }
+
+        let mut ommers = ArrayVec::new();
+
+        if ommer1_size > 0 {
+            ommers.push(BlockHeader::compact_decode(
+                buf.get(..ommer1_size)
+                    .ok_or_else(|| format_err!("buf too short"))?,
+            )?);
+            buf.advance(ommer1_size);
+
+            if !buf.is_empty() {
+                ommers.push(BlockHeader::compact_decode(buf)?);
+            }
+        }
+
+        Ok(Self {
+            transactions,
+            ommers,
+        })
+    }
+
     pub fn transactions_root(&self) -> H256 {
         root_hash(&self.transactions)
     }

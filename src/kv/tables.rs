@@ -333,6 +333,7 @@ macro_rules! compact_table_object {
     };
 }
 
+compact_table_object!(crate::models::BlockBody);
 compact_table_object!(BodyForStorage);
 compact_table_object!(BlockHeader);
 compact_table_object!(MessageWithSignature);
