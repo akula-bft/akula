@@ -19,14 +19,29 @@ pub const SENDER_SNAPSHOT: StageId = StageId("SenderSnapshot");
 
 impl SnapshotObject for BlockHeader {
     const ID: &'static str = "headers";
+    type Table = crate::kv::tables::HeaderSnapshot;
+
+    fn db_table() -> Self::Table {
+        crate::kv::tables::HeaderSnapshot
+    }
 }
 
 impl SnapshotObject for BlockBody {
     const ID: &'static str = "bodies";
+    type Table = crate::kv::tables::BodySnapshot;
+
+    fn db_table() -> Self::Table {
+        crate::kv::tables::BodySnapshot
+    }
 }
 
 impl SnapshotObject for Vec<Address> {
     const ID: &'static str = "senders";
+    type Table = crate::kv::tables::SenderSnapshot;
+
+    fn db_table() -> Self::Table {
+        crate::kv::tables::SenderSnapshot
+    }
 }
 
 #[derive(Debug)]
@@ -60,6 +75,7 @@ where
         let mut snapshotter = self.snapshotter.lock().await;
         execute_snapshot(
             &mut snapshotter,
+            tx,
             &mut self.bt_sender,
             |last_snapshotted_block| {
                 Ok(tx
@@ -123,6 +139,7 @@ where
         let mut snapshotter = self.snapshotter.lock().await;
         execute_snapshot(
             &mut snapshotter,
+            tx,
             &mut self.bt_sender,
             |last_snapshotted_block| {
                 let tx = &*tx;
@@ -200,6 +217,7 @@ where
         let mut snapshotter = self.snapshotter.lock().await;
         execute_snapshot(
             &mut snapshotter,
+            tx,
             &mut self.bt_sender,
             |last_snapshotted_block| {
                 let tx = &*tx;
@@ -247,8 +265,9 @@ where
     }
 }
 
-async fn execute_snapshot<Version, T, IT>(
+async fn execute_snapshot<Version, T, IT, E>(
     snapshotter: &mut Snapshotter<Version, T>,
+    tx: &MdbxTransaction<'_, RW, E>,
     bt_sender: &mut Sender<(String, PathBuf)>,
     mut extractor: impl FnMut(Option<BlockNumber>) -> anyhow::Result<IT>,
     prev_stage_progress: BlockNumber,
@@ -257,6 +276,7 @@ where
     Version: SnapshotVersion,
     T: SnapshotObject,
     IT: Iterator<Item = anyhow::Result<(BlockNumber, T)>>,
+    E: EnvironmentKind,
 {
     if let Some(max_progress) = prev_stage_progress.checked_sub(MIN_DISTANCE as u64) {
         loop {
@@ -275,7 +295,7 @@ where
                 next_last_snapshotted_block,
             );
             let _ = bt_sender
-                .send(snapshotter.snapshot((extractor)(last_snapshotted_block)?)?)
+                .send(snapshotter.snapshot((extractor)(last_snapshotted_block)?, tx)?)
                 .await;
         }
     }

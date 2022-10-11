@@ -375,10 +375,10 @@ fn main() -> anyhow::Result<()> {
                 });
 
                 let header_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
-                let body_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
+                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir,  &db.begin()?)?));
+                let body_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir, &db.begin()?)?));
                 let sender_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir)?));
+                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir, &db.begin()?)?));
 
                 {
                     let header_snapshotter = header_snapshotter.lock().await;
