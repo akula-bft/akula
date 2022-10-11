@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::format_err;
 use async_trait::async_trait;
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{mpsc::Sender, Mutex as AsyncMutex};
 use tracing::*;
 
@@ -47,7 +47,7 @@ impl SnapshotObject for Vec<Address> {
 #[derive(Debug)]
 pub struct HeaderSnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockHeader>>>,
-    pub bt_sender: Sender<(String, PathBuf)>,
+    pub bt_sender: Sender<(H160, Option<Vec<u8>>)>,
 }
 
 #[async_trait]
@@ -111,7 +111,7 @@ where
 #[derive(Debug)]
 pub struct BodySnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockBody>>>,
-    pub bt_sender: Sender<(String, PathBuf)>,
+    pub bt_sender: Sender<(H160, Option<Vec<u8>>)>,
 }
 
 #[async_trait]
@@ -189,7 +189,7 @@ where
 #[derive(Debug)]
 pub struct SenderSnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, Vec<Address>>>>,
-    pub bt_sender: Sender<(String, PathBuf)>,
+    pub bt_sender: Sender<(H160, Option<Vec<u8>>)>,
 }
 
 #[async_trait]
@@ -268,7 +268,7 @@ where
 async fn execute_snapshot<Version, T, IT, E>(
     snapshotter: &mut Snapshotter<Version, T>,
     tx: &MdbxTransaction<'_, RW, E>,
-    bt_sender: &mut Sender<(String, PathBuf)>,
+    bt_sender: &mut Sender<(H160, Option<Vec<u8>>)>,
     mut extractor: impl FnMut(Option<BlockNumber>) -> anyhow::Result<IT>,
     prev_stage_progress: BlockNumber,
 ) -> anyhow::Result<()>
@@ -294,9 +294,22 @@ where
                 },
                 next_last_snapshotted_block,
             );
-            let _ = bt_sender
-                .send(snapshotter.snapshot((extractor)(last_snapshotted_block)?, tx)?)
-                .await;
+
+            let (next_snapshot_idx, snapshot_path) =
+                snapshotter.snapshot((extractor)(last_snapshotted_block)?)?;
+
+            let torrent =
+                lava_torrent::torrent::v1::TorrentBuilder::new(&snapshot_path, 2_i64.pow(18))
+                    .build()
+                    .unwrap();
+
+            let info_hash = H160::from_slice(&torrent.info_hash_bytes());
+            let torrent_encoded = torrent.encode()?;
+            tx.cursor(T::db_table())?
+                .append(next_snapshot_idx as u64, info_hash)?;
+            tx.set(tables::Torrents, info_hash, torrent_encoded.clone())?;
+
+            let _ = bt_sender.send((info_hash, Some(torrent_encoded))).await;
         }
     }
 

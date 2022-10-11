@@ -1,7 +1,6 @@
 use crate::{
     kv::{
         mdbx::*,
-        tables,
         traits::{Table, TableDecode, TableObject},
     },
     models::*,
@@ -109,6 +108,17 @@ where
         path: impl AsRef<Path>,
         tx: &MdbxTransaction<K, E>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_predicate(path, |snapshot_idx| {
+            tx.get(T::db_table(), snapshot_idx as u64)
+                .unwrap()
+                .is_some()
+        })
+    }
+
+    fn new_with_predicate(
+        path: impl AsRef<Path>,
+        predicate: impl Fn(usize) -> bool,
+    ) -> anyhow::Result<Self> {
         let path = path.as_ref().to_path_buf();
 
         std::fs::create_dir_all(&path)?;
@@ -120,7 +130,7 @@ where
             let snapshot_directory = Self::snapshot_directory(snapshot_idx);
             let snapshot_path = path.join(&snapshot_directory);
 
-            if tx.get(T::db_table(), snapshot_idx as u64)?.is_none() {
+            if !(predicate)(snapshot_idx) {
                 break;
             }
             let index = OpenOptions::new()
@@ -173,26 +183,20 @@ where
         BlockNumber((((self.snapshots.len() + 1) * Version::STRIDE.get()) - 1) as u64)
     }
 
-    fn snapshot_path(&self, snapshot_idx: usize) -> (String, PathBuf) {
-        let snapshot_dir = Self::snapshot_directory(snapshot_idx);
-        let snapshot_path = self.base_path.join(&snapshot_dir);
-        (snapshot_dir, snapshot_path)
+    fn snapshot_path(&self, snapshot_idx: usize) -> PathBuf {
+        self.base_path.join(Self::snapshot_directory(snapshot_idx))
     }
 
-    pub fn snapshot_paths(&self) -> Vec<(String, PathBuf)> {
+    pub fn snapshot_dirs(&self) -> Vec<PathBuf> {
         (0..self.snapshots.len())
             .map(|snapshot_idx| self.snapshot_path(snapshot_idx))
             .collect()
     }
 
-    pub fn snapshot<E>(
+    pub fn snapshot(
         &mut self,
         mut items: impl Iterator<Item = anyhow::Result<(BlockNumber, T)>>,
-        tx: &MdbxTransaction<RW, E>,
-    ) -> anyhow::Result<(String, PathBuf)>
-    where
-        E: EnvironmentKind,
-    {
+    ) -> anyhow::Result<(usize, PathBuf)> {
         let mut last_block = self.max_block();
 
         let next_snapshot_idx = self.snapshots.len();
@@ -260,15 +264,6 @@ where
 
         index.flush()?;
 
-        let torrent = lava_torrent::torrent::v1::TorrentBuilder::new(&snapshot_path, 2_i64.pow(18))
-            .build()
-            .unwrap();
-
-        let info_hash = H160::from_slice(&torrent.info_hash_bytes());
-        tx.cursor(T::db_table())?
-            .append(next_snapshot_idx as u64, info_hash)?;
-        tx.set(tables::Torrents, info_hash, torrent.encode()?)?;
-
         let snapshot_idx = self.snapshots.len();
 
         self.snapshots.push(Snapshot {
@@ -278,103 +273,109 @@ where
             index: BufReader::new(index),
         });
 
-        Ok(self.snapshot_path(snapshot_idx))
+        Ok((next_snapshot_idx, self.snapshot_path(snapshot_idx)))
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::kv::{new_mem_chaindata, traits::TableEncode};
-//     use derive_more::From;
-//     use hex_literal::hex;
-//     use tempfile::tempdir;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kv::traits::TableEncode;
+    use derive_more::From;
+    use hex_literal::hex;
+    use tempfile::tempdir;
 
-//     #[test]
-//     fn snapshot() {
-//         let chaindata = new_mem_chaindata().unwrap();
-//         let tx = chaindata.begin_mutable().unwrap();
+    #[test]
+    fn snapshot() {
+        let tmp_dir = tempdir().unwrap();
 
-//         let tmp_dir = tempdir().unwrap();
+        let items = [0x42_u64, 0x0, 0xDEADBEEF, 0xAACC, 0xBAADCAFE];
 
-//         let items = [0x42_u64, 0x0, 0xDEADBEEF, 0xAACC, 0xBAADCAFE];
+        struct TestSnapshot;
 
-//         struct TestSnapshot;
+        impl SnapshotVersion for TestSnapshot {
+            const ID: &'static str = "test";
+            const STRIDE: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+        }
 
-//         impl SnapshotVersion for TestSnapshot {
-//             const ID: &'static str = "test";
-//             const STRIDE: NonZeroUsize = NonZeroUsize::new(4).unwrap();
-//         }
+        #[derive(Clone, Copy, Debug, From)]
+        pub struct TestNumber(pub U256);
 
-//         #[derive(Clone, Copy, Debug, From)]
-//         pub struct TestNumber(pub U256);
+        impl TableEncode for TestNumber {
+            type Encoded = <U256 as TableEncode>::Encoded;
 
-//         impl TableEncode for TestNumber {
-//             type Encoded = <U256 as TableEncode>::Encoded;
+            fn encode(self) -> Self::Encoded {
+                self.0.encode()
+            }
+        }
 
-//             fn encode(self) -> Self::Encoded {
-//                 self.0.encode()
-//             }
-//         }
+        impl TableDecode for TestNumber {
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                U256::decode(b).map(From::from)
+            }
+        }
 
-//         impl TableDecode for TestNumber {
-//             fn decode(b: &[u8]) -> anyhow::Result<Self> {
-//                 U256::decode(b).map(From::from)
-//             }
-//         }
+        impl SnapshotObject for U256 {
+            const ID: &'static str = "testobj";
+            type Table = crate::kv::tables::HeaderSnapshot;
 
-//         impl SnapshotObject for U256 {
-//             const ID: &'static str = "testobj";
-//         }
+            fn db_table() -> Self::Table {
+                crate::kv::tables::HeaderSnapshot
+            }
+        }
 
-//         for new in [true, false] {
-//             let mut snapshotter = Snapshotter::<TestSnapshot, U256>::new(&tmp_dir).unwrap();
+        for new in [true, false] {
+            let mut snapshotter =
+                Snapshotter::<TestSnapshot, U256>::new_with_predicate(&tmp_dir, |idx| {
+                    idx < if new { 0 } else { 1 }
+                })
+                .unwrap();
 
-//             if new {
-//                 assert_eq!(snapshotter.max_block(), None);
-//                 assert_eq!(snapshotter.next_max_block(), 3);
-//                 assert_eq!(snapshotter.get(0.into()).unwrap(), None);
-//                 snapshotter
-//                     .snapshot(
-//                         items
-//                             .iter()
-//                             .enumerate()
-//                             .map(|(block, item)| Ok((BlockNumber(block as u64), item.as_u256()))),
-//                     )
-//                     .unwrap();
-//             }
+            if new {
+                assert_eq!(snapshotter.max_block(), None);
+                assert_eq!(snapshotter.next_max_block(), 3);
+                assert_eq!(snapshotter.get(0.into()).unwrap(), None);
+                snapshotter
+                    .snapshot(
+                        items
+                            .iter()
+                            .enumerate()
+                            .map(|(block, item)| Ok((BlockNumber(block as u64), item.as_u256()))),
+                    )
+                    .unwrap();
+            }
 
-//             assert_eq!(snapshotter.max_block(), Some(BlockNumber(3)));
-//             assert_eq!(snapshotter.next_max_block(), 7);
+            assert_eq!(snapshotter.max_block(), Some(BlockNumber(3)));
+            assert_eq!(snapshotter.next_max_block(), 7);
 
-//             {
-//                 let snapshot = snapshotter.snapshots.get_mut(0).unwrap();
-//                 let mut segment_buffer = vec![];
-//                 snapshot.segment.seek(SeekFrom::Start(0)).unwrap();
-//                 snapshot.segment.read_to_end(&mut segment_buffer).unwrap();
+            {
+                let snapshot = snapshotter.snapshots.get_mut(0).unwrap();
+                let mut segment_buffer = vec![];
+                snapshot.segment.seek(SeekFrom::Start(0)).unwrap();
+                snapshot.segment.read_to_end(&mut segment_buffer).unwrap();
 
-//                 assert_eq!(&segment_buffer, &hex!("42DEADBEEFAACC"));
+                assert_eq!(&segment_buffer, &hex!("42DEADBEEFAACC"));
 
-//                 let mut index_buffer = vec![];
-//                 snapshot.index.seek(SeekFrom::Start(0)).unwrap();
-//                 snapshot.index.read_to_end(&mut index_buffer).unwrap();
+                let mut index_buffer = vec![];
+                snapshot.index.seek(SeekFrom::Start(0)).unwrap();
+                snapshot.index.read_to_end(&mut index_buffer).unwrap();
 
-//                 assert_eq!(
-//                     &index_buffer,
-//                     &hex!("0000000000000000000000000000000100000000000000010000000000000005")
-//                 );
-//             }
+                assert_eq!(
+                    &index_buffer,
+                    &hex!("0000000000000000000000000000000100000000000000010000000000000005")
+                );
+            }
 
-//             for (i, item) in items.iter().enumerate().take(TestSnapshot::STRIDE.get()) {
-//                 assert_eq!(
-//                     snapshotter.get((i as u64).into()).unwrap(),
-//                     Some(item.as_u256())
-//                 );
-//             }
+            for (i, item) in items.iter().enumerate().take(TestSnapshot::STRIDE.get()) {
+                assert_eq!(
+                    snapshotter.get((i as u64).into()).unwrap(),
+                    Some(item.as_u256())
+                );
+            }
 
-//             for i in TestSnapshot::STRIDE.get()..items.len() {
-//                 assert_eq!(snapshotter.get((i as u64).into()).unwrap(), None);
-//             }
-//         }
-//     }
-// }
+            for i in TestSnapshot::STRIDE.get()..items.len() {
+                assert_eq!(snapshotter.get((i as u64).into()).unwrap(), None);
+            }
+        }
+    }
+}

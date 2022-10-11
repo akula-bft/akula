@@ -2,7 +2,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
-    kv::tables::CHAINDATA_TABLES,
+    kv::tables::{self, CHAINDATA_TABLES},
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -38,7 +38,6 @@ use std::{
     io::Write,
     net::SocketAddr,
     panic,
-    path::PathBuf,
     process::{exit, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -333,24 +332,32 @@ fn main() -> anyhow::Result<()> {
 
                 tokio::time::sleep(Duration::from_secs(5)).await;
 
-                let (torrent_tx, mut torrent_rx) = tokio::sync::mpsc::channel(1);
+                let (torrent_tx, mut torrent_rx) =
+                    tokio::sync::mpsc::channel::<(H160, Option<Vec<u8>>)>(1);
                 tokio::spawn({
-                    let snapshot_base_path = snapshot_dir.clone();
+                    let snapshot_dir = snapshot_dir.clone();
                     async move {
-                        while let Some((snapshot_name, snapshot_path)) = torrent_rx.recv().await {
-                            let torrent_file_name = format!("{snapshot_name}.torrent");
-                            let torrent_path = snapshot_base_path.join(&torrent_file_name);
-
-                            let snapshot_path: PathBuf = snapshot_path;
+                        while let Some((info_hash, torrent_bytes)) = torrent_rx.recv().await {
+                            let mut torrent_add_args = TorrentAddArgs {
+                                download_dir: Some(snapshot_dir.to_string_lossy().to_string()),
+                                ..Default::default()
+                            };
+                            let mut tmp_file;
+                            if let Some(torrent_bytes) = torrent_bytes {
+                                tmp_file = tempfile::NamedTempFile::new().unwrap();
+                                tmp_file.write_all(&torrent_bytes).unwrap();
+                                torrent_add_args.filename =
+                                    Some(tmp_file.path().to_string_lossy().into_owned());
+                            } else {
+                                // TODO: spawn waiter task so we don't proceed to staged sync until it's complete
+                                torrent_add_args.metainfo =
+                                    Some(format!("magnet:?xt:btih:{info_hash:?}"));
+                            }
 
                             let _ = TRACKERS;
 
                             let rsp = TransClient::new(transmission_daemon_addr.clone())
-                                .torrent_add(TorrentAddArgs {
-                                    filename: Some(torrent_path.to_string_lossy().to_string()),
-                                    download_dir: Some(snapshot_path.to_string_lossy().to_string()),
-                                    ..Default::default()
-                                })
+                                .torrent_add(torrent_add_args)
                                 .await
                                 .unwrap();
 
@@ -358,12 +365,17 @@ fn main() -> anyhow::Result<()> {
 
                             if let TorrentAddedOrDuplicate::TorrentAdded(handle) = rsp.arguments {
                                 assert!(TransClient::new(transmission_daemon_addr.clone())
-                                    .torrent_set(TorrentSetArgs {
-                                        tracker_list: Some(TrackerList(
-                                            TRACKERS.iter().map(|s| s.to_string()).collect(),
-                                        )),
-                                        ..Default::default()
-                                    }, None)
+                                    .torrent_set(
+                                        TorrentSetArgs {
+                                            tracker_list: Some(TrackerList(
+                                                TRACKERS.iter().map(|s| s.to_string()).collect(),
+                                            )),
+                                            ..Default::default()
+                                        },
+                                        Some(vec![transmission_rpc::types::Id::Id(
+                                            handle.id.unwrap()
+                                        )])
+                                    )
                                     .await
                                     .unwrap()
                                     .is_ok());
@@ -374,31 +386,36 @@ fn main() -> anyhow::Result<()> {
                     }
                 });
 
-                let header_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir,  &db.begin()?)?));
-                let body_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir, &db.begin()?)?));
-                let sender_snapshotter =
-                    Arc::new(AsyncMutex::new(Snapshotter::new(&snapshot_dir, &db.begin()?)?));
+                let header_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(
+                    &snapshot_dir,
+                    &db.begin()?,
+                )?));
+                let body_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(
+                    &snapshot_dir,
+                    &db.begin()?,
+                )?));
+                let sender_snapshotter = Arc::new(AsyncMutex::new(Snapshotter::new(
+                    &snapshot_dir,
+                    &db.begin()?,
+                )?));
 
                 {
-                    let header_snapshotter = header_snapshotter.lock().await;
-                    let body_snapshotter = body_snapshotter.lock().await;
-                    let sender_snapshotter = sender_snapshotter.lock().await;
+                    let tx = db.begin()?;
 
                     let mut snapshots_count = 0;
-                    for snapshot_paths in [
-                        header_snapshotter.snapshot_paths(),
-                        body_snapshotter.snapshot_paths(),
-                        sender_snapshotter.snapshot_paths(),
-                    ] {
-                        for (snapshot_name, _) in snapshot_paths {
-                            torrent_tx
-                                .send((snapshot_name, snapshot_dir.clone()))
-                                .await
-                                .unwrap();
 
-                            snapshots_count += 1;
-                        }
+                    // TODO: zip with chainspec hashes
+                    for res in std::iter::empty()
+                        .chain(tx.cursor(tables::HeaderSnapshot)?.walk(None))
+                        .chain(tx.cursor(tables::BodySnapshot)?.walk(None))
+                        .chain(tx.cursor(tables::SenderSnapshot)?.walk(None))
+                    {
+                        let (idx, info_hash) = res?;
+                        let _ = idx;
+                        let torrent_bytes = tx.get(tables::Torrents, info_hash)?;
+                        torrent_tx.send((info_hash, torrent_bytes)).await.unwrap();
+
+                        snapshots_count += 1;
                     }
 
                     info!("Added {snapshots_count} snapshots to torrent engine");
