@@ -126,7 +126,7 @@ tonic = { version = "0.8", default-features = false, features = [
   "transport",
 ] }
 tonic-health = "0.7"
-tonic-reflection = "0.5"
+tonic-reflection = { version = "0.5", optional = true }
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -149,6 +149,7 @@ e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
 [features]
 default = []
 console = ["tokio/tracing", "dep:console-subscriber"]
+grpc-reflection = ["tonic-reflection"]
 
 [build-dependencies]
 anyhow = "1"
