@@ -2,7 +2,10 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
-    kv::tables::{self, CHAINDATA_TABLES},
+    kv::{
+        tables::{self, CHAINDATA_TABLES},
+        traits::Table,
+    },
     models::*,
     p2p::node::NodeBuilder,
     rpc::{
@@ -15,7 +18,7 @@ use akula::{
     stages::*,
     version_string,
 };
-use anyhow::Context;
+use anyhow::{bail, Context};
 use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
@@ -23,6 +26,7 @@ use ethereum_jsonrpc::{
 };
 use expanded_pathbuf::ExpandedPathBuf;
 use http::Uri;
+use itertools::Itertools;
 use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
@@ -32,7 +36,7 @@ use signal_hook::{
     iterator::{exfiltrator::SignalOnly, SignalsInfo},
 };
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs::OpenOptions,
     future::pending,
     io::Write,
@@ -249,6 +253,25 @@ fn main() -> anyhow::Result<()> {
                     opt.prune = false;
                 }
 
+                let chainspec = {
+                    let span = span!(Level::INFO, "", " Genesis initialization ");
+                    let _g = span.enter();
+                    let txn = db.begin_mutable()?;
+                    let (chainspec, initialized) = akula::genesis::initialize_genesis(
+                        &txn,
+                        &etl_temp_dir,
+                        bundled_chain_spec,
+                        chain_config,
+                    )?;
+                    if initialized {
+                        txn.commit()?;
+                    }
+
+                    chainspec
+                };
+
+                info!("Current network: {}", chainspec.name);
+
                 let transmission_daemon_addr: Url = format!(
                     "http://localhost:{}/transmission/rpc",
                     opt.transmission_daemon_port
@@ -400,45 +423,63 @@ fn main() -> anyhow::Result<()> {
                 )?));
 
                 {
-                    let tx = db.begin()?;
+                    let tx = db.begin_mutable()?;
 
+                    let mut new_snapshots = BTreeMap::new();
                     let mut snapshots_count = 0;
 
                     // TODO: zip with chainspec hashes
-                    for res in std::iter::empty()
-                        .chain(tx.cursor(tables::HeaderSnapshot)?.walk(None))
-                        .chain(tx.cursor(tables::BodySnapshot)?.walk(None))
-                        .chain(tx.cursor(tables::SenderSnapshot)?.walk(None))
-                    {
-                        let (idx, info_hash) = res?;
-                        let _ = idx;
-                        let torrent_bytes = tx.get(tables::Torrents, info_hash)?;
-                        torrent_tx.send((info_hash, torrent_bytes)).await.unwrap();
+                    for (table, preverified_snapshots) in [
+                        (
+                            Box::new(tables::HeaderSnapshot)
+                                as Box<dyn Table<Key = u64, Value = H160, SeekKey = u64>>,
+                            &chainspec.snapshots.headers,
+                        ),
+                        (Box::new(tables::BodySnapshot), &chainspec.snapshots.bodies),
+                        (
+                            Box::new(tables::SenderSnapshot),
+                            &chainspec.snapshots.senders,
+                        ),
+                    ] {
+                        let walker = tx.cursor(table)?.walk(None);
+                        for it in
+                            walker.zip_longest(preverified_snapshots.iter().copied().enumerate())
+                        {
+                            match it {
+                                itertools::EitherOrBoth::Both(
+                                    downloaded_snapshot,
+                                    (_, preverified_info_hash),
+                                ) => {
+                                    let (idx, info_hash) = downloaded_snapshot?;
 
-                        snapshots_count += 1;
+                                    if info_hash != preverified_info_hash {
+                                        bail!("Downloaded infohash #{idx}/{info_hash:?} does not match preverified one ({preverified_info_hash:?}");
+                                    }
+
+                                    let torrent_bytes = tx.get(tables::Torrents, info_hash)?;
+                                    torrent_tx.send((info_hash, torrent_bytes)).await.unwrap();
+                                }
+                                itertools::EitherOrBoth::Left(downloaded_snapshot) => {
+                                    // We're past embedded snapshots
+                                    let (_, info_hash) = downloaded_snapshot?;
+
+                                    let torrent_bytes = tx.get(tables::Torrents, info_hash)?;
+                                    torrent_tx.send((info_hash, torrent_bytes)).await.unwrap();
+                                },
+                                itertools::EitherOrBoth::Right((idx, preverified_info_hash)) => {
+                                    // We have more snapshots to download according to chainspec
+
+                                    new_snapshots.insert(idx, preverified_info_hash);
+                                    torrent_tx.send((preverified_info_hash, None)).await.unwrap();
+                                }
+                            }
+
+                            snapshots_count += 1;
+                        }
                     }
 
                     info!("Added {snapshots_count} snapshots to torrent engine");
                 }
-
-                let chainspec = {
-                    let span = span!(Level::INFO, "", " Genesis initialization ");
-                    let _g = span.enter();
-                    let txn = db.begin_mutable()?;
-                    let (chainspec, initialized) = akula::genesis::initialize_genesis(
-                        &txn,
-                        &etl_temp_dir,
-                        bundled_chain_spec,
-                        chain_config,
-                    )?;
-                    if initialized {
-                        txn.commit()?;
-                    }
-
-                    chainspec
-                };
-
-                info!("Current network: {}", chainspec.name);
 
                 let jwt_secret_path = opt
                     .jwt_secret_path

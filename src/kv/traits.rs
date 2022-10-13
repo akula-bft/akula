@@ -1,3 +1,4 @@
+use auto_impl::auto_impl;
 use bytes::Bytes;
 use std::{
     fmt::Debug,
@@ -20,6 +21,7 @@ pub trait TableObject: TableEncode + TableDecode {}
 
 impl<T> TableObject for T where T: TableEncode + TableDecode {}
 
+#[auto_impl(Box)]
 pub trait Table: Send + Sync + Debug + 'static {
     type Key: TableEncode;
     type Value: TableObject;
@@ -27,6 +29,7 @@ pub trait Table: Send + Sync + Debug + 'static {
 
     fn db_name(&self) -> string::String<Bytes>;
 }
+
 pub trait DupSort: Table {
     type SeekBothKey: TableObject;
 }
