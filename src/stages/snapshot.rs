@@ -13,6 +13,12 @@ use tracing::*;
 
 const MIN_DISTANCE: usize = 1_000;
 
+#[derive(Debug)]
+pub enum TorrentData {
+    Downloaded(Vec<u8>),
+    NotDownloaded(tokio::sync::oneshot::Sender<Vec<u8>>),
+}
+
 pub const HEADER_SNAPSHOT: StageId = StageId("HeaderSnapshot");
 pub const BODY_SNAPSHOT: StageId = StageId("BodySnapshot");
 pub const SENDER_SNAPSHOT: StageId = StageId("SenderSnapshot");
@@ -47,7 +53,7 @@ impl SnapshotObject for Vec<Address> {
 #[derive(Debug)]
 pub struct HeaderSnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockHeader>>>,
-    pub bt_sender: Sender<(H160, Option<Vec<u8>>)>,
+    pub bt_sender: Sender<(H160, TorrentData)>,
 }
 
 #[async_trait]
@@ -111,7 +117,7 @@ where
 #[derive(Debug)]
 pub struct BodySnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockBody>>>,
-    pub bt_sender: Sender<(H160, Option<Vec<u8>>)>,
+    pub bt_sender: Sender<(H160, TorrentData)>,
 }
 
 #[async_trait]
@@ -189,7 +195,7 @@ where
 #[derive(Debug)]
 pub struct SenderSnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, Vec<Address>>>>,
-    pub bt_sender: Sender<(H160, Option<Vec<u8>>)>,
+    pub bt_sender: Sender<(H160, TorrentData)>,
 }
 
 #[async_trait]
@@ -268,7 +274,7 @@ where
 async fn execute_snapshot<Version, T, IT, E>(
     snapshotter: &mut Snapshotter<Version, T>,
     tx: &MdbxTransaction<'_, RW, E>,
-    bt_sender: &mut Sender<(H160, Option<Vec<u8>>)>,
+    bt_sender: &mut Sender<(H160, TorrentData)>,
     mut extractor: impl FnMut(Option<BlockNumber>) -> anyhow::Result<IT>,
     prev_stage_progress: BlockNumber,
 ) -> anyhow::Result<()>
@@ -309,7 +315,9 @@ where
                 .append(next_snapshot_idx as u64, info_hash)?;
             tx.set(tables::Torrents, info_hash, torrent_encoded.clone())?;
 
-            let _ = bt_sender.send((info_hash, Some(torrent_encoded))).await;
+            let _ = bt_sender
+                .send((info_hash, TorrentData::Downloaded(torrent_encoded)))
+                .await;
         }
     }
 
