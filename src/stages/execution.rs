@@ -5,6 +5,7 @@ use crate::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
         tracer::{CallTracer, CallTracerFlags},
+        EvmMemory,
     },
     h256_to_u256,
     kv::{
@@ -64,6 +65,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
         .unwrap();
     let mut last_message = Instant::now();
     let mut printed_at_least_once = false;
+    let mut mem = EvmMemory::new();
     loop {
         let block_hash = tx
             .get(tables::CanonicalHeader, block_number)?
@@ -91,6 +93,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             &header,
             &block,
             &block_spec,
+            &mut mem,
         )
         .execute_and_write_block()
         .map_err(|e| match e {

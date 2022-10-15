@@ -6,6 +6,7 @@ use crate::{
         analysis_cache::AnalysisCache,
         processor::{execute_transaction, ExecutionProcessor},
         tracer::{CallKind, MessageKind, NoopTracer, Tracer},
+        EvmMemory,
     },
     kv::{
         mdbx::*,
@@ -176,6 +177,7 @@ where
     };
 
     let beneficiary = engine_factory(None, chain_spec.clone(), None)?.get_beneficiary(&header);
+    let mut mem = EvmMemory::new();
 
     for (transaction_index, (transaction, sender)) in messages.into_iter().zip(senders).enumerate()
     {
@@ -190,6 +192,7 @@ where
             &transaction.message,
             sender,
             beneficiary,
+            &mut mem,
         )?
         .1;
 
@@ -447,6 +450,7 @@ where
                 let mut engine = engine_factory(None, chain_spec, None)?;
                 let mut analysis_cache = AnalysisCache::default();
                 let mut tracer = NoopTracer;
+                let mut mem = EvmMemory::new();
 
                 let mut processor = ExecutionProcessor::new(
                     &mut buffer,
@@ -456,6 +460,7 @@ where
                     &header,
                     &block_body,
                     &block_execution_spec,
+                    &mut mem,
                 );
 
                 let transaction_index = chain::block_body::read_without_senders(&txn, block_hash, block_number)?.ok_or_else(|| format_err!("where's block body"))?.transactions

@@ -13,11 +13,14 @@ pub mod precompiled;
 pub mod processor;
 pub mod tracer;
 
+pub use evm::EvmMemory;
+
 pub fn execute_block<S: State>(
     state: &mut S,
     config: &ChainSpec,
     header: &BlockHeader,
     block: &BlockBodyWithSenders,
+    mem: &mut EvmMemory,
 ) -> Result<Vec<Receipt>, DuoError> {
     let mut analysis_cache = AnalysisCache::default();
     let mut engine = consensus::engine_factory(None, config.clone(), None)?;
@@ -32,6 +35,7 @@ pub fn execute_block<S: State>(
         header,
         block,
         &config,
+        mem,
     )
     .execute_and_write_block()
 }
@@ -133,6 +137,7 @@ mod tests {
         let tx = (t)(TransactionAction::Create, deployment_code.into(), 0, 0);
 
         let mut state = InMemoryState::default();
+        let mut mem = EvmMemory::new();
         let sender_account = Account {
             balance: ETHER.into(),
             ..Default::default()
@@ -151,6 +156,7 @@ mod tests {
                 transactions: vec![tx],
                 ommers: vec![],
             },
+            &mut mem,
         )
         .unwrap();
 
@@ -202,6 +208,7 @@ mod tests {
                 transactions: vec![tx],
                 ommers: vec![],
             },
+            &mut mem,
         )
         .unwrap();
 

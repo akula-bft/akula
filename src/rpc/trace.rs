@@ -4,6 +4,7 @@ use crate::{
     consensus::engine_factory,
     execution::{
         analysis_cache::AnalysisCache, processor::execute_transaction, tracer::adhoc::AdhocTracer,
+        EvmMemory,
     },
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
@@ -264,6 +265,7 @@ where
     let engine = engine_factory(None, chain_spec.clone(), None)?;
 
     let mut analysis_cache = AnalysisCache::default();
+    let mut mem = EvmMemory::new();
     for (sender, message, trace_types) in calls {
         let (output, updates, trace) = {
             let mut buffer = LoggingBuffer::new(&mut buffer);
@@ -282,6 +284,7 @@ where
                 &message,
                 sender,
                 engine.get_beneficiary(&header),
+                &mut mem,
             )?;
 
             state.write_to_state_same_block()?;

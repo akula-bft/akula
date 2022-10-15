@@ -21,6 +21,7 @@ const SUPER_STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * SUPER_STACK_SIZE;
 /// allocated memory will be smaller.
 const TOTAL_MEM_SIZE: usize = 8 * (1 << 30);
 
+#[derive(Debug)]
 pub struct EvmMemory {
     p: *mut libc::c_void,
 }

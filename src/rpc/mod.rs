@@ -13,6 +13,7 @@ pub mod helpers {
         consensus::{engine_factory, DuoError},
         execution::{
             analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer,
+            EvmMemory,
         },
         kv::{mdbx::*, tables},
         models::*,
@@ -300,6 +301,8 @@ pub mod helpers {
         let mut analysis_cache = AnalysisCache::default();
         let mut tracer = NoopTracer;
 
+        // TODO: check if we can reuse EvmMemory
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut buffer,
             &mut tracer,
@@ -308,6 +311,7 @@ pub mod helpers {
             &header,
             &block_body,
             &block_execution_spec,
+            &mut mem,
         );
 
         processor

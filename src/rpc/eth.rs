@@ -4,6 +4,7 @@ use crate::{
     consensus::engine_factory,
     execution::{
         analysis_cache::AnalysisCache, evmglue, processor::ExecutionProcessor, tracer::NoopTracer,
+        EvmMemory,
     },
     kv::{mdbx::*, tables, MdbxWithDirHandle},
     models::*,
@@ -143,6 +144,7 @@ where
                         }
                     };
 
+                    let mut mem = EvmMemory::new();
                     for block_number in block_range {
                         let block_number = BlockNumber(block_number);
                         let block_hash =
@@ -186,6 +188,7 @@ where
                             &header,
                             &block_body,
                             &block_execution_spec,
+                            &mut mem,
                         );
 
                         let receipts = processor.execute_block_no_post_validation()?;
@@ -283,6 +286,8 @@ where
             let mut tracer = NoopTracer;
 
             let beneficiary = engine_factory(None, chain_spec, None)?.get_beneficiary(&header);
+            // TODO: check if we can reuse EvmMemory
+            let mut mem = EvmMemory::new();
             Ok(evmglue::execute(
                 &mut state,
                 &mut tracer,
@@ -293,6 +298,7 @@ where
                 sender,
                 beneficiary,
                 message.gas_limit(),
+                &mut mem,
             )?
             .output_data
             .into())
@@ -340,6 +346,8 @@ where
             let gas_limit = header.gas_limit;
 
             let beneficiary = engine_factory(None, chain_spec, None)?.get_beneficiary(&header);
+            // TODO: check if we can reuse EvmMemory
+            let mut mem = EvmMemory::new();
             Ok(U64::from(
                 gas_limit as i64
                     - evmglue::execute(
@@ -352,6 +360,7 @@ where
                         sender,
                         beneficiary,
                         gas_limit,
+                        &mut mem,
                     )?
                     .gas_left,
             ))
@@ -641,6 +650,8 @@ where
                 let mut engine = engine_factory(None, chain_spec, None)?;
                 let mut analysis_cache = AnalysisCache::default();
                 let mut tracer = NoopTracer;
+                // TODO: check if we can reuse EvmMemory
+                let mut mem = EvmMemory::new();
 
                 let mut processor = ExecutionProcessor::new(
                     &mut buffer,
@@ -650,6 +661,7 @@ where
                     &header,
                     &block_body,
                     &block_execution_spec,
+                    &mut mem,
                 );
 
                 let transaction_index = chain::block_body::read_without_senders(&txn, block_hash, block_number)?.ok_or_else(|| format_err!("where's block body"))?.transactions

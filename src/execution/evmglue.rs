@@ -52,6 +52,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
     sender: Address,
     beneficiary: Address,
     gas: u64,
+    evm_mem: &mut EvmMemory,
 ) -> anyhow::Result<CallResult> {
     let mut evm = Evm {
         header,
@@ -64,7 +65,6 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
         beneficiary,
     };
 
-    let mut evm_mem = EvmMemory::new();
     let submem = evm_mem.get_origin();
 
     let res = if let TransactionAction::Call(to) = message.action() {
@@ -664,6 +664,7 @@ mod tests {
         let mut tracer = NoopTracer;
         let beneficiary = header.beneficiary;
         let header = BlockHeader::new(header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
+        let mut mem = EvmMemory::new();
         super::execute(
             state,
             &mut tracer,
@@ -674,6 +675,7 @@ mod tests {
             sender,
             beneficiary,
             gas,
+            &mut mem,
         )
         .unwrap()
     }
