@@ -154,7 +154,7 @@ mod tests {
             &header,
             &BlockBodyWithSenders {
                 transactions: vec![tx],
-                ommers: vec![],
+                ommers: Default::default(),
             },
             &mut mem,
         )
@@ -206,7 +206,7 @@ mod tests {
             &header,
             &BlockBodyWithSenders {
                 transactions: vec![tx],
-                ommers: vec![],
+                ommers: Default::default(),
             },
             &mut mem,
         )

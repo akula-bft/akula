@@ -229,6 +229,17 @@ impl<const MAXIMUM: usize> Display for TooLong<MAXIMUM> {
 
 impl<const MAXIMUM: usize> std::error::Error for TooLong<MAXIMUM> {}
 
+#[derive(Clone, Debug)]
+pub struct UnexpectedEnd;
+
+impl Display for UnexpectedEnd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unexpected end")
+    }
+}
+
+impl std::error::Error for UnexpectedEnd {}
+
 macro_rules! u64_table_object {
     ($ty:ident) => {
         impl TableEncode for $ty {
@@ -304,27 +315,27 @@ where
     }
 }
 
-macro_rules! scale_table_object {
+macro_rules! compact_table_object {
     ($ty:ty) => {
         impl TableEncode for $ty {
             type Encoded = Vec<u8>;
 
             fn encode(self) -> Self::Encoded {
-                ::parity_scale_codec::Encode::encode(&self)
+                self.compact_encode()
             }
         }
 
         impl TableDecode for $ty {
-            fn decode(mut b: &[u8]) -> anyhow::Result<Self> {
-                Ok(<Self as ::parity_scale_codec::Decode>::decode(&mut b)?)
+            fn decode(b: &[u8]) -> anyhow::Result<Self> {
+                Self::compact_decode(b)
             }
         }
     };
 }
 
-scale_table_object!(BodyForStorage);
-scale_table_object!(BlockHeader);
-scale_table_object!(MessageWithSignature);
+compact_table_object!(BodyForStorage);
+compact_table_object!(BlockHeader);
+compact_table_object!(MessageWithSignature);
 
 macro_rules! ron_table_object {
     ($ty:ident) => {
@@ -421,6 +432,28 @@ impl TableDecode for Vec<H256> {
     }
 }
 
+const MIX_HASH_LENGTH: usize = 8;
+
+impl TableEncode for H64 {
+    type Encoded = [u8; MIX_HASH_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
+impl TableDecode for H64
+where
+    InvalidLength<MIX_HASH_LENGTH>: 'static,
+{
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        match b.len() {
+            MIX_HASH_LENGTH => Ok(Self::from_slice(b)),
+            other => Err(InvalidLength::<MIX_HASH_LENGTH> { got: other }.into()),
+        }
+    }
+}
+
 impl TableEncode for H256 {
     type Encoded = [u8; KECCAK_LENGTH];
 
@@ -435,8 +468,28 @@ where
 {
     fn decode(b: &[u8]) -> anyhow::Result<Self> {
         match b.len() {
-            KECCAK_LENGTH => Ok(H256::from_slice(b)),
+            KECCAK_LENGTH => Ok(Self::from_slice(b)),
             other => Err(InvalidLength::<KECCAK_LENGTH> { got: other }.into()),
+        }
+    }
+}
+
+impl TableEncode for Bloom {
+    type Encoded = [u8; BLOOM_BYTE_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        self.0
+    }
+}
+
+impl TableDecode for Bloom
+where
+    InvalidLength<BLOOM_BYTE_LENGTH>: 'static,
+{
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        match b.len() {
+            BLOOM_BYTE_LENGTH => Ok(Self::from_slice(b)),
+            other => Err(InvalidLength::<BLOOM_BYTE_LENGTH> { got: other }.into()),
         }
     }
 }
@@ -747,8 +800,6 @@ impl TableDecode for StorageChange {
     }
 }
 
-pub type HeaderKey = (BlockNumber, H256);
-
 #[bitfield]
 #[derive(Clone, Copy, Debug, Default)]
 struct CallTraceSetFlags {
@@ -809,9 +860,9 @@ decl_table!(TrieAccount => Vec<u8> => Vec<u8>);
 decl_table!(TrieStorage => Vec<u8> => Vec<u8>);
 decl_table!(HeaderNumber => H256 => BlockNumber);
 decl_table!(CanonicalHeader => BlockNumber => H256);
-decl_table!(Header => HeaderKey => BlockHeader => BlockNumber);
-decl_table!(HeadersTotalDifficulty => HeaderKey => U256);
-decl_table!(BlockBody => HeaderKey => BodyForStorage => BlockNumber);
+decl_table!(Header => BlockNumber => BlockHeader);
+decl_table!(HeadersTotalDifficulty => BlockNumber => U256);
+decl_table!(BlockBody => BlockNumber => BodyForStorage);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(TotalGas => BlockNumber => u64);
 decl_table!(TotalTx => BlockNumber => u64);
@@ -826,8 +877,7 @@ decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => () => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
 decl_table!(PruneProgress => StageId => BlockNumber);
-decl_table!(TxSender => HeaderKey => Vec<Address>);
-decl_table!(LastHeader => () => HeaderKey);
+decl_table!(TxSender => BlockNumber => Vec<Address>);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 decl_table!(Version => () => u64);
 
@@ -878,7 +928,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
             table_entry!(SyncStage),
             table_entry!(PruneProgress),
             table_entry!(TxSender),
-            table_entry!(LastHeader),
             table_entry!(Issuance),
             table_entry!(Version),
         ]

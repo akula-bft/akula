@@ -153,15 +153,11 @@ where
                                     format_err!("no canonical hash for block #{block_number}")
                                 })?;
 
-                        let header = chain::header::read(&txn, block_hash, block_number)?
+                        let header = chain::header::read(&txn, block_number)?.ok_or_else(|| {
+                            format_err!("header not found for block #{block_number}/{block_hash}")
+                        })?;
+                        let block_body = chain::block_body::read_with_senders(&txn, block_number)?
                             .ok_or_else(|| {
-                                format_err!(
-                                    "header not found for block #{block_number}/{block_hash}"
-                                )
-                            })?;
-                        let block_body =
-                            chain::block_body::read_with_senders(&txn, block_hash, block_number)?
-                                .ok_or_else(|| {
                                 format_err!("body not found for block #{block_number}/{block_hash}")
                             })?;
                         let txhashes = block_body
@@ -262,7 +258,7 @@ where
                 .params
                 .chain_id;
 
-            let header = chain::header::read(&txn, block_hash, block_number)?
+            let header = chain::header::read(&txn, block_number)?
                 .ok_or_else(|| format_err!("Header not found for #{block_number}/{block_hash}"))?;
 
             let mut buffer = Buffer::new(&txn, Some(block_number));
@@ -323,7 +319,7 @@ where
                 .ok_or_else(|| format_err!("chain spec not found"))?
                 .params
                 .chain_id;
-            let header = chain::header::read(&txn, hash, block_number)?
+            let header = chain::header::read(&txn, block_number)?
                 .ok_or_else(|| format_err!("no header found for block #{block_number}/{hash}"))?;
             let mut buffer = Buffer::new(&txn, Some(block_number));
 
@@ -435,7 +431,6 @@ where
                     .ok_or_else(|| format_err!("canonical hash for block #{block_number} not found"))?;
                 let (index, transaction) = chain::block_body::read_without_senders(
                     &txn,
-                    block_hash,
                     block_number,
                 )?.ok_or_else(|| format_err!("body not found for block #{block_number}/{block_hash}"))?
                 .transactions
@@ -447,7 +442,7 @@ where
                         "tx with hash {hash} is not found in block #{block_number}/{block_hash} - tx lookup index invalid?"
                     )
                 })?;
-                let senders = chain::tx_sender::read(&txn, block_hash, block_number)?;
+                let senders = chain::tx_sender::read(&txn, block_number)?;
                 let sender = *senders
                     .get(index)
                     .ok_or_else(|| format_err!("senders to short: {index} vs len {}", senders.len()))?;
@@ -470,7 +465,7 @@ where
             let block_number = chain::header_number::read(&txn, hash)?
                 .ok_or_else(|| format_err!("no header number for hash {hash} found"))?;
             Ok(U64::from(
-                chain::block_body::read_without_senders(&txn, hash, block_number)?
+                chain::block_body::read_without_senders(&txn, block_number)?
                     .ok_or_else(|| format_err!("no body found for block #{block_number}/{hash}"))?
                     .transactions
                     .len(),
@@ -490,15 +485,13 @@ where
             let txn = db.begin()?;
             let (block_number, block_hash) = helpers::resolve_block_id(&txn, block_number)?
                 .ok_or_else(|| format_err!("failed to resolve block {block_number:?}"))?;
-            Ok(
-                chain::block_body::read_without_senders(&txn, block_hash, block_number)?
-                    .ok_or_else(|| {
-                        format_err!("body not found for block #{block_number}/{block_hash}")
-                    })?
-                    .transactions
-                    .len()
-                    .into(),
-            )
+            Ok(chain::block_body::read_without_senders(&txn, block_number)?
+                .ok_or_else(|| {
+                    format_err!("body not found for block #{block_number}/{block_hash}")
+                })?
+                .transactions
+                .len()
+                .into())
         })
         .await
         .unwrap_or_else(helpers::joinerror_to_result)
@@ -633,10 +626,10 @@ where
             if let Some(block_number) = chain::tl::read(&txn, hash)? {
                 let block_hash = chain::canonical_hash::read(&txn, block_number)?
                     .ok_or_else(|| format_err!("no canonical header for block #{block_number:?}"))?;
-                let header = chain::header::read(&txn, block_hash, block_number)?.ok_or_else(|| {
+                let header = chain::header::read(&txn, block_number)?.ok_or_else(|| {
                     format_err!("header not found for block #{block_number}/{block_hash}")
                 })?;
-                let block_body = chain::block_body::read_with_senders(&txn, block_hash, block_number)?
+                let block_body = chain::block_body::read_with_senders(&txn, block_number)?
                     .ok_or_else(|| {
                         format_err!("body not found for block #{block_number}/{block_hash}")
                     })?;
@@ -664,7 +657,7 @@ where
                     &mut mem,
                 );
 
-                let transaction_index = chain::block_body::read_without_senders(&txn, block_hash, block_number)?.ok_or_else(|| format_err!("where's block body"))?.transactions
+                let transaction_index = chain::block_body::read_without_senders(&txn, block_number)?.ok_or_else(|| format_err!("where's block body"))?.transactions
                     .into_iter()
                     .enumerate()
                     .find(|(_, tx)| tx.hash() == hash)
@@ -777,11 +770,11 @@ where
 
         tokio::task::spawn_blocking(move || {
             let txn = db.begin()?;
-            let (block_number, block_hash) = helpers::resolve_block_id(&txn, block_hash)?
+            let (block_number, _) = helpers::resolve_block_id(&txn, block_hash)?
                 .ok_or_else(|| format_err!("failed to resolve block {block_hash}"))?;
             Ok(U64::from(
-                chain::storage_body::read(&txn, block_hash, block_number)?
-                    .map(|body| body.uncles.len())
+                chain::storage_body::read(&txn, block_number)?
+                    .map(|body| body.ommers.len())
                     .unwrap_or(0),
             ))
         })
@@ -797,11 +790,11 @@ where
 
         tokio::task::spawn_blocking(move || {
             let txn = db.begin()?;
-            let (block_number, block_hash) = helpers::resolve_block_id(&txn, block_number)?
+            let (block_number, _) = helpers::resolve_block_id(&txn, block_number)?
                 .ok_or_else(|| format_err!("failed to resolve block #{block_number:?}"))?;
             Ok(U64::from(
-                chain::storage_body::read(&txn, block_hash, block_number)?
-                    .map(|body| body.uncles.len())
+                chain::storage_body::read(&txn, block_number)?
+                    .map(|body| body.ommers.len())
                     .unwrap_or(0),
             ))
         })

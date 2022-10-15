@@ -1,10 +1,11 @@
-use super::*;
+use super::{util::*, *};
 use crate::crypto::*;
-use bytes::{Bytes, BytesMut};
+use anyhow::{bail, format_err};
+use bytes::{Buf, Bytes, BytesMut};
 use fastrlp::*;
-use parity_scale_codec::*;
+use modular_bitfield::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Default, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 /// Ethereum block header definition.
 pub struct BlockHeader {
     pub parent_hash: H256,
@@ -25,7 +26,219 @@ pub struct BlockHeader {
     pub base_fee_per_gas: Option<U256>,
 }
 
+#[bitfield]
+#[derive(Clone, Copy, Debug, Default)]
+struct HeaderFlags {
+    ommers_hash: bool,
+    transactions_root: bool,
+    receipts_root: bool,
+    logs_bloom: bool,
+    mix_hash: bool,
+    nonce: bool,
+
+    difficulty_len: B5,
+    block_number_len: B3,
+    gas_limit_len: B3,
+    gas_used_len: B3,
+    timestamp_len: B3,
+    base_fee_per_gas_len: B5,
+
+    #[skip]
+    unused: B4,
+}
+
 impl BlockHeader {
+    pub fn compact_encode(&self) -> Vec<u8> {
+        let mut buffer = vec![];
+
+        let mut flags = HeaderFlags::default();
+        if self.ommers_hash != EMPTY_LIST_HASH {
+            flags.set_ommers_hash(true);
+        }
+        if self.transactions_root != EMPTY_ROOT {
+            flags.set_transactions_root(true);
+        }
+        if self.receipts_root != EMPTY_ROOT {
+            flags.set_receipts_root(true);
+        }
+        if !self.logs_bloom.is_zero() {
+            flags.set_logs_bloom(true);
+        }
+
+        let difficulty_encoded = variable_to_compact(self.difficulty);
+        flags.set_difficulty_len(difficulty_encoded.len() as u8);
+
+        let block_number_encoded = variable_to_compact(self.number.0);
+        flags.set_block_number_len(block_number_encoded.len() as u8);
+
+        let gas_limit_encoded = variable_to_compact(self.gas_limit);
+        flags.set_gas_limit_len(gas_limit_encoded.len() as u8);
+
+        let gas_used_encoded = variable_to_compact(self.gas_used);
+        flags.set_gas_used_len(gas_used_encoded.len() as u8);
+
+        let timestamp_encoded = variable_to_compact(self.timestamp);
+        flags.set_timestamp_len(timestamp_encoded.len() as u8);
+
+        let base_fee_per_gas_encoded =
+            variable_to_compact(self.base_fee_per_gas.unwrap_or(U256::ZERO));
+        flags.set_base_fee_per_gas_len(base_fee_per_gas_encoded.len() as u8);
+
+        if !self.mix_hash.is_zero() {
+            flags.set_mix_hash(true);
+        }
+        if !self.nonce.is_zero() {
+            flags.set_nonce(true);
+        }
+
+        let fs = flags.into_bytes();
+        buffer.extend_from_slice(&fs[..]);
+
+        buffer.extend_from_slice(&self.parent_hash[..]);
+        if flags.ommers_hash() {
+            buffer.extend_from_slice(&self.ommers_hash[..]);
+        }
+        buffer.extend_from_slice(&self.beneficiary[..]);
+        buffer.extend_from_slice(&self.state_root[..]);
+        if flags.transactions_root() {
+            buffer.extend_from_slice(&self.transactions_root[..]);
+        }
+        if flags.receipts_root() {
+            buffer.extend_from_slice(&self.receipts_root[..]);
+        }
+        if flags.logs_bloom() {
+            buffer.extend_from_slice(&self.logs_bloom[..]);
+        }
+
+        buffer.extend_from_slice(&difficulty_encoded[..]);
+        buffer.extend_from_slice(&block_number_encoded[..]);
+        buffer.extend_from_slice(&gas_limit_encoded[..]);
+        buffer.extend_from_slice(&gas_used_encoded[..]);
+        buffer.extend_from_slice(&timestamp_encoded[..]);
+        buffer.extend_from_slice(&base_fee_per_gas_encoded[..]);
+
+        if flags.mix_hash() {
+            buffer.extend_from_slice(&self.mix_hash[..]);
+        }
+
+        if flags.nonce() {
+            buffer.extend_from_slice(&self.nonce[..]);
+        }
+
+        buffer.extend_from_slice(&self.extra_data);
+
+        buffer
+    }
+
+    pub fn compact_decode(mut buf: &[u8]) -> anyhow::Result<Self> {
+        if buf.len() < 4 {
+            bail!("input too short");
+        }
+
+        let flags =
+            HeaderFlags::from_bytes([buf.get_u8(), buf.get_u8(), buf.get_u8(), buf.get_u8()]);
+
+        let parent_hash;
+        (parent_hash, buf) = h256_from_compact(buf)?;
+
+        let mut ommers_hash = EMPTY_LIST_HASH;
+        if flags.ommers_hash() {
+            (ommers_hash, buf) = h256_from_compact(buf)?;
+        }
+
+        let beneficiary;
+        (beneficiary, buf) = h160_from_compact(buf)?;
+
+        let state_root;
+        (state_root, buf) = h256_from_compact(buf)?;
+
+        let mut transactions_root = EMPTY_ROOT;
+        if flags.transactions_root() {
+            (transactions_root, buf) = h256_from_compact(buf)?;
+        }
+
+        let mut receipts_root = EMPTY_ROOT;
+        if flags.receipts_root() {
+            (receipts_root, buf) = h256_from_compact(buf)?;
+        }
+
+        let mut logs_bloom = Bloom::zero();
+        if flags.logs_bloom() {
+            fn bloom_from_compact(mut buf: &[u8]) -> anyhow::Result<(Bloom, &[u8])> {
+                let v = Bloom::from_slice(
+                    buf.get(..256)
+                        .ok_or_else(|| format_err!("input too short"))?,
+                );
+                buf.advance(256);
+                Ok((v, buf))
+            }
+
+            (logs_bloom, buf) = bloom_from_compact(buf)?;
+        }
+
+        let difficulty;
+        (difficulty, buf) = variable_from_compact(buf, flags.difficulty_len())?;
+
+        let number;
+        (number, buf) = variable_from_compact(buf, flags.block_number_len())?;
+        let number = BlockNumber(number);
+
+        let gas_limit;
+        (gas_limit, buf) = variable_from_compact(buf, flags.gas_limit_len())?;
+
+        let gas_used;
+        (gas_used, buf) = variable_from_compact(buf, flags.gas_used_len())?;
+
+        let timestamp;
+        (timestamp, buf) = variable_from_compact(buf, flags.timestamp_len())?;
+
+        let base_fee_per_gas: U256;
+        (base_fee_per_gas, buf) = variable_from_compact(buf, flags.base_fee_per_gas_len())?;
+        let base_fee_per_gas = if base_fee_per_gas == 0 {
+            None
+        } else {
+            Some(base_fee_per_gas)
+        };
+
+        let mut mix_hash = H256::zero();
+        if flags.mix_hash() {
+            (mix_hash, buf) = h256_from_compact(buf)?;
+        }
+
+        let mut nonce = H64::zero();
+        if flags.nonce() {
+            fn h64_from_compact(mut buf: &[u8]) -> anyhow::Result<(H64, &[u8])> {
+                let v =
+                    H64::from_slice(buf.get(..8).ok_or_else(|| format_err!("input too short"))?);
+                buf.advance(8);
+                Ok((v, buf))
+            }
+
+            (nonce, buf) = h64_from_compact(buf)?;
+        }
+
+        let extra_data = buf[..].to_vec().into();
+
+        Ok(Self {
+            parent_hash,
+            ommers_hash,
+            beneficiary,
+            state_root,
+            transactions_root,
+            receipts_root,
+            logs_bloom,
+            difficulty,
+            number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            mix_hash,
+            nonce,
+            base_fee_per_gas,
+        })
+    }
+
     fn rlp_header(&self) -> Header {
         let mut rlp_head = Header {
             list: true,

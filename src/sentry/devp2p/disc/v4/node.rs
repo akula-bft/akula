@@ -1,7 +1,6 @@
 use super::{kad::*, message::*, proto::*, util::*, NodeId};
 use anyhow::{anyhow, bail, Context};
 use bytes::{BufMut, BytesMut};
-use chrono::Utc;
 use fastrlp::*;
 use futures::future::join_all;
 use igd::aio::search_gateway;
@@ -16,11 +15,10 @@ use secp256k1::{
 use sha3::{Digest, Keccak256};
 use std::{
     collections::{btree_map, hash_map, BTreeMap, HashMap},
-    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     str::FromStr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use task_group::TaskGroup;
 use thiserror::Error;
@@ -47,17 +45,12 @@ pub const FIND_NODE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const QUERY_AWAIT_PING_TIME: Duration = Duration::from_secs(2);
 pub const NEIGHBOURS_WAIT_TIMEOUT: Duration = Duration::from_secs(2);
 
-fn expiry(timeout: Duration) -> u64 {
-    u64::try_from(Utc::now().timestamp()).expect("this would predate the protocol inception")
-        + timeout.as_secs()
-}
-
 fn ping_expiry() -> u64 {
-    expiry(PING_TIMEOUT)
+    (SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + PING_TIMEOUT).as_secs()
 }
 
 fn find_node_expiry() -> u64 {
-    expiry(FIND_NODE_TIMEOUT)
+    (SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + FIND_NODE_TIMEOUT).as_secs()
 }
 
 pub const ALPHA: usize = 3;

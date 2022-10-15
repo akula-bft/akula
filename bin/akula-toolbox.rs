@@ -346,7 +346,6 @@ fn select_db_decode(table: &str, key: &[u8], value: &[u8]) -> anyhow::Result<(St
             BlockTransactionLookup,
             Config,
             TxSender,
-            LastHeader,
             Issuance,
             Version,
         ],
@@ -530,15 +529,10 @@ fn read_block(data_dir: AkulaDataDir, block_num: BlockNumber) -> anyhow::Result<
 
     let tx = env.begin()?;
 
-    let canonical_hash = tx
-        .get(tables::CanonicalHeader, block_num)?
-        .ok_or_else(|| format_err!("no such canonical block"))?;
-    let header = tx
-        .get(tables::Header, (block_num, canonical_hash))?
+    let header = akula::accessors::chain::header::read(&tx, block_num)?
         .ok_or_else(|| format_err!("header not found"))?;
-    let body =
-        akula::accessors::chain::block_body::read_without_senders(&tx, canonical_hash, block_num)?
-            .ok_or_else(|| format_err!("block body not found"))?;
+    let body = akula::accessors::chain::block_body::read_without_senders(&tx, block_num)?
+        .ok_or_else(|| format_err!("block body not found"))?;
 
     let partial_header = PartialHeader::from(header.clone());
 

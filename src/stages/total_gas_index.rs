@@ -1,4 +1,5 @@
 use crate::{
+    accessors,
     kv::{mdbx::*, tables},
     stagedsync::stage::*,
     StageId,
@@ -47,14 +48,8 @@ where
                     info!("Building total gas index for block {block_num}");
                 }
 
-                let canonical_hash = tx
-                    .get(tables::CanonicalHeader, block_num)?
-                    .ok_or_else(|| format_err!("No canonical hash for block {block_num}"))?;
-                let header = tx
-                    .get(tables::Header, (block_num, canonical_hash))?
-                    .ok_or_else(|| {
-                        format_err!("No header for block #{block_num}/{canonical_hash:?}")
-                    })?;
+                let header = accessors::chain::header::read(tx, block_num)?
+                    .ok_or_else(|| format_err!("No header for block #{block_num}"))?;
 
                 gas += header.gas_used;
 

@@ -54,7 +54,7 @@ where
         let mut last_printed = Instant::now();
 
         while let Some((
-            (block_number, _),
+            block_number,
             BodyForStorage {
                 base_tx_id,
                 mut tx_amount,
@@ -164,7 +164,7 @@ where
         pin!(walker_block_body);
 
         while let Some((
-            (block_number, _),
+            block_number,
             BodyForStorage {
                 base_tx_id,
                 tx_amount,
@@ -217,7 +217,7 @@ mod tests {
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
             tx_amount: 2,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx1_1 = MessageWithSignature {
@@ -269,7 +269,7 @@ mod tests {
         let block2 = BodyForStorage {
             base_tx_id: 3.into(),
             tx_amount: 3,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx2_1 = MessageWithSignature {
@@ -347,16 +347,12 @@ mod tests {
         let block3 = BodyForStorage {
             base_tx_id: 6.into(),
             tx_amount: 0,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
-        let hash1 = H256::random();
-        let hash2 = H256::random();
-        let hash3 = H256::random();
-
-        chain::storage_body::write(&tx, hash1, 1, &block1).unwrap();
-        chain::storage_body::write(&tx, hash2, 2, &block2).unwrap();
-        chain::storage_body::write(&tx, hash3, 3, &block3).unwrap();
+        chain::storage_body::write(&tx, 1, &block1).unwrap();
+        chain::storage_body::write(&tx, 2, &block2).unwrap();
+        chain::storage_body::write(&tx, 3, &block3).unwrap();
 
         chain::tx::write(&tx, block1.base_tx_id, &[tx1_1, tx1_2]).unwrap();
         chain::tx::write(&tx, block2.base_tx_id, &[tx2_1, tx2_2, tx2_3]).unwrap();
@@ -435,7 +431,7 @@ mod tests {
         let block1 = BodyForStorage {
             base_tx_id: 1.into(),
             tx_amount: 2,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx1_1 = MessageWithSignature {
@@ -487,7 +483,7 @@ mod tests {
         let block2 = BodyForStorage {
             base_tx_id: 3.into(),
             tx_amount: 3,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
         let tx2_1 = MessageWithSignature {
@@ -565,16 +561,12 @@ mod tests {
         let block3 = BodyForStorage {
             base_tx_id: 6.into(),
             tx_amount: 0,
-            uncles: vec![],
+            ommers: Default::default(),
         };
 
-        let hash1 = H256::random();
-        let hash2 = H256::random();
-        let hash3 = H256::random();
-
-        chain::storage_body::write(&tx, hash1, 1, &block1).unwrap();
-        chain::storage_body::write(&tx, hash2, 2, &block2).unwrap();
-        chain::storage_body::write(&tx, hash3, 3, &block3).unwrap();
+        chain::storage_body::write(&tx, 1, &block1).unwrap();
+        chain::storage_body::write(&tx, 2, &block2).unwrap();
+        chain::storage_body::write(&tx, 3, &block3).unwrap();
 
         chain::tx::write(&tx, block1.base_tx_id, &[tx1_1, tx1_2]).unwrap();
         chain::tx::write(&tx, block2.base_tx_id, &[tx2_1, tx2_2, tx2_3]).unwrap();

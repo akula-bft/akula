@@ -11,7 +11,9 @@ use crate::{
         mdbx::{MdbxCursor, MdbxTransaction},
         tables,
     },
-    models::{Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal},
+    models::{
+        Block, BlockHeader, BlockNumber, ChainConfig, ChainId, ChainSpec, Seal, EMPTY_LIST_HASH,
+    },
     BlockReader,
 };
 use anyhow::bail;
@@ -74,7 +76,7 @@ fn get_header<K: TransactionKind>(
     height: BlockNumber,
 ) -> anyhow::Result<BlockHeader> {
     Ok(match cursor.seek(height)? {
-        Some(((found_height, _), header)) if found_height == height => header,
+        Some((found_height, header)) if found_height == height => header,
         _ => bail!("Header for block {} missing from database.", height),
     })
 }
@@ -176,10 +178,6 @@ impl Clique {
 
 impl Consensus for Clique {
     fn pre_validate_block(&self, block: &Block, state: &dyn BlockReader) -> Result<(), DuoError> {
-        if !block.ommers.is_empty() {
-            return Err(ValidationError::TooManyOmmers.into());
-        }
-
         self.base.pre_validate_block(block)?;
 
         if state.read_parent_header(&block.header)?.is_none() {
@@ -201,6 +199,10 @@ impl Consensus for Clique {
     ) -> Result<(), DuoError> {
         self.base
             .validate_block_header(header, parent, with_future_timestamp_check)?;
+
+        if header.ommers_hash != EMPTY_LIST_HASH {
+            return Err(ValidationError::TooManyOmmers.into());
+        }
 
         if header.timestamp - parent.timestamp < self.period {
             return Err(ValidationError::InvalidTimestamp {

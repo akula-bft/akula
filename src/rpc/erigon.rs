@@ -26,7 +26,7 @@ where
         tokio::task::spawn_blocking(move || {
             let tx = db.begin()?;
 
-            if let Some((block_number, hash)) =
+            if let Some((block_number, _)) =
                 helpers::resolve_block_id(&tx, types::BlockNumber::Number(block_number.into()))?
             {
                 if let Some(BlockHeader {
@@ -46,7 +46,7 @@ where
                     mix_hash,
                     nonce,
                     base_fee_per_gas,
-                }) = crate::accessors::chain::header::read(&tx, hash, block_number)?
+                }) = crate::accessors::chain::header::read(&tx, block_number)?
                 {
                     return Ok(Some(types::Header {
                         parent_hash,

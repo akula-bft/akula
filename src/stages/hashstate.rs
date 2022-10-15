@@ -330,7 +330,7 @@ mod tests {
                 TransactionAction::Create,
                 deployment_code.into_iter().chain(contract_code).collect(),
             )],
-            ommers: vec![],
+            ommers: Default::default(),
         };
 
         let mut buffer = Buffer::new(&tx, None);

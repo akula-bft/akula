@@ -8,6 +8,7 @@ mod log;
 mod receipt;
 mod revision;
 mod transaction;
+pub mod util;
 
 pub use self::{
     account::*, block::*, bloom::*, chainspec::*, config::*, header::*, log::*, receipt::*,
@@ -164,30 +165,6 @@ macro_rules! u64_wrapper {
         #[repr(transparent)]
         pub struct $ty(pub u64);
 
-        impl ::parity_scale_codec::WrapperTypeEncode for $ty {}
-        impl ::parity_scale_codec::EncodeLike for $ty {}
-        impl ::parity_scale_codec::EncodeLike<u64> for $ty {}
-        impl ::parity_scale_codec::EncodeLike<$ty> for u64 {}
-        impl ::parity_scale_codec::WrapperTypeDecode for $ty {
-            type Wrapped = u64;
-        }
-        impl From<::parity_scale_codec::Compact<$ty>> for $ty {
-            #[inline(always)]
-            fn from(x: ::parity_scale_codec::Compact<$ty>) -> $ty {
-                x.0
-            }
-        }
-        impl ::parity_scale_codec::CompactAs for $ty {
-            type As = u64;
-            #[inline(always)]
-            fn encode_as(&self) -> &Self::As {
-                &self.0
-            }
-            #[inline(always)]
-            fn decode_from(v: Self::As) -> Result<Self, ::parity_scale_codec::Error> {
-                Ok(Self(v))
-            }
-        }
         impl PartialOrd<usize> for $ty {
             #[inline(always)]
             fn partial_cmp(&self, other: &usize) -> Option<std::cmp::Ordering> {

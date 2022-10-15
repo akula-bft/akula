@@ -105,7 +105,13 @@ where
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockHeader>> {
-        self.get(tables::Header, (block_number, block_hash))
+        if let Some(header) = accessors::chain::header::read(self, block_number)? {
+            if header.hash() == block_hash {
+                return Ok(Some(header));
+            }
+        }
+
+        Ok(None)
     }
 }
 
@@ -120,7 +126,13 @@ where
         block_number: BlockNumber,
         block_hash: H256,
     ) -> anyhow::Result<Option<BlockBody>> {
-        accessors::chain::block_body::read_without_senders(self, block_hash, block_number)
+        if let Some(canonical_hash) = accessors::chain::canonical_hash::read(self, block_number)? {
+            if block_hash == canonical_hash {
+                return accessors::chain::block_body::read_without_senders(self, block_number);
+            }
+        }
+
+        Ok(None)
     }
 }
 
