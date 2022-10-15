@@ -19,6 +19,7 @@ use akula::{
     version_string,
 };
 use anyhow::{bail, Context};
+use bytesize::ByteSize;
 use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
@@ -59,12 +60,12 @@ use tokio_stream::StreamExt;
 use tracing::*;
 use tracing_subscriber::prelude::*;
 use transmission_rpc::{
-    types::{
-        TorrentAddArgs, TorrentAddedOrDuplicate, TorrentGetField, TorrentSetArgs, TrackerList,
-    },
+    types::{TorrentAddArgs, TorrentAddedOrDuplicate, TorrentGetField, TorrentSetArgs},
     TransClient,
 };
 use url::Url;
+
+const TORRENT_STATUS_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 const TRACKERS: &[&str] = &[
     "udp://tracker.opentrackr.org:1337/announce",
@@ -291,7 +292,7 @@ fn main() -> anyhow::Result<()> {
 
                     if btclient.session_close().await.is_ok() {
                         info!("Waiting for existing transmission-daemon instance to close");
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        tokio::time::sleep(Duration::from_secs(1)).await;
                     }
                 }
 
@@ -363,36 +364,37 @@ fn main() -> anyhow::Result<()> {
 
                 tokio::time::sleep(Duration::from_secs(5)).await;
 
+                // For torrents added before staged sync
                 let (torrent_tx, mut torrent_rx) =
-                    tokio::sync::mpsc::channel::<(H160, TorrentData, Option<OneshotSender<i64>>, Weak<Mutex<Option<transmission_rpc::types::Torrent>>>)>(1);
+                    tokio::sync::mpsc::channel::<(H160, TorrentData, Option<OneshotSender<i64>>, Option<Weak<Mutex<Option<transmission_rpc::types::Torrent>>>>)>(1);
+
+                // For new torrents added at snapshot stages
+                let (stage_snapshot_tx, mut stage_snapshot_rx) = tokio::sync::mpsc::channel::<(H160, Vec<u8>)>(1);
                 tokio::spawn({
                     let snapshot_dir = snapshot_dir.clone();
                     async move {
-                        while let Some((info_hash, torrent_data, id_sender, status_to_update)) = torrent_rx.recv().await {
+                        while let (Some((info_hash, torrent_data, id_sender, status_to_update)), _, _) = futures::future::select_all([Box::pin(torrent_rx.recv()) as BoxFuture<'_, Option<(H160, TorrentData, Option<OneshotSender<i64>>, Option<Weak<Mutex<Option<transmission_rpc::types::Torrent>>>>)>>, Box::pin(futures::FutureExt::map(stage_snapshot_rx.recv(), |opt| {
+                            opt.map(|(info_hash, torrent_data)| (info_hash, TorrentData::Downloaded(torrent_data), None, None))
+                        }))]).await {
                             let mut torrent_add_args = TorrentAddArgs {
                                 download_dir: Some(snapshot_dir.to_string_lossy().to_string()),
                                 ..Default::default()
                             };
-                            let mut tmp_file;
 
                             let mut send_torrent_data_tx: Option<tokio::sync::oneshot::Sender<Vec<u8>>> = None;
 
                             match torrent_data {
                                 TorrentData::Downloaded(torrent_bytes) => {
-                                    tmp_file = tempfile::NamedTempFile::new().unwrap();
-                                    tmp_file.write_all(&torrent_bytes).unwrap();
-                                    torrent_add_args.filename =
-                                        Some(tmp_file.path().to_string_lossy().into_owned());
+                                    torrent_add_args.metainfo = Some(base64::encode(&torrent_bytes));
                                 }
                                 TorrentData::NotDownloaded(tx) => {
-                                    // TODO: spawn waiter task so we don't proceed to staged sync until it's complete
-                                    torrent_add_args.metainfo =
+                                    torrent_add_args.filename =
                                     Some(format!("magnet:?xt=urn:btih:{}", hex::encode(info_hash)));
                                     send_torrent_data_tx = Some(tx);
                                 }
                             }
 
-                            let _ = TRACKERS;
+                            debug!("{torrent_add_args:?}");
 
                             let rsp = TransClient::new(transmission_daemon_addr.clone())
                                 .torrent_add(torrent_add_args)
@@ -405,9 +407,9 @@ fn main() -> anyhow::Result<()> {
                                 assert!(TransClient::new(transmission_daemon_addr.clone())
                                     .torrent_set(
                                         TorrentSetArgs {
-                                            tracker_list: Some(TrackerList(
+                                            tracker_add: Some(
                                                 TRACKERS.iter().map(|s| s.to_string()).collect(),
-                                            )),
+                                            ),
                                             ..Default::default()
                                         },
                                         Some(vec![transmission_rpc::types::Id::Id(
@@ -422,15 +424,21 @@ fn main() -> anyhow::Result<()> {
 
                                 let id = handle.id.unwrap();
 
-                                tokio::spawn({
-                                    let transmission_daemon_addr = transmission_daemon_addr.clone();
-                                    async move {
-                                        let mut client = TransClient::new(transmission_daemon_addr);
-                                        while let Some(status_to_update) = status_to_update.upgrade() {
-                                            let res = client.torrent_get(Some(vec![TorrentGetField::SizeWhenDone, TorrentGetField::PercentDone]), Some(vec![transmission_rpc::types::Id::Id(id)])).await.unwrap();
+                                if let Some(status_to_update) = status_to_update {
+                                    tokio::spawn({
+                                        let transmission_daemon_addr = transmission_daemon_addr.clone();
+                                        async move {
+                                            let mut client = TransClient::new(transmission_daemon_addr);
+                                            while let Some(status_to_update) = status_to_update.upgrade() {
+                                                let v = client.torrent_get(Some(vec![TorrentGetField::Status, TorrentGetField::SizeWhenDone, TorrentGetField::PercentDone]), Some(vec![transmission_rpc::types::Id::Id(id)])).await.unwrap().arguments.torrents[0].clone();
+
+                                                *status_to_update.lock() = Some(v);
+
+                                                tokio::time::sleep(TORRENT_STATUS_REFRESH_INTERVAL).await;
+                                            }
                                         }
-                                    }
-                                });
+                                    });
+                                }
 
                                 if let Some(send_torrent_data_tx) = send_torrent_data_tx {
                                     let transmission_daemon_addr = transmission_daemon_addr.clone();
@@ -443,6 +451,8 @@ fn main() -> anyhow::Result<()> {
                                                 send_torrent_data_tx.send(std::fs::read(res.torrent_file.unwrap()).unwrap()).unwrap();
                                                 break;
                                             }
+
+                                            tokio::time::sleep(TORRENT_STATUS_REFRESH_INTERVAL).await;
                                         }
                                     });
                                 }
@@ -458,27 +468,27 @@ fn main() -> anyhow::Result<()> {
                 });
 
                 {
-                    let tx = db.begin_mutable()?;
-
-                    let mut new_snapshots = BTreeMap::new();
+                    let mut tx = db.begin_mutable()?;
 
                     let mut snapshots_count = 0;
                     let mut new_torrent_data = FuturesUnordered::<BoxFuture<'static, (H160, Vec<u8>)>>::new();
-                    let mut all_snapshots = HashMap::<Id, Arc<Mutex<Option<transmission_rpc::types::Torrent>>>>::new();
+                    let mut all_snapshots = HashMap::<i64, Arc<Mutex<Option<transmission_rpc::types::Torrent>>>>::new();
 
                     for (table, preverified_snapshots) in [
                         (
-                            Box::new(tables::HeaderSnapshot)
-                                as Box<dyn Table<Key = u64, Value = H160, SeekKey = u64>>,
+                            Arc::new(tables::HeaderSnapshot)
+                                as Arc<dyn Table<Key = u64, Value = H160, SeekKey = u64>>,
                             &chainspec.snapshots.headers,
                         ),
-                        (Box::new(tables::BodySnapshot), &chainspec.snapshots.bodies),
+                        (Arc::new(tables::BodySnapshot), &chainspec.snapshots.bodies),
                         (
-                            Box::new(tables::SenderSnapshot),
+                            Arc::new(tables::SenderSnapshot),
                             &chainspec.snapshots.senders,
                         ),
                     ] {
-                        let walker = tx.cursor(table)?.walk(None);
+                        let mut new_snapshots = BTreeMap::new();
+
+                        let walker = tx.cursor(table.clone())?.walk(None);
                         for it in
                             walker.zip_longest(preverified_snapshots.iter().copied().enumerate())
                         {
@@ -502,7 +512,7 @@ fn main() -> anyhow::Result<()> {
                                         new_torrent_data.push(Box::pin(futures::FutureExt::map(rx, move |data| (info_hash, data.unwrap()))));
 
                                         TorrentData::NotDownloaded(tx)
-                                    }, Some(id_sender_tx), Arc::downgrade(&status_to_update))).await.unwrap();
+                                    }, Some(id_sender_tx), Some(Arc::downgrade(&status_to_update)))).await.unwrap();
                                 }
                                 itertools::EitherOrBoth::Left(downloaded_snapshot) => {
                                     // We're past embedded snapshots
@@ -515,7 +525,7 @@ fn main() -> anyhow::Result<()> {
                                         new_torrent_data.push(Box::pin(futures::FutureExt::map(rx, move |data: Result<Vec<u8>, _>| (info_hash, data.unwrap()))));
 
                                         TorrentData::NotDownloaded(tx)
-                                    }, Some(id_sender_tx), Arc::downgrade(&status_to_update))).await.unwrap();
+                                    }, Some(id_sender_tx), Some(Arc::downgrade(&status_to_update)))).await.unwrap();
                                 },
                                 itertools::EitherOrBoth::Right((idx, preverified_info_hash)) => {
                                     // We have more snapshots to download according to chainspec
@@ -526,13 +536,28 @@ fn main() -> anyhow::Result<()> {
                                         new_torrent_data.push(Box::pin(futures::FutureExt::map(rx, move |data| (preverified_info_hash, data.unwrap()))));
 
                                         TorrentData::NotDownloaded(tx)
-                                    }, Some(id_sender_tx), Arc::downgrade(&status_to_update))).await.unwrap();
+                                    }, Some(id_sender_tx), Some(Arc::downgrade(&status_to_update)))).await.unwrap();
                                 }
                             }
 
+                            all_snapshots.insert(id_sender_rx.await.unwrap(), status_to_update);
+
                             snapshots_count += 1;
                         }
+
+                        if !new_snapshots.is_empty() {
+                            let mut cursor = tx.cursor(table)?;
+                            for (&idx, &info_hash) in new_snapshots.iter() {
+                                cursor.append(idx as u64, info_hash)?;
+                            }
+
+                            info!("Registered {} new shapshots from chainspec", new_snapshots.len());
+
+                            tx.commit()?;
+                            tx = db.begin_mutable()?;
+                        }
                     }
+
 
                     info!("Added {snapshots_count} snapshots to torrent engine");
 
@@ -545,24 +570,32 @@ fn main() -> anyhow::Result<()> {
 
                     // Wait for all snapshots to be downloaded
                     loop {
-                        let mut all_updated = true;
+                        let mut total_downloaded = 0;
                         let mut total_size = 0;
-                        let mut total_complete = 0.0;
+                        let mut total_complete = 0;
                         for (id, snapshot_info) in &all_snapshots {
                             let _ = id;
                             if let Some(snapshot_info) = &*snapshot_info.lock() {
-                                total_size += snapshot_info.size_when_done.unwrap();
-                                total_complete += snapshot_info.percent_done.unwrap();
-                            } else {
-                                all_updated = false;
+                                let size = snapshot_info.size_when_done.unwrap();
+                                let percent_done = snapshot_info.percent_done.unwrap();
+
+                                total_downloaded += (size as f64 * percent_done as f64) as u64;
+                                total_size += size;
+
+                                if snapshot_info.status.unwrap() > 4 {
+                                    total_complete += 1;
+                                }
                             }
                         }
 
-                        if all_updated && total_complete == snapshots_count as f32 {
+                        if total_complete == all_snapshots.len() {
+                            info!("Snapshots downloaded, total size: {total_size}");
                             break;
                         }
 
-                        println!("{} out of {} downloaded, {}% done", total_size as f64 * total_complete as f64, total_size, total_complete);
+                        info!("{} out of {} downloaded", ByteSize::b(total_downloaded), ByteSize::b(total_size as u64));
+
+                        tokio::time::sleep(TORRENT_STATUS_REFRESH_INTERVAL).await;
                     }
                 }
 
@@ -832,7 +865,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     HeaderSnapshot {
                         snapshotter: header_snapshotter,
-                        bt_sender: torrent_tx.clone(),
+                        bt_sender: stage_snapshot_tx.clone(),
                     },
                     false,
                 );
@@ -841,7 +874,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     BodySnapshot {
                         snapshotter: body_snapshotter,
-                        bt_sender: torrent_tx.clone(),
+                        bt_sender: stage_snapshot_tx.clone(),
                     },
                     false,
                 );
@@ -854,7 +887,7 @@ fn main() -> anyhow::Result<()> {
                 staged_sync.push(
                     SenderSnapshot {
                         snapshotter: sender_snapshotter,
-                        bt_sender: torrent_tx,
+                        bt_sender: stage_snapshot_tx,
                     },
                     false,
                 );

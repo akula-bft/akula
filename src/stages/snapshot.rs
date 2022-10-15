@@ -53,7 +53,7 @@ impl SnapshotObject for Vec<Address> {
 #[derive(Debug)]
 pub struct HeaderSnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockHeader>>>,
-    pub bt_sender: Sender<(H160, TorrentData)>,
+    pub bt_sender: Sender<(H160, Vec<u8>)>,
 }
 
 #[async_trait]
@@ -117,7 +117,7 @@ where
 #[derive(Debug)]
 pub struct BodySnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, BlockBody>>>,
-    pub bt_sender: Sender<(H160, TorrentData)>,
+    pub bt_sender: Sender<(H160, Vec<u8>)>,
 }
 
 #[async_trait]
@@ -195,7 +195,7 @@ where
 #[derive(Debug)]
 pub struct SenderSnapshot {
     pub snapshotter: Arc<AsyncMutex<Snapshotter<V1, Vec<Address>>>>,
-    pub bt_sender: Sender<(H160, TorrentData)>,
+    pub bt_sender: Sender<(H160, Vec<u8>)>,
 }
 
 #[async_trait]
@@ -274,7 +274,7 @@ where
 async fn execute_snapshot<Version, T, IT, E>(
     snapshotter: &mut Snapshotter<Version, T>,
     tx: &MdbxTransaction<'_, RW, E>,
-    bt_sender: &mut Sender<(H160, TorrentData)>,
+    bt_sender: &mut Sender<(H160, Vec<u8>)>,
     mut extractor: impl FnMut(Option<BlockNumber>) -> anyhow::Result<IT>,
     prev_stage_progress: BlockNumber,
 ) -> anyhow::Result<()>
@@ -315,9 +315,7 @@ where
                 .append(next_snapshot_idx as u64, info_hash)?;
             tx.set(tables::Torrents, info_hash, torrent_encoded.clone())?;
 
-            let _ = bt_sender
-                .send((info_hash, TorrentData::Downloaded(torrent_encoded)))
-                .await;
+            let _ = bt_sender.send((info_hash, torrent_encoded)).await;
         }
     }
 

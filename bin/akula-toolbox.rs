@@ -348,6 +348,10 @@ fn select_db_decode(table: &str, key: &[u8], value: &[u8]) -> anyhow::Result<(St
             TxSender,
             Issuance,
             Version,
+            Torrents,
+            HeaderSnapshot,
+            BodySnapshot,
+            SenderSnapshot,
         ],
         |table| decode_db(table, key, value).map(|(k, v)| (format!("{:?}", k), format!("{:?}", v))),
         select_db_from_str!(

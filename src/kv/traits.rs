@@ -21,7 +21,7 @@ pub trait TableObject: TableEncode + TableDecode {}
 
 impl<T> TableObject for T where T: TableEncode + TableDecode {}
 
-#[auto_impl(Box)]
+#[auto_impl(Box, Arc)]
 pub trait Table: Send + Sync + Debug + 'static {
     type Key: TableEncode;
     type Value: TableObject;
