@@ -358,7 +358,9 @@ fn main() -> anyhow::Result<()> {
                     let res = btdaemon.wait_with_output();
 
                     if !shutting_down.load(Ordering::SeqCst) {
-                        panic!("transmission-daemon unexpectedly exited: {res:?}, shutting down");
+                        error!("transmission-daemon unexpectedly exited: {res:?}, shutting down");
+
+                        std::process::exit(1);
                     }
                 });
 
