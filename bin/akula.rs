@@ -302,10 +302,14 @@ fn main() -> anyhow::Result<()> {
                     .unwrap_or_else(|| opt.datadir.snapshot());
 
                 let tmpconfig = tempfile::tempdir().unwrap();
+                let logfile = opt.datadir.0.join("transmission.log");
+                std::fs::remove_file(&logfile)?;
                 let btdaemon = Command::new(opt.transmission_daemon_path)
                     .args(&[
                         "-f",
                         "--no-auth",
+                        "-e",
+                        &logfile.to_string_lossy(),
                         "--config-dir",
                         &tmpconfig.path().to_string_lossy(),
                         "--port",
