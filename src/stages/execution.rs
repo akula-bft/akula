@@ -32,6 +32,7 @@ pub struct Execution {
     pub exit_after_batch: bool,
     pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
+    pub mem: EvmMemory,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -45,6 +46,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
+    mem: &mut EvmMemory,
 ) -> Result<BlockNumber, StageError> {
     let mut consensus_engine = engine_factory(None, chain_config.clone(), None)?;
     consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, starting_block)?);
@@ -65,7 +67,6 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
         .unwrap();
     let mut last_message = Instant::now();
     let mut printed_at_least_once = false;
-    let mut mem = EvmMemory::new();
     loop {
         let block_hash = accessors::chain::canonical_hash::read(tx, block_number)?
             .ok_or_else(|| format_err!("No canonical hash found for block {}", block_number))?;
@@ -90,7 +91,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             &header,
             &block,
             &block_spec,
-            &mut mem,
+            mem,
         )
         .execute_and_write_block()
         .map_err(|e| match e {
@@ -225,6 +226,7 @@ where
                 self.commit_every,
                 starting_block,
                 input.first_started_at,
+                &mut self.mem,
             );
 
             // CliqueError::SignedRecently seems to be raised sometimes when

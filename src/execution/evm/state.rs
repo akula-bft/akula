@@ -78,6 +78,11 @@ impl Default for EvmMemory {
     }
 }
 
+// SAFETY: `EvmMemory` owns the mapped memory (similarly to `Box`),
+// so it's safe to implement `Send` and `Sync` for it
+unsafe impl Send for EvmMemory {}
+unsafe impl Sync for EvmMemory {}
+
 /// Note that stack grows down, while heap grows up, i.e. the following
 /// conditions MUST be always true:
 /// - `stack_base` >= `stack_head`

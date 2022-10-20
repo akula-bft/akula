@@ -2,6 +2,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
+    execution::EvmMemory,
     kv::tables::CHAINDATA_TABLES,
     models::*,
     p2p::node::NodeBuilder,
@@ -459,6 +460,7 @@ fn main() -> anyhow::Result<()> {
                         exit_after_batch: opt.execution_exit_after_batch,
                         batch_until: None,
                         commit_every: None,
+                        mem: EvmMemory::new(),
                     },
                     false,
                 );
