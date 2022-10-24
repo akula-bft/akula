@@ -27,7 +27,7 @@ pub struct EvmMemory {
 }
 
 impl EvmMemory {
-    #[inline]
+    #[inline(always)]
     pub fn new() -> Self {
         unsafe {
             // TODO: add MAP_HUGETLB for huge tables
@@ -48,6 +48,7 @@ impl EvmMemory {
         }
     }
 
+    #[inline(always)]
     pub fn get_origin(&mut self) -> EvmSubMemory {
         let p = unsafe { self.p.add(SUPER_STACK_SIZE_BYTES).cast() };
         EvmSubMemory {
@@ -61,6 +62,7 @@ impl EvmMemory {
 }
 
 impl Drop for EvmMemory {
+    #[inline(always)]
     fn drop(&mut self) {
         unsafe {
             let res = libc::munmap(self.p.cast(), TOTAL_MEM_SIZE);
@@ -73,6 +75,7 @@ impl Drop for EvmMemory {
 }
 
 impl Default for EvmMemory {
+    #[inline(always)]
     fn default() -> Self {
         Self::new()
     }
@@ -109,10 +112,12 @@ impl<'a> EvmSubMemory<'a> {
         }
     }
 
+    #[inline(always)]
     pub fn stack<'b>(&'b mut self) -> EvmStack<'a, 'b> {
         EvmStack { mem: self }
     }
 
+    #[inline(always)]
     pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
         EvmHeap { mem: self }
     }
@@ -193,7 +198,7 @@ impl<'a, 'b> EvmHeap<'a, 'b> {
         unsafe { self.mem.heap_head.offset_from(self.mem.heap_base) as usize }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn grow(&mut self, size: usize) {
         let old_size = self.size();
         if size > old_size {
@@ -208,12 +213,14 @@ impl<'a, 'b> EvmHeap<'a, 'b> {
 impl<'a, 'b> core::ops::Deref for EvmHeap<'a, 'b> {
     type Target = [u8];
 
+    #[inline(always)]
     fn deref(&self) -> &[u8] {
         unsafe { slice::from_raw_parts(self.mem.heap_base, self.size()) }
     }
 }
 
 impl<'a, 'b> core::ops::DerefMut for EvmHeap<'a, 'b> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
         unsafe { slice::from_raw_parts_mut(self.mem.heap_base, self.size()) }
     }
@@ -234,6 +241,7 @@ pub struct ExecutionState<'a> {
 }
 
 impl<'a> ExecutionState<'a> {
+    #[inline(always)]
     pub fn new(message: &'a InterpreterMessage, mem: EvmSubMemory<'a>) -> Self {
         Self {
             gas_left: message.gas,
@@ -244,19 +252,23 @@ impl<'a> ExecutionState<'a> {
         }
     }
 
+    #[inline(always)]
     pub fn stack<'b>(&'b mut self) -> EvmStack<'a, 'b> {
         self.mem.stack()
     }
 
+    #[inline(always)]
     pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
         self.mem.heap()
     }
 
+    #[inline(always)]
     pub fn clone_stack_to_vec(&self) -> Vec<U256> {
         let len = unsafe { self.mem.stack_base.offset_from(self.mem.stack_head) as usize };
         unsafe { slice::from_raw_parts(self.mem.stack_head, len).to_vec() }
     }
 
+    #[inline(always)]
     pub fn heap_size(&self) -> usize {
         unsafe { self.mem.heap_head.offset_from(self.mem.heap_base) as usize }
     }
