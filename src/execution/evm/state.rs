@@ -18,8 +18,38 @@ const SUPER_STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * SUPER_STACK_SIZE;
 /// Total memory size allocated for EVM.
 ///
 /// Note that allocated pages get populated lazily, i.e. physically
-/// allocated memory will be smaller.
-const TOTAL_MEM_SIZE: usize = 8 * (1 << 30);
+/// allocated memory usually will be much smaller.
+///
+/// Currently transaction can use only 30M gas. Memory grow cost
+/// is computed as:
+/// ```
+/// memory_size_word = (memory_byte_size + 31) / 32
+/// memory_cost = (memory_size_word ** 2) / 512 + (3 * memory_size_word)
+/// ```
+///
+/// Thus max memory which can be allocated by one contract can be
+/// computed as:
+/// ```
+/// memory_byte_size = 8192 * (sqrt(9 + available_gas / 128) - 3)
+/// ```
+/// Meaning that by using 30M gas one contract can allocate at most
+/// ~3.94 MB of memory.
+///
+/// But contract may spawn subcontracts for which memory grow cost is
+/// computed independently. By splitting gas equally between 1024
+/// subcontracts (the maximum context depth) each subcontract can
+/// allocate ~102 KB of memory, meaning in total at the maximum depth
+/// ~104.21 MB of memory can be allocated.
+///
+/// In addition to the memory, each contract can use up to 32 KiB of stack
+/// space, meaning in total at the maximum depth 32 MiB of stack space
+/// could be used.
+///
+/// We map 1 GiB of memory for EVM for two reasons:
+/// 1) To be future-proof against potential future raise of maximum gas
+///    per transaction.
+/// 2) To allow use of 1 GiB huge pages.
+const TOTAL_MEM_SIZE: usize = 1 << 30;
 
 #[derive(Debug)]
 pub struct EvmMemory {
