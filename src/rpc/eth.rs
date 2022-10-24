@@ -374,6 +374,7 @@ where
                 .iter()
                 .map(|tx| tx.max_fee_per_gas())
                 .reduce(|a, b| a + b)
+                .map(|total| total / U256::new(block.transactions.len() as u128))
                 .unwrap_or({
                     let header = chain::header::read(&txn, block_number)?
                         .ok_or_else(|| format_err!("header not found for block #{block_number}"))?;
@@ -405,6 +406,7 @@ where
                 .iter()
                 .map(|tx| tx.max_priority_fee_per_gas())
                 .reduce(|a, b| a + b)
+                .map(|total| total / U256::new(txs.len() as u128))
                 .unwrap_or_default();
 
             Ok(average_tip)
