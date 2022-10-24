@@ -34,6 +34,8 @@ use tokio::time::sleep;
 use tracing::*;
 use tracing_subscriber::prelude::*;
 
+const MIB: usize = 1 << 20;
+
 #[derive(Parser)]
 #[clap(name = "Akula", about = "Next-generation Ethereum implementation.")]
 pub struct Opt {
@@ -137,11 +139,11 @@ fn main() -> anyhow::Result<()> {
     akula_tracing::build_subscriber(Component::Core).init();
 
     std::thread::Builder::new()
-        .stack_size(128 * 1024 * 1024)
+        .stack_size(8 * MIB)
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
-                .thread_stack_size(128 * 1024 * 1024)
+                .thread_stack_size(8 * MIB)
                 .build()?;
 
             rt.block_on(async move {
