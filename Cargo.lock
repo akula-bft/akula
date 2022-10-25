@@ -1373,7 +1373,7 @@ dependencies = [
 [[package]]
 name = "ethereum-jsonrpc"
 version = "0.1.0"
-source = "git+https://github.com/vorot93/ethereum-jsonrpc#0f5f883cecbcf928328805c8196284dda2237568"
+source = "git+https://github.com/vorot93/ethereum-jsonrpc#ee8c6f5ffd1e6eccb774cd71cdf2547a045b8d3f"
 dependencies = [
  "arrayvec",
  "bytes",

@@ -13,9 +13,10 @@ use crate::{
 use anyhow::format_err;
 use async_trait::async_trait;
 use ethereum_jsonrpc::{
-    types::{self, TransactionLog},
+    types::{self, BlockId, BlockNumber, TransactionLog},
     EthApiServer, LogFilter, SyncStatus,
 };
+use ethereum_types::BigEndianHash;
 use jsonrpsee::core::RpcResult;
 use std::{collections::HashSet, sync::Arc};
 
@@ -351,6 +352,78 @@ where
                     )?
                     .gas_left,
             ))
+        })
+        .await
+        .unwrap_or_else(helpers::joinerror_to_result)
+    }
+
+    async fn gas_price(&self) -> RpcResult<U256> {
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let latest_block = BlockId::from(BlockNumber::Latest);
+            let txn = db.begin()?;
+
+            let (block_number, _) = helpers::resolve_block_id(&txn, latest_block)?
+                .ok_or_else(|| format_err!("failed to resolve block {latest_block:?}"))?;
+
+            let txs = chain::block_body::read_without_senders(&txn, block_number)?
+                .ok_or_else(|| format_err!("body not found for block #{block_number}"))?
+                .transactions;
+
+            txs.iter()
+                .map(|tx| {
+                    U512::from(ethereum_types::U256::from(
+                        tx.max_fee_per_gas().to_be_bytes(),
+                    ))
+                })
+                .reduce(|a, b| a + b)
+                .map(|sum| {
+                    Ok(U256::from_be_bytes(
+                        H256::from_slice(&H512::from_uint(&(sum / txs.len()))[H256::len_bytes()..])
+                            .0,
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    let header = chain::header::read(&txn, block_number)?
+                        .ok_or_else(|| format_err!("header not found for block #{block_number}"))?;
+
+                    Ok(header.base_fee_per_gas.unwrap_or_default())
+                })
+        })
+        .await
+        .unwrap_or_else(helpers::joinerror_to_result)
+    }
+
+    async fn max_priority_fee_per_gas(&self) -> RpcResult<U256> {
+        let db = self.db.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let latest_block = BlockId::from(BlockNumber::Latest);
+            let txn = db.begin()?;
+
+            let (block_number, _) = helpers::resolve_block_id(&txn, latest_block)?
+                .ok_or_else(|| format_err!("failed to resolve block {latest_block:?}"))?;
+
+            let txs = chain::block_body::read_without_senders(&txn, block_number)?
+                .ok_or_else(|| format_err!("body not found for block #{block_number}"))?
+                .transactions;
+
+            Ok(txs
+                .iter()
+                .map(|tx| {
+                    U512::from(ethereum_types::U256::from(
+                        tx.max_priority_fee_per_gas().to_be_bytes(),
+                    ))
+                })
+                .reduce(|a, b| a + b)
+                .map(|sum| {
+                    U256::from_be_bytes(
+                        H256::from_slice(&H512::from_uint(&(sum / txs.len()))[H256::len_bytes()..])
+                            .0,
+                    )
+                })
+                .unwrap_or(U256::ZERO))
         })
         .await
         .unwrap_or_else(helpers::joinerror_to_result)
