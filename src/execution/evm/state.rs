@@ -22,14 +22,14 @@ const SUPER_STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * SUPER_STACK_SIZE;
 ///
 /// Currently transaction can use only 30M gas. Memory grow cost
 /// is computed as:
-/// ```
+/// ```ignore
 /// memory_size_word = (memory_byte_size + 31) / 32
 /// memory_cost = (memory_size_word ** 2) / 512 + (3 * memory_size_word)
 /// ```
 ///
 /// Thus max memory which can be allocated by one contract can be
 /// computed as:
-/// ```
+/// ```ignore
 /// memory_byte_size = 8192 * (sqrt(9 + available_gas / 128) - 3)
 /// ```
 /// Meaning that by using 30M gas one contract can allocate at most
