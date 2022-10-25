@@ -16,6 +16,7 @@ use ethereum_jsonrpc::{
     types::{self, BlockId, BlockNumber, TransactionLog},
     EthApiServer, LogFilter, SyncStatus,
 };
+use ethereum_types::BigEndianHash;
 use jsonrpsee::core::RpcResult;
 use std::{collections::HashSet, sync::Arc};
 
@@ -366,23 +367,29 @@ where
             let (block_number, _) = helpers::resolve_block_id(&txn, latest_block)?
                 .ok_or_else(|| format_err!("failed to resolve block {latest_block:?}"))?;
 
-            let block = chain::block_body::read_without_senders(&txn, block_number)?
-                .ok_or_else(|| format_err!("body not found for block #{block_number}"))?;
+            let txs = chain::block_body::read_without_senders(&txn, block_number)?
+                .ok_or_else(|| format_err!("body not found for block #{block_number}"))?
+                .transactions;
 
-            let average_gas_price = block
-                .transactions
-                .iter()
-                .map(|tx| tx.max_fee_per_gas())
+            txs.iter()
+                .map(|tx| {
+                    U512::from(ethereum_types::U256::from(
+                        tx.max_fee_per_gas().to_be_bytes(),
+                    ))
+                })
                 .reduce(|a, b| a + b)
-                .map(|total| total / U256::new(block.transactions.len() as u128))
-                .unwrap_or({
+                .map(|sum| {
+                    Ok(U256::from_be_bytes(
+                        H256::from_slice(&H512::from_uint(&(sum / txs.len()))[H256::len_bytes()..])
+                            .0,
+                    ))
+                })
+                .unwrap_or_else(|| {
                     let header = chain::header::read(&txn, block_number)?
                         .ok_or_else(|| format_err!("header not found for block #{block_number}"))?;
 
-                    header.base_fee_per_gas.unwrap_or_default()
-                });
-
-            Ok(average_gas_price)
+                    Ok(header.base_fee_per_gas.unwrap_or_default())
+                })
         })
         .await
         .unwrap_or_else(helpers::joinerror_to_result)
@@ -402,14 +409,21 @@ where
                 .ok_or_else(|| format_err!("body not found for block #{block_number}"))?
                 .transactions;
 
-            let average_tip = txs
+            Ok(txs
                 .iter()
-                .map(|tx| tx.max_priority_fee_per_gas())
+                .map(|tx| {
+                    U512::from(ethereum_types::U256::from(
+                        tx.max_priority_fee_per_gas().to_be_bytes(),
+                    ))
+                })
                 .reduce(|a, b| a + b)
-                .map(|total| total / U256::new(txs.len() as u128))
-                .unwrap_or_default();
-
-            Ok(average_tip)
+                .map(|sum| {
+                    U256::from_be_bytes(
+                        H256::from_slice(&H512::from_uint(&(sum / txs.len()))[H256::len_bytes()..])
+                            .0,
+                    )
+                })
+                .unwrap_or(U256::ZERO))
         })
         .await
         .unwrap_or_else(helpers::joinerror_to_result)
