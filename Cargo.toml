@@ -34,7 +34,7 @@ digest = "0.10"
 directories = "4.0"
 educe = { version = "0.4", features = ["Debug", "Default"] }
 eio = "0.1"
-enr = { version = "0.6", default-features = false, features = [
+enr = { version = "0.7", default-features = false, features = [
   "rust-secp256k1",
 ] }
 enum-primitive-derive = "0.2"
@@ -169,7 +169,6 @@ triehash = "0.8"
 
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
-enr = { git = "https://github.com/sigp/enr" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls-3" }
 
 [[bin]]
