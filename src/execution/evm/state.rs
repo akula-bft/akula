@@ -37,13 +37,13 @@ const SUPER_STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * SUPER_STACK_SIZE;
 ///
 /// But contract may spawn subcontracts for which memory grow cost is
 /// computed independently. By splitting gas equally between 1024
-/// subcontracts (the maximum context depth) each subcontract can
-/// allocate ~102 KB of memory, meaning in total at the maximum depth
-/// ~104.21 MB of memory can be allocated.
+/// subcontracts (the maximum context depth) each subcontract could
+/// allocate up to ~102 KB of memory, meaning that in total at the maximum
+/// depth up to ~104.21 MB of memory could be allocated.
 ///
 /// In addition to the memory, each contract can use up to 32 KiB of stack
-/// space, meaning in total at the maximum depth 32 MiB of stack space
-/// could be used.
+/// space (1024 of 256-bit words), meaning that in total at the maximum
+/// depth 32 MiB of stack space could be used.
 ///
 /// We map 1 GiB of memory for EVM for two reasons:
 /// 1) To be future-proof against potential future raise of maximum gas
@@ -56,12 +56,29 @@ pub struct EvmMemory {
     p: *mut libc::c_void,
 }
 
+/// Page sizes supported by [`EvmMemory`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PageSize {
+    Page4KiB,
+    Page2MiB,
+    Page1GiB,
+}
+
 impl EvmMemory {
     #[inline(always)]
     pub fn new() -> Self {
+        Self::new_with_size(PageSize::Page4KiB)
+    }
+
+    #[inline(always)]
+    pub fn new_with_size(page_size: PageSize) -> Self {
         unsafe {
-            // TODO: add MAP_HUGETLB for huge tables
-            let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE;
+            let mut flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE;
+            flags |= match page_size {
+                PageSize::Page4KiB => 0,
+                PageSize::Page2MiB => libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
+                PageSize::Page1GiB => libc::MAP_HUGETLB | libc::MAP_HUGE_1GB,
+            };
             let mmap_res = libc::mmap(
                 ptr::null_mut(),
                 TOTAL_MEM_SIZE,
