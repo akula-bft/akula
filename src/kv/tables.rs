@@ -590,6 +590,32 @@ impl TableDecode for BitmapKey<Address> {
     }
 }
 
+impl TableEncode for BitmapKey<H256> {
+    type Encoded = [u8; KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
+
+    fn encode(self) -> Self::Encoded {
+        let mut out = [0; KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
+        out[..KECCAK_LENGTH].copy_from_slice(&self.inner.encode());
+        out[KECCAK_LENGTH..].copy_from_slice(&self.block_number.encode());
+        out
+    }
+}
+
+impl TableDecode for BitmapKey<H256> {
+    fn decode(b: &[u8]) -> anyhow::Result<Self> {
+        if b.len() != KECCAK_LENGTH + BLOCK_NUMBER_LENGTH {
+            return Err(
+                InvalidLength::<{ KECCAK_LENGTH + BLOCK_NUMBER_LENGTH }> { got: b.len() }.into(),
+            );
+        }
+
+        Ok(Self {
+            inner: H256::decode(&b[..KECCAK_LENGTH])?,
+            block_number: BlockNumber::decode(&b[KECCAK_LENGTH..])?,
+        })
+    }
+}
+
 impl TableEncode for BitmapKey<(Address, H256)> {
     type Encoded = [u8; ADDRESS_LENGTH + KECCAK_LENGTH + BLOCK_NUMBER_LENGTH];
 
@@ -866,9 +892,9 @@ decl_table!(BlockBody => BlockNumber => BodyForStorage);
 decl_table!(BlockTransaction => TxIndex => MessageWithSignature);
 decl_table!(TotalGas => BlockNumber => u64);
 decl_table!(TotalTx => BlockNumber => u64);
-decl_table!(LogAddressIndex => Address => RoaringTreemap);
+decl_table!(LogAddressIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(LogAddressesByBlock => BlockNumber => Address);
-decl_table!(LogTopicIndex => H256 => RoaringTreemap);
+decl_table!(LogTopicIndex => BitmapKey<H256> => RoaringTreemap);
 decl_table!(LogTopicsByBlock => BlockNumber => H256);
 decl_table!(CallTraceSet => BlockNumber => CallTraceSetEntry);
 decl_table!(CallFromIndex => BitmapKey<Address> => RoaringTreemap);

@@ -11,7 +11,7 @@ use akula::{
         trace::TraceApiServerImpl, web3::Web3ApiServerImpl,
     },
     stagedsync,
-    stages::*,
+    stages::{stage_util::IndexParams, *},
     version_string,
 };
 use anyhow::Context;
@@ -470,20 +470,14 @@ fn main() -> anyhow::Result<()> {
                         1,
                     );
                 }
-                staged_sync.push(
-                    AccountHistoryIndex {
-                        temp_dir: etl_temp_dir.clone(),
-                        flush_interval: 50_000,
-                    },
-                    !opt.prune,
-                );
-                staged_sync.push(
-                    StorageHistoryIndex {
-                        temp_dir: etl_temp_dir.clone(),
-                        flush_interval: 50_000,
-                    },
-                    !opt.prune,
-                );
+                let index_params = IndexParams {
+                    temp_dir: etl_temp_dir.clone(),
+                    flush_interval: 50_000,
+                };
+                staged_sync.push(AccountHistoryIndex(index_params.clone()), !opt.prune);
+                staged_sync.push(StorageHistoryIndex(index_params.clone()), !opt.prune);
+                staged_sync.push(LogTopicIndex(index_params.clone()), !opt.prune);
+                staged_sync.push(LogAddressIndex(index_params.clone()), !opt.prune);
                 staged_sync.push(
                     TxLookup {
                         temp_dir: etl_temp_dir.clone(),
