@@ -96,7 +96,7 @@ where
                             ))
                         })?;
 
-                    info!("Awaiting chain tip...");
+                    info!("Awaiting chain tip from external consensus engine...");
 
                     let (chain_tip_hash, chain_finalized_hash) = loop {
                         let _ = chain_tip_watch.changed().await;
