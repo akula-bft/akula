@@ -175,8 +175,7 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
 
     let region = get_memory_region(state, index, size).map_err(|_| StatusCode::OutOfGas)?;
 
-    let heap = state.mem.heap();
-    let hash = Keccak256::digest(if let Some(region) = region {
+    let hash = if let Some(region) = region {
         let w = num_words(region.size.get());
         let cost = w * 6;
         state.gas_left -= cost;
@@ -184,10 +183,12 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
             return Err(StatusCode::OutOfGas);
         }
 
-        &heap[region.offset..region.offset + region.size.get()]
+        let heap = state.mem.heap();
+        let data = &heap[region.offset..region.offset + region.size.get()];
+        Keccak256::digest(data)
     } else {
-        &[]
-    });
+        Keccak256::digest(&[])
+    };
     state.mem.stack().push(u256_from_slice(&hash));
 
     Ok(())

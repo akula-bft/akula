@@ -32,7 +32,7 @@ pub struct Execution {
     pub exit_after_batch: bool,
     pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
-    pub mem: EvmMemory,
+    pub mem: std::sync::Mutex<EvmMemory>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -216,6 +216,7 @@ where
             .previous_stage.ok_or_else(|| format_err!("Execution stage cannot be executed first, but no previous stage progress specified"))?.1, self.max_block.unwrap_or(BlockNumber(u64::MAX)));
 
         Ok(if max_block >= starting_block {
+            let mut mem = self.mem.lock().unwrap();
             let result = execute_batch_of_blocks(
                 tx,
                 chain_config,
@@ -226,7 +227,7 @@ where
                 self.commit_every,
                 starting_block,
                 input.first_started_at,
-                &mut self.mem,
+                &mut mem,
             );
 
             // CliqueError::SignedRecently seems to be raised sometimes when

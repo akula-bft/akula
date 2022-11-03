@@ -5,7 +5,7 @@ pub use common::{
 pub use host::Host;
 pub use interpreter::AnalyzedCode;
 pub use opcode::OpCode;
-pub use state::{EvmMemory, EvmStack, EvmSubMemory, ExecutionState, PageSize};
+pub use state::{EvmMemory, EvmStack, EvmSubMemory, ExecutionState};
 
 /// Maximum allowed EVM bytecode size.
 pub const MAX_CODE_SIZE: usize = 0x6000;

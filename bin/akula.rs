@@ -2,7 +2,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
-    execution::{EvmMemory, PageSize},
+    execution::EvmMemory,
     kv::tables::CHAINDATA_TABLES,
     models::*,
     p2p::node::NodeBuilder,
@@ -16,7 +16,7 @@ use akula::{
     version_string,
 };
 use anyhow::Context;
-use clap::{builder::TypedValueParser, Parser};
+use clap::Parser;
 use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
     TraceApiServer, Web3ApiServer,
@@ -27,8 +27,8 @@ use jsonrpsee::{
     core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
 };
 use std::{
-    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
-    sync::Arc, time::Duration,
+    collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, sync::Arc,
+    time::Duration,
 };
 use tokio::time::sleep;
 use tracing::*;
@@ -104,18 +104,6 @@ pub struct Opt {
     #[clap(long)]
     pub no_rpc: bool,
 
-    /// Select page size used by EVM.
-    ///
-    /// Using a non-default value requires huge page support
-    /// from OS and 1 GiB worth of huge pages to be available.
-    #[clap(
-        long,
-        default_value = "4KiB",
-        value_parser = clap::builder::PossibleValuesParser::new(["4KiB", "2MiB", "1GiB"])
-            .map(parse_page_size),
-    )]
-    pub page_size: PageSize,
-
     /// Enable API options
     #[clap(long)]
     pub enable_api: Option<String>,
@@ -141,15 +129,6 @@ pub struct Opt {
     pub jwt_secret_path: Option<ExpandedPathBuf>,
 }
 
-fn parse_page_size(s: String) -> PageSize {
-    match s.as_str() {
-        "4KiB" => PageSize::Page4KiB,
-        "2MiB" => PageSize::Page2MiB,
-        "1GiB" => PageSize::Page1GiB,
-        _ => panic!("Invalid page size"),
-    }
-}
-
 #[allow(unreachable_code)]
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::parse();
@@ -165,8 +144,7 @@ fn main() -> anyhow::Result<()> {
     rt.block_on(async move {
         info!("Starting Akula ({})", version_string());
 
-        info!("Allocating EVM memory");
-        let mem = EvmMemory::new_with_size(opt.page_size);
+        let mem = std::sync::Mutex::new(EvmMemory::new());
 
         let mut bundled_chain_spec = false;
         let chain_config = if let Some(chain) = opt.chain {

@@ -1,197 +1,92 @@
 use super::common::InterpreterMessage;
+use bumpalo::{collections::Vec, Bump};
 use bytes::Bytes;
-use core::{marker::PhantomData, mem, ptr, slice};
 use ethnum::U256;
 use getset::{Getters, MutGetters};
-use std::io;
+use std::hint::unreachable_unchecked;
 
 /// Size of EVM stack in U256s
 pub const STACK_SIZE: usize = 1024;
-/// Size of EVM stack in bytes
-const STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * STACK_SIZE;
-
 pub(crate) const MAX_CONTEXT_DEPTH: usize = 1024;
 
-const SUPER_STACK_SIZE: usize = STACK_SIZE * MAX_CONTEXT_DEPTH;
-const SUPER_STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * SUPER_STACK_SIZE;
-
-/// Total memory size allocated for EVM.
-///
-/// Note that allocated pages get populated lazily, i.e. physically
-/// allocated memory usually will be much smaller.
-///
-/// Currently transaction can use only 30M gas. Memory grow cost
-/// is computed as:
-/// ```ignore
-/// memory_size_word = (memory_byte_size + 31) / 32
-/// memory_cost = (memory_size_word ** 2) / 512 + (3 * memory_size_word)
-/// ```
-///
-/// Thus max memory which can be allocated by one contract can be
-/// computed as:
-/// ```ignore
-/// memory_byte_size = 8192 * (sqrt(9 + available_gas / 128) - 3)
-/// ```
-/// Meaning that by using 30M gas one contract can allocate at most
-/// ~3.94 MB of memory.
-///
-/// But contract may spawn subcontracts for which memory grow cost is
-/// computed independently. By splitting gas equally between 1024
-/// subcontracts (the maximum context depth) each subcontract could
-/// allocate up to ~102 KB of memory, meaning that in total at the maximum
-/// depth up to ~104.21 MB of memory could be allocated.
-///
-/// In addition to the memory, each contract can use up to 32 KiB of stack
-/// space (1024 of 256-bit words), meaning that in total at the maximum
-/// depth 32 MiB of stack space could be used.
-///
-/// We map 1 GiB of memory for EVM for two reasons:
-/// 1) To be future-proof against potential future raise of maximum gas
-///    per transaction.
-/// 2) To allow use of 1 GiB huge pages.
-const TOTAL_MEM_SIZE: usize = 1 << 30;
-
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct EvmMemory {
-    p: *mut libc::c_void,
-}
-
-/// Page sizes supported by [`EvmMemory`].
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum PageSize {
-    Page4KiB,
-    Page2MiB,
-    Page1GiB,
+    bump: Bump,
 }
 
 impl EvmMemory {
     #[inline(always)]
     pub fn new() -> Self {
-        Self::new_with_size(PageSize::Page4KiB)
-    }
-
-    #[inline(always)]
-    pub fn new_with_size(page_size: PageSize) -> Self {
-        unsafe {
-            let mut flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE;
-            flags |= match page_size {
-                PageSize::Page4KiB => 0,
-                PageSize::Page2MiB => libc::MAP_HUGETLB | libc::MAP_HUGE_2MB,
-                PageSize::Page1GiB => libc::MAP_HUGETLB | libc::MAP_HUGE_1GB,
-            };
-            let mmap_res = libc::mmap(
-                ptr::null_mut(),
-                TOTAL_MEM_SIZE,
-                libc::PROT_READ | libc::PROT_WRITE,
-                flags,
-                -1,
-                0,
-            );
-            if mmap_res == libc::MAP_FAILED {
-                let err = io::Error::last_os_error();
-                panic!("Failed to allocate memory for EVM stack: {err}");
-            }
-            Self { p: mmap_res }
-        }
+        Self::default()
     }
 
     #[inline(always)]
     pub fn get_origin(&mut self) -> EvmSubMemory {
-        let p = unsafe { self.p.add(SUPER_STACK_SIZE_BYTES).cast() };
-        EvmSubMemory {
-            stack_head: p,
-            stack_base: p,
-            heap_head: p.cast(),
-            heap_base: p.cast(),
-            origin: PhantomData,
-        }
+        EvmSubMemory::new_in(&self.bump)
     }
 }
-
-impl Drop for EvmMemory {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe {
-            let res = libc::munmap(self.p.cast(), TOTAL_MEM_SIZE);
-            if res != 0 {
-                let err = io::Error::last_os_error();
-                panic!("Failed to deallocate stack memory: {err}")
-            }
-        }
-    }
-}
-
-impl Default for EvmMemory {
-    #[inline(always)]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// SAFETY: `EvmMemory` owns the mapped memory (similarly to `Box`),
-// so it's safe to implement `Send` and `Sync` for it
-unsafe impl Send for EvmMemory {}
-unsafe impl Sync for EvmMemory {}
 
 /// Note that stack grows down, while heap grows up, i.e. the following
 /// conditions MUST be always true:
 /// - `stack_base` >= `stack_head`
 /// - `heap_base` <= `heap_head`
+// WARNING: DO NOT CHANGE order of `heap` and `stack`. We need for `heap`
+// to be dropped before `stack`, otherwise bumpalo will not be able
+// to release memory. Drop order of fields is specified by RFC 1857.
 pub struct EvmSubMemory<'a> {
-    stack_head: *mut U256,
-    stack_base: *mut U256,
-    heap_head: *mut u8,
-    heap_base: *mut u8,
-    origin: PhantomData<&'a mut ()>,
+    heap: Vec<'a, u8>,
+    stack: Vec<'a, U256>,
+    bump: &'a Bump,
 }
 
 impl<'a> EvmSubMemory<'a> {
     #[inline(always)]
+    fn new_in(bump: &'a Bump) -> Self {
+        // WARNING: DO NOT CHANGE order of `heap` and `stack`
+        let stack = Vec::with_capacity_in(STACK_SIZE, bump);
+        let heap = Vec::new_in(bump);
+        EvmSubMemory { stack, heap, bump }
+    }
+
+    #[inline(always)]
     pub fn next_submem(&mut self) -> Self {
-        let stack_ptr = self.stack_head;
-        let heap_ptr = self.heap_head;
-        Self {
-            stack_head: stack_ptr,
-            stack_base: stack_ptr,
-            heap_head: heap_ptr,
-            heap_base: heap_ptr,
-            origin: self.origin,
-        }
+        Self::new_in(&self.bump)
     }
 
     #[inline(always)]
-    pub fn stack<'b>(&'b mut self) -> EvmStack<'a, 'b> {
-        EvmStack { mem: self }
+    pub fn stack<'b>(&'b mut self) -> EvmStack<'b, 'a> {
+        EvmStack(&mut self.stack)
     }
 
     #[inline(always)]
-    pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
-        EvmHeap { mem: self }
+    pub fn heap<'b>(&'b mut self) -> EvmHeap<'b, 'a> {
+        EvmHeap(&mut self.heap)
     }
 }
 
-pub struct EvmStack<'a, 'b> {
-    mem: &'b mut EvmSubMemory<'a>,
-}
+pub struct EvmStack<'a, 'b>(&'a mut Vec<'b, U256>);
 
 impl<'a, 'b> EvmStack<'a, 'b> {
     #[inline(always)]
+    fn get_pos(&self, pos: usize) -> usize {
+        self.len() - 1 - pos
+    }
+
+    #[inline(always)]
     pub fn get(&self, pos: usize) -> &U256 {
-        debug_assert!(pos < self.len());
-        unsafe { &*self.mem.stack_head.add(pos) }
+        let pos = self.get_pos(pos);
+        unsafe { self.0.get_unchecked(pos) }
     }
 
     #[inline(always)]
     pub fn get_mut(&mut self, pos: usize) -> &mut U256 {
-        debug_assert!(pos < self.len());
-        unsafe { &mut *self.mem.stack_head.add(pos) }
+        let pos = self.get_pos(pos);
+        unsafe { self.0.get_unchecked_mut(pos) }
     }
 
-    /// Get size of stack in `U256`s.
     #[inline(always)]
     pub fn len(&self) -> usize {
-        // TODO: use sub_ptr on stabilization
-        unsafe { self.mem.stack_base.offset_from(self.mem.stack_head) as usize }
+        self.0.len()
     }
 
     #[inline(always)]
@@ -199,61 +94,46 @@ impl<'a, 'b> EvmStack<'a, 'b> {
         self.len() == 0
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn push(&mut self, v: U256) {
-        debug_assert!(self.len() < STACK_SIZE);
-        let head = &mut self.mem.stack_head;
-        unsafe {
-            *head = head.sub(1);
-            ptr::write(*head, v);
+        // Prevent branch which resizes vector
+        if self.0.len() == self.0.capacity() {
+            debug_assert!(false);
+            unsafe { unreachable_unchecked() }
         }
+        self.0.push(v)
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn pop(&mut self) -> U256 {
-        debug_assert_ne!(self.len(), 0);
-        let head = &mut self.mem.stack_head;
-        unsafe {
-            let val = ptr::read(*head);
-            *head = head.add(1);
-            val
-        }
+        self.0.pop().unwrap_or_else(|| unsafe {
+            debug_assert!(false);
+            unreachable_unchecked()
+        })
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn swap_top(&mut self, pos: usize) {
-        debug_assert_ne!(pos, 0);
-        debug_assert!(pos < self.len());
-        let head = self.mem.stack_head;
+        let top = self.0.len() - 1;
+        let pos = self.get_pos(pos);
         unsafe {
-            ptr::swap_nonoverlapping(head, head.add(pos), 1);
+            self.0.swap_unchecked(top, pos);
         }
     }
 }
 
-const PAGE_SIZE: usize = 4 * 1024;
-
-pub struct EvmHeap<'a, 'b> {
-    mem: &'b mut EvmSubMemory<'a>,
-}
+pub struct EvmHeap<'a, 'b>(&'a mut Vec<'b, u8>);
 
 impl<'a, 'b> EvmHeap<'a, 'b> {
     /// Get size of stack in `u8`s.
     #[inline(always)]
     fn size(&self) -> usize {
-        // TODO: use sub_ptr on stabilization
-        unsafe { self.mem.heap_head.offset_from(self.mem.heap_base) as usize }
+        self.0.len()
     }
 
     #[inline(always)]
     pub fn grow(&mut self, size: usize) {
-        let old_size = self.size();
-        if size > old_size {
-            unsafe {
-                ptr::write_bytes(self.mem.heap_head, 0, size - old_size);
-                self.mem.heap_head = self.mem.heap_base.add(size);
-            }
-        }
+        self.0.resize(size, 0)
     }
 }
 
@@ -262,14 +142,14 @@ impl<'a, 'b> core::ops::Deref for EvmHeap<'a, 'b> {
 
     #[inline(always)]
     fn deref(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(self.mem.heap_base, self.size()) }
+        &self.0
     }
 }
 
 impl<'a, 'b> core::ops::DerefMut for EvmHeap<'a, 'b> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.mem.heap_base, self.size()) }
+        &mut self.0
     }
 }
 
@@ -300,24 +180,23 @@ impl<'a> ExecutionState<'a> {
     }
 
     #[inline(always)]
-    pub fn stack<'b>(&'b mut self) -> EvmStack<'a, 'b> {
+    pub fn stack<'b>(&'b mut self) -> EvmStack<'b, 'a> {
         self.mem.stack()
     }
 
     #[inline(always)]
-    pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
+    pub fn heap<'b>(&'b mut self) -> EvmHeap<'b, 'a> {
         self.mem.heap()
     }
 
     #[inline(always)]
-    pub fn clone_stack_to_vec(&self) -> Vec<U256> {
-        let len = unsafe { self.mem.stack_base.offset_from(self.mem.stack_head) as usize };
-        unsafe { slice::from_raw_parts(self.mem.stack_head, len).to_vec() }
+    pub fn clone_stack_to_vec(&self) -> std::vec::Vec<U256> {
+        self.mem.stack.to_vec()
     }
 
     #[inline(always)]
     pub fn heap_size(&self) -> usize {
-        unsafe { self.mem.heap_head.offset_from(self.mem.heap_base) as usize }
+        self.mem.heap.len()
     }
 }
 
