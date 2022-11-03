@@ -112,7 +112,6 @@ dependencies = [
  "include_dir",
  "itertools",
  "jsonrpsee",
- "libc",
  "libmdbx",
  "lru",
  "maplit",
