@@ -178,14 +178,19 @@ impl Sentry for SentryService {
         &self,
         request: tonic::Request<ethereum_interfaces::sentry::SendMessageByMinBlockRequest>,
     ) -> Result<Response<SentPeers>, tonic::Status> {
-        let ethereum_interfaces::sentry::SendMessageByMinBlockRequest { data, min_block } =
-            request.into_inner();
+        let ethereum_interfaces::sentry::SendMessageByMinBlockRequest {
+            data,
+            min_block,
+            max_peers,
+        } = request.into_inner();
         Ok(Response::new(
             self.send_by_predicate(data, |capability_server| {
                 capability_server
                     .block_tracker
                     .read()
                     .peers_with_min_block(min_block)
+                    .into_iter()
+                    .take(max_peers.try_into().unwrap())
             })
             .await,
         ))

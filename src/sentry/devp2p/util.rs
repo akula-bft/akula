@@ -35,7 +35,7 @@ pub fn id2pk(id: PeerId) -> Result<PublicKey, secp256k1::Error> {
 }
 
 pub fn hex_debug<T: AsRef<[u8]>>(s: &T, f: &mut Formatter) -> fmt::Result {
-    f.write_str(&hex::encode(&s))
+    f.write_str(&hex::encode(s))
 }
 
 #[cfg(test)]

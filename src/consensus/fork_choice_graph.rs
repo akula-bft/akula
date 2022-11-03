@@ -78,7 +78,7 @@ impl ForkChoiceGraph {
 
         self.skip_list
             .entry(header.parent_hash)
-            .or_insert(HashSet::new())
+            .or_insert_with(HashSet::new)
             .insert(hash);
         self.raw.insert(hash, header);
         self.q.insert(hash, ());

@@ -661,6 +661,7 @@ impl Node {
                             .send_message_by_min_block(grpc_sentry::SendMessageByMinBlockRequest {
                                 data: Some(data),
                                 min_block,
+                                max_peers: u64::MAX,
                             })
                             .await
                     },
