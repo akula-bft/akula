@@ -361,22 +361,23 @@ where
                 let now = Instant::now();
                 let elapsed = now - last_message_at;
                 if elapsed >= Duration::from_secs(30) {
-                    let total_elapsed = now - first_started_at;
-
                     let prefix = (packed_key[0] as u32) * 0x100 + packed_key[1] as u32;
                     let progress = prefix as f32 / 65536.0;
 
-                    let total_time = total_elapsed.mul_f32(1.0 / progress);
-                    let total_remaining = total_time.saturating_sub(total_elapsed);
+                    if progress > 0.0 {
+                        let total_elapsed = now - first_started_at;
+                        let total_time = total_elapsed.mul_f32(1.0 / progress);
+                        let total_remaining = total_time.saturating_sub(total_elapsed);
 
-                    info!(
-                        "At prefix 0x{:04x}..., progress {:0>2.2}%. {} remaining",
-                        prefix,
-                        100.0 * progress,
-                        format_duration(total_remaining, false),
-                    );
+                        info!(
+                            "At prefix 0x{:04x}..., progress {:0>2.2}%. {} remaining",
+                            prefix,
+                            100.0 * progress,
+                            format_duration(total_remaining, false),
+                        );
 
-                    last_message_at = Instant::now();
+                        last_message_at = Instant::now();
+                    }
                 }
             }
         }
