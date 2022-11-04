@@ -26,7 +26,7 @@ bytesize = "1"
 cidr = "0.2"
 cipher = { version = "0.4", features = ["block-padding"] }
 clap = { version = "4", features = ["derive"] }
-croaring = { git = "https://github.com/saulius/croaring-rs" }
+croaring = { git = "https://github.com/vorot93/croaring-rs", branch = "update-deps" }
 ctr = "0.9"
 data-encoding = "2"
 derive_more = "0.99"
@@ -49,7 +49,7 @@ ethereum-types = { version = "0.14", features = ["codec"] }
 ethereum-jsonrpc = { git = "https://github.com/vorot93/ethereum-jsonrpc", features = [
   "server",
 ] }
-ethnum = { version = "1", features = ["eio", "llvm-intrinsics", "rlp"] }
+ethnum = { version = "1", features = ["eio", "rlp"] }
 fastrlp = { version = "0.2", features = [
   "derive",
   "ethbloom",
@@ -59,7 +59,6 @@ fastrlp = { version = "0.2", features = [
 ] }
 fdlimit = "0.2"
 futures = { version = "0.3", features = ["unstable"] }
-futures-intrusive = "0.4"
 gen-iter = "0.2"
 generic-array = "0.14"
 getset = "0.1"
@@ -159,7 +158,7 @@ vergen = "7"
 bytes-literal = { git = "https://github.com/vorot93/bytes-literal" }
 criterion = { version = "0.4", default-features = false }
 include_dir = "0.7"
-pprof = { version = "0.10", features = ["flamegraph"] }
+pprof = { version = "0.11", features = ["flamegraph"] }
 proptest = "1.0.0"
 rand = { version = "0.8", features = ["std"] }
 tokio = { version = "1.18", features = ["full"] }

@@ -1,4 +1,3 @@
-#![feature(let_else)]
 #![allow(clippy::suspicious_else_formatting)]
 use akula::{consensus::*, crypto::keccak256, models::*, res::chainspec::*, *};
 use anyhow::{bail, ensure, format_err};

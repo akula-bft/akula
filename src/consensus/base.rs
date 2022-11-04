@@ -1,5 +1,5 @@
 use super::*;
-use crate::{chain::protocol_param::param, models::*, state::*, trie::root_hash};
+use crate::{chain::protocol_param::param, models::*, trie::root_hash};
 use std::{collections::BTreeMap, time::SystemTime};
 
 pub const MIN_GAS_LIMIT: u64 = 5000;
@@ -102,45 +102,6 @@ impl ConsensusEngineBase {
         }
 
         Ok(())
-    }
-
-    // See [YP] Section 11.1 "Ommer Validation"
-    pub fn is_kin(
-        &self,
-        branch_header: &BlockHeader,
-        mainline_header: &BlockHeader,
-        mainline_hash: H256,
-        n: usize,
-        state: &dyn BlockReader,
-        old_ommers: &mut Vec<BlockHeader>,
-    ) -> anyhow::Result<bool> {
-        if n > 0 && branch_header != mainline_header {
-            if let Some(mainline_body) = state.read_body(mainline_header.number, mainline_hash)? {
-                old_ommers.extend_from_slice(&mainline_body.ommers);
-
-                let mainline_parent = state.read_parent_header(mainline_header)?;
-                let branch_parent = state.read_parent_header(branch_header)?;
-
-                if let Some(mainline_parent) = mainline_parent {
-                    if let Some(branch_parent) = branch_parent {
-                        if branch_parent == mainline_parent {
-                            return Ok(true);
-                        }
-                    }
-
-                    return self.is_kin(
-                        branch_header,
-                        &mainline_parent,
-                        mainline_header.parent_hash,
-                        n - 1,
-                        state,
-                        old_ommers,
-                    );
-                }
-            }
-        }
-
-        Ok(false)
     }
 
     pub fn get_beneficiary(&self, header: &BlockHeader) -> Address {

@@ -38,7 +38,7 @@ impl Node {
 }
 
 pub(crate) fn marshal_node(n: &Node) -> Vec<u8> {
-    let number_of_hashes = n.hashes.len() + if n.root_hash.is_some() { 1 } else { 0 };
+    let number_of_hashes = n.hashes.len() + usize::from(n.root_hash.is_some());
     let buf_size = number_of_hashes * KECCAK_LENGTH + 6;
     let mut buf = Vec::<u8>::with_capacity(buf_size);
 

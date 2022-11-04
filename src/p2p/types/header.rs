@@ -49,7 +49,7 @@ impl From<HeaderRequest> for GetBlockHeadersParams {
             start: req.start,
             limit: req.limit,
             skip: req.skip,
-            reverse: if req.reverse { 1 } else { 0 },
+            reverse: req.reverse.into(),
         }
     }
 }
