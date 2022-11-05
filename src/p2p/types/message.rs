@@ -158,7 +158,7 @@ impl From<HeaderRequest> for Message {
                 start: req.start,
                 limit: req.limit,
                 skip: req.skip,
-                reverse: if req.reverse { 1 } else { 0 },
+                reverse: req.reverse.into(),
             },
         })
     }

@@ -18,7 +18,7 @@ pub fn create2_address(caller: Address, salt: U256, code_hash: H256) -> Address 
         .copy_from_slice(&u256_to_h256(salt).0);
     buf[1 + ADDRESS_LENGTH + KECCAK_LENGTH..].copy_from_slice(&code_hash.0);
 
-    Address::from_slice(&keccak256(&buf).0[12..])
+    Address::from_slice(&keccak256(buf).0[12..])
 }
 
 #[cfg(test)]

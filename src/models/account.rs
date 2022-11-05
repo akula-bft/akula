@@ -180,7 +180,7 @@ mod tests {
             Account {
                 nonce: 2,
                 balance: 1000.as_u256(),
-                code_hash: keccak256(&[1, 2, 3]),
+                code_hash: keccak256([1, 2, 3]),
             },
             hex!("1102f1885eda54b7a053318cd41e2093220dab15d65381b1157a3633a83bfd5c923903e8"),
         )

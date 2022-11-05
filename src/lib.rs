@@ -7,7 +7,6 @@
     generator_trait,
     generators,
     iter_collect_into,
-    let_else,
     map_first_last,
     never_type,
     poll_ready,

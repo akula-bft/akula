@@ -40,10 +40,10 @@ pub fn execute_block<S: State>(
 mod tests {
     use super::{address::create_address, *};
     use crate::{
-        res::chainspec::MAINNET, trie::root_hash, InMemoryState, StateReader, StateWriter,
+        crypto::keccak256, res::chainspec::MAINNET, trie::root_hash, InMemoryState, StateReader,
+        StateWriter,
     };
     use hex_literal::hex;
-    use sha3::{Digest, Keccak256};
 
     #[test]
     fn compute_receipt_root() {
@@ -157,7 +157,7 @@ mod tests {
         let contract_address = create_address(sender, 0);
         let contract_account = state.read_account(contract_address).unwrap().unwrap();
 
-        let code_hash = H256::from_slice(&Keccak256::digest(&contract_code)[..]);
+        let code_hash = keccak256(contract_code);
         assert_eq!(contract_account.code_hash, code_hash);
 
         let storage_key0 = U256::ZERO;

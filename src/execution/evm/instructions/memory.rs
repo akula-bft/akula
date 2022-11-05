@@ -183,7 +183,7 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
 
             &state.memory[region.offset..region.offset + region.size.get()]
         } else {
-            &[]
+            &[] as &[u8]
         },
     )));
 
