@@ -14,9 +14,7 @@ use ethereum_jsonrpc::{
     ErigonApiServer, EthApiServer, NetApiServer, OtterscanApiServer, ParityApiServer,
     TraceApiServer, Web3ApiServer,
 };
-use jsonrpsee::{
-    core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
-};
+use jsonrpsee::{core::server::rpc_module::Methods, server::ServerBuilder};
 use std::{collections::HashSet, future::pending, net::SocketAddr, sync::Arc};
 use tracing::*;
 use tracing_subscriber::prelude::*;
@@ -29,9 +27,6 @@ pub struct Opt {
 
     #[clap(long, default_value = "127.0.0.1:8545")]
     pub rpc_listen_address: String,
-
-    #[clap(long, default_value = "127.0.0.1:8546")]
-    pub websocket_listen_address: String,
 
     #[clap(long, default_value = "127.0.0.1:7545")]
     pub grpc_listen_address: SocketAddr,
@@ -62,12 +57,8 @@ async fn main() -> anyhow::Result<()> {
         .params
         .network_id;
 
-    let http_server = HttpServerBuilder::default()
+    let jsonrpc_server = ServerBuilder::default()
         .build(&opt.rpc_listen_address)
-        .await?;
-
-    let websocket_server = WsServerBuilder::default()
-        .build(&opt.websocket_listen_address)
         .await?;
 
     let mut api = Methods::new();
@@ -128,14 +119,8 @@ async fn main() -> anyhow::Result<()> {
         api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
     }
 
-    let _http_server_handle = http_server.start(api.clone())?;
-    info!("HTTP server listening on {}", opt.rpc_listen_address);
-
-    let _websocket_server_handle = websocket_server.start(api)?;
-    info!(
-        "WebSocket server listening on {}",
-        opt.websocket_listen_address
-    );
+    let _jsonrpc_server_handle = jsonrpc_server.start(api.clone())?;
+    info!("JSONRPC server listening on {}", opt.rpc_listen_address);
 
     tokio::spawn({
         let db = db.clone();

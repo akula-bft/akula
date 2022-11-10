@@ -26,7 +26,7 @@ bytesize = "1"
 cidr = "0.2"
 cipher = { version = "0.4", features = ["block-padding"] }
 clap = { version = "4", features = ["derive"] }
-croaring = { git = "https://github.com/vorot93/croaring-rs", branch = "update-deps" }
+croaring = { git = "https://github.com/saulius/croaring-rs" }
 ctr = "0.9"
 data-encoding = "2"
 derive_more = "0.99"
@@ -75,7 +75,7 @@ igd = { git = "https://github.com/stevefan1999-personal/rust-igd", features = [
 ] }
 impls = "1"
 itertools = "0.10"
-jsonrpsee = { version = "0.15", features = ["server"] }
+jsonrpsee = { version = "0.16", features = ["server"] }
 lru = "0.8"
 maplit = "1"
 mdbx = { package = "libmdbx", version = "0.1" }
@@ -134,11 +134,7 @@ unsigned-varint = { version = "0.7", features = ["std"] }
 url = "2"
 walkdir = "2"
 hashlink = "0.8.0"
-hashbrown = { version = "0.12.0", features = [
-  "inline-more",
-  "nightly",
-  "ahash-compile-time-rng",
-] }
+hashbrown = { version = "0.13", features = ["inline-more", "nightly"] }
 dashmap = "5.3"
 public-ip = "0.2.2"
 

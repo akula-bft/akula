@@ -22,9 +22,7 @@ use ethereum_jsonrpc::{
 };
 use expanded_pathbuf::ExpandedPathBuf;
 use http::Uri;
-use jsonrpsee::{
-    core::server::rpc_module::Methods, http_server::HttpServerBuilder, ws_server::WsServerBuilder,
-};
+use jsonrpsee::{core::server::rpc_module::Methods, server::ServerBuilder};
 use std::{
     collections::HashSet, fs::OpenOptions, future::pending, io::Write, net::SocketAddr, panic,
     sync::Arc, time::Duration,
@@ -110,10 +108,6 @@ pub struct Opt {
     /// Enable JSONRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:8545")]
     pub rpc_listen_address: String,
-
-    /// Enable Websocket at this IP address and port.
-    #[clap(long, default_value = "127.0.0.1:8546")]
-    pub websocket_listen_address: String,
 
     /// Enable gRPC at this IP address and port.
     #[clap(long, default_value = "127.0.0.1:7545")]
@@ -226,13 +220,8 @@ fn main() -> anyhow::Result<()> {
                     tokio::spawn({
                         let db = db.clone();
                         async move {
-                            let http_server = HttpServerBuilder::default()
+                            let jsonrpc_server = ServerBuilder::default()
                                 .build(&opt.rpc_listen_address)
-                                .await
-                                .unwrap();
-
-                            let websocket_server = WsServerBuilder::default()
-                                .build(&opt.websocket_listen_address)
                                 .await
                                 .unwrap();
 
@@ -294,14 +283,8 @@ fn main() -> anyhow::Result<()> {
                                 api.merge(Web3ApiServerImpl.into_rpc()).unwrap();
                             }
 
-                            let _http_server_handle = http_server.start(api.clone()).unwrap();
-                            info!("HTTP server listening on {}", opt.rpc_listen_address);
-
-                            let _websocket_server_handle = websocket_server.start(api).unwrap();
-                            info!(
-                                "WebSocket server listening on {}",
-                                opt.websocket_listen_address
-                            );
+                            let _jsonrpc_server_handle = jsonrpc_server.start(api.clone()).unwrap();
+                            info!("JSONRPC server listening on {}", opt.rpc_listen_address);
 
                             pending::<()>().await
                         }

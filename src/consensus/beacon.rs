@@ -8,12 +8,11 @@ use crate::{
 use async_trait::async_trait;
 use ethereum_jsonrpc::*;
 use jsonrpsee::{
-    core::{
-        middleware::{Headers, HttpMiddleware, MethodKind},
-        server::rpc_module::Methods,
-        RpcResult,
+    core::{server::rpc_module::Methods, RpcResult},
+    server::{
+        logger::{Logger, MethodKind},
+        ServerBuilder,
     },
-    http_server::HttpServerBuilder,
     types::{error::CallError, ErrorObject, Params},
 };
 use serde::{Deserialize, Serialize};
@@ -132,19 +131,61 @@ impl BeaconConsensus {
                     #[derive(Clone)]
                     struct M;
 
-                    impl HttpMiddleware for M {
+                    impl Logger for M {
                         type Instant = ();
 
-                        fn on_request(&self, _: SocketAddr, _: &Headers) -> Self::Instant {}
-                        fn on_call(&self, _: &str, _: Params, _: MethodKind) {}
-                        fn on_result(&self, name: &str, _: bool, _: Self::Instant) {
-                            trace!("Called to {name}");
+                        fn on_connect(
+                            &self,
+                            _: SocketAddr,
+                            _: &jsonrpsee::server::logger::HttpRequest,
+                            _: jsonrpsee::server::logger::TransportProtocol,
+                        ) {
                         }
-                        fn on_response(&self, _: &str, _: Self::Instant) {}
+
+                        fn on_request(
+                            &self,
+                            _: jsonrpsee::server::logger::TransportProtocol,
+                        ) -> Self::Instant {
+                        }
+
+                        fn on_call(
+                            &self,
+                            _: &str,
+                            _: Params,
+                            _: MethodKind,
+                            _: jsonrpsee::server::logger::TransportProtocol,
+                        ) {
+                        }
+
+                        fn on_result(
+                            &self,
+                            method_name: &str,
+                            _: bool,
+                            _: Self::Instant,
+                            _: jsonrpsee::server::logger::TransportProtocol,
+                        ) {
+                            trace!("Called to {method_name}");
+                        }
+
+                        fn on_response(
+                            &self,
+                            _: &str,
+                            _: Self::Instant,
+                            _: jsonrpsee::server::logger::TransportProtocol,
+                        ) {
+                        }
+
+                        fn on_disconnect(
+                            &self,
+                            _: SocketAddr,
+                            _: jsonrpsee::server::logger::TransportProtocol,
+                        ) {
+                            todo!()
+                        }
                     }
 
-                    let server = HttpServerBuilder::default()
-                        .set_middleware(M)
+                    let server = ServerBuilder::default()
+                        .set_logger(M)
                         .build(engine_addr)
                         .await
                         .unwrap();
