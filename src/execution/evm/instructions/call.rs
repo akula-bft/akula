@@ -52,10 +52,8 @@ pub(crate) fn do_call<
         }
     }
 
-    let input_region = memory::get_memory_region(state, input_offset, input_size)
-        .map_err(|_| StatusCode::OutOfGas)?;
-    let output_region = memory::get_memory_region(state, output_offset, output_size)
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let input_region = memory::get_memory_region(state, input_offset, input_size)?;
+    let output_region = memory::get_memory_region(state, output_offset, output_size)?;
 
     let mut msg = InterpreterMessage {
         kind: KIND,
@@ -167,8 +165,7 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
     let init_code_offset = state.stack.pop();
     let init_code_size = state.stack.pop();
 
-    let region = memory::get_memory_region(state, init_code_offset, init_code_size)
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let region = memory::get_memory_region(state, init_code_offset, init_code_size)?;
 
     let salt = if CREATE2 {
         let salt = state.stack.pop();

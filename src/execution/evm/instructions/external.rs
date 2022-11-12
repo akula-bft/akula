@@ -162,8 +162,7 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
     let offset = state.stack.pop();
     let size = state.stack.pop();
 
-    let region =
-        memory::get_memory_region(state, offset, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = memory::get_memory_region(state, offset, size)?;
 
     if let Some(region) = &region {
         let cost = region.size.get() as i64 * 8;
