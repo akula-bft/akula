@@ -180,7 +180,6 @@ impl BeaconConsensus {
                             _: SocketAddr,
                             _: jsonrpsee::server::logger::TransportProtocol,
                         ) {
-                            todo!()
                         }
                     }
 
