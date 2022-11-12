@@ -7,6 +7,7 @@ use getset::{Getters, MutGetters};
 use serde::Serialize;
 
 pub const STACK_SIZE: usize = 1024;
+pub const MAX_CONTEXT_DEPTH: usize = 1024;
 
 /// EVM stack.
 #[derive(Clone, Debug, Default, Serialize)]
