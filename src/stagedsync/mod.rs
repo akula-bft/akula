@@ -51,7 +51,6 @@ where
     current_stage_sender: WatchSender<Option<StageId>>,
     current_stage_receiver: WatchReceiver<Option<StageId>>,
     min_progress_to_commit_after_stage: u64,
-    pruning_interval: u64,
     max_block: Option<BlockNumber>,
     start_with_unwind: Option<BlockNumber>,
     exit_after_sync: bool,
@@ -80,7 +79,6 @@ where
             current_stage_sender,
             current_stage_receiver,
             min_progress_to_commit_after_stage: 0,
-            pruning_interval: 0,
             max_block: None,
             start_with_unwind: None,
             exit_after_sync: false,
@@ -113,11 +111,6 @@ where
             require_tip,
             unwind_priority,
         })
-    }
-
-    pub fn set_pruning_interval(&mut self, v: u64) -> &mut Self {
-        self.pruning_interval = v;
-        self
     }
 
     pub fn set_min_progress_to_commit_after_stage(&mut self, v: u64) -> &mut Self {
@@ -464,68 +457,6 @@ where
                     },
                 );
                 info!("Staged sync complete.{}", t);
-
-                if let Some(minimum_progress) = minimum_progress {
-                    if self.pruning_interval > 0 {
-                        if let Some(prune_to) =
-                            minimum_progress.0.checked_sub(self.pruning_interval)
-                        {
-                            let prune_to = BlockNumber(prune_to);
-
-                            // Prune all stages
-                            for (stage_index, QueuedStage { stage, .. }) in
-                                self.stages.iter_mut().enumerate().rev()
-                            {
-                                let stage_id = stage.id();
-
-                                let span = span!(
-                                    Level::INFO,
-                                    "",
-                                    " Pruning {}/{} {} ",
-                                    stage_index + 1,
-                                    num_stages,
-                                    AsRef::<str>::as_ref(&stage_id)
-                                );
-                                let _g = span.enter();
-
-                                let prune_progress = stage_id.get_prune_progress(&tx)?;
-
-                                if let Some(prune_progress) = prune_progress {
-                                    if prune_progress >= prune_to {
-                                        debug!(
-                                            prune_to = *prune_to,
-                                            progress = *prune_progress,
-                                            "No pruning required"
-                                        );
-
-                                        continue;
-                                    }
-                                }
-
-                                info!(
-                                    "PRUNING from {}",
-                                    prune_progress
-                                        .map(|s| s.to_string())
-                                        .unwrap_or_else(|| "genesis".to_string())
-                                );
-
-                                stage
-                                    .prune(
-                                        &mut tx,
-                                        PruningInput {
-                                            prune_progress,
-                                            prune_to,
-                                        },
-                                    )
-                                    .await?;
-
-                                stage_id.save_prune_progress(&tx, prune_to)?;
-
-                                info!("PRUNED to {}", prune_to);
-                            }
-                        }
-                    }
-                }
 
                 tx.commit()?;
 

@@ -85,23 +85,6 @@ where
     {
         Self::unwind(self, tx, input)
     }
-
-    async fn prune<'tx>(
-        &mut self,
-        tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        prune_index(
-            tx,
-            input,
-            tables::AccountChangeSet,
-            tables::AccountHistory,
-            |block_number, AccountChange { address, .. }| (block_number, address),
-        )
-    }
 }
 
 /// Generate storage history index
@@ -153,27 +136,6 @@ where
             tables::StorageChangeSet,
             tables::StorageHistory,
             |StorageChangeKey { address, .. }, StorageChange { location, .. }| (address, location),
-        )
-    }
-
-    async fn prune<'tx>(
-        &mut self,
-        tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        prune_index(
-            tx,
-            input,
-            tables::StorageChangeSet,
-            tables::StorageHistory,
-            |StorageChangeKey {
-                 block_number,
-                 address,
-             },
-             StorageChange { location, .. }| (block_number, (address, location)),
         )
     }
 }

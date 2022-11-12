@@ -902,7 +902,6 @@ decl_table!(CallToIndex => BitmapKey<Address> => RoaringTreemap);
 decl_table!(BlockTransactionLookup => H256 => TruncateStart<BlockNumber>);
 decl_table!(Config => () => ChainSpec);
 decl_table!(SyncStage => StageId => BlockNumber);
-decl_table!(PruneProgress => StageId => BlockNumber);
 decl_table!(TxSender => BlockNumber => Vec<Address>);
 decl_table!(Issuance => Vec<u8> => Vec<u8>);
 decl_table!(Version => () => u64);
@@ -952,7 +951,6 @@ pub static CHAINDATA_TABLES: Lazy<Arc<DatabaseChart>> = Lazy::new(|| {
             table_entry!(BlockTransactionLookup),
             table_entry!(Config),
             table_entry!(SyncStage),
-            table_entry!(PruneProgress),
             table_entry!(TxSender),
             table_entry!(Issuance),
             table_entry!(Version),

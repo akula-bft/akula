@@ -26,12 +26,6 @@ pub struct UnwindInput {
     pub bad_block: Option<BlockNumber>,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct PruningInput {
-    pub prune_progress: Option<BlockNumber>,
-    pub prune_to: BlockNumber,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum ExecOutput {
     Unwind {
@@ -89,17 +83,6 @@ where
     ) -> anyhow::Result<UnwindOutput>
     where
         'db: 'tx;
-
-    async fn prune<'tx>(
-        &mut self,
-        _tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        _input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        Ok(())
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -146,29 +129,5 @@ impl StageId {
         E: EnvironmentKind,
     {
         tx.set(tables::SyncStage, *self, block)
-    }
-
-    #[instrument]
-    pub fn get_prune_progress<'db, K, E>(
-        &self,
-        tx: &MdbxTransaction<'db, K, E>,
-    ) -> anyhow::Result<Option<BlockNumber>>
-    where
-        K: TransactionKind,
-        E: EnvironmentKind,
-    {
-        tx.get(tables::PruneProgress, *self)
-    }
-
-    #[instrument]
-    pub fn save_prune_progress<'db, E>(
-        &self,
-        tx: &MdbxTransaction<'db, RW, E>,
-        block: BlockNumber,
-    ) -> anyhow::Result<()>
-    where
-        E: EnvironmentKind,
-    {
-        tx.set(tables::PruneProgress, *self, block)
     }
 }

@@ -163,49 +163,6 @@ where
             stage_progress: input.unwind_to,
         })
     }
-
-    async fn prune<'tx>(
-        &mut self,
-        tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        let call_trace_set_cursor = tx.cursor(tables::CallTraceSet)?;
-
-        let mut to_addresses = BTreeSet::<Address>::new();
-        let mut from_addresses = BTreeSet::<Address>::new();
-
-        let walker = call_trace_set_cursor.walk(None);
-        pin!(walker);
-        while let Some((b, entry)) = walker.next().transpose()? {
-            if b >= input.prune_to {
-                break;
-            }
-
-            if entry.to {
-                to_addresses.insert(entry.address);
-            }
-
-            if entry.from {
-                from_addresses.insert(entry.address);
-            }
-        }
-
-        prune_bitmap(
-            &mut tx.cursor(tables::CallFromIndex)?,
-            from_addresses,
-            input.prune_to,
-        )?;
-        prune_bitmap(
-            &mut tx.cursor(tables::CallToIndex)?,
-            to_addresses,
-            input.prune_to,
-        )?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]

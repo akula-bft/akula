@@ -337,31 +337,4 @@ where
             stage_progress: input.unwind_to,
         })
     }
-
-    async fn prune<'tx>(
-        &mut self,
-        tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        prune_by_block_key(tx, tables::AccountChangeSet, input, std::convert::identity)?;
-        prune_by_block_key(
-            tx,
-            tables::StorageChangeSet,
-            input,
-            |tables::StorageChangeKey { block_number, .. }| block_number,
-        )?;
-        prune_by_block_key_duplicates(
-            tx,
-            tables::LogAddressesByBlock,
-            input,
-            std::convert::identity,
-        )?;
-        prune_by_block_key_duplicates(tx, tables::LogTopicsByBlock, input, std::convert::identity)?;
-        prune_by_block_key_duplicates(tx, tables::CallTraceSet, input, std::convert::identity)?;
-
-        Ok(())
-    }
 }
