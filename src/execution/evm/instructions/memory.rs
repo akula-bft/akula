@@ -1,6 +1,6 @@
 use crate::{
     execution::evm::{common::*, state::*, Host},
-    models::Revision,
+    models::{Revision, EMPTY_HASH},
 };
 use ethnum::U256;
 use sha3::{Digest, Keccak256};
@@ -192,11 +192,10 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
             if state.gas_left < 0 {
                 return Err(StatusCode::OutOfGas);
             }
-
             let data = &state.memory[region.offset..][..region.size.get()];
-            Keccak256::digest(data)
+            Keccak256::digest(data).into()
         }
-        None => Keccak256::digest([]),
+        None => EMPTY_HASH.0,
     };
 
     state.stack.push(u256_from_slice(&hash));
