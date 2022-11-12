@@ -16,10 +16,12 @@ use anyhow::{ensure, format_err, Context};
 use bytes::Bytes;
 use clap::Parser;
 use expanded_pathbuf::ExpandedPathBuf;
+use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
 use std::{borrow::Cow, collections::BTreeMap, io::Read, sync::Arc};
 use tokio::pin;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
+use url::Url;
 
 #[derive(Parser)]
 #[clap(name = "Akula Toolbox", about = "Utilities for Akula Ethereum client")]
@@ -141,6 +143,15 @@ pub enum OptCommand {
     /// Overwrite chainspec in database with user-provided one
     OverwriteChainspec {
         chainspec_file: ExpandedPathBuf,
+    },
+
+    SendChainTip {
+        #[clap(long, default_value = "http://127.0.0.1:8551")]
+        endpoint: Url,
+        #[clap(long)]
+        head: H256,
+        #[clap(long)]
+        finalized: Option<H256>,
     },
 
     SetStageProgress {
@@ -689,6 +700,21 @@ fn overwrite_chainspec(
     Ok(())
 }
 
+async fn send_chain_tip(endpoint: Url, head: H256, finalized: Option<H256>) -> anyhow::Result<()> {
+    let client = HttpClientBuilder::default().build(endpoint)?;
+    let state = ethereum_jsonrpc::ForkchoiceState {
+        head_block_hash: head,
+        safe_block_hash: H256::default(),
+        finalized_block_hash: finalized.unwrap_or_default(),
+    };
+    println!("{:?}", state);
+    let params = rpc_params![state, None::<ethereum_jsonrpc::PayloadAttributes>];
+    let result: ethereum_jsonrpc::ForkchoiceUpdatedResponse =
+        client.request("engine_forkchoiceUpdatedV1", params).await?;
+    println!("{:?}", result);
+    Ok(())
+}
+
 fn set_stage_progress(
     data_dir: AkulaDataDir,
     stage: String,
@@ -749,6 +775,11 @@ async fn main() -> anyhow::Result<()> {
         OptCommand::OverwriteChainspec { chainspec_file } => {
             overwrite_chainspec(opt.data_dir, chainspec_file)?
         }
+        OptCommand::SendChainTip {
+            endpoint,
+            head,
+            finalized,
+        } => send_chain_tip(endpoint, head, finalized).await?,
         OptCommand::SetStageProgress { stage, progress } => {
             set_stage_progress(opt.data_dir, stage, Some(progress))?
         }
