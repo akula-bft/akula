@@ -52,21 +52,4 @@ where
             |_, topic| topic,
         )
     }
-
-    async fn prune<'tx>(
-        &mut self,
-        tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        prune_index(
-            tx,
-            input,
-            tables::LogTopicsByBlock,
-            tables::LogTopicIndex,
-            |block_number, topic| (block_number, topic),
-        )
-    }
 }

@@ -7,7 +7,7 @@ use crate::{
         traits::*,
     },
     models::*,
-    stagedsync::stage::{ExecOutput, PruningInput, StageInput, UnwindInput, UnwindOutput},
+    stagedsync::stage::{ExecOutput, StageInput, UnwindInput, UnwindOutput},
 };
 use anyhow::format_err;
 use croaring::Treemap;
@@ -157,62 +157,6 @@ where
     Ok(())
 }
 
-pub(crate) fn prune_bitmap<T, K>(
-    cursor: &mut MdbxCursor<'_, RW, T>,
-    keys: BTreeSet<K>,
-    prune_to: BlockNumber,
-) -> anyhow::Result<()>
-where
-    T: Table<Key = BitmapKey<K>, Value = croaring::Treemap, SeekKey = BitmapKey<K>>,
-    K: PartialEq + Copy,
-    BitmapKey<K>: TableDecode,
-{
-    for key in keys {
-        let mut bm = cursor.seek(BitmapKey {
-            inner: key,
-            block_number: BlockNumber(0),
-        })?;
-
-        while let Some((
-            BitmapKey {
-                inner,
-                block_number,
-            },
-            b,
-        )) = bm
-        {
-            if inner != key {
-                break;
-            }
-
-            cursor.delete_current()?;
-
-            if block_number >= prune_to {
-                let new_bm = b
-                    .iter()
-                    .skip_while(|&v| v < *prune_to)
-                    .collect::<croaring::Treemap>();
-
-                if new_bm.cardinality() > 0 {
-                    cursor.upsert(
-                        BitmapKey {
-                            inner: key,
-                            block_number,
-                        },
-                        new_bm,
-                    )?;
-                }
-
-                break;
-            }
-
-            bm = cursor.next()?;
-        }
-    }
-
-    Ok(())
-}
-
 pub(crate) fn flush_bitmap<K>(
     collector: &mut Collector<K, croaring::Treemap>,
     src: &mut HashMap<K, croaring::Treemap>,
@@ -345,39 +289,4 @@ where
     Ok(UnwindOutput {
         stage_progress: input.unwind_to,
     })
-}
-
-pub(crate) fn prune_index<E, DataKey, DataValue, DataTable, IndexKey, IndexTable, Extractor>(
-    tx: &mut MdbxTransaction<'_, RW, E>,
-    input: PruningInput,
-    data_table: DataTable,
-    index_table: IndexTable,
-    extractor: Extractor,
-) -> anyhow::Result<()>
-where
-    E: EnvironmentKind,
-    DataKey: TableDecode,
-    DataTable: Table<Key = DataKey, Value = DataValue>,
-    IndexKey: Ord + Copy,
-    BitmapKey<IndexKey>: TableDecode,
-    IndexTable: Table<Key = BitmapKey<IndexKey>, Value = Treemap, SeekKey = BitmapKey<IndexKey>>,
-    Extractor: Fn(DataKey, DataValue) -> (BlockNumber, IndexKey),
-{
-    let walker = tx.cursor(data_table)?.walk(None);
-    pin!(walker);
-
-    let mut keys = BTreeSet::new();
-    while let Some((key, value)) = walker.next().transpose()? {
-        let (block_number, index_key) = (extractor)(key, value);
-
-        if block_number >= input.prune_to {
-            break;
-        }
-
-        keys.insert(index_key);
-    }
-
-    prune_bitmap(&mut tx.cursor(index_table)?, keys, input.prune_to)?;
-
-    Ok(())
 }

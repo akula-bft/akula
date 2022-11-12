@@ -61,10 +61,6 @@ pub struct Opt {
     #[clap(long)]
     pub start_with_unwind: Option<BlockNumber>,
 
-    /// Turn on pruning.
-    #[clap(long)]
-    pub prune: bool,
-
     /// Use incremental staged sync.
     #[clap(long)]
     pub increment: Option<BlockNumber>,
@@ -328,24 +324,9 @@ fn main() -> anyhow::Result<()> {
                     });
                 }
 
-                let increment = opt.increment.or({
-                    if opt.prune {
-                        Some(BlockNumber(90_000))
-                    } else {
-                        None
-                    }
-                });
-
                 // staged sync setup
                 let mut staged_sync = stagedsync::StagedSync::new();
-                staged_sync.set_min_progress_to_commit_after_stage(if opt.prune {
-                    u64::MAX
-                } else {
-                    1024
-                });
-                if opt.prune {
-                    staged_sync.set_pruning_interval(90_000);
-                }
+                staged_sync.set_min_progress_to_commit_after_stage(1024);
                 staged_sync.set_max_block(opt.max_block);
                 staged_sync.start_with_unwind(opt.start_with_unwind);
                 staged_sync.set_exit_after_sync(opt.exit_after_sync);
@@ -413,7 +394,7 @@ fn main() -> anyhow::Result<()> {
                         node: node.clone(),
                         consensus: consensus.clone(),
                         max_block: opt.max_block.unwrap_or_else(|| u64::MAX.into()),
-                        increment,
+                        increment: opt.increment,
                     },
                     false,
                 );
@@ -446,10 +427,10 @@ fn main() -> anyhow::Result<()> {
                     false,
                 );
                 if !opt.skip_commitment {
-                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None), !opt.prune);
+                    staged_sync.push(HashState::new(etl_temp_dir.clone(), None), true);
                     staged_sync.push_with_unwind_priority(
                         Interhashes::new(etl_temp_dir.clone(), None),
-                        !opt.prune,
+                        true,
                         1,
                     );
                 }
@@ -457,24 +438,24 @@ fn main() -> anyhow::Result<()> {
                     temp_dir: etl_temp_dir.clone(),
                     flush_interval: 50_000,
                 };
-                staged_sync.push(AccountHistoryIndex(index_params.clone()), !opt.prune);
-                staged_sync.push(StorageHistoryIndex(index_params.clone()), !opt.prune);
-                staged_sync.push(LogTopicIndex(index_params.clone()), !opt.prune);
-                staged_sync.push(LogAddressIndex(index_params.clone()), !opt.prune);
+                staged_sync.push(AccountHistoryIndex(index_params.clone()), true);
+                staged_sync.push(StorageHistoryIndex(index_params.clone()), true);
+                staged_sync.push(LogTopicIndex(index_params.clone()), true);
+                staged_sync.push(LogAddressIndex(index_params.clone()), true);
                 staged_sync.push(
                     TxLookup {
                         temp_dir: etl_temp_dir.clone(),
                     },
-                    !opt.prune,
+                    true,
                 );
                 staged_sync.push(
                     CallTraceIndex {
                         temp_dir: etl_temp_dir.clone(),
                         flush_interval: 50_000,
                     },
-                    !opt.prune,
+                    true,
                 );
-                staged_sync.push(Finish, !opt.prune);
+                staged_sync.push(Finish, true);
 
                 info!("Running staged sync");
                 staged_sync.run(&db).await?;

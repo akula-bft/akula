@@ -174,9 +174,7 @@ pub mod helpers {
             types::BlockNumber::Latest | types::BlockNumber::Pending => txn
                 .get(tables::SyncStage, stages::FINISH)
                 .and_then(|b| b.ok_or_else(|| format_err!("sync progress not found"))),
-            types::BlockNumber::Earliest => txn
-                .get(tables::PruneProgress, stages::FINISH)
-                .and_then(|b| b.ok_or_else(|| format_err!("prune progress not found"))),
+            types::BlockNumber::Earliest => Ok(BlockNumber(0)),
             types::BlockNumber::Number(number) => Ok(number.as_u64().into()),
         }
     }

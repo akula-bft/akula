@@ -178,17 +178,6 @@ where
             stage_progress: input.unwind_to,
         })
     }
-
-    async fn prune<'tx>(
-        &mut self,
-        tx: &'tx mut MdbxTransaction<'db, RW, E>,
-        input: PruningInput,
-    ) -> anyhow::Result<()>
-    where
-        'db: 'tx,
-    {
-        prune_by_block_key(tx, tables::TxSender, input, std::convert::identity)
-    }
 }
 
 #[cfg(test)]
