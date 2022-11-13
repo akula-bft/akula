@@ -3,13 +3,13 @@ use ethnum::U256;
 
 #[inline]
 pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
-    let offset = *state.stack.get(0);
-    let size = *state.stack.get(1);
+    let offset = *state.stack().get(0);
+    let size = *state.stack().get(1);
 
     if let Some(region) = super::memory::get_memory_region(state, offset, size)? {
         let offset = region.offset;
         let size = region.size.get();
-        state.output_data = state.memory[offset..][..size].to_vec().into();
+        state.output_data = state.heap()[offset..][..size].to_vec().into();
     }
 
     Ok(())
@@ -25,7 +25,7 @@ pub(crate) fn op_jump(dst: U256, jumpdest_map: &JumpdestMap) -> Result<usize, St
 
 #[inline]
 pub(crate) fn calldataload(state: &mut ExecutionState) {
-    let index = state.stack.pop();
+    let index = state.stack().pop();
 
     let input_len = state.message.input_data.len();
 
@@ -40,7 +40,7 @@ pub(crate) fn calldataload(state: &mut ExecutionState) {
 
         U256::from_be_bytes(data)
     };
-    state.stack.push(res);
+    state.stack().push(res);
 }
 
 #[inline]
@@ -48,5 +48,5 @@ pub(crate) fn calldatasize(state: &mut ExecutionState) {
     let res = u128::try_from(state.message.input_data.len())
         .unwrap()
         .into();
-    state.stack.push(res);
+    state.stack().push(res);
 }

@@ -5,7 +5,10 @@ use crate::{
         protocol_param::{fee, param},
     },
     consensus::*,
-    execution::{evm::StatusCode, evmglue},
+    execution::{
+        evm::{EvmMemory, StatusCode},
+        evmglue,
+    },
     h256_to_u256,
     models::*,
     state::IntraBlockState,
@@ -16,7 +19,7 @@ use bytes::Bytes;
 use std::cmp::min;
 use TransactionAction;
 
-pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
+pub struct ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, 'mem, S>
 where
     S: StateReader,
 {
@@ -28,6 +31,7 @@ where
     block: &'b BlockBodyWithSenders,
     block_spec: &'c BlockExecutionSpec,
     cumulative_gas_used: u64,
+    mem: &'mem mut EvmMemory,
 }
 
 fn refund_gas<'r, S>(
@@ -73,6 +77,7 @@ pub fn execute_transaction<'r, S>(
     message: &Message,
     sender: Address,
     beneficiary: Address,
+    mem: &mut EvmMemory,
 ) -> Result<(Bytes, Receipt), DuoError>
 where
     S: HeaderReader + StateReader,
@@ -128,6 +133,7 @@ where
         sender,
         beneficiary,
         gas,
+        mem,
     )?;
 
     let gas_used = message.gas_limit()
@@ -179,8 +185,8 @@ impl From<anyhow::Error> for TransactionValidationError {
     }
 }
 
-impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
-    ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
+impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, 'mem, S>
+    ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, 'mem, S>
 where
     S: HeaderReader + StateReader,
 {
@@ -192,6 +198,7 @@ where
         header: &'h BlockHeader,
         block: &'b BlockBodyWithSenders,
         block_spec: &'c BlockExecutionSpec,
+        mem: &'mem mut EvmMemory,
     ) -> Self {
         Self {
             state: IntraBlockState::new(state),
@@ -202,6 +209,7 @@ where
             block,
             block_spec,
             cumulative_gas_used: 0,
+            mem,
         }
     }
 
@@ -302,6 +310,7 @@ where
             message,
             sender,
             beneficiary,
+            self.mem,
         )
         .map(|(_, receipt)| receipt)
     }
@@ -404,8 +413,8 @@ where
     }
 }
 
-impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
-    ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, S>
+impl<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, 'mem, S>
+    ExecutionProcessor<'r, 'tracer, 'analysis, 'e, 'h, 'b, 'c, 'mem, S>
 where
     S: State,
 {
@@ -459,6 +468,7 @@ mod tests {
         let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut state,
             &mut tracer,
@@ -467,6 +477,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &mut mem,
         );
 
         let receipt = processor.execute_transaction(&message, sender).unwrap();
@@ -502,6 +513,7 @@ mod tests {
         let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut state,
             &mut tracer,
@@ -510,6 +522,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &mut mem,
         );
 
         processor
@@ -567,6 +580,7 @@ mod tests {
         let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut state,
             &mut tracer,
@@ -575,6 +589,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &mut mem,
         );
 
         let t = |action, input, nonce, gas_limit| Message::EIP1559 {
@@ -685,6 +700,7 @@ mod tests {
         let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut state,
             &mut tracer,
@@ -693,6 +709,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &mut mem,
         );
 
         processor.state().add_to_balance(originator, ETHER).unwrap();
@@ -792,6 +809,7 @@ mod tests {
         let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut state,
             &mut tracer,
@@ -800,6 +818,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &mut mem,
         );
         processor.state().add_to_balance(caller, ETHER).unwrap();
 
@@ -848,6 +867,7 @@ mod tests {
         let mut engine = engine_factory(None, MAINNET.clone(), None).unwrap();
         let block_spec = MAINNET.collect_block_spec(header.number);
         let mut tracer = NoopTracer;
+        let mut mem = EvmMemory::new();
         let mut processor = ExecutionProcessor::new(
             &mut state,
             &mut tracer,
@@ -856,6 +876,7 @@ mod tests {
             &header,
             &block,
             &block_spec,
+            &mut mem,
         );
 
         processor.state().add_to_balance(caller, ETHER).unwrap();

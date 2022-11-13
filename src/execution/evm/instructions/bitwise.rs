@@ -1,9 +1,9 @@
-use crate::execution::evm::state::Stack;
+use crate::execution::evm::state::EvmStack;
 use ethnum::U256;
 use i256::{i256_sign, two_compl, Sign};
 
 #[inline]
-pub(crate) fn byte(stack: &mut Stack) {
+pub(crate) fn byte(stack: &mut EvmStack) {
     let i = stack.pop();
     let x = stack.get_mut(0);
 
@@ -25,7 +25,7 @@ pub(crate) fn byte(stack: &mut Stack) {
 }
 
 #[inline]
-pub(crate) fn shl(stack: &mut Stack) {
+pub(crate) fn shl(stack: &mut EvmStack) {
     let shift = stack.pop();
     let value = stack.get_mut(0);
 
@@ -37,7 +37,7 @@ pub(crate) fn shl(stack: &mut Stack) {
 }
 
 #[inline]
-pub(crate) fn shr(stack: &mut Stack) {
+pub(crate) fn shr(stack: &mut EvmStack) {
     let shift = stack.pop();
     let value = stack.get_mut(0);
 
@@ -49,7 +49,7 @@ pub(crate) fn shr(stack: &mut Stack) {
 }
 
 #[inline]
-pub(crate) fn sar(stack: &mut Stack) {
+pub(crate) fn sar(stack: &mut EvmStack) {
     let shift = stack.pop();
     let mut value = stack.pop();
 
@@ -80,6 +80,7 @@ pub(crate) fn sar(stack: &mut Stack) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::evm::state::EvmMemory;
 
     #[test]
     fn test_instruction_byte() {
@@ -91,8 +92,11 @@ mod tests {
                 .unwrap(),
         );
 
+        let mut evm_mem = EvmMemory::new();
+        let mut mem = evm_mem.get_origin();
+
         for i in 0u16..32 {
-            let mut stack = Stack::new();
+            let mut stack = mem.stack();
             stack.push(value);
             stack.push(U256::from(i));
 
@@ -102,7 +106,8 @@ mod tests {
             assert_eq!(result, U256::from(5 * (i + 1)));
         }
 
-        let mut stack = Stack::new();
+        let mut mem = mem.next_submem();
+        let mut stack = mem.stack();
         stack.push(value);
         stack.push(U256::from(100u128));
 
@@ -110,7 +115,8 @@ mod tests {
         let result = stack.pop();
         assert_eq!(result, U256::ZERO);
 
-        let mut stack = Stack::new();
+        let mut mem = mem.next_submem();
+        let mut stack = mem.stack();
         stack.push(value);
         stack.push(U256::from_words(1, 0));
 

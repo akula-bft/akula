@@ -1,6 +1,8 @@
 use crate::{
     consensus::*,
-    execution::{analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer},
+    execution::{
+        analysis_cache::AnalysisCache, processor::ExecutionProcessor, tracer::NoopTracer, EvmMemory,
+    },
     models::*,
     state::*,
 };
@@ -14,6 +16,7 @@ pub struct Blockchain<'state> {
     engine: Box<dyn Consensus>,
     bad_blocks: HashMap<H256, ValidationError>,
     receipts: Vec<Receipt>,
+    mem: EvmMemory,
 }
 
 impl<'state> Blockchain<'state> {
@@ -47,6 +50,7 @@ impl<'state> Blockchain<'state> {
             config,
             bad_blocks: Default::default(),
             receipts: Default::default(),
+            mem: EvmMemory::new(),
         })
     }
 
@@ -154,6 +158,7 @@ impl<'state> Blockchain<'state> {
             &block.header,
             &body,
             &block_spec,
+            &mut self.mem,
         );
 
         let _ = processor.execute_and_write_block()?;

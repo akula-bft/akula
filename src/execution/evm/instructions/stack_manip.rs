@@ -1,9 +1,9 @@
-use crate::execution::evm::{common::*, state::Stack, AnalyzedCode};
+use crate::execution::evm::{common::*, state::EvmStack, AnalyzedCode};
 use arrayref::array_ref;
 use ethnum::U256;
 
 #[inline(always)]
-pub(crate) fn push<const LEN: usize>(stack: &mut Stack, s: &AnalyzedCode, pc: usize) -> usize {
+pub(crate) fn push<const LEN: usize>(stack: &mut EvmStack, s: &AnalyzedCode, pc: usize) -> usize {
     let code = &s.padded_code()[pc + 1..];
     match LEN {
         1 => stack.push(code[0].into()),
@@ -15,16 +15,16 @@ pub(crate) fn push<const LEN: usize>(stack: &mut Stack, s: &AnalyzedCode, pc: us
 }
 
 #[inline]
-pub(crate) fn dup<const HEIGHT: usize>(stack: &mut Stack) {
+pub(crate) fn dup<const HEIGHT: usize>(stack: &mut EvmStack) {
     stack.push(*stack.get(HEIGHT - 1));
 }
 
 #[inline]
-pub(crate) fn swap<const HEIGHT: usize>(stack: &mut Stack) {
+pub(crate) fn swap<const HEIGHT: usize>(stack: &mut EvmStack) {
     stack.swap_top(HEIGHT);
 }
 
 #[inline]
-pub(crate) fn pop(stack: &mut Stack) {
+pub(crate) fn pop(stack: &mut EvmStack) {
     stack.pop();
 }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    execution::evm::{ExecutionState, OpCode, Output, Stack, StatusCode},
+    execution::evm::{ExecutionState, OpCode, Output, StatusCode},
     models::*,
 };
 use bytes::Bytes;
@@ -21,7 +21,7 @@ pub(crate) struct InstructionStart {
     pub op: u8,
     pub op_name: &'static str,
     pub gas: u64,
-    pub stack: Stack,
+    pub stack: Vec<U256>,
     pub memory_size: usize,
 }
 
@@ -70,8 +70,8 @@ impl Tracer for StdoutTracer {
                 op: op.0,
                 op_name: op.name(),
                 gas: env.gas_left as u64,
-                stack: env.stack.clone(),
-                memory_size: env.memory.len()
+                stack: env.clone_stack_to_vec(),
+                memory_size: env.heap_size(),
             })
             .unwrap()
         )

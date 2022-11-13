@@ -342,10 +342,11 @@ mod tests {
 
         buffer.update_account(sender, None, Some(sender_account));
 
+        let mut mem = EvmMemory::new();
         // ---------------------------------------
         // Execute first block
         // ---------------------------------------
-        execute_block(&mut buffer, &MAINNET, &header, &body).unwrap();
+        execute_block(&mut buffer, &MAINNET, &header, &body, &mut mem).unwrap();
 
         gas += header.gas_used;
         tx.set(tables::TotalGas, header.number, gas).unwrap();
@@ -370,7 +371,7 @@ mod tests {
             new_val.to_vec().into(),
         )];
 
-        execute_block(&mut buffer, &MAINNET.clone(), &header, &body).unwrap();
+        execute_block(&mut buffer, &MAINNET.clone(), &header, &body, &mut mem).unwrap();
 
         gas += header.gas_used;
         tx.set(tables::TotalGas, header.number, gas).unwrap();
@@ -393,7 +394,7 @@ mod tests {
             u256_to_h256(new_val.as_u256()).0.to_vec().into(),
         )];
 
-        execute_block(&mut buffer, &MAINNET.clone(), &header, &body).unwrap();
+        execute_block(&mut buffer, &MAINNET.clone(), &header, &body, &mut mem).unwrap();
 
         buffer.write_to_db().unwrap();
 
