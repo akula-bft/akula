@@ -138,9 +138,6 @@ hashbrown = { version = "0.13", features = ["inline-more", "nightly"] }
 dashmap = "5.3"
 public-ip = "0.2.2"
 
-[target.'cfg(target_os = "linux")'.dependencies]
-e2p-fileflags = { git = "https://github.com/michaellass/e2p-fileflags" }
-
 [features]
 default = []
 console = ["tokio/tracing", "dep:console-subscriber"]

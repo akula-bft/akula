@@ -91,7 +91,6 @@ dependencies = [
  "derive_more",
  "digest 0.10.5",
  "directories",
- "e2p-fileflags",
  "educe",
  "eio",
  "enr",
@@ -160,7 +159,7 @@ dependencies = [
  "tokio-stream",
  "tokio-test",
  "tokio-util",
- "toml 0.5.9",
+ "toml",
  "tonic",
  "tonic-health",
  "tonic-reflection",
@@ -1176,25 +1175,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "e2p-fileflags"
-version = "0.1.0"
-source = "git+https://github.com/michaellass/e2p-fileflags#9259a33813051c245d3d1796dc9a6a546f10cb9c"
-dependencies = [
- "bitflags",
- "e2p-sys",
-]
-
-[[package]]
-name = "e2p-sys"
-version = "0.1.0"
-source = "git+https://github.com/michaellass/e2p-sys.git#c3335c3e07b7d2c7f047e8bf319f8ae605689a65"
-dependencies = [
- "bindgen",
- "metadeps",
- "regex",
-]
-
-[[package]]
 name = "educe"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1310,12 +1290,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "error-chain"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9435d864e017c3c6afeac1654189b06cdb491cf2ff73dbf0d73b0f292f42ff8"
 
 [[package]]
 name = "ethbloom"
@@ -2599,17 +2573,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "metadeps"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73b122901b3a675fac8cecf68dcb2f0d3036193bc861d1ac0e1c337f7d5254c2"
-dependencies = [
- "error-chain",
- "pkg-config",
- "toml 0.2.1",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3008,7 +2971,7 @@ checksum = "eda0fc3b0fb7c975631757e14d9049da17374063edb6ebbcbc54d880d4fe94e9"
 dependencies = [
  "once_cell",
  "thiserror",
- "toml 0.5.9",
+ "toml",
 ]
 
 [[package]]
@@ -4132,12 +4095,6 @@ dependencies = [
  "tokio",
  "tracing",
 ]
-
-[[package]]
-name = "toml"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "736b60249cb25337bc196faa43ee12c705e426f3d55c214d73a4e7be06f92cb4"
 
 [[package]]
 name = "toml"
