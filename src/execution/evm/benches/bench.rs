@@ -2,7 +2,7 @@ use akula::{
     execution::evm::{
         instructions::{instruction_table::get_instruction_table, PROPERTIES},
         util::{mocked_host::MockedHost, Bytecode},
-        AnalyzedCode, CallKind, InterpreterMessage, OpCode, Output, StatusCode,
+        AnalyzedCode, CallKind, EvmMemory, InterpreterMessage, OpCode, Output, StatusCode,
     },
     models::Revision,
 };
@@ -324,9 +324,15 @@ fn generate_code(params: &CodeParams) -> Bytecode {
 
 #[inline]
 fn execute(
-    (code, mut host, msg, rev): (AnalyzedCode, MockedHost, InterpreterMessage, Revision),
+    (code, mut host, msg, rev, mut mem): (
+        AnalyzedCode,
+        MockedHost,
+        InterpreterMessage,
+        Revision,
+        EvmMemory,
+    ),
 ) -> Output {
-    code.execute(&mut host, &msg, rev)
+    code.execute(&mut host, &msg, rev, mem.get_origin())
 }
 
 fn synthetic_benchmarks(c: &mut Criterion) {
@@ -461,7 +467,13 @@ fn synthetic_benchmarks(c: &mut Criterion) {
 fn prepare(
     code: AnalyzedCode,
     input_data: Bytes,
-) -> (AnalyzedCode, MockedHost, InterpreterMessage, Revision) {
+) -> (
+    AnalyzedCode,
+    MockedHost,
+    InterpreterMessage,
+    Revision,
+    EvmMemory,
+) {
     get_instruction_table(Revision::Istanbul);
     (
         code,
@@ -479,6 +491,7 @@ fn prepare(
             value: U256::ZERO,
         },
         Revision::Istanbul,
+        EvmMemory::new(),
     )
 }
 
