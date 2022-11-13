@@ -78,6 +78,7 @@ impls = "1"
 itertools = "0.10"
 jsonrpsee = { version = "0.16", features = ["client", "server"] }
 lru = "0.8"
+libc = "0.2"
 maplit = "1"
 mdbx = { package = "libmdbx", version = "0.1" }
 modular-bitfield = "0.11"

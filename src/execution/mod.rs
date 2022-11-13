@@ -13,7 +13,7 @@ pub mod precompiled;
 pub mod processor;
 pub mod tracer;
 
-pub use evm::EvmMemory;
+pub use evm::{EvmMemory, PageSize};
 
 pub fn execute_block<S: State>(
     state: &mut S,
