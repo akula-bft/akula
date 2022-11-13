@@ -156,14 +156,14 @@ impl<'a, 'b> Deref for EvmHeap<'a, 'b> {
 
     #[inline(always)]
     fn deref(&self) -> &[u8] {
-        &self.heap
+        self.heap
     }
 }
 
 impl<'a, 'b> DerefMut for EvmHeap<'a, 'b> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut [u8] {
-        &mut self.heap
+        self.heap
     }
 }
 

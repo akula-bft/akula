@@ -426,7 +426,7 @@ fn main() -> anyhow::Result<()> {
                         exit_after_batch: opt.execution_exit_after_batch,
                         batch_until: None,
                         commit_every: None,
-                        mem: mem,
+                        mem,
                     },
                     false,
                 );
