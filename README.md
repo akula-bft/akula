@@ -17,4 +17,6 @@ Installation instructions available on our [website](https://akula.app/installat
 Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
 
 ## License
-The entire code within this repository is licensed under the [GNU General Public License v3](./LICENSE)
+The entire code within this repository is licensed under the [GNU Affero General Public License v3](./LICENSE)
+
+Commercial licensing is available. Please contact info@akula.app for details.
