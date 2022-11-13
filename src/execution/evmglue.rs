@@ -8,7 +8,8 @@ use crate::{
     chain::protocol_param::{fee, param},
     crypto::keccak256,
     execution::evm::{
-        host::*, AnalyzedCode, CallKind, CreateMessage, InterpreterMessage, Output, StatusCode,
+        host::*, AnalyzedCode, CallKind, CreateMessage, EvmMemory, EvmSubMemory,
+        InterpreterMessage, Output, StatusCode,
     },
     h256_to_u256,
     models::*,
@@ -51,6 +52,7 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
     sender: Address,
     beneficiary: Address,
     gas: u64,
+    mem: &mut EvmMemory,
 ) -> anyhow::Result<CallResult> {
     let mut evm = Evm {
         header,
@@ -63,8 +65,9 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
         beneficiary,
     };
 
+    let submem = mem.get_origin();
     let res = if let TransactionAction::Call(to) = message.action() {
-        evm.call(&InterpreterMessage {
+        let msg = InterpreterMessage {
             kind: CallKind::Call,
             is_static: false,
             depth: 0,
@@ -75,16 +78,18 @@ pub fn execute<'db, 'tracer, 'analysis, B: HeaderReader + StateReader>(
             real_sender: sender,
             recipient: to,
             code_address: to,
-        })?
+        };
+        evm.call(&msg, submem)?
     } else {
-        evm.create(&CreateMessage {
+        let msg = CreateMessage {
             depth: 0,
             gas: gas as i64,
             sender,
             initcode: message.input().clone(),
             endowment: message.value(),
             salt: None,
-        })?
+        };
+        evm.create(&msg, submem)?
     };
 
     Ok(CallResult {
@@ -99,7 +104,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B>
 where
     B: HeaderReader + StateReader,
 {
-    fn create(&mut self, message: &CreateMessage) -> anyhow::Result<Output> {
+    fn create(&mut self, message: &CreateMessage, mem: EvmSubMemory) -> anyhow::Result<Output> {
         let mut res = Output {
             status_code: StatusCode::Success,
             gas_left: message.gas,
@@ -178,7 +183,7 @@ where
             value: message.endowment,
         };
 
-        res = self.execute(&deploy_message, &message.initcode, None)?;
+        res = self.execute(&deploy_message, &message.initcode, None, mem)?;
 
         if res.status_code == StatusCode::Success {
             let code_len = res.output_data.len();
@@ -216,7 +221,7 @@ where
         Ok(res)
     }
 
-    fn call(&mut self, message: &InterpreterMessage) -> anyhow::Result<Output> {
+    fn call(&mut self, message: &InterpreterMessage, mem: EvmSubMemory) -> anyhow::Result<Output> {
         if message.kind != CallKind::DelegateCall
             && self.state.get_balance(message.sender)? < message.value
         {
@@ -298,7 +303,7 @@ where
 
                 let code_hash = self.state.get_code_hash(message.code_address)?;
 
-                self.execute(message, code, Some(&code_hash))?
+                self.execute(message, code, Some(&code_hash), mem)?
             }
             CodeKind::Precompile => {
                 let num = message.code_address.0[ADDRESS_LENGTH - 1] as usize;
@@ -344,6 +349,7 @@ where
         msg: &InterpreterMessage,
         code: &[u8],
         code_hash: Option<&H256>,
+        mem: EvmSubMemory,
     ) -> anyhow::Result<Output> {
         let analysis = if let Some(code_hash) = code_hash {
             if let Some(cache) = self.analysis_cache.get(code_hash).cloned() {
@@ -359,7 +365,7 @@ where
 
         let revision = self.block_spec.revision;
 
-        let output = analysis.execute(self, msg, revision);
+        let output = analysis.execute(self, msg, revision, mem);
 
         self.tracer.capture_end(
             msg.depth.try_into().unwrap(),
@@ -545,10 +551,10 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
         self.tracer(|t| t.capture_self_destruct(address, beneficiary, balance));
     }
 
-    fn call(&mut self, msg: Call) -> Output {
+    fn call(&mut self, msg: Call, mem: EvmSubMemory) -> Output {
         match msg {
             Call::Create(message) => {
-                let mut res = self.create(message).unwrap();
+                let mut res = self.create(message, mem).unwrap();
 
                 // https://eips.ethereum.org/EIPS/eip-211
                 if res.status_code != StatusCode::Revert {
@@ -558,7 +564,7 @@ impl<'r, 'state, 'tracer, 'analysis, 'h, 'c, 't, B: HeaderReader + StateReader> 
 
                 res
             }
-            Call::Call(message) => self.call(message).unwrap(),
+            Call::Call(message) => self.call(message, mem).unwrap(),
         }
     }
 
@@ -653,6 +659,7 @@ mod tests {
         let mut tracer = NoopTracer;
         let beneficiary = header.beneficiary;
         let header = BlockHeader::new(header.clone(), EMPTY_LIST_HASH, EMPTY_ROOT);
+        let mut mem = EvmMemory::new();
         super::execute(
             state,
             &mut tracer,
@@ -663,6 +670,7 @@ mod tests {
             sender,
             beneficiary,
             gas,
+            &mut mem,
         )
         .unwrap()
     }

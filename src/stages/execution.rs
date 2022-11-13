@@ -5,6 +5,7 @@ use crate::{
         analysis_cache::AnalysisCache,
         processor::ExecutionProcessor,
         tracer::{CallTracer, CallTracerFlags},
+        EvmMemory,
     },
     h256_to_u256,
     kv::{
@@ -31,6 +32,7 @@ pub struct Execution {
     pub exit_after_batch: bool,
     pub batch_until: Option<BlockNumber>,
     pub commit_every: Option<Duration>,
+    pub mem: EvmMemory,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -44,6 +46,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
     commit_every: Option<Duration>,
     starting_block: BlockNumber,
     first_started_at: (Instant, Option<BlockNumber>),
+    mem: &mut EvmMemory,
 ) -> Result<BlockNumber, StageError> {
     let mut consensus_engine = engine_factory(None, chain_config.clone(), None)?;
     consensus_engine.set_state(ConsensusState::recover(tx, &chain_config, starting_block)?);
@@ -88,6 +91,7 @@ fn execute_batch_of_blocks<E: EnvironmentKind>(
             &header,
             &block,
             &block_spec,
+            mem,
         )
         .execute_and_write_block()
         .map_err(|e| match e {
@@ -222,6 +226,7 @@ where
                 self.commit_every,
                 starting_block,
                 input.first_started_at,
+                &mut self.mem,
             );
 
             // CliqueError::SignedRecently seems to be raised sometimes when

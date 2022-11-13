@@ -2,6 +2,7 @@ use akula::{
     akula_tracing::{self, Component},
     binutil::AkulaDataDir,
     consensus::{engine_factory, Consensus, ForkChoiceMode},
+    execution::EvmMemory,
     kv::tables::CHAINDATA_TABLES,
     models::*,
     p2p::node::NodeBuilder,
@@ -135,6 +136,8 @@ fn main() -> anyhow::Result<()> {
 
             rt.block_on(async move {
                 info!("Starting Akula ({})", version_string());
+
+                let mem = EvmMemory::new();
 
                 let mut bundled_chain_spec = false;
                 let chain_config = if let Some(chain) = opt.chain {
@@ -422,6 +425,7 @@ fn main() -> anyhow::Result<()> {
                         exit_after_batch: opt.execution_exit_after_batch,
                         batch_until: None,
                         commit_every: None,
+                        mem,
                     },
                     false,
                 );

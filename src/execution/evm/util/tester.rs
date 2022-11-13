@@ -24,7 +24,10 @@ fn exec(
     }
     let code = AnalyzedCode::analyze(&code);
 
-    code.execute(host, &message, revision)
+    let mut evm_mem = EvmMemory::new();
+    let mem = evm_mem.get_origin();
+
+    code.execute(host, &message, revision, mem)
 }
 
 #[derive(Clone, Copy, Debug)]

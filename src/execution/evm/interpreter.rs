@@ -20,7 +20,7 @@ fn check_requirements(
         return Err(StatusCode::OutOfGas);
     }
 
-    let stack_size = state.stack.len();
+    let stack_size = state.stack().len();
     if stack_size == STACK_SIZE {
         if metrics.can_overflow_stack {
             return Err(StatusCode::StackOverflow);
@@ -101,11 +101,12 @@ impl AnalyzedCode {
         host: &mut H,
         message: &InterpreterMessage,
         revision: Revision,
+        mem: EvmSubMemory,
     ) -> Output
     where
         H: Host,
     {
-        let mut state = ExecutionState::new(message);
+        let mut state = ExecutionState::new(message, mem);
 
         macro_rules! execute_revisions {
             (
@@ -207,7 +208,7 @@ where
 
         check_requirements(metrics, state)?;
 
-        let stack = &mut state.stack;
+        let stack = &mut state.mem.stack();
         match op {
             OpCode::STOP => break false,
             OpCode::ADD => arithmetic::add(stack),
