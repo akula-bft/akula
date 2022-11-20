@@ -292,7 +292,6 @@ fn main() -> anyhow::Result<()> {
                             info!("Starting gRPC server on {}", opt.grpc_listen_address);
                             let mut builder = tonic::transport::Server::builder();
 
-                            #[cfg(feature = "grpc-reflection")]
                             builder.add_service(
                                 tonic_reflection::server::Builder::configure()
                                     .register_encoded_file_descriptor_set(

@@ -126,7 +126,7 @@ tonic = { version = "0.8", default-features = false, features = [
   "transport",
 ] }
 tonic-health = "0.7"
-tonic-reflection = { version = "0.5", optional = true }
+tonic-reflection = "0.5"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -142,7 +142,6 @@ public-ip = "0.2.2"
 [features]
 default = []
 console = ["tokio/tracing", "dep:console-subscriber"]
-grpc-reflection = ["tonic-reflection"]
 
 [build-dependencies]
 anyhow = "1"
@@ -162,6 +161,9 @@ triehash = "0.8"
 [patch.crates-io]
 arrayvec = { git = "https://github.com/vorot93/arrayvec", branch = "pop-unchecked" }
 ethnum = { git = "https://github.com/vorot93/ethnum-rs", branch = "impls-3" }
+tonic = { git = "https://github.com/hyperium/tonic" }
+tonic-health = { git = "https://github.com/hyperium/tonic" }
+tonic-reflection = { git = "https://github.com/hyperium/tonic" }
 
 [[bin]]
 path = "bin/akula.rs"
