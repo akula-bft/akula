@@ -1,6 +1,6 @@
 use crate::{
     execution::evm::{common::*, state::*, Host},
-    models::Revision,
+    models::{Revision, EMPTY_HASH},
 };
 use ethnum::U256;
 use sha3::{Digest, Keccak256};
@@ -10,6 +10,14 @@ pub(crate) const MAX_BUFFER_SIZE: u128 = u32::MAX as u128;
 
 /// The size of the EVM 256-bit word.
 const WORD_SIZE: i64 = 32;
+
+pub(crate) struct MemoryError;
+
+impl From<MemoryError> for StatusCode {
+    fn from(_: MemoryError) -> StatusCode {
+        StatusCode::OutOfGas
+    }
+}
 
 /// Returns number of words what would fit to provided number of bytes,
 /// i.e. it rounds up the number bytes to number of words.
@@ -22,10 +30,9 @@ pub(crate) fn num_words(size_in_bytes: usize) -> i64 {
 pub(crate) fn mload(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
 
-    let region = get_memory_region_u64(state, index, NonZeroUsize::new(32).unwrap())
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region_u64(state, index, NonZeroUsize::new(32).unwrap())?;
 
-    let value = u256_from_slice(&state.memory[region.offset..region.offset + region.size.get()]);
+    let value = u256_from_slice(&state.memory[region.offset..][..region.size.get()]);
 
     state.stack.push(value);
 
@@ -37,10 +44,9 @@ pub(crate) fn mstore(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
     let value = state.stack.pop();
 
-    let region = get_memory_region_u64(state, index, NonZeroUsize::new(32).unwrap())
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region_u64(state, index, NonZeroUsize::new(32).unwrap())?;
 
-    state.memory[region.offset..region.offset + 32].copy_from_slice(&value.to_be_bytes());
+    state.memory[region.offset..][..32].copy_from_slice(&value.to_be_bytes());
 
     Ok(())
 }
@@ -50,8 +56,7 @@ pub(crate) fn mstore8(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
     let value = state.stack.pop();
 
-    let region = get_memory_region_u64(state, index, NonZeroUsize::new(1).unwrap())
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region_u64(state, index, NonZeroUsize::new(1).unwrap())?;
 
     let value = (*value.low() as u32 & 0xff) as u8;
 
@@ -62,13 +67,12 @@ pub(crate) fn mstore8(state: &mut ExecutionState) -> Result<(), StatusCode> {
 
 #[inline]
 pub(crate) fn msize(state: &mut ExecutionState) {
-    state
-        .stack
-        .push(u64::try_from(state.memory.len()).unwrap().into());
+    let res = u64::try_from(state.memory.len()).unwrap().into();
+    state.stack.push(res);
 }
 
 #[inline]
-fn grow_memory(state: &mut ExecutionState, new_size: usize) -> Result<(), ()> {
+fn grow_memory(state: &mut ExecutionState, new_size: usize) -> Result<(), MemoryError> {
     let new_words = num_words(new_size);
     let current_words = (state.memory.len() / 32) as i64;
     let new_cost = 3 * new_words + new_words * new_words / 512;
@@ -78,7 +82,7 @@ fn grow_memory(state: &mut ExecutionState, new_size: usize) -> Result<(), ()> {
     state.gas_left -= cost;
 
     if state.gas_left < 0 {
-        return Err(());
+        return Err(MemoryError);
     }
 
     state.memory.grow((new_words * WORD_SIZE) as usize);
@@ -87,13 +91,13 @@ fn grow_memory(state: &mut ExecutionState, new_size: usize) -> Result<(), ()> {
 }
 
 #[inline]
-pub(crate) fn get_memory_region_u64(
+fn get_memory_region_u64(
     state: &mut ExecutionState,
     offset: U256,
     size: NonZeroUsize,
-) -> Result<MemoryRegion, ()> {
+) -> Result<MemoryRegion, MemoryError> {
     if offset > MAX_BUFFER_SIZE {
-        return Err(());
+        return Err(MemoryError);
     }
 
     let new_size = offset.as_usize() + size.get();
@@ -118,74 +122,88 @@ pub(crate) fn get_memory_region(
     state: &mut ExecutionState,
     offset: U256,
     size: U256,
-) -> Result<Option<MemoryRegion>, ()> {
+) -> Result<Option<MemoryRegion>, MemoryError> {
     if size == 0 {
         return Ok(None);
     }
 
     if size > MAX_BUFFER_SIZE {
-        return Err(());
+        return Err(MemoryError);
     }
 
     get_memory_region_u64(state, offset, NonZeroUsize::new(size.as_usize()).unwrap()).map(Some)
 }
 
-#[inline]
-pub(crate) fn calldatacopy(state: &mut ExecutionState) -> Result<(), StatusCode> {
+#[inline(always)]
+fn copy(state: &mut ExecutionState, data: &[u8]) -> Result<(), StatusCode> {
     let mem_index = state.stack.pop();
     let input_index = state.stack.pop();
     let size = state.stack.pop();
 
-    let region = get_memory_region(state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region(state, mem_index, size)?;
 
-    if let Some(region) = &region {
+    if let Some(region) = region {
         let copy_cost = num_words(region.size.get()) * 3;
         state.gas_left -= copy_cost;
         if state.gas_left < 0 {
             return Err(StatusCode::OutOfGas);
         }
 
-        let input_len = u128::try_from(state.message.input_data.len())
-            .unwrap()
-            .into();
+        // Here we try to convert `U256` to `usize` and compute
+        // min for it and another variable. If conversion can not be done,
+        // (i.e. it's bigger than `usize::MAX`) we simply take the other
+        // variable, since it always will contain a smaller value.
+        let index = input_index
+            .try_into()
+            .map(|input_index| min(data.len(), input_index))
+            .unwrap_or(data.len());
+        let rem_data = data.len() - index;
+        let copy_size = size
+            .try_into()
+            .map(|size| min(size, rem_data))
+            .unwrap_or(rem_data);
 
-        let src = core::cmp::min(input_len, input_index);
-        let copy_size = core::cmp::min(size, input_len - src).as_usize();
-        let src = src.as_usize();
-
-        if copy_size > 0 {
-            state.memory[region.offset..region.offset + copy_size]
-                .copy_from_slice(&state.message.input_data[src..src + copy_size]);
-        }
-
-        if region.size.get() > copy_size {
-            state.memory[region.offset + copy_size..region.offset + region.size.get()].fill(0);
-        }
+        let src = &data[index..][..copy_size];
+        let dst = &mut state.memory[region.offset..][..region.size.get()];
+        let (dst1, dst2) = dst.split_at_mut(copy_size);
+        dst1.copy_from_slice(src);
+        dst2.fill(0);
     }
 
     Ok(())
+}
+
+#[inline]
+pub(crate) fn calldatacopy(state: &mut ExecutionState) -> Result<(), StatusCode> {
+    copy(state, &state.message.input_data)
+}
+
+#[inline]
+pub(crate) fn codecopy(state: &mut ExecutionState, code: &[u8]) -> Result<(), StatusCode> {
+    copy(state, code)
 }
 
 pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let index = state.stack.pop();
     let size = state.stack.pop();
 
-    let region = get_memory_region(state, index, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region(state, index, size)?;
 
-    state.stack.push(u256_from_slice(&Keccak256::digest(
-        if let Some(region) = region {
+    let hash = match region {
+        Some(region) => {
             let w = num_words(region.size.get());
             let cost = w * 6;
             state.gas_left -= cost;
             if state.gas_left < 0 {
                 return Err(StatusCode::OutOfGas);
             }
+            let data = &state.memory[region.offset..][..region.size.get()];
+            Keccak256::digest(data).into()
+        }
+        None => EMPTY_HASH.0,
+    };
 
-            &state.memory[region.offset..region.offset + region.size.get()]
-        } else {
-            &[] as &[u8]
-        },
-    )));
+    state.stack.push(u256_from_slice(&hash));
 
     Ok(())
 }
@@ -193,40 +211,6 @@ pub(crate) fn keccak256(state: &mut ExecutionState) -> Result<(), StatusCode> {
 #[inline]
 pub(crate) fn codesize(stack: &mut Stack, code: &[u8]) {
     stack.push(u128::try_from(code.len()).unwrap().into())
-}
-
-#[inline]
-pub(crate) fn codecopy(state: &mut ExecutionState, code: &[u8]) -> Result<(), StatusCode> {
-    // TODO: Similar to calldatacopy().
-
-    let mem_index = state.stack.pop();
-    let input_index = state.stack.pop();
-    let size = state.stack.pop();
-
-    let region = get_memory_region(state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
-
-    if let Some(region) = region {
-        let src = min(U256::from(u128::try_from(code.len()).unwrap()), input_index).as_usize();
-        let copy_size = min(region.size.get(), code.len() - src);
-
-        let copy_cost = num_words(region.size.get()) * 3;
-        state.gas_left -= copy_cost;
-        if state.gas_left < 0 {
-            return Err(StatusCode::OutOfGas);
-        }
-
-        // TODO: Add unit tests for each combination of conditions.
-        if copy_size > 0 {
-            state.memory[region.offset..region.offset + copy_size]
-                .copy_from_slice(&code[src..src + copy_size]);
-        }
-
-        if region.size.get() > copy_size {
-            state.memory[region.offset + copy_size..region.offset + region.size.get()].fill(0);
-        }
-    }
-
-    Ok(())
 }
 
 #[inline]
@@ -249,7 +233,7 @@ pub(crate) fn extcodecopy<H: Host, const REVISION: Revision>(
     let input_index = state.stack.pop();
     let size = state.stack.pop();
 
-    let region = get_memory_region(state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region(state, mem_index, size)?;
 
     if let Some(region) = &region {
         let copy_cost = num_words(region.size.get()) * 3;
@@ -276,10 +260,10 @@ pub(crate) fn extcodecopy<H: Host, const REVISION: Revision>(
         debug_assert!(copied <= code.len());
         code.truncate(copied);
 
-        state.memory[region.offset..region.offset + code.len()].copy_from_slice(&code);
-        if region.size.get() > code.len() {
-            state.memory[region.offset + code.len()..region.offset + region.size.get()].fill(0);
-        }
+        let dst = &mut state.memory[region.offset..][..region.size.get()];
+        let (dst1, dst2) = dst.split_at_mut(code.len());
+        dst1.copy_from_slice(&code);
+        dst2.fill(0);
     }
 
     Ok(())
@@ -287,9 +271,8 @@ pub(crate) fn extcodecopy<H: Host, const REVISION: Revision>(
 
 #[inline]
 pub(crate) fn returndatasize(state: &mut ExecutionState) {
-    state
-        .stack
-        .push(u128::try_from(state.return_data.len()).unwrap().into());
+    let res = u128::try_from(state.return_data.len()).unwrap().into();
+    state.stack.push(res);
 }
 
 #[inline]
@@ -298,7 +281,7 @@ pub(crate) fn returndatacopy(state: &mut ExecutionState) -> Result<(), StatusCod
     let input_index = state.stack.pop();
     let size = state.stack.pop();
 
-    let region = get_memory_region(state, mem_index, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = get_memory_region(state, mem_index, size)?;
 
     if input_index > state.return_data.len() as u128 {
         return Err(StatusCode::InvalidMemoryAccess);
@@ -316,8 +299,10 @@ pub(crate) fn returndatacopy(state: &mut ExecutionState) -> Result<(), StatusCod
             return Err(StatusCode::OutOfGas);
         }
 
-        state.memory[region.offset..region.offset + region.size.get()]
-            .copy_from_slice(&state.return_data[src..src + region.size.get()]);
+        let region_size = region.size.get();
+        let src = &state.return_data[src..][..region_size];
+        let dst = &mut state.memory[region.offset..][..region_size];
+        dst.copy_from_slice(src);
     }
 
     Ok(())

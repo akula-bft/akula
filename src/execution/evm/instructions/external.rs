@@ -14,17 +14,20 @@ fn ok_or_out_of_gas(gas_left: i64) -> Result<(), StatusCode> {
 
 #[inline]
 pub(crate) fn address(state: &mut ExecutionState) {
-    state.stack.push(address_to_u256(state.message.recipient));
+    let res = address_to_u256(state.message.recipient);
+    state.stack.push(res);
 }
 
 #[inline]
 pub(crate) fn caller(state: &mut ExecutionState) {
-    state.stack.push(address_to_u256(state.message.sender));
+    let res = address_to_u256(state.message.sender);
+    state.stack.push(res);
 }
 
 #[inline]
 pub(crate) fn callvalue(state: &mut ExecutionState) {
-    state.stack.push(state.message.value);
+    let res = state.message.value;
+    state.stack.push(res);
 }
 
 #[inline]
@@ -152,8 +155,6 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
     state: &mut ExecutionState,
     host: &mut H,
 ) -> Result<(), StatusCode> {
-    use arrayvec::ArrayVec;
-
     if state.message.is_static {
         return Err(StatusCode::StaticModeViolation);
     }
@@ -161,8 +162,7 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
     let offset = state.stack.pop();
     let size = state.stack.pop();
 
-    let region =
-        memory::get_memory_region(state, offset, size).map_err(|_| StatusCode::OutOfGas)?;
+    let region = memory::get_memory_region(state, offset, size)?;
 
     if let Some(region) = &region {
         let cost = region.size.get() as i64 * 8;
@@ -172,20 +172,14 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
         }
     }
 
-    let mut topics = ArrayVec::<U256, 4>::new();
-    for _ in 0..NUM_TOPICS {
-        topics.push(state.stack.pop());
-    }
-
+    let topics = [(); NUM_TOPICS].map(|()| state.stack.pop());
     let data = if let Some(region) = region {
-        &state.memory[region.offset..region.offset + region.size.get()]
+        &state.memory[region.offset..][..region.size.get()]
     } else {
         &[]
-    }
-    .to_vec()
-    .into();
+    };
 
-    host.emit_log(state.message.recipient, data, &topics);
+    host.emit_log(state.message.recipient, data.to_vec().into(), &topics);
 
     Ok(())
 }

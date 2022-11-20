@@ -1,5 +1,7 @@
 use crate::{
-    execution::evm::{instructions::memory, CallKind, ExecutionState, Host, StatusCode},
+    execution::evm::{
+        instructions::memory, state::MAX_CONTEXT_DEPTH, CallKind, ExecutionState, Host, StatusCode,
+    },
     models::Revision,
 };
 use bytes::Bytes;
@@ -50,10 +52,8 @@ pub(crate) fn do_call<
         }
     }
 
-    let input_region = memory::get_memory_region(state, input_offset, input_size)
-        .map_err(|_| StatusCode::OutOfGas)?;
-    let output_region = memory::get_memory_region(state, output_offset, output_size)
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let input_region = memory::get_memory_region(state, input_offset, input_size)?;
+    let output_region = memory::get_memory_region(state, output_offset, output_size)?;
 
     let mut msg = InterpreterMessage {
         kind: KIND,
@@ -79,7 +79,7 @@ pub(crate) fn do_call<
         },
         input_data: input_region
             .map(|MemoryRegion { offset, size }| {
-                state.memory[offset..offset + size.get()].to_vec().into()
+                state.memory[offset..][..size.get()].to_vec().into()
             })
             .unwrap_or_default(),
     };
@@ -118,7 +118,7 @@ pub(crate) fn do_call<
 
     state.return_data.clear();
 
-    if state.message.depth < 1024
+    if state.message.depth < MAX_CONTEXT_DEPTH as i32
         && !(has_value && host.get_balance(state.message.recipient) < value)
     {
         let msg_gas = msg.gas;
@@ -133,8 +133,9 @@ pub(crate) fn do_call<
         if let Some(MemoryRegion { offset, size }) = output_region {
             let copy_size = min(size.get(), result.output_data.len());
             if copy_size > 0 {
-                state.memory[offset..offset + copy_size]
-                    .copy_from_slice(&result.output_data[..copy_size]);
+                let src = &result.output_data[..copy_size];
+                let dst = &mut state.memory[offset..][..copy_size];
+                dst.copy_from_slice(src);
             }
         }
 
@@ -164,8 +165,7 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
     let init_code_offset = state.stack.pop();
     let init_code_size = state.stack.pop();
 
-    let region = memory::get_memory_region(state, init_code_offset, init_code_size)
-        .map_err(|_| StatusCode::OutOfGas)?;
+    let region = memory::get_memory_region(state, init_code_offset, init_code_size)?;
 
     let salt = if CREATE2 {
         let salt = state.stack.pop();
@@ -186,7 +186,7 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
     state.stack.push(U256::ZERO);
     state.return_data.clear();
 
-    if state.message.depth < 1024
+    if state.message.depth < MAX_CONTEXT_DEPTH as i32
         && !(endowment != 0 && host.get_balance(state.message.recipient) < endowment)
     {
         let msg = CreateMessage {
@@ -198,10 +198,9 @@ pub(crate) fn do_create<H: Host, const REVISION: Revision, const CREATE2: bool>(
 
             salt,
             initcode: if init_code_size != 0 {
-                state.memory[init_code_offset.as_usize()
-                    ..init_code_offset.as_usize() + init_code_size.as_usize()]
-                    .to_vec()
-                    .into()
+                let offset = init_code_offset.as_usize();
+                let size = init_code_size.as_usize();
+                state.memory[offset..][..size].to_vec().into()
             } else {
                 Bytes::new()
             },
