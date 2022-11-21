@@ -11,7 +11,7 @@ Look at Mgas/s.
 
 ## Installation
 
-Installation instructions available on our [website](https://akula.app/installation.html).
+Installation instructions available on our [website](https://docs.akula.app/installation.html).
 
 ---
 Akula (_Акула_) is pronounced as `ah-koo-lah` and stands for _shark_ in Russian.
