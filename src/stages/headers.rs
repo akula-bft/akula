@@ -408,7 +408,7 @@ impl HeaderDownload {
                             }
 
                             if !is_parent_of_batch {
-                                // Block does not attach to batch, discard
+                                debug!("Block does not attach to batch, discarding");
                                 break;
                             }
 
