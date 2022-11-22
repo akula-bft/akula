@@ -1,7 +1,5 @@
 use crate::{
-    execution::evm::{
-        common::address_to_u256, host::*, instructions::memory, state::ExecutionState, StatusCode,
-    },
+    execution::evm::{common::address_to_u256, host::*, state::ExecutionState, StatusCode},
     models::Revision,
 };
 use ethnum::U256;
@@ -161,27 +159,20 @@ pub(crate) fn do_log<H: Host, const NUM_TOPICS: usize>(
     }
 
     let offset = state.stack().pop();
-    let size = state.stack().pop();
+    let size = state
+        .stack()
+        .pop()
+        .try_into()
+        .map_err(|_| StatusCode::OutOfGas)?;
 
-    let region = memory::get_memory_region(state, offset, size)?;
-
-    if let Some(region) = &region {
-        let cost = region.size.get() as i64 * 8;
-        state.gas_left -= cost;
-        if state.gas_left < 0 {
-            return Err(StatusCode::OutOfGas);
-        }
+    let cost = size as i64 * 8;
+    state.gas_left -= cost;
+    if state.gas_left < 0 {
+        return Err(StatusCode::OutOfGas);
     }
-
     let topics = [(); NUM_TOPICS].map(|()| state.stack().pop());
-    let heap = state.heap();
-    let data = if let Some(region) = region {
-        heap[region.offset..][..region.size.get()].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    host.emit_log(state.message.recipient, data.into(), &topics);
+    let data = state.get_heap(offset, size)?.to_vec().into();
+    host.emit_log(state.message.recipient, data, &topics);
 
     Ok(())
 }

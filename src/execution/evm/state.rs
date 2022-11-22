@@ -1,24 +1,21 @@
-use super::common::InterpreterMessage;
+use super::common::{InterpreterMessage, StatusCode};
 use bytes::Bytes;
 use ethnum::U256;
 use getset::{Getters, MutGetters};
-use std::{
-    io,
-    marker::PhantomData,
-    mem,
-    ops::{Deref, DerefMut},
-    ptr, slice,
-};
+use std::{io, marker::PhantomData, mem, ptr, slice};
+
+/// The size of the EVM 256-bit word.
+const WORD_SIZE: usize = mem::size_of::<U256>();
 
 /// Size of EVM stack in U256s
 pub const STACK_SIZE: usize = 1024;
 /// Size of EVM stack in bytes
-const STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * STACK_SIZE;
+const STACK_SIZE_BYTES: usize = WORD_SIZE * STACK_SIZE;
 
 pub(crate) const MAX_CONTEXT_DEPTH: usize = 1024;
 
 const SUPER_STACK_SIZE: usize = STACK_SIZE * MAX_CONTEXT_DEPTH;
-const SUPER_STACK_SIZE_BYTES: usize = mem::size_of::<U256>() * SUPER_STACK_SIZE;
+const SUPER_STACK_SIZE_BYTES: usize = WORD_SIZE * SUPER_STACK_SIZE;
 
 /// Total memory size allocated for EVM.
 ///
@@ -152,8 +149,9 @@ unsafe impl Sync for EvmMemory {}
 pub struct EvmSubMemory<'a> {
     stack_head: *mut U256,
     stack_base: *mut U256,
-    heap_base: *mut u8,
-    heap_size: usize,
+    heap_base: *mut U256,
+    /// Size of heap in 256-bit words
+    heap_size: u32,
     origin: PhantomData<&'a mut ()>,
 }
 
@@ -161,7 +159,7 @@ impl<'a> EvmSubMemory<'a> {
     #[inline(always)]
     pub fn next_submem(&mut self) -> Self {
         let stack_ptr = self.stack_head;
-        let heap_ptr = unsafe { self.heap_base.add(self.heap_size) };
+        let heap_ptr = unsafe { self.heap_base.add(self.heap_size as usize) };
         Self {
             stack_head: stack_ptr,
             stack_base: stack_ptr,
@@ -175,11 +173,6 @@ impl<'a> EvmSubMemory<'a> {
     pub fn stack<'b>(&'b mut self) -> EvmStack<'a, 'b> {
         EvmStack { mem: self }
     }
-
-    #[inline(always)]
-    pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
-        EvmHeap { mem: self }
-    }
 }
 
 impl<'a> Drop for EvmSubMemory<'a> {
@@ -190,7 +183,7 @@ impl<'a> Drop for EvmSubMemory<'a> {
         // Note that we do not need to clean stack since it should not
         // be possible to read garbage stack data.
         unsafe {
-            ptr::write_bytes(self.heap_base, 0, self.heap_size);
+            ptr::write_bytes(self.heap_base, 0, self.heap_size as usize);
         }
     }
 }
@@ -257,30 +250,12 @@ impl<'a, 'b> EvmStack<'a, 'b> {
     }
 }
 
-pub struct EvmHeap<'a, 'b> {
-    mem: &'b mut EvmSubMemory<'a>,
-}
+#[derive(Debug, Copy, Clone)]
+pub struct OutOfGas;
 
-impl<'a, 'b> EvmHeap<'a, 'b> {
-    #[inline(always)]
-    pub fn grow(&mut self, size: usize) {
-        self.mem.heap_size = core::cmp::max(self.mem.heap_size, size);
-    }
-}
-
-impl<'a, 'b> Deref for EvmHeap<'a, 'b> {
-    type Target = [u8];
-
-    #[inline(always)]
-    fn deref(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(self.mem.heap_base, self.mem.heap_size) }
-    }
-}
-
-impl<'a, 'b> DerefMut for EvmHeap<'a, 'b> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut [u8] {
-        unsafe { slice::from_raw_parts_mut(self.mem.heap_base, self.mem.heap_size) }
+impl From<OutOfGas> for StatusCode {
+    fn from(_: OutOfGas) -> StatusCode {
+        StatusCode::OutOfGas
     }
 }
 
@@ -314,11 +289,6 @@ impl<'a> ExecutionState<'a> {
     }
 
     #[inline(always)]
-    pub fn heap<'b>(&'b mut self) -> EvmHeap<'a, 'b> {
-        self.mem.heap()
-    }
-
-    #[inline(always)]
     pub fn clone_stack_to_vec(&self) -> Vec<U256> {
         unsafe {
             let len = self.mem.stack_base.offset_from(self.mem.stack_head) as usize;
@@ -327,9 +297,59 @@ impl<'a> ExecutionState<'a> {
     }
 
     #[inline(always)]
-    pub fn heap_size(&self) -> usize {
-        self.mem.heap_size
+    pub fn heap_size(&self) -> u32 {
+        (WORD_SIZE as u32) * self.mem.heap_size
     }
+
+    #[inline(always)]
+    pub fn get_heap(&mut self, index: U256, len: u32) -> Result<&mut [u8], OutOfGas> {
+        if len == 0 {
+            return Ok(&mut []);
+        }
+        let index: u32 = index.try_into().map_err(|_| OutOfGas)?;
+        let requested_size = index as u64 + len as u64;
+        // Note that calculation in `num_words_u64` never overflows.
+        // Max value which `requested_size` could contain is equal
+        // to `2 * u32::MAX`, while inside the function we divide it by
+        // 32, thus the result never overflows `u32`.
+        self.try_grow(num_words_u64(requested_size))?;
+        Ok(unsafe {
+            let p = self.mem.heap_base as *mut u8;
+            slice::from_raw_parts_mut(p.add(index as usize), len as usize)
+        })
+    }
+
+    #[inline(always)]
+    fn try_grow(&mut self, new_words: u32) -> Result<(), OutOfGas> {
+        let old_words = self.mem.heap_size;
+        if new_words > old_words {
+            let old_cost = mem_cost(old_words);
+            let new_cost = mem_cost(new_words);
+            self.gas_left -= new_cost - old_cost;
+            if self.gas_left < 0 {
+                return Err(OutOfGas);
+            }
+            self.mem.heap_size = new_words;
+        }
+        Ok(())
+    }
+}
+
+fn num_words_u64(size_in_bytes: u64) -> u32 {
+    const WS: u64 = WORD_SIZE as u64;
+    ((size_in_bytes + (WS - 1)) / WS) as u32
+}
+
+/// Returns number of words what would fit to provided number of bytes,
+/// i.e. it rounds up the number bytes to number of words.
+#[inline(always)]
+pub(crate) fn num_words(size_in_bytes: u32) -> u32 {
+    num_words_u64(size_in_bytes as u64)
+}
+
+fn mem_cost(words: u32) -> i64 {
+    let words = words as i64;
+    (words * words) / 512 + 3 * words
 }
 
 #[cfg(test)]
@@ -354,19 +374,5 @@ mod tests {
         assert_eq!(stack.pop(), 0xef);
 
         assert_eq!(*stack.get(2), 0xde);
-    }
-
-    #[test]
-    fn grow() {
-        const LEN: usize = 10_000;
-        let mut evm_mem = EvmMemory::new();
-        let mut mem = evm_mem.get_origin();
-        let mut heap = mem.heap();
-        heap.grow(LEN);
-        for val in heap.iter_mut() {
-            *val = 42;
-        }
-        assert!(heap.iter().all(|val| *val == 42));
-        assert_eq!(heap.len(), LEN);
     }
 }

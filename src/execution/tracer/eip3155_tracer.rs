@@ -22,7 +22,7 @@ pub(crate) struct InstructionStart {
     pub op_name: &'static str,
     pub gas: u64,
     pub stack: Vec<U256>,
-    pub memory_size: usize,
+    pub memory_size: u32,
 }
 
 #[derive(Serialize)]

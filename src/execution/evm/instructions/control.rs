@@ -6,11 +6,9 @@ pub(crate) fn ret(state: &mut ExecutionState) -> Result<(), StatusCode> {
     let offset = *state.stack().get(0);
     let size = *state.stack().get(1);
 
-    if let Some(region) = super::memory::get_memory_region(state, offset, size)? {
-        let offset = region.offset;
-        let size = region.size.get();
-        state.output_data = state.heap()[offset..][..size].to_vec().into();
-    }
+    let size = size.try_into().map_err(|_| StatusCode::OutOfGas)?;
+    let mem = state.get_heap(offset, size)?;
+    state.output_data = mem.to_vec().into();
 
     Ok(())
 }
