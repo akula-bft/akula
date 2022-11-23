@@ -389,7 +389,7 @@ where
             false
         } else {
             let mut max_precompiled = Address::zero();
-            max_precompiled.0[ADDRESS_LENGTH - 1] = self.number_of_precompiles() as u8;
+            max_precompiled.0[ADDRESS_LENGTH - 1] = self.number_of_precompiles();
             contract <= max_precompiled
         }
     }

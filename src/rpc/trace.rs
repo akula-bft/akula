@@ -1062,7 +1062,7 @@ mod convert {
                 .map(
                     |types::VmInstruction { pc, cost, ex, sub }| web3::VmInstruction {
                         pc: pc as u32,
-                        cost: cost as u64,
+                        cost,
                         ex: ex.map(
                             |types::VmExecutedOperation {
                                  used,

@@ -161,14 +161,14 @@ impl BodyForStorage {
         let flags = BodyForStorageFlags::from_bytes([buf.get_u8()]);
 
         let base_tx_id;
-        (base_tx_id, buf) = variable_from_compact(buf, flags.base_tx_id_len() as u8)?;
+        (base_tx_id, buf) = variable_from_compact(buf, flags.base_tx_id_len())?;
         let base_tx_id = TxIndex(base_tx_id);
 
         let tx_amount;
-        (tx_amount, buf) = variable_from_compact(buf, flags.tx_amount_len() as u8)?;
+        (tx_amount, buf) = variable_from_compact(buf, flags.tx_amount_len())?;
 
         let ommer1_size;
-        (ommer1_size, buf) = variable_from_compact(buf, flags.ommer1_size_len() as u8)?;
+        (ommer1_size, buf) = variable_from_compact(buf, flags.ommer1_size_len())?;
 
         let mut ommers = ArrayVec::new();
 
