@@ -17,7 +17,7 @@ use bytes::Bytes;
 use clap::Parser;
 use expanded_pathbuf::ExpandedPathBuf;
 use jsonrpsee::{core::client::ClientT, http_client::HttpClientBuilder, rpc_params};
-use std::{borrow::Cow, collections::BTreeMap, io::Read, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 use tokio::pin;
 use tracing::*;
 use tracing_subscriber::{prelude::*, EnvFilter};
@@ -684,9 +684,7 @@ fn overwrite_chainspec(
     data_dir: AkulaDataDir,
     chainspec_file: ExpandedPathBuf,
 ) -> anyhow::Result<()> {
-    let mut s = String::new();
-    std::fs::File::open(&chainspec_file)?.read_to_string(&mut s)?;
-    let new_chainspec = TableDecode::decode(s.as_bytes())?;
+    let new_chainspec = ChainSpec::load_from_file(chainspec_file)?;
 
     let chain_data_dir = data_dir.chain_data_dir();
 

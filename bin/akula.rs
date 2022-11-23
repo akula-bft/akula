@@ -139,7 +139,7 @@ fn main() -> anyhow::Result<()> {
                 let mut bundled_chain_spec = false;
                 let chain_config = if let Some(chain) = opt.chain {
                     bundled_chain_spec = true;
-                    Some(ChainSpec::load_builtin(&chain)?)
+                    Some(ChainSpec::load_builtin(chain)?)
                 } else if let Some(path) = opt.chain_spec_file {
                     Some(ChainSpec::load_from_file(path)?)
                 } else {
