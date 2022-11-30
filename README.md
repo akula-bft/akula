@@ -1,3 +1,5 @@
+# NOTE: Akula has been deprecated, see [this Medium post](https://erigon.substack.com/p/winding-down-support-for-akula-project) for details.
+
 # <h1 align="center"> 🦈 Akula 🦈 </h1>
 
 Next-generation implementation of Ethereum protocol ("client") written in Rust, based on [Erigon architecture](https://github.com/ledgerwatch/interfaces).
